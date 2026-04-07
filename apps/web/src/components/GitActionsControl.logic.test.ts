@@ -11,24 +11,40 @@ import {
   resolveThreadBranchUpdate,
 } from "./GitActionsControl.logic";
 
-function status(overrides: Partial<GitStatusResult> = {}): GitStatusResult {
+type LegacyStatusOverrides = Partial<GitStatusResult> & {
+  pr?: {
+    number: number;
+    title: string;
+    url: string;
+    baseBranch: string;
+    headBranch: string;
+    state: "open" | "closed" | "merged";
+  } | null;
+  workingTree?: {
+    files: Array<{ path: string; insertions: number; deletions: number }>;
+    insertions: number;
+    deletions: number;
+  };
+};
+
+function status(overrides: LegacyStatusOverrides = {}): GitStatusResult & LegacyStatusOverrides {
   return {
     isRepo: true,
     hasOriginRemote: true,
     isDefaultBranch: false,
     branch: "feature/test",
     hasWorkingTreeChanges: false,
+    hasUpstream: true,
+    aheadCount: 0,
+    behindCount: 0,
+    pr: null,
     workingTree: {
       files: [],
       insertions: 0,
       deletions: 0,
     },
-    hasUpstream: true,
-    aheadCount: 0,
-    behindCount: 0,
-    pr: null,
     ...overrides,
-  };
+  } as GitStatusResult & LegacyStatusOverrides;
 }
 
 describe("when: branch is clean and has an open PR", () => {

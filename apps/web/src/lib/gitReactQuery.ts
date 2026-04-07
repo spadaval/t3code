@@ -12,12 +12,15 @@ import {
 import { ensureNativeApi } from "../nativeApi";
 import { getWsRpcClient } from "../wsRpcClient";
 
+const GIT_CURRENT_PULL_REQUEST_STALE_TIME_MS = 60_000;
 const GIT_BRANCHES_STALE_TIME_MS = 15_000;
 const GIT_BRANCHES_REFETCH_INTERVAL_MS = 60_000;
 const GIT_BRANCHES_PAGE_SIZE = 100;
 
 export const gitQueryKeys = {
   all: ["git"] as const,
+  workingTree: (cwd: string | null) => ["git", "working-tree", cwd] as const,
+  currentPullRequest: (cwd: string | null) => ["git", "current-pull-request", cwd] as const,
   branches: (cwd: string | null) => ["git", "branches", cwd] as const,
   branchSearch: (cwd: string | null, query: string) =>
     ["git", "branches", cwd, "search", query] as const,
@@ -35,18 +38,63 @@ export const gitMutationKeys = {
 export function invalidateGitQueries(queryClient: QueryClient, input?: { cwd?: string | null }) {
   const cwd = input?.cwd ?? null;
   if (cwd !== null) {
-    return queryClient.invalidateQueries({ queryKey: gitQueryKeys.branches(cwd) });
+    return Promise.all([
+      queryClient.invalidateQueries({ queryKey: gitQueryKeys.workingTree(cwd) }),
+      queryClient.invalidateQueries({ queryKey: gitQueryKeys.currentPullRequest(cwd) }),
+      queryClient.invalidateQueries({ queryKey: gitQueryKeys.branches(cwd) }),
+    ]);
   }
 
   return queryClient.invalidateQueries({ queryKey: gitQueryKeys.all });
 }
 
-function invalidateGitBranchQueries(queryClient: QueryClient, cwd: string | null) {
-  if (cwd === null) {
-    return Promise.resolve();
-  }
+export function gitBranchesQueryOptions(cwd: string | null) {
+  return queryOptions({
+    queryKey: gitQueryKeys.branches(cwd),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      if (!cwd) throw new Error("Git branches are unavailable.");
+      return api.git.listBranches({ cwd });
+    },
+    enabled: cwd !== null,
+    staleTime: GIT_BRANCHES_STALE_TIME_MS,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: GIT_BRANCHES_REFETCH_INTERVAL_MS,
+  });
+}
 
-  return queryClient.invalidateQueries({ queryKey: gitQueryKeys.branches(cwd) });
+export function gitWorkingTreeQueryOptions(input: { cwd: string | null; enabled?: boolean }) {
+  return queryOptions({
+    queryKey: gitQueryKeys.workingTree(input.cwd),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      if (!input.cwd) throw new Error("Git working tree is unavailable.");
+      return api.git.workingTree({ cwd: input.cwd });
+    },
+    enabled: input.cwd !== null && (input.enabled ?? true),
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+}
+
+export function gitCurrentPullRequestQueryOptions(input: {
+  cwd: string | null;
+  enabled?: boolean;
+}) {
+  return queryOptions({
+    queryKey: gitQueryKeys.currentPullRequest(input.cwd),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      if (!input.cwd) throw new Error("Current pull request is unavailable.");
+      return api.git.currentPullRequest({ cwd: input.cwd });
+    },
+    enabled: input.cwd !== null && (input.enabled ?? true),
+    staleTime: GIT_CURRENT_PULL_REQUEST_STALE_TIME_MS,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
 }
 
 export function gitBranchSearchInfiniteQueryOptions(input: {
@@ -107,7 +155,7 @@ export function gitInitMutationOptions(input: { cwd: string | null; queryClient:
       return api.git.init({ cwd: input.cwd });
     },
     onSettled: async () => {
-      await invalidateGitBranchQueries(input.queryClient, input.cwd);
+      await invalidateGitQueries(input.queryClient, { cwd: input.cwd });
     },
   });
 }
@@ -124,7 +172,7 @@ export function gitCheckoutMutationOptions(input: {
       return api.git.checkout({ cwd: input.cwd, branch });
     },
     onSettled: async () => {
-      await invalidateGitBranchQueries(input.queryClient, input.cwd);
+      await invalidateGitQueries(input.queryClient, { cwd: input.cwd });
     },
   });
 }
@@ -163,8 +211,8 @@ export function gitRunStackedActionMutationOptions(input: {
         ...(onProgress ? [{ onProgress }] : []),
       );
     },
-    onSuccess: async () => {
-      await invalidateGitBranchQueries(input.queryClient, input.cwd);
+    onSettled: async () => {
+      await invalidateGitQueries(input.queryClient, { cwd: input.cwd });
     },
   });
 }
@@ -177,8 +225,8 @@ export function gitPullMutationOptions(input: { cwd: string | null; queryClient:
       if (!input.cwd) throw new Error("Git pull is unavailable.");
       return api.git.pull({ cwd: input.cwd });
     },
-    onSuccess: async () => {
-      await invalidateGitBranchQueries(input.queryClient, input.cwd);
+    onSettled: async () => {
+      await invalidateGitQueries(input.queryClient, { cwd: input.cwd });
     },
   });
 }

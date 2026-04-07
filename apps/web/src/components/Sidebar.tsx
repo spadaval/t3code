@@ -45,9 +45,9 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   DEFAULT_MODEL_BY_PROVIDER,
   type DesktopUpdateState,
+  type GitStatusResult,
   ProjectId,
   ThreadId,
-  type GitStatusResult,
 } from "@t3tools/contracts";
 import { Link, useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import {

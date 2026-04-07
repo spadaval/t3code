@@ -1,63 +1,32 @@
-import { assert, describe, it } from "vitest";
-import { buildVisibleToastLayout, shouldHideCollapsedToastContent } from "./toast.logic";
+import { describe, expect, it } from "vitest";
 
-describe("shouldHideCollapsedToastContent", () => {
-  it("keeps a single visible toast readable", () => {
-    assert.equal(shouldHideCollapsedToastContent(0, 1), false);
+import { listVisibleToastPositions, resolveToastPosition, type ToastPosition } from "./toast.logic";
+
+describe("toast.logic", () => {
+  it("falls back to the provider position when a toast does not set one", () => {
+    expect(resolveToastPosition(undefined, "top-right")).toBe("top-right");
   });
 
-  it("keeps the front-most toast readable in a visible stack", () => {
-    assert.equal(shouldHideCollapsedToastContent(0, 3), false);
+  it("preserves an explicit per-toast position", () => {
+    expect(resolveToastPosition("bottom-right", "top-right")).toBe("bottom-right");
   });
 
-  it("hides non-front toasts until the stack is expanded", () => {
-    assert.equal(shouldHideCollapsedToastContent(1, 3), true);
-  });
-});
-
-describe("buildVisibleToastLayout", () => {
-  it("computes indices and offsets from the visible subset", () => {
+  it("lists unique visible toast positions in encounter order", () => {
     const visibleToasts = [
-      { id: "a", height: 48 },
-      { id: "b", height: 72 },
-      { id: "c", height: 24 },
+      { data: {} },
+      { data: { position: "bottom-right" as ToastPosition } },
+      { data: { position: "bottom-right" as ToastPosition } },
+      { data: { position: "top-left" as ToastPosition } },
     ];
 
-    const layout = buildVisibleToastLayout(visibleToasts);
-
-    assert.equal(layout.frontmostHeight, 48);
-    assert.deepEqual(
-      layout.items.map(({ toast, visibleIndex, offsetY }) => ({
-        id: toast.id,
-        visibleIndex,
-        offsetY,
-      })),
-      [
-        { id: "a", visibleIndex: 0, offsetY: 0 },
-        { id: "b", visibleIndex: 1, offsetY: 48 },
-        { id: "c", visibleIndex: 2, offsetY: 120 },
-      ],
-    );
+    expect(listVisibleToastPositions(visibleToasts, "top-right")).toEqual([
+      "top-right",
+      "bottom-right",
+      "top-left",
+    ]);
   });
 
-  it("treats missing heights as zero", () => {
-    const layout = buildVisibleToastLayout([
-      { id: "a" },
-      { id: "b", height: undefined },
-      { id: "c", height: 30 },
-    ]);
-
-    assert.equal(layout.frontmostHeight, 0);
-    assert.deepEqual(
-      layout.items.map(({ toast, offsetY }) => ({
-        id: toast.id,
-        offsetY,
-      })),
-      [
-        { id: "a", offsetY: 0 },
-        { id: "b", offsetY: 0 },
-        { id: "c", offsetY: 0 },
-      ],
-    );
+  it("returns the provider position when there are no visible toasts", () => {
+    expect(listVisibleToastPositions([], "top-right")).toEqual(["top-right"]);
   });
 });

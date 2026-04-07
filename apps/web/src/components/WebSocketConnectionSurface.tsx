@@ -19,6 +19,7 @@ import { toastManager } from "./ui/toast";
 import { getWsRpcClient } from "~/wsRpcClient";
 
 const FORCED_WS_RECONNECT_DEBOUNCE_MS = 5_000;
+const SLOW_RPC_ACK_TOAST_DISMISS_AFTER_VISIBLE_MS = 8_000;
 type WsAutoReconnectTrigger = "focus" | "online";
 
 const connectionTimeFormatter = new Intl.DateTimeFormat(undefined, {
@@ -84,11 +85,24 @@ function describeRecoveredToast(
   return "Connection restored.";
 }
 
-function describeSlowRpcAckToast(requests: ReadonlyArray<SlowRpcAckRequest>): ReactNode {
-  const count = requests.length;
-  const thresholdSeconds = Math.round((requests[0]?.thresholdMs ?? 0) / 1000);
+export function describeSlowRpcAckToast(requests: ReadonlyArray<SlowRpcAckRequest>): ReactNode {
+  const primaryRequest = requests[0];
+  if (!primaryRequest) {
+    return "A request is waiting longer than expected for its first server ack.";
+  }
 
-  return `${count} request${count === 1 ? "" : "s"} waiting longer than ${thresholdSeconds}s.`;
+  const count = requests.length;
+  const thresholdSeconds = (primaryRequest.thresholdMs / 1000).toFixed(1);
+  const waitedMs = Math.max(primaryRequest.thresholdMs, Date.now() - primaryRequest.startedAtMs);
+  const waitedSeconds =
+    waitedMs >= 10_000 ? Math.round(waitedMs / 1000).toString() : (waitedMs / 1000).toFixed(1);
+  const startedAtLabel = formatConnectionMoment(primaryRequest.startedAt);
+  const extraRequestsLabel =
+    count > 1
+      ? ` ${count - 1} other request${count === 2 ? "" : "s"} ${count === 2 ? "is" : "are"} also delayed.`
+      : "";
+
+  return `RPC ${primaryRequest.tag} (request ${primaryRequest.requestId}) has been waiting ${waitedSeconds}s for its first server ack, exceeding the ${thresholdSeconds}s threshold.${startedAtLabel ? ` Started ${startedAtLabel}.` : ""}${extraRequestsLabel}`;
 }
 
 export function shouldAutoReconnect(
@@ -491,30 +505,70 @@ export function SlowRpcAckToastCoordinator() {
   const slowRequests = useSlowRpcAckRequests();
   const status = useWsConnectionStatus();
   const toastIdRef = useRef<ReturnType<typeof toastManager.add> | null>(null);
+  const toastResetTimerRef = useRef<number | null>(null);
+  const lastSlowRequestsRef = useRef<ReadonlyArray<SlowRpcAckRequest>>([]);
 
   useEffect(() => {
     if (getWsConnectionUiState(status) !== "connected") {
+      if (toastResetTimerRef.current !== null) {
+        window.clearTimeout(toastResetTimerRef.current);
+        toastResetTimerRef.current = null;
+      }
       if (toastIdRef.current) {
         toastManager.close(toastIdRef.current);
         toastIdRef.current = null;
       }
+      lastSlowRequestsRef.current = [];
       return;
     }
 
     if (slowRequests.length === 0) {
-      if (toastIdRef.current) {
-        toastManager.close(toastIdRef.current);
-        toastIdRef.current = null;
+      if (!toastIdRef.current || lastSlowRequestsRef.current.length === 0) {
+        return;
       }
+
+      const recoveredToast = {
+        data: {
+          dismissAfterVisibleMs: SLOW_RPC_ACK_TOAST_DISMISS_AFTER_VISIBLE_MS,
+          hideCopyButton: true,
+          position: "bottom-right" as const,
+        },
+        description: describeSlowRpcAckToast(lastSlowRequestsRef.current),
+        timeout: 0,
+        title: "Slow request recovered",
+        type: "warning" as const,
+      };
+
+      toastManager.update(toastIdRef.current, recoveredToast);
+
+      if (toastResetTimerRef.current !== null) {
+        window.clearTimeout(toastResetTimerRef.current);
+      }
+      toastResetTimerRef.current = window.setTimeout(() => {
+        toastIdRef.current = null;
+        toastResetTimerRef.current = null;
+      }, SLOW_RPC_ACK_TOAST_DISMISS_AFTER_VISIBLE_MS + 250);
+
+      lastSlowRequestsRef.current = [];
       return;
     }
 
     const nextToast = {
+      data: {
+        hideCopyButton: true,
+        position: "bottom-right" as const,
+      },
       description: describeSlowRpcAckToast(slowRequests),
       timeout: 0,
       title: "Some requests are slow",
       type: "warning" as const,
     };
+    lastSlowRequestsRef.current = slowRequests;
+
+    if (toastResetTimerRef.current !== null) {
+      window.clearTimeout(toastResetTimerRef.current);
+      toastResetTimerRef.current = null;
+    }
 
     if (toastIdRef.current) {
       toastManager.update(toastIdRef.current, nextToast);
@@ -522,6 +576,14 @@ export function SlowRpcAckToastCoordinator() {
       toastIdRef.current = toastManager.add(nextToast);
     }
   }, [slowRequests, status]);
+
+  useEffect(() => {
+    return () => {
+      if (toastResetTimerRef.current !== null) {
+        window.clearTimeout(toastResetTimerRef.current);
+      }
+    };
+  }, []);
 
   return null;
 }

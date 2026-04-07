@@ -1,9 +1,5 @@
 import {
-  Cache,
-  Data,
-  Duration,
   Effect,
-  Exit,
   FileSystem,
   Layer,
   Option,
@@ -47,10 +43,6 @@ const RANGE_DIFF_SUMMARY_MAX_OUTPUT_BYTES = 19_000;
 const RANGE_DIFF_PATCH_MAX_OUTPUT_BYTES = 59_000;
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const GIT_CHECK_IGNORE_MAX_STDIN_BYTES = 256 * 1024;
-const STATUS_UPSTREAM_REFRESH_INTERVAL = Duration.seconds(15);
-const STATUS_UPSTREAM_REFRESH_TIMEOUT = Duration.seconds(5);
-const STATUS_UPSTREAM_REFRESH_FAILURE_COOLDOWN = Duration.seconds(5);
-const STATUS_UPSTREAM_REFRESH_CACHE_CAPACITY = 2_048;
 const DEFAULT_BASE_BRANCH_CANDIDATES = ["main", "master"] as const;
 const GIT_LIST_BRANCHES_DEFAULT_LIMIT = 100;
 
@@ -58,13 +50,6 @@ type TraceTailState = {
   processedChars: number;
   remainder: string;
 };
-
-class StatusUpstreamRefreshCacheKey extends Data.Class<{
-  gitCommonDir: string;
-  upstreamRef: string;
-  remoteName: string;
-  upstreamBranch: string;
-}> {}
 
 interface ExecuteGitOptions {
   stdin?: string | undefined;
@@ -890,70 +875,6 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     );
   });
 
-  const fetchUpstreamRefForStatus = (
-    gitCommonDir: string,
-    upstream: { upstreamRef: string; remoteName: string; upstreamBranch: string },
-  ): Effect.Effect<void, GitCommandError> => {
-    const refspec = `+refs/heads/${upstream.upstreamBranch}:refs/remotes/${upstream.upstreamRef}`;
-    const fetchCwd =
-      path.basename(gitCommonDir) === ".git" ? path.dirname(gitCommonDir) : gitCommonDir;
-    return executeGit(
-      "GitCore.fetchUpstreamRefForStatus",
-      fetchCwd,
-      ["--git-dir", gitCommonDir, "fetch", "--quiet", "--no-tags", upstream.remoteName, refspec],
-      {
-        allowNonZeroExit: true,
-        timeoutMs: Duration.toMillis(STATUS_UPSTREAM_REFRESH_TIMEOUT),
-      },
-    ).pipe(Effect.asVoid);
-  };
-
-  const resolveGitCommonDir = Effect.fn("resolveGitCommonDir")(function* (cwd: string) {
-    const gitCommonDir = yield* runGitStdout("GitCore.resolveGitCommonDir", cwd, [
-      "rev-parse",
-      "--git-common-dir",
-    ]).pipe(Effect.map((stdout) => stdout.trim()));
-    return path.isAbsolute(gitCommonDir) ? gitCommonDir : path.resolve(cwd, gitCommonDir);
-  });
-
-  const refreshStatusUpstreamCacheEntry = Effect.fn("refreshStatusUpstreamCacheEntry")(function* (
-    cacheKey: StatusUpstreamRefreshCacheKey,
-  ) {
-    yield* fetchUpstreamRefForStatus(cacheKey.gitCommonDir, {
-      upstreamRef: cacheKey.upstreamRef,
-      remoteName: cacheKey.remoteName,
-      upstreamBranch: cacheKey.upstreamBranch,
-    });
-    return true as const;
-  });
-
-  const statusUpstreamRefreshCache = yield* Cache.makeWith({
-    capacity: STATUS_UPSTREAM_REFRESH_CACHE_CAPACITY,
-    lookup: refreshStatusUpstreamCacheEntry,
-    // Keep successful refreshes warm and briefly back off failed refreshes to avoid retry storms.
-    timeToLive: (exit) =>
-      Exit.isSuccess(exit)
-        ? STATUS_UPSTREAM_REFRESH_INTERVAL
-        : STATUS_UPSTREAM_REFRESH_FAILURE_COOLDOWN,
-  });
-
-  const refreshStatusUpstreamIfStale = Effect.fn("refreshStatusUpstreamIfStale")(function* (
-    cwd: string,
-  ) {
-    const upstream = yield* resolveCurrentUpstream(cwd);
-    if (!upstream) return;
-    const gitCommonDir = yield* resolveGitCommonDir(cwd);
-    yield* Cache.get(
-      statusUpstreamRefreshCache,
-      new StatusUpstreamRefreshCacheKey({
-        gitCommonDir,
-        upstreamRef: upstream.upstreamRef,
-        remoteName: upstream.remoteName,
-        upstreamBranch: upstream.upstreamBranch,
-      }),
-    );
-  });
-
   const resolveDefaultBranchName = (
     cwd: string,
     remoteName: string,
@@ -1197,27 +1118,20 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       );
     }
 
-    const [unstagedNumstatStdout, stagedNumstatStdout, defaultRefResult, hasOriginRemote] =
-      yield* Effect.all(
-        [
-          runGitStdout("GitCore.statusDetails.unstagedNumstat", cwd, ["diff", "--numstat"]),
-          runGitStdout("GitCore.statusDetails.stagedNumstat", cwd, [
-            "diff",
-            "--cached",
-            "--numstat",
-          ]),
-          executeGit(
-            "GitCore.statusDetails.defaultRef",
-            cwd,
-            ["symbolic-ref", "refs/remotes/origin/HEAD"],
-            {
-              allowNonZeroExit: true,
-            },
-          ),
-          originRemoteExists(cwd).pipe(Effect.catch(() => Effect.succeed(false))),
-        ],
-        { concurrency: "unbounded" },
-      );
+    const [defaultRefResult, hasOriginRemote] = yield* Effect.all(
+      [
+        executeGit(
+          "GitCore.statusDetails.defaultRef",
+          cwd,
+          ["symbolic-ref", "refs/remotes/origin/HEAD"],
+          {
+            allowNonZeroExit: true,
+          },
+        ),
+        originRemoteExists(cwd).pipe(Effect.catch(() => Effect.succeed(false))),
+      ],
+      { concurrency: "unbounded" },
+    );
     const statusStdout = statusResult.stdout;
     const defaultBranch =
       defaultRefResult.code === 0
@@ -1229,7 +1143,6 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     let aheadCount = 0;
     let behindCount = 0;
     let hasWorkingTreeChanges = false;
-    const changedFilesWithoutNumstat = new Set<string>();
 
     for (const line of statusStdout.split(/\r?\n/g)) {
       if (line.startsWith("# branch.head ")) {
@@ -1251,8 +1164,6 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       }
       if (line.trim().length > 0 && !line.startsWith("#")) {
         hasWorkingTreeChanges = true;
-        const pathValue = parsePorcelainPath(line);
-        if (pathValue) changedFilesWithoutNumstat.add(pathValue);
       }
     }
 
@@ -1262,6 +1173,32 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       );
       behindCount = 0;
     }
+
+    return {
+      isRepo: true,
+      hasOriginRemote,
+      isDefaultBranch:
+        branch !== null &&
+        (branch === defaultBranch ||
+          (defaultBranch === null && (branch === "main" || branch === "master"))),
+      branch,
+      upstreamRef,
+      hasWorkingTreeChanges,
+      hasUpstream: upstreamRef !== null,
+      aheadCount,
+      behindCount,
+    };
+  });
+
+  const workingTree: GitCoreShape["workingTree"] = Effect.fn("workingTree")(function* (cwd) {
+    const [statusStdout, unstagedNumstatStdout, stagedNumstatStdout] = yield* Effect.all(
+      [
+        runGitStdout("GitCore.workingTree.status", cwd, ["status", "--porcelain=2"]),
+        runGitStdout("GitCore.workingTree.unstagedNumstat", cwd, ["diff", "--numstat"]),
+        runGitStdout("GitCore.workingTree.stagedNumstat", cwd, ["diff", "--cached", "--numstat"]),
+      ],
+      { concurrency: "unbounded" },
+    );
 
     const stagedEntries = parseNumstatEntries(stagedNumstatStdout);
     const unstagedEntries = parseNumstatEntries(unstagedNumstatStdout);
@@ -1283,6 +1220,13 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       })
       .toSorted((a, b) => a.path.localeCompare(b.path));
 
+    const changedFilesWithoutNumstat = new Set<string>();
+    for (const line of statusStdout.split(/\r?\n/g)) {
+      if (line.trim().length === 0 || line.startsWith("#")) continue;
+      const pathValue = parsePorcelainPath(line);
+      if (pathValue) changedFilesWithoutNumstat.add(pathValue);
+    }
+
     for (const filePath of changedFilesWithoutNumstat) {
       if (fileStatMap.has(filePath)) continue;
       files.push({ path: filePath, insertions: 0, deletions: 0 });
@@ -1290,23 +1234,9 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     files.sort((a, b) => a.path.localeCompare(b.path));
 
     return {
-      isRepo: true,
-      hasOriginRemote,
-      isDefaultBranch:
-        branch !== null &&
-        (branch === defaultBranch ||
-          (defaultBranch === null && (branch === "main" || branch === "master"))),
-      branch,
-      upstreamRef,
-      hasWorkingTreeChanges,
-      workingTree: {
-        files,
-        insertions,
-        deletions,
-      },
-      hasUpstream: upstreamRef !== null,
-      aheadCount,
-      behindCount,
+      files,
+      insertions,
+      deletions,
     };
   });
 
@@ -1336,7 +1266,6 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
         pr: null,
       })),
     );
-
   const prepareCommitContext: GitCoreShape["prepareCommitContext"] = Effect.fn(
     "prepareCommitContext",
   )(function* (cwd, filePaths) {
@@ -1990,6 +1919,15 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     },
   );
 
+  const deleteLocalBranch: GitCoreShape["deleteLocalBranch"] = Effect.fn("deleteLocalBranch")(
+    function* (input) {
+      const args = ["branch", input.force === false ? "-d" : "-D", input.branch];
+      yield* executeGit("GitCore.deleteLocalBranch", input.cwd, args, {
+        fallbackErrorMessage: "git branch delete failed",
+      }).pipe(Effect.asVoid);
+    },
+  );
+
   const renameBranch: GitCoreShape["renameBranch"] = Effect.fn("renameBranch")(function* (input) {
     if (input.oldBranch === input.newBranch) {
       return { branch: input.newBranch };
@@ -2129,6 +2067,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     status,
     statusDetails,
     statusDetailsLocal,
+    workingTree,
     prepareCommitContext,
     commit,
     pushCurrentBranch,
@@ -2145,6 +2084,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     fetchRemoteBranch,
     setBranchUpstream,
     removeWorktree,
+    deleteLocalBranch,
     renameBranch,
     createBranch,
     checkoutBranch,

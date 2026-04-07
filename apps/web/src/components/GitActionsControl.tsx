@@ -5,7 +5,7 @@ import type {
   GitStatusResult,
   ThreadId,
 } from "@t3tools/contracts";
-import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { ChevronDownIcon, CloudUploadIcon, GitCommitIcon, InfoIcon } from "lucide-react";
 import { GitHubIcon } from "./Icons";
@@ -41,10 +41,12 @@ import { Textarea } from "~/components/ui/textarea";
 import { toastManager, type ThreadToastData } from "~/components/ui/toast";
 import { openInPreferredEditor } from "~/editorPreferences";
 import {
+  gitCurrentPullRequestQueryOptions,
   gitInitMutationOptions,
   gitMutationKeys,
   gitPullMutationOptions,
   gitRunStackedActionMutationOptions,
+  gitWorkingTreeQueryOptions,
 } from "~/lib/gitReactQuery";
 import { refreshGitStatus, useGitStatus } from "~/lib/gitStatusState";
 import { newCommandId, randomUUID } from "~/lib/utils";
@@ -117,11 +119,13 @@ function getMenuActionDisabledReason({
   item,
   gitStatus,
   isBusy,
+  hasOpenPr,
   hasOriginRemote,
 }: {
   item: GitActionMenuItem;
   gitStatus: GitStatusResult | null;
   isBusy: boolean;
+  hasOpenPr: boolean;
   hasOriginRemote: boolean;
 }): string | null {
   if (!item.disabled) return null;
@@ -130,7 +134,6 @@ function getMenuActionDisabledReason({
 
   const hasBranch = gitStatus.branch !== null;
   const hasChanges = gitStatus.hasWorkingTreeChanges;
-  const hasOpenPr = gitStatus.pr?.state === "open";
   const isAhead = gitStatus.aheadCount > 0;
   const isBehind = gitStatus.behindCount > 0;
 
@@ -277,12 +280,26 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
   );
 
   const { data: gitStatus = null, error: gitStatusError } = useGitStatus(gitCwd);
+  const { data: currentPullRequest = null } = useQuery(
+    gitCurrentPullRequestQueryOptions({
+      cwd: gitCwd,
+      enabled: (gitStatus?.isRepo ?? true) && gitCwd !== null,
+    }),
+  );
+  const { data: workingTree = null } = useQuery(
+    gitWorkingTreeQueryOptions({
+      cwd: gitCwd,
+      enabled: isCommitDialogOpen,
+    }),
+  );
   // Default to true while loading so we don't flash init controls.
   const isRepo = gitStatus?.isRepo ?? true;
   const hasOriginRemote = gitStatus?.hasOriginRemote ?? false;
   const gitStatusForActions = gitStatus;
+  const currentPullRequestForActions = currentPullRequest?.pr ?? null;
+  const hasOpenPr = currentPullRequestForActions?.state === "open";
 
-  const allFiles = gitStatusForActions?.workingTree.files ?? [];
+  const allFiles = workingTree?.files ?? [];
   const selectedFiles = allFiles.filter((f) => !excludedFiles.has(f.path));
   const allSelected = excludedFiles.size === 0;
   const noneSelected = selectedFiles.length === 0;
@@ -328,13 +345,19 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
   }, [gitStatusForActions?.isDefaultBranch]);
 
   const gitActionMenuItems = useMemo(
-    () => buildMenuItems(gitStatusForActions, isGitActionRunning, hasOriginRemote),
-    [gitStatusForActions, hasOriginRemote, isGitActionRunning],
+    () => buildMenuItems(gitStatusForActions, isGitActionRunning, hasOriginRemote, hasOpenPr),
+    [gitStatusForActions, hasOpenPr, hasOriginRemote, isGitActionRunning],
   );
   const quickAction = useMemo(
     () =>
-      resolveQuickAction(gitStatusForActions, isGitActionRunning, isDefaultBranch, hasOriginRemote),
-    [gitStatusForActions, hasOriginRemote, isDefaultBranch, isGitActionRunning],
+      resolveQuickAction(
+        gitStatusForActions,
+        isGitActionRunning,
+        isDefaultBranch,
+        hasOriginRemote,
+        hasOpenPr,
+      ),
+    [gitStatusForActions, hasOpenPr, hasOriginRemote, isDefaultBranch, isGitActionRunning],
   );
   const quickActionDisabledReason = quickAction.disabled
     ? (quickAction.hint ?? "This action is currently unavailable.")
@@ -403,7 +426,8 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
       });
       return;
     }
-    const prUrl = gitStatusForActions?.pr?.state === "open" ? gitStatusForActions.pr.url : null;
+    const prUrl =
+      currentPullRequestForActions?.state === "open" ? currentPullRequestForActions.url : null;
     if (!prUrl) {
       toastManager.add({
         type: "error",
@@ -420,7 +444,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
         data: threadToastData,
       });
     });
-  }, [gitStatusForActions, threadToastData]);
+  }, [currentPullRequestForActions, threadToastData]);
 
   runGitActionWithToast = useEffectEvent(
     async ({
@@ -852,6 +876,7 @@ export default function GitActionsControl({ gitCwd, activeThreadId }: GitActions
                   item,
                   gitStatus: gitStatusForActions,
                   isBusy: isGitActionRunning,
+                  hasOpenPr,
                   hasOriginRemote,
                 });
                 if (item.disabled && disabledReason) {

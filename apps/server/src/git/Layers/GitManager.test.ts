@@ -653,7 +653,7 @@ const GitManagerTestLayer = GitCoreLive.pipe(
 );
 
 it.layer(GitManagerTestLayer)("GitManager", (it) => {
-  it.effect("status includes PR metadata when branch already has an open PR", () =>
+  it.effect("currentPullRequest returns PR metadata when branch already has an open PR", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
@@ -679,11 +679,13 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       });
 
       const status = yield* manager.status({ cwd: repoDir });
+      const currentPullRequest = yield* manager.currentPullRequest({ cwd: repoDir });
       expect(status.isRepo).toBe(true);
       expect(status.hasOriginRemote).toBe(true);
       expect(status.isDefaultBranch).toBe(false);
       expect(status.branch).toBe("feature/status-open-pr");
-      expect(status.pr).toEqual({
+      expect(currentPullRequest.branch).toBe("feature/status-open-pr");
+      expect(currentPullRequest.pr).toEqual({
         number: 13,
         title: "Existing PR",
         url: "https://github.com/pingdotgg/codething-mvp/pull/13",
@@ -707,20 +709,14 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         isDefaultBranch: false,
         branch: null,
         hasWorkingTreeChanges: false,
-        workingTree: {
-          files: [],
-          insertions: 0,
-          deletions: 0,
-        },
         hasUpstream: false,
         aheadCount: 0,
         behindCount: 0,
-        pr: null,
       });
     }),
   );
 
-  it.effect("status briefly caches repeated lookups for the same cwd", () =>
+  it.effect("currentPullRequest briefly caches repeated lookups for the same cwd", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
@@ -742,8 +738,8 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         },
       });
 
-      const first = yield* manager.status({ cwd: repoDir });
-      const second = yield* manager.status({ cwd: repoDir });
+      const first = yield* manager.currentPullRequest({ cwd: repoDir });
+      const second = yield* manager.currentPullRequest({ cwd: repoDir });
 
       expect(first.pr?.number).toBe(113);
       expect(second.pr?.number).toBe(113);
@@ -752,7 +748,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
   );
 
   it.effect(
-    "status ignores unrelated fork PRs when the current branch tracks the same repository",
+    "currentPullRequest ignores unrelated fork PRs when the current branch tracks the same repository",
     () =>
       Effect.gen(function* () {
         const repoDir = yield* makeTempDir("t3code-git-manager-");
@@ -786,14 +782,14 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           },
         });
 
-        const status = yield* manager.status({ cwd: repoDir });
-        expect(status.branch).toBe("main");
-        expect(status.pr).toBeNull();
+        const currentPullRequest = yield* manager.currentPullRequest({ cwd: repoDir });
+        expect(currentPullRequest.branch).toBe("main");
+        expect(currentPullRequest.pr).toBeNull();
       }),
   );
 
   it.effect(
-    "status detects cross-repo PRs from the upstream remote URL owner",
+    "currentPullRequest detects cross-repo PRs from the upstream remote URL owner",
     () =>
       Effect.gen(function* () {
         const repoDir = yield* makeTempDir("t3code-git-manager-");
@@ -840,9 +836,9 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           },
         });
 
-        const status = yield* manager.status({ cwd: repoDir });
-        expect(status.branch).toBe("t3code/pr-488/statemachine");
-        expect(status.pr).toEqual({
+        const currentPullRequest = yield* manager.currentPullRequest({ cwd: repoDir });
+        expect(currentPullRequest.branch).toBe("t3code/pr-488/statemachine");
+        expect(currentPullRequest.pr).toEqual({
           number: 488,
           title: "Rebase this PR on latest main",
           url: "https://github.com/pingdotgg/codething-mvp/pull/488",
@@ -858,7 +854,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
   );
 
   it.effect(
-    "status ignores synthetic local branch aliases when the upstream remote name contains slashes",
+    "currentPullRequest ignores synthetic local branch aliases when the upstream remote name contains slashes",
     () =>
       Effect.gen(function* () {
         const repoDir = yield* makeTempDir("t3code-git-manager-");
@@ -940,9 +936,9 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           },
         });
 
-        const status = yield* manager.status({ cwd: repoDir });
-        expect(status.branch).toBe("upstream/effect-atom");
-        expect(status.pr).toEqual({
+        const currentPullRequest = yield* manager.currentPullRequest({ cwd: repoDir });
+        expect(currentPullRequest.branch).toBe("upstream/effect-atom");
+        expect(currentPullRequest.pr).toEqual({
           number: 1618,
           title: "Correct PR",
           url: "https://github.com/pingdotgg/t3code/pull/1618",
@@ -965,7 +961,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     12_000,
   );
 
-  it.effect("status returns merged PR state when latest PR was merged", () =>
+  it.effect("currentPullRequest returns merged PR state when latest PR was merged", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
@@ -990,9 +986,9 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         },
       });
 
-      const status = yield* manager.status({ cwd: repoDir });
-      expect(status.branch).toBe("feature/status-merged-pr");
-      expect(status.pr).toEqual({
+      const currentPullRequest = yield* manager.currentPullRequest({ cwd: repoDir });
+      expect(currentPullRequest.branch).toBe("feature/status-merged-pr");
+      expect(currentPullRequest.pr).toEqual({
         number: 22,
         title: "Merged PR",
         url: "https://github.com/pingdotgg/codething-mvp/pull/22",
@@ -1003,7 +999,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
-  it.effect("status prefers open PR when merged PR has newer updatedAt", () =>
+  it.effect("currentPullRequest prefers open PR when merged PR has newer updatedAt", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
@@ -1037,9 +1033,9 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         },
       });
 
-      const status = yield* manager.status({ cwd: repoDir });
-      expect(status.branch).toBe("feature/status-open-over-merged");
-      expect(status.pr).toEqual({
+      const currentPullRequest = yield* manager.currentPullRequest({ cwd: repoDir });
+      expect(currentPullRequest.branch).toBe("feature/status-open-over-merged");
+      expect(currentPullRequest.pr).toEqual({
         number: 46,
         title: "Open PR",
         url: "https://github.com/pingdotgg/codething-mvp/pull/46",
@@ -1050,7 +1046,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
-  it.effect("status is resilient to gh lookup failures and returns pr null", () =>
+  it.effect("currentPullRequest is resilient to gh lookup failures and returns pr null", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
       yield* initRepo(repoDir);
@@ -1068,9 +1064,9 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         },
       });
 
-      const status = yield* manager.status({ cwd: repoDir });
-      expect(status.branch).toBe("feature/status-no-gh");
-      expect(status.pr).toBeNull();
+      const currentPullRequest = yield* manager.currentPullRequest({ cwd: repoDir });
+      expect(currentPullRequest.branch).toBe("feature/status-no-gh");
+      expect(currentPullRequest.pr).toBeNull();
     }),
   );
 

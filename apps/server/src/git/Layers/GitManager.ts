@@ -40,6 +40,7 @@ const MAX_PROGRESS_TEXT_LENGTH = 500;
 const SHORT_SHA_LENGTH = 7;
 const TOAST_DESCRIPTION_MAX = 72;
 const STATUS_RESULT_CACHE_TTL = Duration.seconds(1);
+const CURRENT_PULL_REQUEST_CACHE_TTL = Duration.seconds(30);
 const STATUS_RESULT_CACHE_CAPACITY = 2_048;
 type StripProgressContext<T> = T extends any ? Omit<T, "actionId" | "cwd" | "action"> : never;
 type GitActionProgressPayload = StripProgressContext<GitActionProgressEvent>;
@@ -772,6 +773,48 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
   const invalidateRemoteStatusResultCache = (cwd: string) =>
     Cache.invalidate(remoteStatusResultCache, normalizeStatusCacheKey(cwd));
 
+  const readCurrentPullRequest = Effect.fn("readCurrentPullRequest")(function* (cwd: string) {
+    const details = yield* gitCore.statusDetails(cwd).pipe(
+      Effect.catchIf(isNotGitRepositoryError, () => Effect.succeed(nonRepositoryStatusDetails)),
+    );
+
+    const pr =
+      details.isRepo && details.branch !== null
+        ? yield* findLatestPr(cwd, {
+            branch: details.branch,
+            upstreamRef: details.upstreamRef,
+          }).pipe(
+            Effect.map((latest) => (latest ? toStatusPr(latest) : null)),
+            Effect.catch(() => Effect.succeed(null)),
+          )
+        : null;
+
+    return {
+      branch: details.isRepo ? details.branch : null,
+      pr,
+    };
+  });
+
+  const currentPullRequestCache = yield* Cache.makeWith({
+    capacity: STATUS_RESULT_CACHE_CAPACITY,
+    lookup: readCurrentPullRequest,
+    timeToLive: (exit) => (Exit.isSuccess(exit) ? CURRENT_PULL_REQUEST_CACHE_TTL : Duration.zero),
+  });
+  const invalidateCurrentPullRequestCache = (cwd: string) =>
+    Cache.invalidate(currentPullRequestCache, normalizeStatusCacheKey(cwd));
+  const invalidateGitReadCaches = (cwd: string) =>
+    Effect.all(
+      [
+        invalidateLocalStatusResultCache(cwd),
+        invalidateRemoteStatusResultCache(cwd),
+        invalidateCurrentPullRequestCache(cwd),
+      ],
+      {
+        concurrency: "unbounded",
+        discard: true,
+      },
+    );
+
   const readConfigValueNullable = (cwd: string, key: string) =>
     gitCore.readConfigValue(cwd, key).pipe(Effect.catch(() => Effect.succeed(null)));
 
@@ -1377,8 +1420,13 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
   });
   const invalidateStatus: GitManagerShape["invalidateStatus"] = Effect.fn("invalidateStatus")(
     function* (cwd) {
-      yield* invalidateLocalStatusResultCache(cwd);
-      yield* invalidateRemoteStatusResultCache(cwd);
+      yield* invalidateGitReadCaches(cwd);
+    },
+  );
+
+  const currentPullRequest: GitManagerShape["currentPullRequest"] = Effect.fn("currentPullRequest")(
+    function* (input) {
+      return yield* Cache.get(currentPullRequestCache, normalizeStatusCacheKey(input.cwd));
     },
   );
 
@@ -1555,7 +1603,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
         branch: worktree.worktree.branch,
         worktreePath: worktree.worktree.path,
       };
-    }).pipe(Effect.ensuring(invalidateStatus(input.cwd)));
+    }).pipe(Effect.ensuring(invalidateGitReadCaches(input.cwd)));
   });
 
   const runFeatureBranchStep = Effect.fn("runFeatureBranchStep")(function* (
@@ -1759,7 +1807,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
       });
 
       return yield* runAction().pipe(
-        Effect.ensuring(invalidateStatus(input.cwd)),
+        Effect.ensuring(invalidateGitReadCaches(input.cwd)),
         Effect.tapError((error) =>
           Effect.flatMap(Ref.get(currentPhase), (phase) =>
             progress.emit({
@@ -1780,6 +1828,7 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     invalidateLocalStatus,
     invalidateRemoteStatus,
     invalidateStatus,
+    currentPullRequest,
     resolvePullRequest,
     preparePullRequestThread,
     runStackedAction,
