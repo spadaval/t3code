@@ -188,13 +188,54 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
       }),
     );
 
-  const getExistingRunForEpic = (epicIssueId: string) =>
+  const getExistingRunForEpic = (input: {
+    projectId: OrchestrationProject["id"];
+    epicIssueId: string;
+  }) =>
     getReadModel().pipe(
       Effect.map(
         (readModel) =>
           readModel.swarmRuns.find(
-            (run) => run.epicIssueId === epicIssueId && isNonTerminalRunStatus(run.status),
+            (run) =>
+              run.projectId === input.projectId &&
+              run.epicIssueId === input.epicIssueId &&
+              isNonTerminalRunStatus(run.status),
           ) ?? null,
+      ),
+    );
+
+  const getConflictingSharedWorkspaceRunForProject = (input: {
+    projectId: OrchestrationProject["id"];
+    excludeRunId?: SwarmRunId;
+  }) =>
+    getReadModel().pipe(
+      Effect.map(
+        (readModel) =>
+          readModel.swarmRuns.find(
+            (run) =>
+              run.projectId === input.projectId &&
+              run.workspaceMode === "shared" &&
+              isNonTerminalRunStatus(run.status) &&
+              run.runId !== input.excludeRunId,
+          ) ?? null,
+      ),
+    );
+
+  const requireSharedWorkspaceProjectSlot = (input: {
+    operation: string;
+    projectId: OrchestrationProject["id"];
+    excludeRunId?: SwarmRunId;
+  }) =>
+    getConflictingSharedWorkspaceRunForProject(input).pipe(
+      Effect.flatMap((conflictingRun) =>
+        conflictingRun
+          ? Effect.fail(
+              workflowError(
+                input.operation,
+                `Shared-workspace swarm execution is blocked by run '${conflictingRun.runId}' for epic '${conflictingRun.epicIssueId}' with status '${conflictingRun.status}' in project '${conflictingRun.projectId}'.`,
+              ),
+            )
+          : Effect.void,
       ),
     );
 
@@ -1050,9 +1091,18 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
   ) =>
     Effect.gen(function* () {
       const project = yield* getProjectById(input.projectId);
-      const existingRun = yield* getExistingRunForEpic(input.epicIssueId);
+      const existingRun = yield* getExistingRunForEpic({
+        projectId: input.projectId,
+        epicIssueId: input.epicIssueId,
+      });
       if (existingRun) {
         return existingRun;
+      }
+      if (input.workspaceMode === "shared") {
+        yield* requireSharedWorkspaceProjectSlot({
+          operation: "startSwarmRun",
+          projectId: input.projectId,
+        });
       }
 
       const trackerState = yield* requireRunnableTrackerState("startSwarmRun", {
@@ -1163,6 +1213,13 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
           "resumeSwarmRun",
           `Swarm run '${run.runId}' cannot be resumed while task execution '${run.activeTaskExecutionId}' is active.`,
         );
+      }
+      if (run.workspaceMode === "shared") {
+        yield* requireSharedWorkspaceProjectSlot({
+          operation: "resumeSwarmRun",
+          projectId: run.projectId,
+          excludeRunId: run.runId,
+        });
       }
 
       const trackerState = yield* requireRunnableTrackerState("resumeSwarmRun", {

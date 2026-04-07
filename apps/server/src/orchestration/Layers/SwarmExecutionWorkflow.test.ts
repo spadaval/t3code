@@ -9,6 +9,7 @@ import {
   type BeadsSwarmValidation,
   CommandId,
   ProjectId,
+  SwarmRunId,
   ThreadId,
   type OrchestrationCommand,
   type OrchestrationLatestTurn,
@@ -819,6 +820,80 @@ describe("SwarmExecutionWorkflow", () => {
     expect(issue?.comments.at(-1)?.text).toContain("Swarm worker started.");
   });
 
+  it("rejects starting a shared-workspace run when the project already has another non-terminal run", async () => {
+    const harness = await createHarness();
+
+    const first = await runtime!.runPromise(
+      harness.workflow.startSwarmRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        runtimeMode: "full-access",
+      }),
+    );
+
+    await expect(
+      runtime!.runPromise(
+        harness.workflow.startSwarmRun({
+          projectId: harness.projectId,
+          epicIssueId: "EPIC-2",
+          schedulerMode: "automatic",
+          workspaceMode: "shared",
+          runtimeMode: "full-access",
+        }),
+      ),
+    ).rejects.toThrow(`blocked by run '${first.runId}'`);
+  });
+
+  it("allows shared-workspace runs from different projects even when epic ids match", async () => {
+    const harness = await createHarness();
+    const secondProjectId = asProjectId("project-2");
+
+    await runtime!.runPromise(
+      harness.engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-project-2"),
+        projectId: secondProjectId,
+        title: "Project 2",
+        workspaceRoot: "/repo/project-2",
+        defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
+        createdAt: now,
+      }),
+    );
+
+    const first = await runtime!.runPromise(
+      harness.workflow.startSwarmRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        runtimeMode: "full-access",
+      }),
+    );
+
+    const second = await runtime!.runPromise(
+      harness.workflow.startSwarmRun({
+        projectId: secondProjectId,
+        epicIssueId: "EPIC-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        runtimeMode: "full-access",
+      }),
+    );
+
+    expect(second.runId).not.toBe(first.runId);
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    expect(snapshot.swarmRuns).toHaveLength(2);
+    expect(snapshot.swarmRuns.find((entry) => entry.runId === first.runId)?.projectId).toBe(
+      harness.projectId,
+    );
+    expect(snapshot.swarmRuns.find((entry) => entry.runId === second.runId)?.projectId).toBe(
+      secondProjectId,
+    );
+  });
+
   it("rejects starting a run when the epic has no swarm", async () => {
     const baseline = makeTrackerState();
     const harness = await createHarness(
@@ -1076,6 +1151,52 @@ describe("SwarmExecutionWorkflow", () => {
         }),
       ),
     ).rejects.toThrow("must be resumed, not continued");
+  });
+
+  it("rejects resuming a shared-workspace run when another project run is still non-terminal", async () => {
+    const harness = await createHarness();
+
+    const paused = await runtime!.runPromise(
+      harness.workflow.startSwarmRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        runtimeMode: "full-access",
+      }),
+    );
+
+    await runtime!.runPromise(
+      harness.workflow.pauseSwarmRun({
+        runId: paused.runId,
+      }),
+    );
+
+    const blockingRunId = SwarmRunId.makeUnsafe("run-blocking");
+    await runtime!.runPromise(
+      harness.engine.dispatch({
+        type: "swarm-run.request",
+        commandId: CommandId.makeUnsafe("cmd-swarm-run-blocking"),
+        runId: blockingRunId,
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-2",
+        swarmId: "SWARM-2",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        provider: "codex",
+        model: "gpt-5-codex",
+        runtimeMode: "full-access",
+        createdAt: now,
+      }),
+    );
+
+    await expect(
+      runtime!.runPromise(
+        harness.workflow.resumeSwarmRun({
+          runId: paused.runId,
+        }),
+      ),
+    ).rejects.toThrow(`blocked by run '${blockingRunId}'`);
   });
 
   it("completes automatic runs when the last task finishes and no work remains", async () => {
