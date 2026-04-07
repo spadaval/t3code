@@ -1,7 +1,37 @@
 import type {
+  BeadsContext,
+  BeadsCommentIssueInput,
+  BeadsEpicIssueInput,
+  BeadsGetContextInput,
+  BeadsGetIssueInput,
+  BeadsGetSessionActivityInput,
+  BeadsGetSessionActivityResult,
+  BeadsGetSwarmSupportInput,
+  BeadsIssueDetail,
+  BeadsIssueGraph,
+  BeadsIssueSummary,
+  BeadsListSwarmsInput,
+  BeadsListSwarmsResult,
+  BeadsQueryIssuesInput,
+  BeadsQueryIssuesResult,
+  BeadsStartEpicPlannedRefineInput,
+  BeadsStartEpicQuickRefineInput,
+  BeadsStartEpicPlanImplementationInput,
+  BeadsStartWorkflowInput,
+  BeadsStartWorkflowResult,
+  BeadsSwarmStatus,
+  BeadsSwarmSummary,
+  BeadsSwarmSupport,
+  BeadsSwarmValidation,
+  BeadsUpdateIssueInput,
+} from "./beads";
+import type {
   GitCheckoutInput,
   GitCheckoutResult,
+  GitCurrentPullRequestInput,
+  GitCurrentPullRequestResult,
   GitCreateBranchInput,
+  GitCreateBranchResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
@@ -16,7 +46,8 @@ import type {
   GitResolvePullRequestResult,
   GitStatusInput,
   GitStatusResult,
-  GitCreateBranchResult,
+  GitWorkingTreeInput,
+  GitWorkingTreeResult,
 } from "./git";
 import type {
   ProjectSearchEntriesInput,
@@ -172,6 +203,8 @@ export interface NativeApi {
         onResubscribe?: () => void;
       },
     ) => () => void;
+    workingTree: (input: GitWorkingTreeInput) => Promise<GitWorkingTreeResult>;
+    currentPullRequest: (input: GitCurrentPullRequestInput) => Promise<GitCurrentPullRequestResult>;
   };
   contextMenu: {
     show: <T extends string>(
@@ -209,5 +242,31 @@ export interface NativeApi {
         onResubscribe?: () => void;
       },
     ) => () => void;
+  };
+  beads: {
+    queryIssues: (input: BeadsQueryIssuesInput) => Promise<BeadsQueryIssuesResult>;
+    getIssue: (input: BeadsGetIssueInput) => Promise<BeadsIssueDetail>;
+    updateIssue: (input: BeadsUpdateIssueInput) => Promise<BeadsIssueSummary>;
+    commentIssue: (input: BeadsCommentIssueInput) => Promise<BeadsIssueDetail>;
+    getContext: (input: BeadsGetContextInput) => Promise<BeadsContext>;
+    getSwarmSupport: (input: BeadsGetSwarmSupportInput) => Promise<BeadsSwarmSupport>;
+    getIssueGraph: (input: BeadsEpicIssueInput) => Promise<BeadsIssueGraph>;
+    getEpicSwarm: (input: BeadsEpicIssueInput) => Promise<BeadsSwarmSummary | null>;
+    validateEpicSwarm: (input: BeadsEpicIssueInput) => Promise<BeadsSwarmValidation>;
+    getEpicSwarmStatus: (input: BeadsEpicIssueInput) => Promise<BeadsSwarmStatus>;
+    listSwarms: (input: BeadsListSwarmsInput) => Promise<BeadsListSwarmsResult>;
+    getSessionActivity: (
+      input: BeadsGetSessionActivityInput,
+    ) => Promise<BeadsGetSessionActivityResult>;
+    startWorkflow: (input: BeadsStartWorkflowInput) => Promise<BeadsStartWorkflowResult>;
+    startEpicQuickRefine: (
+      input: BeadsStartEpicQuickRefineInput,
+    ) => Promise<BeadsStartWorkflowResult>;
+    startEpicPlannedRefine: (
+      input: BeadsStartEpicPlannedRefineInput,
+    ) => Promise<BeadsStartWorkflowResult>;
+    startEpicPlanImplementation: (
+      input: BeadsStartEpicPlanImplementationInput,
+    ) => Promise<BeadsStartWorkflowResult>;
   };
 }

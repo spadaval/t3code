@@ -2,12 +2,43 @@ import { Schema } from "effect";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
+import {
+  BeadsContext,
+  BeadsCommentIssueInput,
+  BeadsError,
+  BeadsEpicIssueInput,
+  BeadsGetIssueInput,
+  BeadsGetContextInput,
+  BeadsGetSessionActivityInput,
+  BeadsGetSessionActivityResult,
+  BeadsGetSwarmSupportInput,
+  BeadsIssueDetail,
+  BeadsIssueGraph,
+  BeadsIssueSummary,
+  BeadsListSwarmsInput,
+  BeadsListSwarmsResult,
+  BeadsQueryIssuesInput,
+  BeadsQueryIssuesResult,
+  BeadsStartWorkflowInput,
+  BeadsStartWorkflowResult,
+  BeadsStartEpicPlannedRefineInput,
+  BeadsStartEpicQuickRefineInput,
+  BeadsStartEpicPlanImplementationInput,
+  BeadsSwarmStatus,
+  BeadsSwarmSummary,
+  BeadsSwarmSupport,
+  BeadsSwarmValidation,
+  BeadsUpdateIssueInput,
+  BEADS_WS_METHODS,
+} from "./beads";
 import { OpenError, OpenInEditorInput } from "./editor";
 import {
   GitActionProgressEvent,
   GitCheckoutInput,
   GitCheckoutResult,
   GitCommandError,
+  GitCurrentPullRequestInput,
+  GitCurrentPullRequestResult,
   GitCreateBranchInput,
   GitCreateBranchResult,
   GitCreateWorktreeInput,
@@ -27,6 +58,8 @@ import {
   GitStatusInput,
   GitStatusResult,
   GitStatusStreamEvent,
+  GitWorkingTreeInput,
+  GitWorkingTreeResult,
 } from "./git";
 import { KeybindingsConfigError } from "./keybindings";
 import {
@@ -92,6 +125,8 @@ export const WS_METHODS = {
   // Git methods
   gitPull: "git.pull",
   gitRefreshStatus: "git.refreshStatus",
+  gitWorkingTree: "git.workingTree",
+  gitCurrentPullRequest: "git.currentPullRequest",
   gitRunStackedAction: "git.runStackedAction",
   gitListBranches: "git.listBranches",
   gitCreateWorktree: "git.createWorktree",
@@ -176,6 +211,18 @@ export const WsSubscribeGitStatusRpc = Rpc.make(WS_METHODS.subscribeGitStatus, {
   success: GitStatusStreamEvent,
   error: GitManagerServiceError,
   stream: true,
+});
+
+export const WsGitWorkingTreeRpc = Rpc.make(WS_METHODS.gitWorkingTree, {
+  payload: GitWorkingTreeInput,
+  success: GitWorkingTreeResult,
+  error: GitCommandError,
+});
+
+export const WsGitCurrentPullRequestRpc = Rpc.make(WS_METHODS.gitCurrentPullRequest, {
+  payload: GitCurrentPullRequestInput,
+  success: GitCurrentPullRequestResult,
+  error: GitManagerServiceError,
 });
 
 export const WsGitPullRpc = Rpc.make(WS_METHODS.gitPull, {
@@ -274,6 +321,105 @@ export const WsTerminalCloseRpc = Rpc.make(WS_METHODS.terminalClose, {
   payload: TerminalCloseInput,
   error: TerminalError,
 });
+
+export const WsBeadsQueryIssuesRpc = Rpc.make(BEADS_WS_METHODS.queryIssues, {
+  payload: BeadsQueryIssuesInput,
+  success: BeadsQueryIssuesResult,
+  error: BeadsError,
+});
+
+export const WsBeadsGetIssueRpc = Rpc.make(BEADS_WS_METHODS.getIssue, {
+  payload: BeadsGetIssueInput,
+  success: BeadsIssueDetail,
+  error: BeadsError,
+});
+
+export const WsBeadsUpdateIssueRpc = Rpc.make(BEADS_WS_METHODS.updateIssue, {
+  payload: BeadsUpdateIssueInput,
+  success: BeadsIssueSummary,
+  error: BeadsError,
+});
+
+export const WsBeadsCommentIssueRpc = Rpc.make(BEADS_WS_METHODS.commentIssue, {
+  payload: BeadsCommentIssueInput,
+  success: BeadsIssueDetail,
+  error: BeadsError,
+});
+
+export const WsBeadsGetSessionActivityRpc = Rpc.make(BEADS_WS_METHODS.getSessionActivity, {
+  payload: BeadsGetSessionActivityInput,
+  success: BeadsGetSessionActivityResult,
+  error: BeadsError,
+});
+
+export const WsBeadsStartWorkflowRpc = Rpc.make(BEADS_WS_METHODS.startWorkflow, {
+  payload: BeadsStartWorkflowInput,
+  success: BeadsStartWorkflowResult,
+  error: BeadsError,
+});
+
+export const WsBeadsGetContextRpc = Rpc.make(BEADS_WS_METHODS.getContext, {
+  payload: BeadsGetContextInput,
+  success: BeadsContext,
+  error: BeadsError,
+});
+
+export const WsBeadsGetSwarmSupportRpc = Rpc.make(BEADS_WS_METHODS.getSwarmSupport, {
+  payload: BeadsGetSwarmSupportInput,
+  success: BeadsSwarmSupport,
+  error: BeadsError,
+});
+
+export const WsBeadsGetIssueGraphRpc = Rpc.make(BEADS_WS_METHODS.getIssueGraph, {
+  payload: BeadsEpicIssueInput,
+  success: BeadsIssueGraph,
+  error: BeadsError,
+});
+
+export const WsBeadsGetEpicSwarmRpc = Rpc.make(BEADS_WS_METHODS.getEpicSwarm, {
+  payload: BeadsEpicIssueInput,
+  success: Schema.NullOr(BeadsSwarmSummary),
+  error: BeadsError,
+});
+
+export const WsBeadsValidateEpicSwarmRpc = Rpc.make(BEADS_WS_METHODS.validateEpicSwarm, {
+  payload: BeadsEpicIssueInput,
+  success: BeadsSwarmValidation,
+  error: BeadsError,
+});
+
+export const WsBeadsGetEpicSwarmStatusRpc = Rpc.make(BEADS_WS_METHODS.getEpicSwarmStatus, {
+  payload: BeadsEpicIssueInput,
+  success: BeadsSwarmStatus,
+  error: BeadsError,
+});
+
+export const WsBeadsListSwarmsRpc = Rpc.make(BEADS_WS_METHODS.listSwarms, {
+  payload: BeadsListSwarmsInput,
+  success: BeadsListSwarmsResult,
+  error: BeadsError,
+});
+
+export const WsBeadsStartEpicQuickRefineRpc = Rpc.make(BEADS_WS_METHODS.startEpicQuickRefine, {
+  payload: BeadsStartEpicQuickRefineInput,
+  success: BeadsStartWorkflowResult,
+  error: BeadsError,
+});
+
+export const WsBeadsStartEpicPlannedRefineRpc = Rpc.make(BEADS_WS_METHODS.startEpicPlannedRefine, {
+  payload: BeadsStartEpicPlannedRefineInput,
+  success: BeadsStartWorkflowResult,
+  error: BeadsError,
+});
+
+export const WsBeadsStartEpicPlanImplementationRpc = Rpc.make(
+  BEADS_WS_METHODS.startEpicPlanImplementation,
+  {
+    payload: BeadsStartEpicPlanImplementationInput,
+    success: BeadsStartWorkflowResult,
+    error: BeadsError,
+  },
+);
 
 export const WsOrchestrationGetSnapshotRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getSnapshot, {
   payload: OrchestrationGetSnapshotInput,
@@ -376,6 +522,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,
   WsSubscribeGitStatusRpc,
+  WsGitWorkingTreeRpc,
+  WsGitCurrentPullRequestRpc,
   WsGitPullRpc,
   WsGitRefreshStatusRpc,
   WsGitRunStackedActionRpc,
@@ -393,6 +541,22 @@ export const WsRpcGroup = RpcGroup.make(
   WsTerminalClearRpc,
   WsTerminalRestartRpc,
   WsTerminalCloseRpc,
+  WsBeadsQueryIssuesRpc,
+  WsBeadsGetIssueRpc,
+  WsBeadsUpdateIssueRpc,
+  WsBeadsCommentIssueRpc,
+  WsBeadsGetSessionActivityRpc,
+  WsBeadsStartWorkflowRpc,
+  WsBeadsGetContextRpc,
+  WsBeadsGetSwarmSupportRpc,
+  WsBeadsGetIssueGraphRpc,
+  WsBeadsGetEpicSwarmRpc,
+  WsBeadsValidateEpicSwarmRpc,
+  WsBeadsGetEpicSwarmStatusRpc,
+  WsBeadsListSwarmsRpc,
+  WsBeadsStartEpicQuickRefineRpc,
+  WsBeadsStartEpicPlannedRefineRpc,
+  WsBeadsStartEpicPlanImplementationRpc,
   WsSubscribeOrchestrationDomainEventsRpc,
   WsSubscribeTerminalEventsRpc,
   WsSubscribeServerConfigRpc,

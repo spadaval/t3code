@@ -81,6 +81,7 @@ export interface LatestProposedPlanState {
   updatedAt: string;
   turnId: TurnId | null;
   planMarkdown: string;
+  planIntent: "code-implementation" | "tracker-refinement";
   implementedAt: string | null;
   implementationThreadId: ThreadId | null;
 }
@@ -680,6 +681,7 @@ function toLatestProposedPlanState(proposedPlan: ProposedPlan): LatestProposedPl
     updatedAt: proposedPlan.updatedAt,
     turnId: proposedPlan.turnId,
     planMarkdown: proposedPlan.planMarkdown,
+    planIntent: proposedPlan.planIntent,
     implementedAt: proposedPlan.implementedAt,
     implementationThreadId: proposedPlan.implementationThreadId,
   };

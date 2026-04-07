@@ -176,10 +176,30 @@ export type OrchestrationMessage = typeof OrchestrationMessage.Type;
 export const OrchestrationProposedPlanId = TrimmedNonEmptyString;
 export type OrchestrationProposedPlanId = typeof OrchestrationProposedPlanId.Type;
 
+export const OrchestrationProposedPlanIntent = Schema.Literals([
+  "code-implementation",
+  "tracker-refinement",
+]);
+export type OrchestrationProposedPlanIntent = typeof OrchestrationProposedPlanIntent.Type;
+export const DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT: OrchestrationProposedPlanIntent =
+  "code-implementation";
+
+export const OrchestrationPlanImplementationLaunchMode = Schema.Literals([
+  "worktree",
+  "tracker-only",
+]);
+export type OrchestrationPlanImplementationLaunchMode =
+  typeof OrchestrationPlanImplementationLaunchMode.Type;
+export const DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE: OrchestrationPlanImplementationLaunchMode =
+  "worktree";
+
 export const OrchestrationProposedPlan = Schema.Struct({
   id: OrchestrationProposedPlanId,
   turnId: Schema.NullOr(TurnId),
   planMarkdown: TrimmedNonEmptyString,
+  planIntent: OrchestrationProposedPlanIntent.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT),
+  ),
   implementedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
   implementationThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
   createdAt: IsoDateTime,
@@ -191,6 +211,16 @@ const SourceProposedPlanReference = Schema.Struct({
   threadId: ThreadId,
   planId: OrchestrationProposedPlanId,
 });
+
+export const OrchestrationThreadIssueLink = Schema.Struct({
+  issueId: TrimmedNonEmptyString,
+  title: TrimmedNonEmptyString,
+  status: TrimmedNonEmptyString,
+  priority: Schema.NullOr(NonNegativeInt).pipe(Schema.withDecodingDefault(() => null)),
+  repoRoot: TrimmedNonEmptyString,
+  linkedAt: IsoDateTime,
+});
+export type OrchestrationThreadIssueLink = typeof OrchestrationThreadIssueLink.Type;
 
 export const OrchestrationPlanImplementationLaunchStatus = Schema.Literals([
   "requested",
@@ -305,6 +335,9 @@ export const OrchestrationThread = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  issueLink: Schema.NullOr(OrchestrationThreadIssueLink).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -326,6 +359,9 @@ export const OrchestrationPlanImplementationLaunch = Schema.Struct({
   targetThreadId: ThreadId,
   retryOfLaunchId: Schema.NullOr(PlanImplementationLaunchId),
   status: OrchestrationPlanImplementationLaunchStatus,
+  launchMode: OrchestrationPlanImplementationLaunchMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE),
+  ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   failureReason: Schema.NullOr(TrimmedNonEmptyString),
@@ -393,6 +429,7 @@ const ThreadCreateCommand = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  issueLink: Schema.optional(Schema.NullOr(OrchestrationThreadIssueLink)),
   createdAt: IsoDateTime,
 });
 
@@ -422,6 +459,7 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  issueLink: Schema.optional(Schema.NullOr(OrchestrationThreadIssueLink)),
 });
 
 const ThreadRuntimeModeSetCommand = Schema.Struct({
@@ -663,6 +701,9 @@ const PlanImplementationLaunchRequestCommand = Schema.Struct({
   retryOfLaunchId: Schema.optional(PlanImplementationLaunchId),
   title: TrimmedNonEmptyString,
   setupEnabled: Schema.Boolean,
+  launchMode: OrchestrationPlanImplementationLaunchMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE),
+  ),
   promptText: Schema.String,
   provider: Schema.optional(ProviderKind),
   model: Schema.optional(TrimmedNonEmptyString),
@@ -804,6 +845,9 @@ export const ThreadCreatedPayload = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  issueLink: Schema.NullOr(OrchestrationThreadIssueLink).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -830,6 +874,7 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  issueLink: Schema.optional(Schema.NullOr(OrchestrationThreadIssueLink)),
   updatedAt: IsoDateTime,
 });
 
@@ -943,6 +988,9 @@ export const PlanImplementationLaunchRequestedPayload = Schema.Struct({
   retryOfLaunchId: Schema.NullOr(PlanImplementationLaunchId),
   title: TrimmedNonEmptyString,
   setupEnabled: Schema.Boolean,
+  launchMode: OrchestrationPlanImplementationLaunchMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE),
+  ),
   promptText: Schema.String,
   provider: Schema.NullOr(ProviderKind),
   model: Schema.NullOr(TrimmedNonEmptyString),
@@ -1250,6 +1298,9 @@ export const OrchestrationLaunchPlanImplementationInput = Schema.Struct({
   providerOptions: Schema.optional(ProviderStartOptions),
   assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  launchMode: OrchestrationPlanImplementationLaunchMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE),
+  ),
   runSetup: Schema.Boolean,
 });
 export type OrchestrationLaunchPlanImplementationInput =

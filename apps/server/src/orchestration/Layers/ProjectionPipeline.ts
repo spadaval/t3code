@@ -452,6 +452,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             interactionMode: event.payload.interactionMode,
             branch: event.payload.branch,
             worktreePath: event.payload.worktreePath,
+            issueLink: event.payload.issueLink,
             latestTurnId: null,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
@@ -506,6 +507,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
             ...(event.payload.worktreePath !== undefined
               ? { worktreePath: event.payload.worktreePath }
+              : {}),
+            ...(event.payload.issueLink !== undefined
+              ? { issueLink: event.payload.issueLink }
               : {}),
             updatedAt: event.payload.updatedAt,
           });
@@ -637,6 +641,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             targetThreadId: event.payload.targetThreadId,
             retryOfLaunchId: event.payload.retryOfLaunchId,
             status: "requested",
+            launchMode: event.payload.launchMode,
             branch: null,
             worktreePath: null,
             failureReason: null,
@@ -812,6 +817,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             threadId: event.payload.threadId,
             turnId: event.payload.proposedPlan.turnId,
             planMarkdown: event.payload.proposedPlan.planMarkdown,
+            planIntent: event.payload.proposedPlan.planIntent,
             implementedAt: event.payload.proposedPlan.implementedAt,
             implementationThreadId: event.payload.proposedPlan.implementationThreadId,
             createdAt: event.payload.proposedPlan.createdAt,

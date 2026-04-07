@@ -51,6 +51,7 @@ import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
 import { ProjectSetupScriptRunnerLive } from "./project/Layers/ProjectSetupScriptRunner";
 import { ObservabilityLive } from "./observability/Layers/Observability";
 import { ProjectionPlanImplementationLaunchRepositoryLive } from "./persistence/Layers/ProjectionPlanImplementationLaunches";
+import { BeadsServiceLive } from "./beads/Layers/BeadsService";
 
 const PtyAdapterLive = Layer.unwrap(
   Effect.gen(function* () {
@@ -190,6 +191,11 @@ const WorkspaceLayerLive = Layer.mergeAll(
   ),
 );
 
+const BeadsLayerLive = BeadsServiceLive.pipe(
+  Layer.provide(OrchestrationLayerLive),
+  Layer.provide(PersistenceLayerLive),
+);
+
 const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   // Core Services
   Layer.provideMerge(CheckpointingLayerLive),
@@ -203,6 +209,7 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(ServerSettingsLive),
   Layer.provideMerge(WorkspaceLayerLive),
   Layer.provideMerge(ProjectFaviconResolverLive),
+  Layer.provideMerge(BeadsLayerLive),
 
   // Misc.
   Layer.provideMerge(AnalyticsServiceLayerLive),

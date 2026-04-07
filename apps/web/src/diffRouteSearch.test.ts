@@ -1,30 +1,30 @@
 import { describe, expect, it } from "vitest";
 
-import { parseDiffRouteSearch } from "./diffRouteSearch";
+import { parseDiffRouteSearch, stripDiffSearchParams } from "./diffRouteSearch";
 
 describe("parseDiffRouteSearch", () => {
-  it("parses valid diff search values", () => {
+  it("parses valid right pane diff values", () => {
     const parsed = parseDiffRouteSearch({
-      diff: "1",
+      rightPane: "diff",
       diffTurnId: "turn-1",
       diffFilePath: "src/app.ts",
     });
 
     expect(parsed).toEqual({
-      diff: "1",
+      rightPane: "diff",
       diffTurnId: "turn-1",
       diffFilePath: "src/app.ts",
     });
   });
 
-  it("treats numeric and boolean diff toggles as open", () => {
+  it("accepts the legacy diff toggle and normalizes it to rightPane", () => {
     expect(
       parseDiffRouteSearch({
         diff: 1,
         diffTurnId: "turn-1",
       }),
     ).toEqual({
-      diff: "1",
+      rightPane: "diff",
       diffTurnId: "turn-1",
     });
 
@@ -34,41 +34,57 @@ describe("parseDiffRouteSearch", () => {
         diffTurnId: "turn-1",
       }),
     ).toEqual({
-      diff: "1",
+      rightPane: "diff",
       diffTurnId: "turn-1",
     });
   });
 
-  it("drops turn and file values when diff is closed", () => {
+  it("drops turn and file values when no diff pane is selected", () => {
     const parsed = parseDiffRouteSearch({
-      diff: "0",
+      rightPane: "issues",
       diffTurnId: "turn-1",
       diffFilePath: "src/app.ts",
     });
 
-    expect(parsed).toEqual({});
+    expect(parsed).toEqual({ rightPane: "issues" });
   });
 
   it("drops file value when turn is not selected", () => {
     const parsed = parseDiffRouteSearch({
-      diff: "1",
+      rightPane: "diff",
       diffFilePath: "src/app.ts",
     });
 
     expect(parsed).toEqual({
-      diff: "1",
+      rightPane: "diff",
     });
   });
 
   it("normalizes whitespace-only values", () => {
     const parsed = parseDiffRouteSearch({
-      diff: "1",
+      rightPane: "diff",
       diffTurnId: "  ",
       diffFilePath: "  ",
     });
 
     expect(parsed).toEqual({
-      diff: "1",
+      rightPane: "diff",
+    });
+  });
+});
+
+describe("stripDiffSearchParams", () => {
+  it("removes right pane and diff search params", () => {
+    expect(
+      stripDiffSearchParams({
+        rightPane: "issues",
+        diff: "1",
+        diffTurnId: "turn-1",
+        diffFilePath: "src/app.ts",
+        foo: "bar",
+      }),
+    ).toEqual({
+      foo: "bar",
     });
   });
 });

@@ -1,4 +1,5 @@
 import {
+  BEADS_WS_METHODS,
   type GitActionProgressEvent,
   type GitRunStackedActionInput,
   type GitRunStackedActionResult,
@@ -73,6 +74,8 @@ export interface WsRpcClient {
       listener: (status: GitStatusResult) => void,
       options?: StreamSubscriptionOptions,
     ) => () => void;
+    readonly workingTree: RpcUnaryMethod<typeof WS_METHODS.gitWorkingTree>;
+    readonly currentPullRequest: RpcUnaryMethod<typeof WS_METHODS.gitCurrentPullRequest>;
     readonly runStackedAction: (
       input: GitRunStackedActionInput,
       options?: GitRunStackedActionOptions,
@@ -98,6 +101,26 @@ export interface WsRpcClient {
     ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverUpdateSettings>>;
     readonly subscribeConfig: RpcStreamMethod<typeof WS_METHODS.subscribeServerConfig>;
     readonly subscribeLifecycle: RpcStreamMethod<typeof WS_METHODS.subscribeServerLifecycle>;
+  };
+  readonly beads: {
+    readonly queryIssues: RpcUnaryMethod<typeof BEADS_WS_METHODS.queryIssues>;
+    readonly getIssue: RpcUnaryMethod<typeof BEADS_WS_METHODS.getIssue>;
+    readonly updateIssue: RpcUnaryMethod<typeof BEADS_WS_METHODS.updateIssue>;
+    readonly commentIssue: RpcUnaryMethod<typeof BEADS_WS_METHODS.commentIssue>;
+    readonly getContext: RpcUnaryMethod<typeof BEADS_WS_METHODS.getContext>;
+    readonly getSwarmSupport: RpcUnaryMethod<typeof BEADS_WS_METHODS.getSwarmSupport>;
+    readonly getIssueGraph: RpcUnaryMethod<typeof BEADS_WS_METHODS.getIssueGraph>;
+    readonly getEpicSwarm: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicSwarm>;
+    readonly validateEpicSwarm: RpcUnaryMethod<typeof BEADS_WS_METHODS.validateEpicSwarm>;
+    readonly getEpicSwarmStatus: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicSwarmStatus>;
+    readonly listSwarms: RpcUnaryMethod<typeof BEADS_WS_METHODS.listSwarms>;
+    readonly getSessionActivity: RpcUnaryMethod<typeof BEADS_WS_METHODS.getSessionActivity>;
+    readonly startWorkflow: RpcUnaryMethod<typeof BEADS_WS_METHODS.startWorkflow>;
+    readonly startEpicQuickRefine: RpcUnaryMethod<typeof BEADS_WS_METHODS.startEpicQuickRefine>;
+    readonly startEpicPlannedRefine: RpcUnaryMethod<typeof BEADS_WS_METHODS.startEpicPlannedRefine>;
+    readonly startEpicPlanImplementation: RpcUnaryMethod<
+      typeof BEADS_WS_METHODS.startEpicPlanImplementation
+    >;
   };
   readonly orchestration: {
     readonly getSnapshot: RpcUnaryNoArgMethod<typeof ORCHESTRATION_WS_METHODS.getSnapshot>;
@@ -179,6 +202,10 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
           options,
         );
       },
+      workingTree: (input) =>
+        transport.request((client) => client[WS_METHODS.gitWorkingTree](input)),
+      currentPullRequest: (input) =>
+        transport.request((client) => client[WS_METHODS.gitCurrentPullRequest](input)),
       runStackedAction: async (input, options) => {
         let result: GitRunStackedActionResult | null = null;
 
@@ -234,6 +261,39 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
           listener,
           options,
         ),
+    },
+    beads: {
+      queryIssues: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.queryIssues](input)),
+      getIssue: (input) => transport.request((client) => client[BEADS_WS_METHODS.getIssue](input)),
+      updateIssue: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.updateIssue](input)),
+      commentIssue: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.commentIssue](input)),
+      getContext: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getContext](input)),
+      getSwarmSupport: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getSwarmSupport](input)),
+      getIssueGraph: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getIssueGraph](input)),
+      getEpicSwarm: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getEpicSwarm](input)),
+      validateEpicSwarm: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.validateEpicSwarm](input)),
+      getEpicSwarmStatus: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getEpicSwarmStatus](input)),
+      listSwarms: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.listSwarms](input)),
+      getSessionActivity: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getSessionActivity](input)),
+      startWorkflow: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.startWorkflow](input)),
+      startEpicQuickRefine: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.startEpicQuickRefine](input)),
+      startEpicPlannedRefine: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.startEpicPlannedRefine](input)),
+      startEpicPlanImplementation: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.startEpicPlanImplementation](input)),
     },
     orchestration: {
       getSnapshot: () =>

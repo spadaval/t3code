@@ -195,7 +195,20 @@ describe("ProviderRuntimeIngestion", () => {
     }
   });
 
-  async function createHarness(options?: { serverSettings?: Partial<ServerSettings> }) {
+  async function createHarness(options?: {
+    serverSettings?: Partial<ServerSettings>;
+    threadCreate?: {
+      interactionMode?: "default" | "plan";
+      issueLink?: {
+        issueId: string;
+        title: string;
+        status: string;
+        priority: number | null;
+        repoRoot: string;
+        linkedAt: string;
+      } | null;
+    };
+  }) {
     const workspaceRoot = makeTempDir("t3-provider-project-");
     fs.mkdirSync(path.join(workspaceRoot, ".git"));
     const provider = createProviderServiceHarness();
@@ -247,10 +260,14 @@ describe("ProviderRuntimeIngestion", () => {
           provider: "codex",
           model: "gpt-5-codex",
         },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        interactionMode:
+          options?.threadCreate?.interactionMode ?? DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
+        ...(options?.threadCreate?.issueLink !== undefined
+          ? { issueLink: options.threadCreate.issueLink }
+          : {}),
         createdAt,
       }),
     );
@@ -1326,6 +1343,67 @@ describe("ProviderRuntimeIngestion", () => {
         entry.id === "plan:thread-1:turn:turn-plan-buffer",
     );
     expect(proposedPlan?.planMarkdown).toBe("## Buffered plan\n\n- first\n- second");
+  });
+
+  it("marks plan-mode issue-linked proposals as tracker refinements", async () => {
+    const now = new Date().toISOString();
+    const harness = await createHarness({
+      threadCreate: {
+        interactionMode: "plan",
+        issueLink: {
+          issueId: "EPIC-1",
+          title: "Epic",
+          status: "open",
+          priority: 2,
+          repoRoot: "/repo",
+          linkedAt: now,
+        },
+      },
+    });
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-tracker-refinement"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-tracker-refinement"),
+    });
+
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-tracker-refinement",
+    );
+
+    harness.emit({
+      type: "turn.proposed.completed",
+      eventId: asEventId("evt-turn-proposed-completed-tracker-refinement"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-tracker-refinement"),
+      payload: {
+        planMarkdown: "## Refine epic\n\n- Create child issues",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.proposedPlans.some(
+        (proposedPlan: ProviderRuntimeTestProposedPlan) =>
+          proposedPlan.id === "plan:thread-1:turn:turn-tracker-refinement",
+      ),
+    );
+    const proposedPlan = thread.proposedPlans.find(
+      (entry: ProviderRuntimeTestProposedPlan) =>
+        entry.id === "plan:thread-1:turn:turn-tracker-refinement",
+    );
+
+    expect(proposedPlan).toMatchObject({
+      planIntent: "tracker-refinement",
+      planMarkdown: "## Refine epic\n\n- Create child issues",
+    });
   });
 
   it("buffers assistant deltas by default until completion", async () => {

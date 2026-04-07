@@ -21,3 +21,8 @@ apps/web/src/components/__screenshots__
 .vitest-*
 __screenshots__/
 .tanstack
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key

@@ -98,6 +98,15 @@ function proposedPlanIdFromEvent(event: ProviderRuntimeEvent, threadId: ThreadId
   return `plan:${threadId}:event:${event.eventId}`;
 }
 
+function inferDefaultProposedPlanIntent(input: {
+  interactionMode: "default" | "plan";
+  hasIssueLink: boolean;
+}): "code-implementation" | "tracker-refinement" {
+  return input.interactionMode === "plan" && input.hasIssueLink
+    ? "tracker-refinement"
+    : "code-implementation";
+}
+
 function buildContextWindowActivityPayload(
   event: ProviderRuntimeEvent,
 ): ThreadTokenUsageSnapshot | undefined {
@@ -691,9 +700,11 @@ const make = Effect.fn("make")(function* () {
     threadProposedPlans: ReadonlyArray<{
       id: string;
       createdAt: string;
+      planIntent: "code-implementation" | "tracker-refinement";
       implementedAt: string | null;
       implementationThreadId: ThreadId | null;
     }>;
+    defaultPlanIntent: "code-implementation" | "tracker-refinement";
     planId: string;
     turnId?: TurnId;
     planMarkdown: string | undefined;
@@ -714,6 +725,7 @@ const make = Effect.fn("make")(function* () {
         id: input.planId,
         turnId: input.turnId ?? null,
         planMarkdown,
+        planIntent: existingPlan?.planIntent ?? input.defaultPlanIntent,
         implementedAt: existingPlan?.implementedAt ?? null,
         implementationThreadId: existingPlan?.implementationThreadId ?? null,
         createdAt: existingPlan?.createdAt ?? input.createdAt,
@@ -729,9 +741,11 @@ const make = Effect.fn("make")(function* () {
     threadProposedPlans: ReadonlyArray<{
       id: string;
       createdAt: string;
+      planIntent: "code-implementation" | "tracker-refinement";
       implementedAt: string | null;
       implementationThreadId: ThreadId | null;
     }>;
+    defaultPlanIntent: "code-implementation" | "tracker-refinement";
     planId: string;
     turnId?: TurnId;
     fallbackMarkdown?: string;
@@ -749,6 +763,7 @@ const make = Effect.fn("make")(function* () {
       event: input.event,
       threadId: input.threadId,
       threadProposedPlans: input.threadProposedPlans,
+      defaultPlanIntent: input.defaultPlanIntent,
       planId: input.planId,
       ...(input.turnId ? { turnId: input.turnId } : {}),
       planMarkdown,
@@ -882,6 +897,10 @@ const make = Effect.fn("make")(function* () {
     const now = event.createdAt;
     const eventTurnId = toTurnId(event.turnId);
     const activeTurnId = thread.session?.activeTurnId ?? null;
+    const defaultProposedPlanIntent = inferDefaultProposedPlanIntent({
+      interactionMode: thread.interactionMode,
+      hasIssueLink: thread.issueLink !== null,
+    });
 
     const conflictsWithActiveTurn =
       activeTurnId !== null && eventTurnId !== undefined && !sameId(activeTurnId, eventTurnId);
@@ -1099,6 +1118,7 @@ const make = Effect.fn("make")(function* () {
         event,
         threadId: thread.id,
         threadProposedPlans: thread.proposedPlans,
+        defaultPlanIntent: defaultProposedPlanIntent,
         planId: proposedPlanCompletion.planId,
         ...(proposedPlanCompletion.turnId ? { turnId: proposedPlanCompletion.turnId } : {}),
         fallbackMarkdown: proposedPlanCompletion.planMarkdown,
@@ -1130,6 +1150,7 @@ const make = Effect.fn("make")(function* () {
           event,
           threadId: thread.id,
           threadProposedPlans: thread.proposedPlans,
+          defaultPlanIntent: defaultProposedPlanIntent,
           planId: proposedPlanIdForTurn(thread.id, turnId),
           turnId,
           updatedAt: now,

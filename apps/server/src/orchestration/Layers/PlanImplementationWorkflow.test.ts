@@ -153,6 +153,7 @@ describe("PlanImplementationWorkflow", () => {
         proposedPlan: {
           id: "plan-1",
           turnId: null,
+          planIntent: "code-implementation",
           implementedAt: null,
           implementationThreadId: null,
           planMarkdown: "# Auth flow\n\n1. Implement it",
@@ -182,6 +183,7 @@ describe("PlanImplementationWorkflow", () => {
         sourceThreadId: harness.threadId,
         planId: "plan-1",
         runtimeMode: "full-access",
+        launchMode: "worktree",
         runSetup: false,
       }),
     );
@@ -211,6 +213,7 @@ describe("PlanImplementationWorkflow", () => {
         sourceThreadId: harness.threadId,
         planId: "plan-1",
         runtimeMode: "full-access",
+        launchMode: "worktree",
         runSetup: false,
       }),
     );

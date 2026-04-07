@@ -4,6 +4,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 
 import {
   CommandId,
+  BeadsError,
   DEFAULT_SERVER_SETTINGS,
   GitCommandError,
   KeybindingRule,
@@ -90,6 +91,7 @@ import {
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
+import { BeadsService, type BeadsServiceShape } from "./beads/Services/BeadsService.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
 const defaultThreadId = ThreadId.makeUnsafe("thread-default");
@@ -126,6 +128,7 @@ const makeDefaultOrchestrationReadModel = () => {
         runtimeMode: "full-access" as const,
         branch: null,
         worktreePath: null,
+        issueLink: null,
         createdAt: now,
         updatedAt: now,
         archivedAt: null,
@@ -274,6 +277,7 @@ const buildAppUnderTest = (options?: {
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
     browserTraceCollector?: Partial<BrowserTraceCollectorShape>;
+    beads?: Partial<BeadsServiceShape>;
     serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
   };
@@ -379,6 +383,100 @@ const buildAppUnderTest = (options?: {
         Layer.mock(ProjectionSnapshotQuery)({
           getSnapshot: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
           ...options?.layers?.projectionSnapshotQuery,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(BeadsService)({
+          queryIssues: () => Effect.succeed({ issues: [] }),
+          getIssue: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.getIssue was called without a test-specific mock.",
+              }),
+            ),
+          updateIssue: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.updateIssue was called without a test-specific mock.",
+              }),
+            ),
+          commentIssue: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.commentIssue was called without a test-specific mock.",
+              }),
+            ),
+          getContext: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.getContext was called without a test-specific mock.",
+              }),
+            ),
+          getSwarmSupport: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.getSwarmSupport was called without a test-specific mock.",
+              }),
+            ),
+          getIssueGraph: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.getIssueGraph was called without a test-specific mock.",
+              }),
+            ),
+          getEpicSwarm: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.getEpicSwarm was called without a test-specific mock.",
+              }),
+            ),
+          validateEpicSwarm: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.validateEpicSwarm was called without a test-specific mock.",
+              }),
+            ),
+          getEpicSwarmStatus: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.getEpicSwarmStatus was called without a test-specific mock.",
+              }),
+            ),
+          listSwarms: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.listSwarms was called without a test-specific mock.",
+              }),
+            ),
+          getSessionActivity: () => Effect.succeed({ entries: [] }),
+          startWorkflow: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.startWorkflow was called without a test-specific mock.",
+              }),
+            ),
+          startEpicQuickRefine: () =>
+            Effect.fail(
+              new BeadsError({
+                message:
+                  "BeadsService.startEpicQuickRefine was called without a test-specific mock.",
+              }),
+            ),
+          startEpicPlannedRefine: () =>
+            Effect.fail(
+              new BeadsError({
+                message:
+                  "BeadsService.startEpicPlannedRefine was called without a test-specific mock.",
+              }),
+            ),
+          startEpicPlanImplementation: () =>
+            Effect.fail(
+              new BeadsError({
+                message:
+                  "BeadsService.startEpicPlanImplementation was called without a test-specific mock.",
+              }),
+            ),
+          ...options?.layers?.beads,
         }),
       ),
       Layer.provide(
@@ -1935,6 +2033,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             runtimeMode: "full-access" as const,
             branch: null,
             worktreePath: null,
+            issueLink: null,
             createdAt: now,
             updatedAt: now,
             archivedAt: null,

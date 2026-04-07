@@ -372,6 +372,7 @@ describe("wsNativeApi", () => {
       sourceThreadId: ThreadId.makeUnsafe("thread-1"),
       planId: "plan-1",
       runtimeMode: "full-access",
+      launchMode: "worktree",
       runSetup: true,
     });
 
@@ -379,6 +380,7 @@ describe("wsNativeApi", () => {
       sourceThreadId: "thread-1",
       planId: "plan-1",
       runtimeMode: "full-access",
+      launchMode: "worktree",
       runSetup: true,
     });
   });

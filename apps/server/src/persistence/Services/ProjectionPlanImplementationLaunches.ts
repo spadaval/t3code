@@ -1,6 +1,8 @@
 import {
   AssistantDeliveryMode,
+  DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE,
   IsoDateTime,
+  OrchestrationPlanImplementationLaunchMode,
   OrchestrationProposedPlanId,
   OrchestrationPlanImplementationLaunchCleanupStatus,
   OrchestrationPlanImplementationLaunchStatus,
@@ -25,6 +27,9 @@ export const ProjectionPlanImplementationLaunch = Schema.Struct({
   targetThreadId: ThreadId,
   retryOfLaunchId: Schema.NullOr(PlanImplementationLaunchId),
   status: OrchestrationPlanImplementationLaunchStatus,
+  launchMode: OrchestrationPlanImplementationLaunchMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE),
+  ),
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
   failureReason: Schema.NullOr(Schema.String),

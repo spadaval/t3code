@@ -1,67 +1,97 @@
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-export default Effect.gen(function* () {
+interface TableColumnRow {
+  readonly name: string;
+}
+
+const hasColumn = (columns: ReadonlyArray<TableColumnRow>, name: string): boolean =>
+  columns.some((column) => column.name === name);
+
+export const repairCanonicalModelSelections = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-
-  yield* sql`
-    ALTER TABLE projection_projects
-    ADD COLUMN default_model_selection_json TEXT
+  const projectColumns = yield* sql<TableColumnRow>`
+    PRAGMA table_info(projection_projects)
+  `;
+  const threadColumns = yield* sql<TableColumnRow>`
+    PRAGMA table_info(projection_threads)
   `;
 
-  yield* sql`
-    UPDATE projection_projects
-    SET default_model_selection_json = CASE
-      WHEN default_model IS NULL THEN NULL
-      ELSE json_object(
+  const hasProjectDefaultModelSelection = hasColumn(projectColumns, "default_model_selection_json");
+  const hasLegacyProjectDefaultModel = hasColumn(projectColumns, "default_model");
+  const hasThreadModelSelection = hasColumn(threadColumns, "model_selection_json");
+  const hasLegacyThreadModel = hasColumn(threadColumns, "model");
+
+  if (!hasProjectDefaultModelSelection) {
+    yield* sql`
+      ALTER TABLE projection_projects
+      ADD COLUMN default_model_selection_json TEXT
+    `;
+  }
+
+  if (hasLegacyProjectDefaultModel) {
+    yield* sql`
+      UPDATE projection_projects
+      SET default_model_selection_json = CASE
+        WHEN default_model IS NULL THEN NULL
+        ELSE json_object(
+          'provider',
+          CASE
+            WHEN lower(default_model) LIKE '%claude%' THEN 'claudeAgent'
+            ELSE 'codex'
+          END,
+          'model',
+          default_model
+        )
+      END
+      WHERE default_model_selection_json IS NULL
+    `;
+  }
+
+  if (!hasThreadModelSelection) {
+    yield* sql`
+      ALTER TABLE projection_threads
+      ADD COLUMN model_selection_json TEXT
+    `;
+  }
+
+  if (hasLegacyThreadModel) {
+    yield* sql`
+      UPDATE projection_threads
+      SET model_selection_json = json_object(
         'provider',
-        CASE
-          WHEN lower(default_model) LIKE '%claude%' THEN 'claudeAgent'
-          ELSE 'codex'
-        END,
-        'model',
-        default_model
-      )
-    END
-    WHERE default_model_selection_json IS NULL
-  `;
-
-  yield* sql`
-    ALTER TABLE projection_threads
-    ADD COLUMN model_selection_json TEXT
-  `;
-
-  yield* sql`
-    UPDATE projection_threads
-    SET model_selection_json = json_object(
-      'provider',
-      COALESCE(
-        (
-          SELECT provider_name
-          FROM projection_thread_sessions
-          WHERE projection_thread_sessions.thread_id = projection_threads.thread_id
+        COALESCE(
+          (
+            SELECT provider_name
+            FROM projection_thread_sessions
+            WHERE projection_thread_sessions.thread_id = projection_threads.thread_id
+          ),
+          CASE
+            WHEN lower(model) LIKE '%claude%' THEN 'claudeAgent'
+            ELSE 'codex'
+          END,
+          'codex'
         ),
-        CASE
-          WHEN lower(model) LIKE '%claude%' THEN 'claudeAgent'
-          ELSE 'codex'
-        END,
-        'codex'
-      ),
-      'model',
-      model
-    )
-    WHERE model_selection_json IS NULL
-  `;
+        'model',
+        model
+      )
+      WHERE model_selection_json IS NULL
+    `;
+  }
 
-  yield* sql`
-    ALTER TABLE projection_projects
-    DROP COLUMN default_model
-  `;
+  if (hasLegacyProjectDefaultModel) {
+    yield* sql`
+      ALTER TABLE projection_projects
+      DROP COLUMN default_model
+    `;
+  }
 
-  yield* sql`
-    ALTER TABLE projection_threads
-    DROP COLUMN model
-  `;
+  if (hasLegacyThreadModel) {
+    yield* sql`
+      ALTER TABLE projection_threads
+      DROP COLUMN model
+    `;
+  }
 
   yield* sql`
     UPDATE orchestration_events
@@ -233,3 +263,5 @@ export default Effect.gen(function* () {
       AND json_type(payload_json, '$.model') IS NULL
   `;
 });
+
+export default repairCanonicalModelSelections;

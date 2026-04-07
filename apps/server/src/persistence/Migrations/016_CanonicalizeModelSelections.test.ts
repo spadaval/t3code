@@ -3,6 +3,7 @@ import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { runMigrations } from "../Migrations.ts";
+import { repairCanonicalModelSelections } from "./016_CanonicalizeModelSelections.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
@@ -376,6 +377,174 @@ layer("016_CanonicalizeModelSelections", (it) => {
             updatedAt: "2026-01-01T00:00:00.000Z",
           });
         }
+      }),
+  );
+
+  it.effect(
+    "repairs legacy projection tables even when later migrations are already recorded",
+    () =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* sql`DROP TABLE IF EXISTS effect_sql_migrations`;
+        yield* sql`DROP TABLE IF EXISTS projection_thread_sessions`;
+        yield* sql`DROP TABLE IF EXISTS projection_threads`;
+        yield* sql`DROP TABLE IF EXISTS projection_projects`;
+        yield* sql`DROP TABLE IF EXISTS orchestration_events`;
+
+        yield* sql`
+          CREATE TABLE effect_sql_migrations (
+            migration_id integer PRIMARY KEY NOT NULL,
+            created_at datetime NOT NULL DEFAULT current_timestamp,
+            name VARCHAR(255) NOT NULL
+          )
+        `;
+        yield* sql`
+          CREATE TABLE projection_projects (
+            project_id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            workspace_root TEXT NOT NULL,
+            default_model TEXT,
+            scripts_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT
+          )
+        `;
+        yield* sql`
+          CREATE TABLE projection_threads (
+            thread_id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            model TEXT NOT NULL,
+            branch TEXT,
+            worktree_path TEXT,
+            latest_turn_id TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT,
+            runtime_mode TEXT NOT NULL,
+            interaction_mode TEXT NOT NULL
+          )
+        `;
+        yield* sql`
+          CREATE TABLE projection_thread_sessions (
+            thread_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL,
+            provider_name TEXT,
+            provider_session_id TEXT,
+            provider_thread_id TEXT,
+            active_turn_id TEXT,
+            last_error TEXT,
+            updated_at TEXT NOT NULL
+          )
+        `;
+        yield* sql`
+          CREATE TABLE orchestration_events (
+            event_id TEXT PRIMARY KEY,
+            aggregate_kind TEXT NOT NULL,
+            stream_id TEXT NOT NULL,
+            stream_version INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            command_id TEXT,
+            causation_event_id TEXT,
+            correlation_id TEXT,
+            actor_kind TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            metadata_json TEXT NOT NULL
+          )
+        `;
+
+        yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model,
+          scripts_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'project-1',
+          'Project 1',
+          '/tmp/project-1',
+          'gpt-5.4',
+          '[]',
+          '2026-01-01T00:00:00.000Z',
+          '2026-01-01T00:00:00.000Z',
+          NULL
+        )
+      `;
+
+        yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model,
+          branch,
+          worktree_path,
+          latest_turn_id,
+          created_at,
+          updated_at,
+          deleted_at,
+          runtime_mode,
+          interaction_mode
+        )
+        VALUES (
+          'thread-1',
+          'project-1',
+          'Thread 1',
+          'gpt-5.4',
+          NULL,
+          NULL,
+          NULL,
+          '2026-01-01T00:00:00.000Z',
+          '2026-01-01T00:00:00.000Z',
+          NULL,
+          'full-access',
+          'default'
+        )
+      `;
+
+        yield* sql`
+        INSERT INTO effect_sql_migrations (migration_id, name)
+        VALUES
+          (16, 'CanonicalizeModelSelections'),
+          (17, 'ProjectionThreadsArchivedAt'),
+          (18, 'ProjectionThreadsArchivedAtIndex'),
+          (19, 'ProjectionSnapshotLookupIndexes'),
+          (20, 'ProjectionPlanImplementationLaunches')
+      `;
+
+        yield* repairCanonicalModelSelections;
+
+        const projectRows = yield* sql<{
+          readonly defaultModelSelection: string | null;
+        }>`
+        SELECT default_model_selection_json AS "defaultModelSelection"
+        FROM projection_projects
+      `;
+        assert.deepStrictEqual(projectRows, [
+          {
+            defaultModelSelection: '{"provider":"codex","model":"gpt-5.4"}',
+          },
+        ]);
+
+        const threadRows = yield* sql<{
+          readonly modelSelection: string | null;
+        }>`
+        SELECT model_selection_json AS "modelSelection"
+        FROM projection_threads
+      `;
+        assert.deepStrictEqual(threadRows, [
+          {
+            modelSelection: '{"provider":"codex","model":"gpt-5.4"}',
+          },
+        ]);
       }),
   );
 });

@@ -143,6 +143,7 @@ function mapProposedPlan(proposedPlan: OrchestrationProposedPlan): Thread["propo
     id: proposedPlan.id,
     turnId: proposedPlan.turnId,
     planMarkdown: proposedPlan.planMarkdown,
+    planIntent: proposedPlan.planIntent,
     implementedAt: proposedPlan.implementedAt,
     implementationThreadId: proposedPlan.implementationThreadId,
     createdAt: proposedPlan.createdAt,
@@ -184,6 +185,7 @@ function mapThread(thread: OrchestrationThread): Thread {
     pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    issueLink: thread.issueLink,
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
   };
@@ -667,6 +669,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         interactionMode: event.payload.interactionMode,
         branch: event.payload.branch,
         worktreePath: event.payload.worktreePath,
+        issueLink: event.payload.issueLink,
         latestTurn: null,
         createdAt: event.payload.createdAt,
         updatedAt: event.payload.updatedAt,
@@ -756,6 +759,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         ...(event.payload.worktreePath !== undefined
           ? { worktreePath: event.payload.worktreePath }
           : {}),
+        ...(event.payload.issueLink !== undefined ? { issueLink: event.payload.issueLink } : {}),
         updatedAt: event.payload.updatedAt,
       }));
     }

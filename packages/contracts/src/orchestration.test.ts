@@ -3,12 +3,15 @@ import { it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
 import {
+  DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE,
+  DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   OrchestrationCommand,
   OrchestrationEvent,
   OrchestrationGetTurnDiffInput,
   OrchestrationLatestTurn,
+  OrchestrationLaunchPlanImplementationInput,
   ProjectCreatedPayload,
   ProjectMetaUpdatedPayload,
   OrchestrationProposedPlan,
@@ -30,6 +33,9 @@ const decodeProjectMetaUpdatedPayload = Schema.decodeUnknownEffect(ProjectMetaUp
 const decodeThreadTurnStartCommand = Schema.decodeUnknownEffect(ThreadTurnStartCommand);
 const decodePlanImplementationLaunchRequestedPayload = Schema.decodeUnknownEffect(
   PlanImplementationLaunchRequestedPayload,
+);
+const decodeOrchestrationLaunchPlanImplementationInput = Schema.decodeUnknownEffect(
+  OrchestrationLaunchPlanImplementationInput,
 );
 const decodeThreadTurnStartRequestedPayload = Schema.decodeUnknownEffect(
   ThreadTurnStartRequestedPayload,
@@ -436,6 +442,21 @@ it.effect("decodes plan implementation launch requested payload execution snapsh
     assert.strictEqual(parsed.title, "Implement auth flow");
     assert.strictEqual(parsed.model, "gpt-5-codex");
     assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
+    assert.strictEqual(parsed.launchMode, DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE);
+  }),
+);
+
+it.effect("decodes launch plan input tracker-only mode when requested", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationLaunchPlanImplementationInput({
+      sourceThreadId: "thread-1",
+      planId: "plan-1",
+      runSetup: false,
+      launchMode: "tracker-only",
+    });
+
+    assert.strictEqual(parsed.launchMode, "tracker-only");
+    assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
   }),
 );
 
@@ -531,22 +552,25 @@ it.effect("defaults proposed plan implementation metadata for historical rows", 
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
+    assert.strictEqual(parsed.planIntent, DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT);
     assert.strictEqual(parsed.implementedAt, null);
     assert.strictEqual(parsed.implementationThreadId, null);
   }),
 );
 
-it.effect("preserves proposed plan implementation metadata when present", () =>
+it.effect("preserves proposed plan intent and implementation metadata when present", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeOrchestrationProposedPlan({
       id: "plan-2",
       turnId: "turn-2",
       planMarkdown: "# Plan",
+      planIntent: "tracker-refinement",
       implementedAt: "2026-01-02T00:00:00.000Z",
       implementationThreadId: "thread-2",
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-02T00:00:00.000Z",
     });
+    assert.strictEqual(parsed.planIntent, "tracker-refinement");
     assert.strictEqual(parsed.implementedAt, "2026-01-02T00:00:00.000Z");
     assert.strictEqual(parsed.implementationThreadId, "thread-2");
   }),

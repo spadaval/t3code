@@ -3,6 +3,8 @@ import {
   CommandId,
   EventId,
   type OrchestrationCommand,
+  BEADS_WS_METHODS,
+  BeadsError,
   type GitActionProgressEvent,
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
@@ -48,6 +50,7 @@ import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
 import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptRunner";
+import { BeadsService } from "./beads/Services/BeadsService";
 
 const WsRpcLayer = WsRpcGroup.toLayer(
   Effect.gen(function* () {
@@ -69,6 +72,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const workspaceEntries = yield* WorkspaceEntries;
     const workspaceFileSystem = yield* WorkspaceFileSystem;
     const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
+    const beads = yield* BeadsService;
     const serverCommandId = (tag: string) =>
       CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
 
@@ -455,6 +459,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               sourceThreadId: input.sourceThreadId,
               planId: input.planId,
               runtimeMode: input.runtimeMode,
+              launchMode: input.launchMode,
               runSetup: input.runSetup,
             })
             .pipe(
@@ -620,6 +625,246 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
           { "rpc.aggregate": "workspace" },
         ),
+      [BEADS_WS_METHODS.queryIssues]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.queryIssues,
+          beads.queryIssues(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to query beads issues",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
+      [BEADS_WS_METHODS.getIssue]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.getIssue,
+          beads.getIssue(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to load beads issue",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
+      [BEADS_WS_METHODS.updateIssue]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.updateIssue,
+          beads.updateIssue(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to update beads issue",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
+      [BEADS_WS_METHODS.commentIssue]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.commentIssue,
+          beads.commentIssue(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to comment on beads issue",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
+      [BEADS_WS_METHODS.getContext]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.getContext,
+          beads.getContext(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to load beads context",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
+      [BEADS_WS_METHODS.getSwarmSupport]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.getSwarmSupport,
+          beads.getSwarmSupport(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to load beads swarm support",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
+      [BEADS_WS_METHODS.getIssueGraph]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.getIssueGraph,
+          beads.getIssueGraph(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to load beads issue graph",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
+      [BEADS_WS_METHODS.getEpicSwarm]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.getEpicSwarm,
+          beads.getEpicSwarm(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to load epic swarm summary",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
+      [BEADS_WS_METHODS.validateEpicSwarm]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.validateEpicSwarm,
+          beads.validateEpicSwarm(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to validate epic swarm",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
+      [BEADS_WS_METHODS.getEpicSwarmStatus]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.getEpicSwarmStatus,
+          beads.getEpicSwarmStatus(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to load epic swarm status",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
+      [BEADS_WS_METHODS.listSwarms]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.listSwarms,
+          beads.listSwarms(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to list swarms",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
+      [BEADS_WS_METHODS.getSessionActivity]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.getSessionActivity,
+          beads.getSessionActivity(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to load beads session activity",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
+      [BEADS_WS_METHODS.startWorkflow]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.startWorkflow,
+          beads.startWorkflow(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to start beads workflow",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
+      [BEADS_WS_METHODS.startEpicQuickRefine]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.startEpicQuickRefine,
+          beads.startEpicQuickRefine(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to start epic quick refine workflow",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
+      [BEADS_WS_METHODS.startEpicPlannedRefine]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.startEpicPlannedRefine,
+          beads.startEpicPlannedRefine(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to start epic planned refine workflow",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
+      [BEADS_WS_METHODS.startEpicPlanImplementation]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.startEpicPlanImplementation,
+          beads.startEpicPlanImplementation(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to start epic plan implementation workflow",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
       [WS_METHODS.shellOpenInEditor]: (input) =>
         observeRpcEffect(WS_METHODS.shellOpenInEditor, open.openInEditor(input), {
           "rpc.aggregate": "workspace",
@@ -636,6 +881,14 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             "rpc.aggregate": "git",
           },
         ),
+      [WS_METHODS.gitWorkingTree]: (input) =>
+        observeRpcEffect(WS_METHODS.gitWorkingTree, git.workingTree(input.cwd), {
+          "rpc.aggregate": "git",
+        }),
+      [WS_METHODS.gitCurrentPullRequest]: (input) =>
+        observeRpcEffect(WS_METHODS.gitCurrentPullRequest, gitManager.currentPullRequest(input), {
+          "rpc.aggregate": "git",
+        }),
       [WS_METHODS.gitPull]: (input) =>
         observeRpcEffect(
           WS_METHODS.gitPull,

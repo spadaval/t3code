@@ -18,6 +18,7 @@ import {
   type OrchestrationSession,
   type OrchestrationThread,
   type OrchestrationThreadActivity,
+  OrchestrationThreadIssueLink,
   ModelSelection,
   ProjectId,
   ThreadId,
@@ -66,6 +67,7 @@ const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
+    issueLink: Schema.NullOr(Schema.fromJsonString(OrchestrationThreadIssueLink)),
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -208,6 +210,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          issue_link_json AS "issueLink",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -248,6 +251,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           turn_id AS "turnId",
           plan_markdown AS "planMarkdown",
+          plan_intent AS "planIntent",
           implemented_at AS "implementedAt",
           implementation_thread_id AS "implementationThreadId",
           created_at AS "createdAt",
@@ -315,6 +319,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           target_thread_id AS "targetThreadId",
           retry_of_launch_id AS "retryOfLaunchId",
           status,
+          launch_mode AS "launchMode",
           branch,
           worktree_path AS "worktreePath",
           failure_reason AS "failureReason",
@@ -625,6 +630,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               id: row.planId,
               turnId: row.turnId,
               planMarkdown: row.planMarkdown,
+              planIntent: row.planIntent,
               implementedAt: row.implementedAt,
               implementationThreadId: row.implementationThreadId,
               createdAt: row.createdAt,
@@ -733,6 +739,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             interactionMode: row.interactionMode,
             branch: row.branch,
             worktreePath: row.worktreePath,
+            issueLink: row.issueLink,
             latestTurn: latestTurnByThread.get(row.threadId) ?? null,
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,
@@ -761,6 +768,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 row.status === "cancelled"
                   ? (row.status as OrchestrationPlanImplementationLaunchStatus)
                   : "failed",
+              launchMode: row.launchMode,
               branch: row.branch,
               worktreePath: row.worktreePath,
               failureReason: row.failureReason,

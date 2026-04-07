@@ -265,6 +265,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           runtimeMode: "full-access",
           branch: null,
           worktreePath: null,
+          issueLink: null,
           latestTurn: {
             turnId: asTurnId("turn-1"),
             state: "completed",
@@ -297,6 +298,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               id: "plan-1",
               turnId: asTurnId("turn-1"),
               planMarkdown: "# Ship it",
+              planIntent: "code-implementation",
               implementedAt: "2026-02-24T00:00:05.500Z",
               implementationThreadId: ThreadId.makeUnsafe("thread-2"),
               createdAt: "2026-02-24T00:00:05.000Z",

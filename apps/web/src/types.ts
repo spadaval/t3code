@@ -4,6 +4,7 @@ import type {
   OrchestrationLatestTurn,
   OrchestrationProposedPlanId,
   OrchestrationSessionStatus,
+  OrchestrationThreadIssueLink,
   OrchestrationThreadActivity,
   ProjectScript as ContractProjectScript,
   ThreadId,
@@ -57,6 +58,7 @@ export interface ProposedPlan {
   id: OrchestrationProposedPlanId;
   turnId: TurnId | null;
   planMarkdown: string;
+  planIntent: "code-implementation" | "tracker-refinement";
   implementedAt: string | null;
   implementationThreadId: ThreadId | null;
   createdAt: string;
@@ -109,6 +111,7 @@ export interface Thread {
   pendingSourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"];
   branch: string | null;
   worktreePath: string | null;
+  issueLink: OrchestrationThreadIssueLink | null;
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
 }
