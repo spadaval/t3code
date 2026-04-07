@@ -7,6 +7,8 @@ import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
+  requirePlanImplementationLaunch,
+  requirePlanImplementationLaunchAbsent,
   requireProject,
   requireProjectAbsent,
   requireThread,
@@ -673,6 +675,147 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           activity: command.activity,
+        },
+      };
+    }
+
+    case "plan-implementation-launch.request": {
+      yield* requirePlanImplementationLaunchAbsent({
+        readModel,
+        command,
+        launchId: command.launchId,
+      });
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.sourceThreadId,
+      });
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "planImplementationLaunch",
+          aggregateId: command.launchId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "plan-implementation-launch.requested",
+        payload: {
+          launchId: command.launchId,
+          sourceThreadId: command.sourceThreadId,
+          sourcePlanId: command.sourcePlanId,
+          projectId: command.projectId,
+          targetThreadId: command.targetThreadId,
+          retryOfLaunchId: command.retryOfLaunchId ?? null,
+          title: command.title,
+          setupEnabled: command.setupEnabled,
+          promptText: command.promptText,
+          provider: command.provider ?? null,
+          model: command.model ?? null,
+          modelOptions: command.modelOptions ?? null,
+          providerOptions: command.providerOptions ?? null,
+          assistantDeliveryMode: command.assistantDeliveryMode ?? null,
+          runtimeMode: command.runtimeMode,
+          requestedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "plan-implementation-launch.mark-worktree-prepared": {
+      yield* requirePlanImplementationLaunch({
+        readModel,
+        command,
+        launchId: command.launchId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "planImplementationLaunch",
+          aggregateId: command.launchId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "plan-implementation-launch.worktree-prepared",
+        payload: {
+          launchId: command.launchId,
+          branch: command.branch,
+          worktreePath: command.worktreePath,
+          preparedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "plan-implementation-launch.mark-started": {
+      yield* requirePlanImplementationLaunch({
+        readModel,
+        command,
+        launchId: command.launchId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "planImplementationLaunch",
+          aggregateId: command.launchId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "plan-implementation-launch.started",
+        payload: {
+          launchId: command.launchId,
+          startedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "plan-implementation-launch.fail": {
+      yield* requirePlanImplementationLaunch({
+        readModel,
+        command,
+        launchId: command.launchId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "planImplementationLaunch",
+          aggregateId: command.launchId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "plan-implementation-launch.failed",
+        payload: {
+          launchId: command.launchId,
+          failureReason: command.failureReason,
+          cleanupStatus: command.cleanupStatus,
+          cleanupError: command.cleanupError ?? null,
+          failedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "plan-implementation-launch.cancel": {
+      yield* requirePlanImplementationLaunch({
+        readModel,
+        command,
+        launchId: command.launchId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "planImplementationLaunch",
+          aggregateId: command.launchId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "plan-implementation-launch.cancelled",
+        payload: {
+          launchId: command.launchId,
+          cleanupStatus: command.cleanupStatus,
+          cleanupError: command.cleanupError ?? null,
+          cancelledAt: command.createdAt,
+          updatedAt: command.createdAt,
         },
       };
     }

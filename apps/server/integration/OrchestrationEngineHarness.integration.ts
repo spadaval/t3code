@@ -52,6 +52,7 @@ import { RuntimeReceiptBusTest } from "../src/orchestration/Layers/RuntimeReceip
 import { OrchestrationReactorLive } from "../src/orchestration/Layers/OrchestrationReactor.ts";
 import { ProviderCommandReactorLive } from "../src/orchestration/Layers/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionLive } from "../src/orchestration/Layers/ProviderRuntimeIngestion.ts";
+import { PlanImplementationWorkflow } from "../src/orchestration/Services/PlanImplementationWorkflow.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -333,6 +334,15 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(runtimeIngestionLayer),
       Layer.provideMerge(providerCommandReactorLayer),
       Layer.provideMerge(checkpointReactorLayer),
+      Layer.provideMerge(
+        Layer.succeed(PlanImplementationWorkflow, {
+          start: Effect.void,
+          drain: Effect.void,
+          launchPlanImplementation: () => Effect.die("unused"),
+          cancelPlanImplementationLaunch: () => Effect.die("unused"),
+          retryPlanImplementationLaunch: () => Effect.die("unused"),
+        }),
+      ),
     );
     const layer = Layer.empty.pipe(
       Layer.provideMerge(runtimeServicesLayer),

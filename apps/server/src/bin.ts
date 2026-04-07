@@ -8,7 +8,7 @@ import { NetService } from "@t3tools/shared/Net";
 import { cli } from "./cli";
 import { version } from "../package.json" with { type: "json" };
 
-const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
+const CliRuntimeLayer = NetService.layer.pipe(Layer.provideMerge(NodeServices.layer));
 
 Command.run(cli, { version }).pipe(
   Effect.scoped,

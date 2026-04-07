@@ -107,6 +107,12 @@ export function createWsNativeApi(): NativeApi {
         rpcClient.orchestration
           .replayEvents({ fromSequenceExclusive })
           .then((events) => [...events]),
+      launchPlanImplementation: (input) =>
+        rpcClient.orchestration.launchPlanImplementation(input as never),
+      cancelPlanImplementationLaunch: (input) =>
+        rpcClient.orchestration.cancelPlanImplementationLaunch(input as never),
+      retryPlanImplementationLaunch: (input) =>
+        rpcClient.orchestration.retryPlanImplementationLaunch(input as never),
       onDomainEvent: (callback, options) =>
         rpcClient.orchestration.onDomainEvent(callback, options),
     },

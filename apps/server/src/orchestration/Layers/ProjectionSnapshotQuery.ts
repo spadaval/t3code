@@ -5,12 +5,14 @@ import {
   NonNegativeInt,
   OrchestrationCheckpointFile,
   OrchestrationProposedPlanId,
+  OrchestrationPlanImplementationLaunchStatus,
   OrchestrationReadModel,
   ProjectScript,
   TurnId,
   type OrchestrationCheckpointSummary,
   type OrchestrationLatestTurn,
   type OrchestrationMessage,
+  type OrchestrationPlanImplementationLaunch,
   type OrchestrationProposedPlan,
   type OrchestrationProject,
   type OrchestrationSession,
@@ -31,6 +33,7 @@ import {
   type ProjectionRepositoryError,
 } from "../../persistence/Errors.ts";
 import { ProjectionCheckpoint } from "../../persistence/Services/ProjectionCheckpoints.ts";
+import { ProjectionPlanImplementationLaunch } from "../../persistence/Services/ProjectionPlanImplementationLaunches.ts";
 import { ProjectionProject } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionState } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivity } from "../../persistence/Services/ProjectionThreadActivities.ts";
@@ -72,6 +75,13 @@ const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
   }),
 );
 const ProjectionThreadSessionDbRowSchema = ProjectionThreadSession;
+const ProjectionPlanImplementationLaunchDbRowSchema = ProjectionPlanImplementationLaunch.mapFields(
+  Struct.assign({
+    setupEnabled: Schema.Number,
+    modelOptions: Schema.NullOr(Schema.fromJsonString(Schema.Unknown)),
+    providerOptions: Schema.NullOr(Schema.fromJsonString(Schema.Unknown)),
+  }),
+);
 const ProjectionCheckpointDbRowSchema = ProjectionCheckpoint.mapFields(
   Struct.assign({
     files: Schema.fromJsonString(Schema.Array(OrchestrationCheckpointFile)),
@@ -116,6 +126,7 @@ const ProjectionThreadCheckpointContextThreadRowSchema = Schema.Struct({
 const REQUIRED_SNAPSHOT_PROJECTORS = [
   ORCHESTRATION_PROJECTOR_NAMES.projects,
   ORCHESTRATION_PROJECTOR_NAMES.threads,
+  ORCHESTRATION_PROJECTOR_NAMES.planImplementationLaunches,
   ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
   ORCHESTRATION_PROJECTOR_NAMES.threadProposedPlans,
   ORCHESTRATION_PROJECTOR_NAMES.threadActivities,
@@ -291,6 +302,44 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
+  const listPlanImplementationLaunchRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionPlanImplementationLaunchDbRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          launch_id AS "launchId",
+          source_thread_id AS "sourceThreadId",
+          source_plan_id AS "sourcePlanId",
+          project_id AS "projectId",
+          target_thread_id AS "targetThreadId",
+          retry_of_launch_id AS "retryOfLaunchId",
+          status,
+          branch,
+          worktree_path AS "worktreePath",
+          failure_reason AS "failureReason",
+          cleanup_status AS "cleanupStatus",
+          cleanup_error AS "cleanupError",
+          title,
+          setup_enabled AS "setupEnabled",
+          prompt_text AS "promptText",
+          provider,
+          model,
+          model_options_json AS "modelOptions",
+          provider_options_json AS "providerOptions",
+          assistant_delivery_mode AS "assistantDeliveryMode",
+          runtime_mode AS "runtimeMode",
+          requested_at AS "requestedAt",
+          prepared_at AS "preparedAt",
+          started_at AS "startedAt",
+          failed_at AS "failedAt",
+          cancelled_at AS "cancelledAt",
+          updated_at AS "updatedAt"
+        FROM projection_plan_implementation_launches
+        ORDER BY requested_at ASC, launch_id ASC
+      `,
+  });
+
   const listCheckpointRows = SqlSchema.findAll({
     Request: Schema.Void,
     Result: ProjectionCheckpointDbRowSchema,
@@ -444,6 +493,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             proposedPlanRows,
             activityRows,
             sessionRows,
+            launchRows,
             checkpointRows,
             latestTurnRows,
             stateRows,
@@ -496,6 +546,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 ),
               ),
             ),
+            listPlanImplementationLaunchRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getSnapshot:listPlanImplementationLaunches:query",
+                  "ProjectionSnapshotQuery.getSnapshot:listPlanImplementationLaunches:decodeRows",
+                ),
+              ),
+            ),
             listCheckpointRows(undefined).pipe(
               Effect.mapError(
                 toPersistenceSqlOrDecodeError(
@@ -535,6 +593,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             updatedAt = maxIso(updatedAt, row.updatedAt);
           }
           for (const row of threadRows) {
+            updatedAt = maxIso(updatedAt, row.updatedAt);
+          }
+          for (const row of launchRows) {
             updatedAt = maxIso(updatedAt, row.updatedAt);
           }
           for (const row of stateRows) {
@@ -684,10 +745,42 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             session: sessionsByThread.get(row.threadId) ?? null,
           }));
 
+          const planImplementationLaunches: Array<OrchestrationPlanImplementationLaunch> =
+            launchRows.map((row) => ({
+              launchId: row.launchId,
+              sourceThreadId: row.sourceThreadId,
+              sourcePlanId: row.sourcePlanId,
+              projectId: row.projectId,
+              targetThreadId: row.targetThreadId,
+              retryOfLaunchId: row.retryOfLaunchId,
+              status:
+                row.status === "requested" ||
+                row.status === "prepared" ||
+                row.status === "started" ||
+                row.status === "failed" ||
+                row.status === "cancelled"
+                  ? (row.status as OrchestrationPlanImplementationLaunchStatus)
+                  : "failed",
+              branch: row.branch,
+              worktreePath: row.worktreePath,
+              failureReason: row.failureReason,
+              cleanupStatus: row.cleanupStatus,
+              cleanupError: row.cleanupError,
+              title: row.title,
+              setupEnabled: row.setupEnabled === 1,
+              requestedAt: row.requestedAt,
+              preparedAt: row.preparedAt,
+              startedAt: row.startedAt,
+              failedAt: row.failedAt,
+              cancelledAt: row.cancelledAt,
+              updatedAt: row.updatedAt,
+            }));
+
           const snapshot = {
             snapshotSequence: computeSnapshotSequence(stateRows),
             projects,
             threads,
+            planImplementationLaunches,
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           };
 

@@ -85,6 +85,9 @@ const rpcClientMock = {
     getTurnDiff: vi.fn(),
     getFullThreadDiff: vi.fn(),
     replayEvents: vi.fn(),
+    launchPlanImplementation: vi.fn(),
+    cancelPlanImplementationLaunch: vi.fn(),
+    retryPlanImplementationLaunch: vi.fn(),
     onDomainEvent: vi.fn((listener: (event: OrchestrationEvent) => void) =>
       registerListener(orchestrationEventListeners, listener),
     ),
@@ -355,6 +358,60 @@ describe("wsNativeApi", () => {
     expect(rpcClientMock.orchestration.getFullThreadDiff).toHaveBeenCalledWith({
       threadId: "thread-1",
       toTurnCount: 1,
+    });
+  });
+
+  it("forwards plan implementation launch requests to the RPC client", async () => {
+    rpcClientMock.orchestration.launchPlanImplementation = vi
+      .fn()
+      .mockResolvedValue({ launchId: "launch-1", targetThreadId: "thread-2" });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.orchestration.launchPlanImplementation({
+      sourceThreadId: ThreadId.makeUnsafe("thread-1"),
+      planId: "plan-1",
+      runtimeMode: "full-access",
+      runSetup: true,
+    });
+
+    expect(rpcClientMock.orchestration.launchPlanImplementation).toHaveBeenCalledWith({
+      sourceThreadId: "thread-1",
+      planId: "plan-1",
+      runtimeMode: "full-access",
+      runSetup: true,
+    });
+  });
+
+  it("forwards plan implementation cancel requests to the RPC client", async () => {
+    rpcClientMock.orchestration.cancelPlanImplementationLaunch = vi
+      .fn()
+      .mockResolvedValue({ launchId: "launch-1", status: "cancelled" });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.orchestration.cancelPlanImplementationLaunch({
+      launchId: "launch-1" as never,
+    });
+
+    expect(rpcClientMock.orchestration.cancelPlanImplementationLaunch).toHaveBeenCalledWith({
+      launchId: "launch-1",
+    });
+  });
+
+  it("forwards plan implementation retry requests to the RPC client", async () => {
+    rpcClientMock.orchestration.retryPlanImplementationLaunch = vi
+      .fn()
+      .mockResolvedValue({ launchId: "launch-2", targetThreadId: "thread-3" });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.orchestration.retryPlanImplementationLaunch({
+      launchId: "launch-1" as never,
+    });
+
+    expect(rpcClientMock.orchestration.retryPlanImplementationLaunch).toHaveBeenCalledWith({
+      launchId: "launch-1",
     });
   });
 

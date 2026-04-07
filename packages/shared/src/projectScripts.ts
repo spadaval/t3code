@@ -16,7 +16,6 @@ export function projectScriptCwd(input: {
 }): string {
   return input.worktreePath ?? input.project.cwd;
 }
-
 export function projectScriptRuntimeEnv(
   input: ProjectScriptRuntimeEnvInput,
 ): Record<string, string> {
@@ -32,6 +31,11 @@ export function projectScriptRuntimeEnv(
   return env;
 }
 
-export function setupProjectScript(scripts: readonly ProjectScript[]): ProjectScript | null {
+export function primaryProjectScript(scripts: ReadonlyArray<ProjectScript>): ProjectScript | null {
+  const regular = scripts.find((script) => !script.runOnWorktreeCreate);
+  return regular ?? scripts[0] ?? null;
+}
+
+export function setupProjectScript(scripts: ReadonlyArray<ProjectScript>): ProjectScript | null {
   return scripts.find((script) => script.runOnWorktreeCreate) ?? null;
 }

@@ -1,7 +1,44 @@
 import type { GitStatusRemoteResult, GitStatusResult } from "@t3tools/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { applyGitStatusStreamEvent } from "./git";
+import {
+  applyGitStatusStreamEvent,
+  buildTemporaryWorktreeBranchName,
+  isTemporaryWorktreeBranchName,
+  resolveDefaultLocalBranchName,
+} from "./git";
+
+describe("buildTemporaryWorktreeBranchName", () => {
+  it("creates a temporary t3code branch name", () => {
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(
+      "abcdef12-3456-7890-abcd-ef1234567890",
+    );
+
+    expect(buildTemporaryWorktreeBranchName()).toBe("t3code/abcdef12");
+  });
+});
+
+describe("isTemporaryWorktreeBranchName", () => {
+  it("detects the temporary worktree branch pattern", () => {
+    expect(isTemporaryWorktreeBranchName("t3code/abcdef12")).toBe(true);
+    expect(isTemporaryWorktreeBranchName("feature/abcdef12")).toBe(false);
+  });
+});
+
+describe("resolveDefaultLocalBranchName", () => {
+  it("returns the default local branch name", () => {
+    expect(
+      resolveDefaultLocalBranchName([
+        { name: "origin/main", isDefault: true, isRemote: true },
+        { name: "main", isDefault: true, isRemote: false },
+      ]),
+    ).toBe("main");
+  });
+
+  it("returns null when no default local branch exists", () => {
+    expect(resolveDefaultLocalBranchName([{ name: "feature/test", isDefault: false }])).toBeNull();
+  });
+});
 
 describe("applyGitStatusStreamEvent", () => {
   it("treats a remote-only update as a repository when local state is missing", () => {

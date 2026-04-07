@@ -105,6 +105,15 @@ export interface WsRpcClient {
     readonly getTurnDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getTurnDiff>;
     readonly getFullThreadDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getFullThreadDiff>;
     readonly replayEvents: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.replayEvents>;
+    readonly launchPlanImplementation: RpcUnaryMethod<
+      typeof ORCHESTRATION_WS_METHODS.launchPlanImplementation
+    >;
+    readonly cancelPlanImplementationLaunch: RpcUnaryMethod<
+      typeof ORCHESTRATION_WS_METHODS.cancelPlanImplementationLaunch
+    >;
+    readonly retryPlanImplementationLaunch: RpcUnaryMethod<
+      typeof ORCHESTRATION_WS_METHODS.retryPlanImplementationLaunch
+    >;
     readonly onDomainEvent: RpcStreamMethod<typeof WS_METHODS.subscribeOrchestrationDomainEvents>;
   };
 }
@@ -239,6 +248,18 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport
           .request((client) => client[ORCHESTRATION_WS_METHODS.replayEvents](input))
           .then((events) => [...events]),
+      launchPlanImplementation: (input) =>
+        transport.request((client) =>
+          client[ORCHESTRATION_WS_METHODS.launchPlanImplementation](input),
+        ),
+      cancelPlanImplementationLaunch: (input) =>
+        transport.request((client) =>
+          client[ORCHESTRATION_WS_METHODS.cancelPlanImplementationLaunch](input),
+        ),
+      retryPlanImplementationLaunch: (input) =>
+        transport.request((client) =>
+          client[ORCHESTRATION_WS_METHODS.retryPlanImplementationLaunch](input),
+        ),
       onDomainEvent: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeOrchestrationDomainEvents]({}),

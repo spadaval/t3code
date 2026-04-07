@@ -32,6 +32,7 @@ import { Keybindings } from "./keybindings";
 import { Open, resolveAvailableEditors } from "./open";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
+import { PlanImplementationWorkflow } from "./orchestration/Services/PlanImplementationWorkflow";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import {
   observeRpcEffect,
@@ -52,6 +53,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
   Effect.gen(function* () {
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const orchestrationEngine = yield* OrchestrationEngineService;
+    const planImplementationWorkflow = yield* PlanImplementationWorkflow;
     const checkpointDiffQuery = yield* CheckpointDiffQuery;
     const keybindings = yield* Keybindings;
     const open = yield* Open;
@@ -443,6 +445,63 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 }),
             ),
           ),
+          { "rpc.aggregate": "orchestration" },
+        ),
+      [ORCHESTRATION_WS_METHODS.launchPlanImplementation]: (input) =>
+        observeRpcEffect(
+          ORCHESTRATION_WS_METHODS.launchPlanImplementation,
+          planImplementationWorkflow
+            .launchPlanImplementation({
+              sourceThreadId: input.sourceThreadId,
+              planId: input.planId,
+              runtimeMode: input.runtimeMode,
+              runSetup: input.runSetup,
+            })
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationDispatchCommandError({
+                    message: "Failed to launch plan implementation",
+                    cause,
+                  }),
+              ),
+            ),
+          { "rpc.aggregate": "orchestration" },
+        ),
+      [ORCHESTRATION_WS_METHODS.cancelPlanImplementationLaunch]: (input) =>
+        observeRpcEffect(
+          ORCHESTRATION_WS_METHODS.cancelPlanImplementationLaunch,
+          planImplementationWorkflow
+            .cancelPlanImplementationLaunch({
+              launchId: input.launchId,
+            })
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationDispatchCommandError({
+                    message: "Failed to cancel plan implementation launch",
+                    cause,
+                  }),
+              ),
+            ),
+          { "rpc.aggregate": "orchestration" },
+        ),
+      [ORCHESTRATION_WS_METHODS.retryPlanImplementationLaunch]: (input) =>
+        observeRpcEffect(
+          ORCHESTRATION_WS_METHODS.retryPlanImplementationLaunch,
+          planImplementationWorkflow
+            .retryPlanImplementationLaunch({
+              launchId: input.launchId,
+            })
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationDispatchCommandError({
+                    message: "Failed to retry plan implementation launch",
+                    cause,
+                  }),
+              ),
+            ),
           { "rpc.aggregate": "orchestration" },
         ),
       [WS_METHODS.subscribeOrchestrationDomainEvents]: (_input) =>

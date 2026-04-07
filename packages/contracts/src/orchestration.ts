@@ -1,5 +1,10 @@
 import { Option, Schema, SchemaIssue, Struct } from "effect";
-import { ClaudeModelOptions, CodexModelOptions } from "./model";
+import {
+  ClaudeModelOptions,
+  CodexModelOptions,
+  ProviderModelOptions,
+  ProviderStartOptions,
+} from "./model";
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -8,6 +13,7 @@ import {
   IsoDateTime,
   MessageId,
   NonNegativeInt,
+  PlanImplementationLaunchId,
   ProjectId,
   ProviderItemId,
   ThreadId,
@@ -21,6 +27,9 @@ export const ORCHESTRATION_WS_METHODS = {
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
   replayEvents: "orchestration.replayEvents",
+  launchPlanImplementation: "orchestration.launchPlanImplementation",
+  cancelPlanImplementationLaunch: "orchestration.cancelPlanImplementationLaunch",
+  retryPlanImplementationLaunch: "orchestration.retryPlanImplementationLaunch",
 } as const;
 
 export const ProviderKind = Schema.Literals(["codex", "claudeAgent"]);
@@ -183,6 +192,25 @@ const SourceProposedPlanReference = Schema.Struct({
   planId: OrchestrationProposedPlanId,
 });
 
+export const OrchestrationPlanImplementationLaunchStatus = Schema.Literals([
+  "requested",
+  "prepared",
+  "started",
+  "failed",
+  "cancelled",
+]);
+export type OrchestrationPlanImplementationLaunchStatus =
+  typeof OrchestrationPlanImplementationLaunchStatus.Type;
+
+export const OrchestrationPlanImplementationLaunchCleanupStatus = Schema.Literals([
+  "not-required",
+  "pending",
+  "succeeded",
+  "failed",
+]);
+export type OrchestrationPlanImplementationLaunchCleanupStatus =
+  typeof OrchestrationPlanImplementationLaunchCleanupStatus.Type;
+
 export const OrchestrationSessionStatus = Schema.Literals([
   "idle",
   "starting",
@@ -290,10 +318,38 @@ export const OrchestrationThread = Schema.Struct({
 });
 export type OrchestrationThread = typeof OrchestrationThread.Type;
 
+export const OrchestrationPlanImplementationLaunch = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  sourceThreadId: ThreadId,
+  sourcePlanId: OrchestrationProposedPlanId,
+  projectId: ProjectId,
+  targetThreadId: ThreadId,
+  retryOfLaunchId: Schema.NullOr(PlanImplementationLaunchId),
+  status: OrchestrationPlanImplementationLaunchStatus,
+  branch: Schema.NullOr(TrimmedNonEmptyString),
+  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  failureReason: Schema.NullOr(TrimmedNonEmptyString),
+  cleanupStatus: OrchestrationPlanImplementationLaunchCleanupStatus,
+  cleanupError: Schema.NullOr(TrimmedNonEmptyString),
+  title: TrimmedNonEmptyString,
+  setupEnabled: Schema.Boolean,
+  requestedAt: IsoDateTime,
+  preparedAt: Schema.NullOr(IsoDateTime),
+  startedAt: Schema.NullOr(IsoDateTime),
+  failedAt: Schema.NullOr(IsoDateTime),
+  cancelledAt: Schema.NullOr(IsoDateTime),
+  updatedAt: IsoDateTime,
+});
+export type OrchestrationPlanImplementationLaunch =
+  typeof OrchestrationPlanImplementationLaunch.Type;
+
 export const OrchestrationReadModel = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   projects: Schema.Array(OrchestrationProject),
   threads: Schema.Array(OrchestrationThread),
+  planImplementationLaunches: Schema.Array(OrchestrationPlanImplementationLaunch).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
   updatedAt: IsoDateTime,
 });
 export type OrchestrationReadModel = typeof OrchestrationReadModel.Type;
@@ -596,6 +652,62 @@ const ThreadRevertCompleteCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const PlanImplementationLaunchRequestCommand = Schema.Struct({
+  type: Schema.Literal("plan-implementation-launch.request"),
+  commandId: CommandId,
+  launchId: PlanImplementationLaunchId,
+  sourceThreadId: ThreadId,
+  sourcePlanId: OrchestrationProposedPlanId,
+  projectId: ProjectId,
+  targetThreadId: ThreadId,
+  retryOfLaunchId: Schema.optional(PlanImplementationLaunchId),
+  title: TrimmedNonEmptyString,
+  setupEnabled: Schema.Boolean,
+  promptText: Schema.String,
+  provider: Schema.optional(ProviderKind),
+  model: Schema.optional(TrimmedNonEmptyString),
+  modelOptions: Schema.optional(ProviderModelOptions),
+  providerOptions: Schema.optional(ProviderStartOptions),
+  assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  createdAt: IsoDateTime,
+});
+
+const PlanImplementationLaunchMarkWorktreePreparedCommand = Schema.Struct({
+  type: Schema.Literal("plan-implementation-launch.mark-worktree-prepared"),
+  commandId: CommandId,
+  launchId: PlanImplementationLaunchId,
+  branch: TrimmedNonEmptyString,
+  worktreePath: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+});
+
+const PlanImplementationLaunchMarkStartedCommand = Schema.Struct({
+  type: Schema.Literal("plan-implementation-launch.mark-started"),
+  commandId: CommandId,
+  launchId: PlanImplementationLaunchId,
+  createdAt: IsoDateTime,
+});
+
+const PlanImplementationLaunchFailCommand = Schema.Struct({
+  type: Schema.Literal("plan-implementation-launch.fail"),
+  commandId: CommandId,
+  launchId: PlanImplementationLaunchId,
+  failureReason: TrimmedNonEmptyString,
+  cleanupStatus: OrchestrationPlanImplementationLaunchCleanupStatus,
+  cleanupError: Schema.optional(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+});
+
+const PlanImplementationLaunchCancelCommand = Schema.Struct({
+  type: Schema.Literal("plan-implementation-launch.cancel"),
+  commandId: CommandId,
+  launchId: PlanImplementationLaunchId,
+  cleanupStatus: OrchestrationPlanImplementationLaunchCleanupStatus,
+  cleanupError: Schema.optional(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+});
+
 const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
@@ -604,6 +716,11 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadTurnDiffCompleteCommand,
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
+  PlanImplementationLaunchRequestCommand,
+  PlanImplementationLaunchMarkWorktreePreparedCommand,
+  PlanImplementationLaunchMarkStartedCommand,
+  PlanImplementationLaunchFailCommand,
+  PlanImplementationLaunchCancelCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -636,10 +753,19 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
   "thread.activity-appended",
+  "plan-implementation-launch.requested",
+  "plan-implementation-launch.worktree-prepared",
+  "plan-implementation-launch.started",
+  "plan-implementation-launch.failed",
+  "plan-implementation-launch.cancelled",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
-export const OrchestrationAggregateKind = Schema.Literals(["project", "thread"]);
+export const OrchestrationAggregateKind = Schema.Literals([
+  "project",
+  "thread",
+  "planImplementationLaunch",
+]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
 export const OrchestrationActorKind = Schema.Literals(["client", "server", "provider"]);
 
@@ -808,6 +934,57 @@ export const ThreadActivityAppendedPayload = Schema.Struct({
   activity: OrchestrationThreadActivity,
 });
 
+export const PlanImplementationLaunchRequestedPayload = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  sourceThreadId: ThreadId,
+  sourcePlanId: OrchestrationProposedPlanId,
+  projectId: ProjectId,
+  targetThreadId: ThreadId,
+  retryOfLaunchId: Schema.NullOr(PlanImplementationLaunchId),
+  title: TrimmedNonEmptyString,
+  setupEnabled: Schema.Boolean,
+  promptText: Schema.String,
+  provider: Schema.NullOr(ProviderKind),
+  model: Schema.NullOr(TrimmedNonEmptyString),
+  modelOptions: Schema.NullOr(ProviderModelOptions),
+  providerOptions: Schema.NullOr(ProviderStartOptions),
+  assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
+  runtimeMode: RuntimeMode,
+  requestedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const PlanImplementationLaunchWorktreePreparedPayload = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  branch: TrimmedNonEmptyString,
+  worktreePath: TrimmedNonEmptyString,
+  preparedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const PlanImplementationLaunchStartedPayload = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  startedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const PlanImplementationLaunchFailedPayload = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  failureReason: TrimmedNonEmptyString,
+  cleanupStatus: OrchestrationPlanImplementationLaunchCleanupStatus,
+  cleanupError: Schema.NullOr(TrimmedNonEmptyString),
+  failedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const PlanImplementationLaunchCancelledPayload = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  cleanupStatus: OrchestrationPlanImplementationLaunchCleanupStatus,
+  cleanupError: Schema.NullOr(TrimmedNonEmptyString),
+  cancelledAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
 export const OrchestrationEventMetadata = Schema.Struct({
   providerTurnId: Schema.optional(TrimmedNonEmptyString),
   providerItemId: Schema.optional(ProviderItemId),
@@ -821,7 +998,7 @@ const EventBaseFields = {
   sequence: NonNegativeInt,
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([ProjectId, ThreadId]),
+  aggregateId: Schema.Union([ProjectId, ThreadId, PlanImplementationLaunchId]),
   occurredAt: IsoDateTime,
   commandId: Schema.NullOr(CommandId),
   causationEventId: Schema.NullOr(EventId),
@@ -940,6 +1117,31 @@ export const OrchestrationEvent = Schema.Union([
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
   }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("plan-implementation-launch.requested"),
+    payload: PlanImplementationLaunchRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("plan-implementation-launch.worktree-prepared"),
+    payload: PlanImplementationLaunchWorktreePreparedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("plan-implementation-launch.started"),
+    payload: PlanImplementationLaunchStartedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("plan-implementation-launch.failed"),
+    payload: PlanImplementationLaunchFailedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("plan-implementation-launch.cancelled"),
+    payload: PlanImplementationLaunchCancelledPayload,
+  }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;
 
@@ -1038,6 +1240,48 @@ export type OrchestrationReplayEventsInput = typeof OrchestrationReplayEventsInp
 const OrchestrationReplayEventsResult = Schema.Array(OrchestrationEvent);
 export type OrchestrationReplayEventsResult = typeof OrchestrationReplayEventsResult.Type;
 
+export const OrchestrationLaunchPlanImplementationInput = Schema.Struct({
+  sourceThreadId: ThreadId,
+  planId: OrchestrationProposedPlanId,
+  titleOverride: Schema.optional(TrimmedNonEmptyString),
+  provider: Schema.optional(ProviderKind),
+  model: Schema.optional(TrimmedNonEmptyString),
+  modelOptions: Schema.optional(ProviderModelOptions),
+  providerOptions: Schema.optional(ProviderStartOptions),
+  assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  runSetup: Schema.Boolean,
+});
+export type OrchestrationLaunchPlanImplementationInput =
+  typeof OrchestrationLaunchPlanImplementationInput.Type;
+
+export const OrchestrationLaunchPlanImplementationResult = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  targetThreadId: ThreadId,
+  status: OrchestrationPlanImplementationLaunchStatus,
+});
+export type OrchestrationLaunchPlanImplementationResult =
+  typeof OrchestrationLaunchPlanImplementationResult.Type;
+
+export const OrchestrationCancelPlanImplementationLaunchInput = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+});
+export type OrchestrationCancelPlanImplementationLaunchInput =
+  typeof OrchestrationCancelPlanImplementationLaunchInput.Type;
+
+export const OrchestrationCancelPlanImplementationLaunchResult = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  status: OrchestrationPlanImplementationLaunchStatus,
+});
+export type OrchestrationCancelPlanImplementationLaunchResult =
+  typeof OrchestrationCancelPlanImplementationLaunchResult.Type;
+
+export const OrchestrationRetryPlanImplementationLaunchInput = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+});
+export type OrchestrationRetryPlanImplementationLaunchInput =
+  typeof OrchestrationRetryPlanImplementationLaunchInput.Type;
+
 export const OrchestrationRpcSchemas = {
   getSnapshot: {
     input: OrchestrationGetSnapshotInput,
@@ -1058,6 +1302,18 @@ export const OrchestrationRpcSchemas = {
   replayEvents: {
     input: OrchestrationReplayEventsInput,
     output: OrchestrationReplayEventsResult,
+  },
+  launchPlanImplementation: {
+    input: OrchestrationLaunchPlanImplementationInput,
+    output: OrchestrationLaunchPlanImplementationResult,
+  },
+  cancelPlanImplementationLaunch: {
+    input: OrchestrationCancelPlanImplementationLaunchInput,
+    output: OrchestrationCancelPlanImplementationLaunchResult,
+  },
+  retryPlanImplementationLaunch: {
+    input: OrchestrationRetryPlanImplementationLaunchInput,
+    output: OrchestrationLaunchPlanImplementationResult,
   },
 } as const;
 

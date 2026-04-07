@@ -14,13 +14,19 @@ import {
 import { resolveModelSlugForProvider } from "@t3tools/shared/model";
 import { create } from "zustand";
 import {
-  findLatestProposedPlan,
-  hasActionableProposedPlan,
   derivePendingApprovals,
   derivePendingUserInputs,
+  findLatestProposedPlan,
+  hasActionableProposedPlan,
 } from "./session-logic";
 import { sanitizeThreadErrorMessage } from "./rpc/transportError";
-import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread } from "./types";
+import {
+  type ChatMessage,
+  type PlanImplementationLaunch,
+  type Project,
+  type SidebarThreadSummary,
+  type Thread,
+} from "./types";
 
 // ── State ────────────────────────────────────────────────────────────
 
@@ -30,6 +36,8 @@ export interface AppState {
   sidebarThreadsById: Record<string, SidebarThreadSummary>;
   threadIdsByProjectId: Record<string, ThreadId[]>;
   bootstrapComplete: boolean;
+  planImplementationLaunches: PlanImplementationLaunch[];
+  threadsHydrated: boolean;
 }
 
 const initialState: AppState = {
@@ -38,6 +46,8 @@ const initialState: AppState = {
   sidebarThreadsById: {},
   threadIdsByProjectId: {},
   bootstrapComplete: false,
+  planImplementationLaunches: [],
+  threadsHydrated: false,
 };
 const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
@@ -588,6 +598,10 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     sidebarThreadsById,
     threadIdsByProjectId,
     bootstrapComplete: true,
+    planImplementationLaunches: readModel.planImplementationLaunches.map((launch) => ({
+      ...launch,
+    })),
+    threadsHydrated: true,
   };
 }
 

@@ -62,6 +62,10 @@ import {
 } from "./orchestration/Services/OrchestrationEngine.ts";
 import { OrchestrationListenerCallbackError } from "./orchestration/Errors.ts";
 import {
+  PlanImplementationWorkflow,
+  type PlanImplementationWorkflowShape,
+} from "./orchestration/Services/PlanImplementationWorkflow.ts";
+import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -99,6 +103,7 @@ const makeDefaultOrchestrationReadModel = () => {
   return {
     snapshotSequence: 0,
     updatedAt: now,
+    planImplementationLaunches: [],
     projects: [
       {
         id: defaultProjectId,
@@ -265,6 +270,7 @@ const buildAppUnderTest = (options?: {
     projectSetupScriptRunner?: Partial<ProjectSetupScriptRunnerShape>;
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
+    planImplementationWorkflow?: Partial<PlanImplementationWorkflowShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
     browserTraceCollector?: Partial<BrowserTraceCollectorShape>;
@@ -373,6 +379,30 @@ const buildAppUnderTest = (options?: {
         Layer.mock(ProjectionSnapshotQuery)({
           getSnapshot: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
           ...options?.layers?.projectionSnapshotQuery,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(PlanImplementationWorkflow)({
+          start: Effect.void,
+          drain: Effect.void,
+          launchPlanImplementation: () =>
+            Effect.succeed({
+              launchId: "launch-1" as any,
+              targetThreadId: defaultThreadId,
+              status: "requested",
+            }),
+          cancelPlanImplementationLaunch: () =>
+            Effect.succeed({
+              launchId: "launch-1" as any,
+              status: "cancelled",
+            }),
+          retryPlanImplementationLaunch: () =>
+            Effect.succeed({
+              launchId: "launch-2" as any,
+              targetThreadId: defaultThreadId,
+              status: "requested",
+            }),
+          ...options?.layers?.planImplementationWorkflow,
         }),
       ),
       Layer.provide(
@@ -1882,6 +1912,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const snapshot = {
         snapshotSequence: 1,
         updatedAt: now,
+        planImplementationLaunches: [],
         projects: [
           {
             id: ProjectId.makeUnsafe("project-a"),

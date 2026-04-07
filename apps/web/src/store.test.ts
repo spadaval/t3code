@@ -67,6 +67,8 @@ function makeState(thread: Thread): AppState {
     sidebarThreadsById: {},
     threadIdsByProjectId,
     bootstrapComplete: true,
+    planImplementationLaunches: [],
+    threadsHydrated: true,
   };
 }
 
@@ -144,6 +146,7 @@ function makeReadModel(thread: OrchestrationReadModel["threads"][number]): Orche
       },
     ],
     threads: [thread],
+    planImplementationLaunches: [],
   };
 }
 
@@ -279,6 +282,8 @@ describe("store read model sync", () => {
       sidebarThreadsById: {},
       threadIdsByProjectId: {},
       bootstrapComplete: true,
+      planImplementationLaunches: [],
+      threadsHydrated: true,
     };
     const readModel: OrchestrationReadModel = {
       snapshotSequence: 2,
@@ -301,6 +306,7 @@ describe("store read model sync", () => {
         }),
       ],
       threads: [],
+      planImplementationLaunches: [],
     };
 
     const next = syncServerReadModel(initialState, readModel);
@@ -392,6 +398,8 @@ describe("incremental orchestration updates", () => {
       sidebarThreadsById: {},
       threadIdsByProjectId: {},
       bootstrapComplete: true,
+      planImplementationLaunches: [],
+      threadsHydrated: true,
     };
 
     const next = applyOrchestrationEvent(
@@ -453,6 +461,8 @@ describe("incremental orchestration updates", () => {
         [originalProjectId]: [threadId],
       },
       bootstrapComplete: true,
+      planImplementationLaunches: [],
+      threadsHydrated: true,
     };
 
     const next = applyOrchestrationEvent(

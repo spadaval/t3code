@@ -21,6 +21,7 @@ import {
   hasActionableProposedPlan,
   hasToolActivityForTurn,
   isLatestTurnSettled,
+  resolvePlanSidebarProposedPlan,
 } from "./session-logic";
 
 function makeActivity(overrides: {
@@ -544,6 +545,52 @@ describe("findSidebarProposedPlan", () => {
         threadId: ThreadId.makeUnsafe("thread-1"),
       })?.planMarkdown,
     ).toBe("# Latest");
+  });
+});
+
+describe("resolvePlanSidebarProposedPlan", () => {
+  it("falls back to the source plan for implementation target threads", () => {
+    const resolved = resolvePlanSidebarProposedPlan({
+      activeProposedPlan: null,
+      activeThread: {
+        id: ThreadId.makeUnsafe("thread-target"),
+        proposedPlans: [],
+      },
+      activeThreadLaunch: {
+        sourceThreadId: ThreadId.makeUnsafe("thread-source"),
+        sourcePlanId: "plan-source-1",
+      },
+      threads: [
+        {
+          id: ThreadId.makeUnsafe("thread-source"),
+          proposedPlans: [
+            {
+              id: "plan-source-1",
+              turnId: TurnId.makeUnsafe("turn-plan-source"),
+              implementedAt: null,
+              implementationThreadId: null,
+              planMarkdown: "# Source plan",
+              createdAt: "2026-02-23T00:00:01.000Z",
+              updatedAt: "2026-02-23T00:00:02.000Z",
+            },
+          ],
+        },
+        {
+          id: ThreadId.makeUnsafe("thread-target"),
+          proposedPlans: [],
+        },
+      ],
+    });
+
+    expect(resolved).toEqual({
+      id: "plan-source-1",
+      turnId: "turn-plan-source",
+      implementedAt: null,
+      implementationThreadId: null,
+      planMarkdown: "# Source plan",
+      createdAt: "2026-02-23T00:00:01.000Z",
+      updatedAt: "2026-02-23T00:00:02.000Z",
+    });
   });
 });
 

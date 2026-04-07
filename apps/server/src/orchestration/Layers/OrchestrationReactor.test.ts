@@ -2,6 +2,7 @@ import { Effect, Exit, Layer, ManagedRuntime, Scope } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { CheckpointReactor } from "../Services/CheckpointReactor.ts";
+import { PlanImplementationWorkflow } from "../Services/PlanImplementationWorkflow.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { OrchestrationReactor } from "../Services/OrchestrationReactor.ts";
@@ -49,6 +50,17 @@ describe("OrchestrationReactor", () => {
             drain: Effect.void,
           }),
         ),
+        Layer.provideMerge(
+          Layer.succeed(PlanImplementationWorkflow, {
+            start: Effect.sync(() => {
+              started.push("plan-implementation-workflow");
+            }),
+            drain: Effect.void,
+            launchPlanImplementation: () => Effect.die("unused"),
+            cancelPlanImplementationLaunch: () => Effect.die("unused"),
+            retryPlanImplementationLaunch: () => Effect.die("unused"),
+          }),
+        ),
       ),
     );
 
@@ -60,6 +72,7 @@ describe("OrchestrationReactor", () => {
       "provider-runtime-ingestion",
       "provider-command-reactor",
       "checkpoint-reactor",
+      "plan-implementation-workflow",
     ]);
 
     await Effect.runPromise(Scope.close(scope, Exit.void));

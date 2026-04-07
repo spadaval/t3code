@@ -7,6 +7,7 @@ import {
   type MessageId,
   type OrchestrationEvent,
   type OrchestrationReadModel,
+  PlanImplementationLaunchId,
   type ProjectId,
   type ServerConfig,
   type ServerLifecycleWelcomePayload,
@@ -34,6 +35,7 @@ import { isMacPlatform } from "../lib/utils";
 import { __resetNativeApiForTests } from "../nativeApi";
 import { AppAtomRegistryProvider } from "../rpc/atomRegistry";
 import { getServerConfig } from "../rpc/serverState";
+import { usePlanSidebarStore } from "../planSidebarStore";
 import { getRouter } from "../router";
 import { useStore } from "../store";
 import { useTerminalStateStore } from "../terminalStateStore";
@@ -49,6 +51,8 @@ vi.mock("../lib/gitStatusState", () => ({
 }));
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
+const SECOND_THREAD_ID = "thread-browser-test-2" as ThreadId;
+const WORKTREE_TARGET_THREAD_ID = "thread-browser-worktree-target" as ThreadId;
 const UUID_ROUTE_RE = /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PROJECT_ID = "project-1" as ProjectId;
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
@@ -305,6 +309,7 @@ function createSnapshotForTargetUser(options: {
         },
       },
     ],
+    planImplementationLaunches: [],
     updatedAt: NOW_ISO,
   };
 }
@@ -658,6 +663,114 @@ function createSnapshotWithPlanFollowUpPrompt(): OrchestrationReadModel {
   };
 }
 
+function createSnapshotWithSecondaryPlanThread(): OrchestrationReadModel {
+  const snapshot = createSnapshotWithLongProposedPlan();
+  const baseThread = snapshot.threads[0];
+  if (!baseThread) {
+    throw new Error("Expected a base thread in the browser fixture snapshot.");
+  }
+
+  return {
+    ...snapshot,
+    threads: [
+      ...snapshot.threads,
+      {
+        ...baseThread,
+        id: SECOND_THREAD_ID,
+        title: "Second browser test thread",
+        proposedPlans: [],
+        activities: [],
+        messages: [
+          createUserMessage({
+            id: "msg-user-second-thread" as MessageId,
+            text: "second thread",
+            offsetSeconds: 4_000,
+          }),
+        ],
+        updatedAt: isoAt(4_001),
+      },
+    ],
+  };
+}
+
+function createSnapshotForWorktreePlanSidebar(): OrchestrationReadModel {
+  const snapshot = createSnapshotForTargetUser({
+    targetMessageId: "msg-user-worktree-target" as MessageId,
+    targetText: "source thread",
+  });
+  const baseThread = snapshot.threads[0];
+  if (!baseThread) {
+    throw new Error("Expected a base thread in the browser fixture snapshot.");
+  }
+  const baseSession = baseThread.session;
+  if (!baseSession) {
+    throw new Error("Expected a base session in the browser fixture snapshot.");
+  }
+
+  return {
+    ...snapshot,
+    threads: [
+      {
+        ...baseThread,
+        id: THREAD_ID,
+        title: "Source thread",
+        proposedPlans: [
+          {
+            id: "plan-worktree-source",
+            turnId: null,
+            implementedAt: null,
+            implementationThreadId: null,
+            planMarkdown: "# Worktree plan\n\n- Keep the source context visible",
+            createdAt: isoAt(1_200),
+            updatedAt: isoAt(1_201),
+          },
+        ],
+        updatedAt: isoAt(1_201),
+      },
+      {
+        ...baseThread,
+        id: WORKTREE_TARGET_THREAD_ID,
+        title: "Worktree target thread",
+        interactionMode: "default",
+        messages: [],
+        proposedPlans: [],
+        activities: [],
+        latestTurn: null,
+        updatedAt: isoAt(1_300),
+        session: {
+          ...baseSession,
+          threadId: WORKTREE_TARGET_THREAD_ID,
+        },
+      },
+    ],
+    planImplementationLaunches: [
+      {
+        launchId: PlanImplementationLaunchId.makeUnsafe("launch-worktree-sidebar"),
+        sourceThreadId: THREAD_ID,
+        sourcePlanId: "plan-worktree-source",
+        projectId: PROJECT_ID,
+        targetThreadId: WORKTREE_TARGET_THREAD_ID,
+        retryOfLaunchId: null,
+        status: "prepared",
+        branch: "plan/worktree-sidebar",
+        worktreePath: "/repo/project/.worktrees/plan-worktree-sidebar",
+        failureReason: null,
+        cleanupStatus: "not-required",
+        cleanupError: null,
+        title: "Implement plan",
+        setupEnabled: true,
+        requestedAt: isoAt(1_202),
+        preparedAt: isoAt(1_203),
+        startedAt: null,
+        failedAt: null,
+        cancelledAt: null,
+        updatedAt: isoAt(1_203),
+      },
+    ],
+    updatedAt: isoAt(1_203),
+  };
+}
+
 function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
   const customResult = customWsRpcResolver?.(body);
   if (customResult !== undefined) {
@@ -666,6 +779,23 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
   const tag = body._tag;
   if (tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
     return fixture.snapshot;
+  }
+  if (tag === ORCHESTRATION_WS_METHODS.launchPlanImplementation) {
+    return {
+      launchId: "launch-browser-prepared",
+      targetThreadId: "thread-browser-prepared",
+      status: "requested",
+    };
+  }
+  if (tag === ORCHESTRATION_WS_METHODS.cancelPlanImplementationLaunch) {
+    return { launchId: "launch-browser-prepared", status: "cancelled" };
+  }
+  if (tag === ORCHESTRATION_WS_METHODS.retryPlanImplementationLaunch) {
+    return {
+      launchId: "launch-browser-retry",
+      targetThreadId: "thread-browser-retry",
+      status: "requested",
+    };
   }
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
@@ -948,6 +1078,23 @@ async function waitForNewThreadShortcutLabel(): Promise<void> {
   await expect.element(page.getByText(shortcutLabel)).toBeInTheDocument();
 }
 
+async function waitForPlanSidebarToggle(title: "Show plan sidebar" | "Hide plan sidebar") {
+  return waitForElement(
+    () =>
+      Array.from(document.querySelectorAll("button")).find(
+        (button) => button.getAttribute("title") === title,
+      ) as HTMLButtonElement | null,
+    `Unable to find the ${title} button.`,
+  );
+}
+
+async function waitForPlanSidebarCloseButton() {
+  return waitForElement(
+    () => document.querySelector<HTMLButtonElement>('[aria-label="Close plan sidebar"]'),
+    "Unable to find the plan sidebar close button.",
+  );
+}
+
 async function waitForImagesToLoad(scope: ParentNode): Promise<void> {
   const images = Array.from(scope.querySelectorAll("img"));
   if (images.length === 0) {
@@ -1187,6 +1334,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       terminalEventEntriesByKey: {},
       nextTerminalEventId: 1,
     });
+    usePlanSidebarStore.getState().reset();
   });
 
   afterEach(() => {
@@ -2800,6 +2948,71 @@ describe("ChatView timeline estimator parity (full app)", () => {
         "Shortcut should create a fresh draft instead of reusing the promoted thread.",
       );
       expect(freshThreadPath).not.toBe(promotedThreadPath);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("preserves each thread's plan sidebar state across navigation", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithSecondaryPlanThread(),
+    });
+
+    try {
+      const openPlanSidebarButton = await waitForPlanSidebarToggle("Show plan sidebar");
+      openPlanSidebarButton.click();
+
+      await expect.element(await waitForPlanSidebarCloseButton()).toBeInTheDocument();
+
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: SECOND_THREAD_ID },
+      });
+      await waitForURL(
+        mounted.router,
+        (path) => path === `/${SECOND_THREAD_ID}`,
+        "Route should navigate to the second thread.",
+      );
+
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: THREAD_ID },
+      });
+      await waitForURL(
+        mounted.router,
+        (path) => path === `/${THREAD_ID}`,
+        "Route should navigate back to the original thread.",
+      );
+
+      await expect.element(await waitForPlanSidebarCloseButton()).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("lets worktree target threads open the sidebar and see the source plan", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForWorktreePlanSidebar(),
+    });
+
+    try {
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: WORKTREE_TARGET_THREAD_ID },
+      });
+      await waitForURL(
+        mounted.router,
+        (path) => path === `/${WORKTREE_TARGET_THREAD_ID}`,
+        "Route should navigate to the worktree target thread.",
+      );
+
+      const openPlanSidebarButton = await waitForPlanSidebarToggle("Show plan sidebar");
+      openPlanSidebarButton.click();
+
+      await expect.element(await waitForPlanSidebarCloseButton()).toBeInTheDocument();
+      await expect.element(page.getByText("Worktree plan")).toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }

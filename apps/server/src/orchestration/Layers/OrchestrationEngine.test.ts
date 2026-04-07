@@ -96,6 +96,7 @@ describe("OrchestrationEngine", () => {
     const projectionSnapshot = {
       snapshotSequence: 7,
       updatedAt: "2026-03-03T00:00:04.000Z",
+      planImplementationLaunches: [],
       projects: [
         {
           id: asProjectId("project-bootstrap"),

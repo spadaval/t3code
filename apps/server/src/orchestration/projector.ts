@@ -1,6 +1,7 @@
 import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@t3tools/contracts";
 import {
   OrchestrationCheckpointSummary,
+  OrchestrationPlanImplementationLaunch,
   OrchestrationMessage,
   OrchestrationSession,
   OrchestrationThread,
@@ -10,6 +11,11 @@ import { Effect, Schema } from "effect";
 import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
 import {
   MessageSentPayloadSchema,
+  PlanImplementationLaunchCancelledPayload,
+  PlanImplementationLaunchFailedPayload,
+  PlanImplementationLaunchRequestedPayload,
+  PlanImplementationLaunchStartedPayload,
+  PlanImplementationLaunchWorktreePreparedPayload,
   ProjectCreatedPayload,
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
@@ -43,6 +49,16 @@ function updateThread(
   patch: ThreadPatch,
 ): OrchestrationThread[] {
   return threads.map((thread) => (thread.id === threadId ? { ...thread, ...patch } : thread));
+}
+
+function updateLaunch(
+  launches: ReadonlyArray<OrchestrationPlanImplementationLaunch>,
+  launchId: OrchestrationPlanImplementationLaunch["launchId"],
+  patch: Partial<OrchestrationPlanImplementationLaunch>,
+): OrchestrationPlanImplementationLaunch[] {
+  return launches.map((launch) =>
+    launch.launchId === launchId ? { ...launch, ...patch } : launch,
+  );
 }
 
 function decodeForEvent<A>(
@@ -160,6 +176,7 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
     snapshotSequence: 0,
     projects: [],
     threads: [],
+    planImplementationLaunches: [],
     updatedAt: nowIso,
   };
 }
@@ -646,6 +663,140 @@ export function projectEvent(
             }),
           };
         }),
+      );
+
+    case "plan-implementation-launch.requested":
+      return decodeForEvent(
+        PlanImplementationLaunchRequestedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const launch: OrchestrationPlanImplementationLaunch = {
+            launchId: payload.launchId,
+            sourceThreadId: payload.sourceThreadId,
+            sourcePlanId: payload.sourcePlanId,
+            projectId: payload.projectId,
+            targetThreadId: payload.targetThreadId,
+            retryOfLaunchId: payload.retryOfLaunchId,
+            status: "requested",
+            branch: null,
+            worktreePath: null,
+            failureReason: null,
+            cleanupStatus: "not-required",
+            cleanupError: null,
+            title: payload.title,
+            setupEnabled: payload.setupEnabled,
+            requestedAt: payload.requestedAt,
+            preparedAt: null,
+            startedAt: null,
+            failedAt: null,
+            cancelledAt: null,
+            updatedAt: payload.updatedAt,
+          };
+
+          return {
+            ...nextBase,
+            planImplementationLaunches: [
+              ...nextBase.planImplementationLaunches.filter(
+                (entry) => entry.launchId !== payload.launchId,
+              ),
+              launch,
+            ].toSorted((left, right) => left.requestedAt.localeCompare(right.requestedAt)),
+          };
+        }),
+      );
+
+    case "plan-implementation-launch.worktree-prepared":
+      return decodeForEvent(
+        PlanImplementationLaunchWorktreePreparedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          planImplementationLaunches: updateLaunch(
+            nextBase.planImplementationLaunches,
+            payload.launchId,
+            {
+              status: "prepared" as const,
+              branch: payload.branch,
+              worktreePath: payload.worktreePath,
+              preparedAt: payload.preparedAt,
+              updatedAt: payload.updatedAt,
+            },
+          ),
+        })),
+      );
+
+    case "plan-implementation-launch.started":
+      return decodeForEvent(
+        PlanImplementationLaunchStartedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          planImplementationLaunches: updateLaunch(
+            nextBase.planImplementationLaunches,
+            payload.launchId,
+            {
+              status: "started" as const,
+              startedAt: payload.startedAt,
+              updatedAt: payload.updatedAt,
+            },
+          ),
+        })),
+      );
+
+    case "plan-implementation-launch.failed":
+      return decodeForEvent(
+        PlanImplementationLaunchFailedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          planImplementationLaunches: updateLaunch(
+            nextBase.planImplementationLaunches,
+            payload.launchId,
+            {
+              status: "failed" as const,
+              failureReason: payload.failureReason,
+              cleanupStatus: payload.cleanupStatus,
+              cleanupError: payload.cleanupError,
+              failedAt: payload.failedAt,
+              updatedAt: payload.updatedAt,
+            },
+          ),
+        })),
+      );
+
+    case "plan-implementation-launch.cancelled":
+      return decodeForEvent(
+        PlanImplementationLaunchCancelledPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          planImplementationLaunches: updateLaunch(
+            nextBase.planImplementationLaunches,
+            payload.launchId,
+            {
+              status: "cancelled" as const,
+              cleanupStatus: payload.cleanupStatus,
+              cleanupError: payload.cleanupError,
+              cancelledAt: payload.cancelledAt,
+              updatedAt: payload.updatedAt,
+            },
+          ),
+        })),
       );
 
     default:

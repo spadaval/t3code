@@ -99,6 +99,7 @@ const readModel: OrchestrationReadModel = {
       deletedAt: null,
     },
   ],
+  planImplementationLaunches: [],
 };
 
 const messageSendCommand: OrchestrationCommand = {

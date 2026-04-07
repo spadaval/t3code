@@ -31,6 +31,8 @@ import {
 import { KeybindingsConfigError } from "./keybindings";
 import {
   ClientOrchestrationCommand,
+  OrchestrationCancelPlanImplementationLaunchInput,
+  OrchestrationCancelPlanImplementationLaunchResult,
   OrchestrationEvent,
   ORCHESTRATION_WS_METHODS,
   OrchestrationDispatchCommandError,
@@ -40,9 +42,12 @@ import {
   OrchestrationGetSnapshotInput,
   OrchestrationGetTurnDiffError,
   OrchestrationGetTurnDiffInput,
+  OrchestrationLaunchPlanImplementationInput,
+  OrchestrationLaunchPlanImplementationResult,
   OrchestrationReplayEventsError,
   OrchestrationReplayEventsInput,
   OrchestrationRpcSchemas,
+  OrchestrationRetryPlanImplementationLaunchInput,
 } from "./orchestration";
 import {
   ProjectSearchEntriesError,
@@ -306,6 +311,33 @@ export const WsOrchestrationReplayEventsRpc = Rpc.make(ORCHESTRATION_WS_METHODS.
   error: OrchestrationReplayEventsError,
 });
 
+export const WsOrchestrationLaunchPlanImplementationRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.launchPlanImplementation,
+  {
+    payload: OrchestrationLaunchPlanImplementationInput,
+    success: OrchestrationLaunchPlanImplementationResult,
+    error: OrchestrationDispatchCommandError,
+  },
+);
+
+export const WsOrchestrationCancelPlanImplementationLaunchRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.cancelPlanImplementationLaunch,
+  {
+    payload: OrchestrationCancelPlanImplementationLaunchInput,
+    success: OrchestrationCancelPlanImplementationLaunchResult,
+    error: OrchestrationDispatchCommandError,
+  },
+);
+
+export const WsOrchestrationRetryPlanImplementationLaunchRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.retryPlanImplementationLaunch,
+  {
+    payload: OrchestrationRetryPlanImplementationLaunchInput,
+    success: OrchestrationLaunchPlanImplementationResult,
+    error: OrchestrationDispatchCommandError,
+  },
+);
+
 export const WsSubscribeOrchestrationDomainEventsRpc = Rpc.make(
   WS_METHODS.subscribeOrchestrationDomainEvents,
   {
@@ -370,4 +402,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,
   WsOrchestrationReplayEventsRpc,
+  WsOrchestrationLaunchPlanImplementationRpc,
+  WsOrchestrationCancelPlanImplementationLaunchRpc,
+  WsOrchestrationRetryPlanImplementationLaunchRpc,
 );

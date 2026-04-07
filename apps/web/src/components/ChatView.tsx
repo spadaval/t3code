@@ -28,9 +28,19 @@ import { useQuery } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useGitStatus } from "~/lib/gitStatusState";
+import { gitBranchesQueryOptions } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { isElectron } from "../env";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
+import {
+  canCancelPlanImplementationLaunch,
+  canRetryPlanImplementationLaunch,
+  findPlanImplementationLaunch,
+  getPlanImplementationWorktreeEligibility,
+  isPlanImplementationLaunchPreparedOrLater,
+  planImplementationLaunchStatusLabel,
+  usePlanImplementationLaunch,
+} from "../planImplementation";
 import {
   clampCollapsedComposerCursor,
   type ComposerTrigger,
@@ -48,13 +58,13 @@ import {
   deriveTimelineEntries,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
-  findSidebarProposedPlan,
   findLatestProposedPlan,
   deriveWorkLogEntries,
   hasActionableProposedPlan,
   hasToolActivityForTurn,
   isLatestTurnSettled,
   formatElapsed,
+  resolvePlanSidebarProposedPlan,
 } from "../session-logic";
 import { isScrollContainerNearBottom } from "../chat-scroll";
 import {
@@ -67,6 +77,7 @@ import {
 import { useStore } from "../store";
 import { useProjectById, useThreadById } from "../storeSelectors";
 import { useUiStateStore } from "../uiStateStore";
+import { usePlanSidebarStore } from "../planSidebarStore";
 import {
   buildPlanImplementationThreadTitle,
   buildPlanImplementationPrompt,
@@ -80,10 +91,10 @@ import {
   MAX_TERMINALS_PER_GROUP,
   type ChatMessage,
   type SessionPhase,
+  type PlanImplementationLaunch,
   type Thread,
   type TurnDiffSummary,
 } from "../types";
-import { LRUCache } from "../lib/lruCache";
 
 import { basenameOfPath } from "../vscode-icons";
 import { useTheme } from "../hooks/useTheme";
@@ -92,6 +103,7 @@ import BranchToolbar from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import {
   BotIcon,
   ChevronDownIcon,
@@ -106,6 +118,7 @@ import {
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
 import { cn, randomUUID } from "~/lib/utils";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
@@ -160,13 +173,11 @@ import { AVAILABLE_PROVIDER_OPTIONS, ProviderModelPicker } from "./chat/Provider
 import { ComposerCommandItem, ComposerCommandMenu } from "./chat/ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./chat/ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./chat/CompactComposerControlsMenu";
-import { ComposerPrimaryActions } from "./chat/ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./chat/ComposerPlanFollowUpBanner";
 import {
   getComposerProviderState,
-  renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
 } from "./chat/composerProviderRegistry";
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
@@ -209,81 +220,6 @@ const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 
-type ThreadPlanCatalogEntry = Pick<Thread, "id" | "proposedPlans">;
-
-const MAX_THREAD_PLAN_CATALOG_CACHE_ENTRIES = 500;
-const MAX_THREAD_PLAN_CATALOG_CACHE_MEMORY_BYTES = 512 * 1024;
-const threadPlanCatalogCache = new LRUCache<{
-  proposedPlans: Thread["proposedPlans"];
-  entry: ThreadPlanCatalogEntry;
-}>(MAX_THREAD_PLAN_CATALOG_CACHE_ENTRIES, MAX_THREAD_PLAN_CATALOG_CACHE_MEMORY_BYTES);
-
-function estimateThreadPlanCatalogEntrySize(thread: Thread): number {
-  return Math.max(
-    64,
-    thread.id.length +
-      thread.proposedPlans.reduce(
-        (total, plan) =>
-          total +
-          plan.id.length +
-          plan.planMarkdown.length +
-          plan.updatedAt.length +
-          (plan.turnId?.length ?? 0),
-        0,
-      ),
-  );
-}
-
-function toThreadPlanCatalogEntry(thread: Thread): ThreadPlanCatalogEntry {
-  const cached = threadPlanCatalogCache.get(thread.id);
-  if (cached && cached.proposedPlans === thread.proposedPlans) {
-    return cached.entry;
-  }
-
-  const entry: ThreadPlanCatalogEntry = {
-    id: thread.id,
-    proposedPlans: thread.proposedPlans,
-  };
-  threadPlanCatalogCache.set(
-    thread.id,
-    {
-      proposedPlans: thread.proposedPlans,
-      entry,
-    },
-    estimateThreadPlanCatalogEntrySize(thread),
-  );
-  return entry;
-}
-
-function useThreadPlanCatalog(threadIds: readonly ThreadId[]): ThreadPlanCatalogEntry[] {
-  const selector = useMemo(() => {
-    let previousThreads: Array<Thread | undefined> | null = null;
-    let previousEntries: ThreadPlanCatalogEntry[] = [];
-
-    return (state: { threads: Thread[] }): ThreadPlanCatalogEntry[] => {
-      const nextThreads = threadIds.map((threadId) =>
-        state.threads.find((thread) => thread.id === threadId),
-      );
-      const cachedThreads = previousThreads;
-      if (
-        cachedThreads &&
-        nextThreads.length === cachedThreads.length &&
-        nextThreads.every((thread, index) => thread === cachedThreads[index])
-      ) {
-        return previousEntries;
-      }
-
-      previousThreads = nextThreads;
-      previousEntries = nextThreads.flatMap((thread) =>
-        thread ? [toThreadPlanCatalogEntry(thread)] : [],
-      );
-      return previousEntries;
-    };
-  }, [threadIds]);
-
-  return useStore(selector);
-}
-
 function formatOutgoingPrompt(params: {
   provider: ProviderKind;
   model: string | null;
@@ -300,6 +236,47 @@ function formatOutgoingPrompt(params: {
 const COMPOSER_PATH_QUERY_DEBOUNCE_MS = 120;
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
+function isThreadEmptyForLaunchCancellation(thread: Thread | undefined): boolean {
+  if (!thread) {
+    return true;
+  }
+  return (
+    thread.messages.length === 0 &&
+    thread.activities.length === 0 &&
+    thread.proposedPlans.length === 0 &&
+    thread.latestTurn === null
+  );
+}
+
+function launchBannerTitle(launch: PlanImplementationLaunch): string {
+  switch (launch.status) {
+    case "requested":
+      return "Preparing implementation worktree";
+    case "prepared":
+      return "Implementation worktree ready";
+    case "failed":
+      return "Implementation launch failed";
+    case "cancelled":
+      return "Implementation launch cancelled";
+    case "started":
+      return "Implementation started";
+  }
+}
+
+function launchBannerDescription(launch: PlanImplementationLaunch): string {
+  switch (launch.status) {
+    case "requested":
+      return "The server queued the launch and is preparing the target worktree.";
+    case "prepared":
+      return "The worktree is ready. The server will run setup and start the first turn next.";
+    case "failed":
+      return launch.failureReason ?? "The launch failed before the first turn started.";
+    case "cancelled":
+      return "The implementation launch was cancelled before the first turn started.";
+    case "started":
+      return "The implementation turn has started.";
+  }
+}
 
 const extendReplacementRangeForTrailingSpace = (
   text: string,
@@ -670,14 +647,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const [pendingUserInputQuestionIndexByRequestId, setPendingUserInputQuestionIndexByRequestId] =
     useState<Record<string, number>>({});
   const [expandedWorkGroups, setExpandedWorkGroups] = useState<Record<string, boolean>>({});
-  const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
   const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
   const planSidebarDismissedForTurnRef = useRef<string | null>(null);
-  // When set, the thread-change reset effect will open the sidebar instead of closing it.
-  // Used by "Implement in a new thread" to carry the sidebar-open intent across navigation.
-  const planSidebarOpenOnNextThreadRef = useRef(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [terminalFocusRequestId, setTerminalFocusRequestId] = useState(0);
   const [composerHighlightedItemId, setComposerHighlightedItemId] = useState<string | null>(null);
@@ -727,6 +700,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewHandoffTimeoutByMessageIdRef = useRef<Record<string, number>>({});
   const sendInFlightRef = useRef(false);
+  const pendingLaunchNavigationRef = useRef<{
+    launchId: PlanImplementationLaunch["launchId"];
+    targetThreadId: ThreadId;
+  } | null>(null);
   const dragDepthRef = useRef(0);
   const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
   const setMessagesScrollContainerRef = useCallback((element: HTMLDivElement | null) => {
@@ -746,6 +723,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
       ),
     [terminalStateByThreadId],
   );
+  const planSidebarOpen = usePlanSidebarStore(
+    (state) => state.openByThreadId[threadId as string] ?? false,
+  );
+  const setThreadPlanSidebarOpen = usePlanSidebarStore((state) => state.setPlanSidebarOpen);
   const storeSetTerminalOpen = useTerminalStateStore((s) => s.setTerminalOpen);
   const storeSplitTerminal = useTerminalStateStore((s) => s.splitTerminal);
   const storeNewTerminal = useTerminalStateStore((s) => s.newTerminal);
@@ -820,6 +801,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
 
   const fallbackDraftProject = useProjectById(draftThread?.projectId);
+  const planImplementationLaunches = useStore((store) => store.planImplementationLaunches);
+  const activeThreadLaunch = usePlanImplementationLaunch(threadId);
   const localDraftError = serverThread ? null : (localDraftErrorsByThreadId[threadId] ?? null);
   const localDraftThread = useMemo(
     () =>
@@ -851,19 +834,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     return openTerminalThreadIds.filter((nextThreadId) => existingThreadIds.has(nextThreadId));
   }, [draftThreadIds, openTerminalThreadIds, serverThreadIds]);
   const activeLatestTurn = activeThread?.latestTurn ?? null;
-  const threadPlanCatalog = useThreadPlanCatalog(
-    useMemo(() => {
-      const threadIds: ThreadId[] = [];
-      if (activeThread?.id) {
-        threadIds.push(activeThread.id);
-      }
-      const sourceThreadId = activeLatestTurn?.sourceProposedPlan?.threadId;
-      if (sourceThreadId && sourceThreadId !== activeThread?.id) {
-        threadIds.push(sourceThreadId);
-      }
-      return threadIds;
-    }, [activeLatestTurn?.sourceProposedPlan?.threadId, activeThread?.id]),
-  );
   const activeContextWindow = useMemo(
     () => deriveLatestContextWindowSnapshot(activeThread?.activities ?? []),
     [activeThread?.activities],
@@ -1032,6 +1002,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const selectedModelForPicker = selectedModel;
   const phase = derivePhase(activeThread?.session ?? null);
+  const activeThreadLaunchIsTargetThread =
+    activeThreadLaunch !== null &&
+    activeThread !== undefined &&
+    activeThreadLaunch.targetThreadId === activeThread.id;
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(
     () => deriveWorkLogEntries(threadActivities, activeLatestTurn?.turnId ?? undefined),
@@ -1091,20 +1065,45 @@ export default function ChatView({ threadId }: ChatViewProps) {
       activeLatestTurn?.turnId ?? null,
     );
   }, [activeLatestTurn?.turnId, activeThread?.proposedPlans, latestTurnSettled]);
-  const sidebarProposedPlan = useMemo(
+  const activePlanImplementationLaunch = useMemo(
     () =>
-      findSidebarProposedPlan({
-        threads: threadPlanCatalog,
-        latestTurn: activeLatestTurn,
-        latestTurnSettled,
-        threadId: activeThread?.id ?? null,
-      }),
-    [activeLatestTurn, activeThread?.id, latestTurnSettled, threadPlanCatalog],
+      activeProposedPlan && activeThread
+        ? findPlanImplementationLaunch(planImplementationLaunches, {
+            threadId: activeThread.id,
+            planId: activeProposedPlan.id,
+          })
+        : null,
+    [activeProposedPlan, activeThread, planImplementationLaunches],
   );
+  const activePlanLaunchStatus = activePlanImplementationLaunch?.status ?? null;
+  const hasActivePlanLaunch =
+    activePlanLaunchStatus !== null &&
+    !canRetryPlanImplementationLaunch(activePlanLaunchStatus) &&
+    activePlanLaunchStatus !== "started";
+  const activePlanLaunchStatusLabel =
+    activePlanLaunchStatus !== null
+      ? planImplementationLaunchStatusLabel(activePlanLaunchStatus)
+      : null;
   const activePlan = useMemo(
     () => deriveActivePlanState(threadActivities, activeLatestTurn?.turnId ?? undefined),
     [activeLatestTurn?.turnId, threadActivities],
   );
+  const sidebarProposedPlan = useMemo(
+    () =>
+      resolvePlanSidebarProposedPlan({
+        activeProposedPlan,
+        activeThread: activeThread ?? null,
+        activeThreadLaunch,
+        threads,
+      }),
+    [activeProposedPlan, activeThread, activeThreadLaunch, threads],
+  );
+  const planSidebarAvailable =
+    planSidebarOpen ||
+    interactionMode === "plan" ||
+    activePlan !== null ||
+    sidebarProposedPlan !== null ||
+    activeThreadLaunch !== null;
   const showPlanFollowUpPrompt =
     pendingUserInputs.length === 0 &&
     interactionMode === "plan" &&
@@ -1401,6 +1400,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const effectivePathQuery = pathTriggerQuery.length > 0 ? debouncedPathQuery : "";
   const gitStatusQuery = useGitStatus(gitCwd);
+  const branchesQuery = useQuery(gitBranchesQueryOptions(gitCwd));
+  const branchesQuery = useQuery(gitBranchesQueryOptions(gitCwd));
   const keybindings = useServerKeybindings();
   const availableEditors = useServerAvailableEditors();
   const modelOptionsByProvider = useMemo(
@@ -1534,6 +1535,45 @@ export default function ChatView({ threadId }: ChatViewProps) {
       : (storeServerTerminalLaunchContext ?? null);
   // Default true while loading to avoid toolbar flicker.
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
+  const planImplementationWorktreeEligibility = getPlanImplementationWorktreeEligibility({
+    isGitRepo,
+    sourceThreadBranch: activeThread?.branch ?? null,
+    branches: branchesQuery.data?.branches ?? null,
+    branchesPending: branchesQuery.isPending || branchesQuery.isFetching,
+  });
+  const canImplementInNewWorktree =
+    Boolean(activeThread) &&
+    Boolean(activeProject) &&
+    Boolean(activeProposedPlan) &&
+    isServerThread &&
+    !isSendBusy &&
+    !isConnecting &&
+    !sendInFlightRef.current &&
+    planImplementationWorktreeEligibility.canImplement;
+  const canRetryActivePlanImplementationLaunch =
+    activePlanImplementationLaunch !== null &&
+    canRetryPlanImplementationLaunch(activePlanImplementationLaunch.status);
+  const implementInNewWorktreeDisabledReason = canRetryActivePlanImplementationLaunch
+    ? null
+    : hasActivePlanLaunch
+      ? activePlanImplementationLaunch?.status === "requested"
+        ? "An implementation worktree launch has already been requested for this plan."
+        : activePlanImplementationLaunch?.status === "prepared"
+          ? "An implementation worktree is already prepared for this plan."
+          : "An implementation worktree launch is already in progress for this plan."
+      : sendInFlightRef.current || isSendBusy
+        ? "Wait for the current send to finish before launching an implementation worktree."
+        : isConnecting
+          ? "Wait for the provider connection to finish before launching an implementation worktree."
+          : !activeThread || !activeProject || !activeProposedPlan || !isServerThread
+            ? "Implementation worktrees are only available for saved server threads with a proposed plan."
+            : planImplementationWorktreeEligibility.reason;
+  const isImplementInNewWorktreeActionDisabled = implementInNewWorktreeDisabledReason !== null;
+  const implementInNewWorktreeActionLabel = canRetryActivePlanImplementationLaunch
+    ? "Retry implementation in new worktree"
+    : activePlanImplementationLaunch?.status === "started"
+      ? "Implement in new worktree"
+      : (activePlanLaunchStatusLabel ?? "Implement in new worktree");
   const terminalShortcutLabelOptions = useMemo(
     () => ({
       context: {
@@ -1998,18 +2038,23 @@ export default function ChatView({ threadId }: ChatViewProps) {
     );
   }, [handleRuntimeModeChange, runtimeMode]);
   const togglePlanSidebar = useCallback(() => {
-    setPlanSidebarOpen((open) => {
-      if (open) {
-        const turnKey = activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? null;
-        if (turnKey) {
-          planSidebarDismissedForTurnRef.current = turnKey;
-        }
-      } else {
-        planSidebarDismissedForTurnRef.current = null;
+    const nextOpen = !planSidebarOpen;
+    if (!nextOpen) {
+      const turnKey = activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? null;
+      if (turnKey) {
+        planSidebarDismissedForTurnRef.current = turnKey;
       }
-      return !open;
-    });
-  }, [activePlan?.turnId, sidebarProposedPlan?.turnId]);
+    } else {
+      planSidebarDismissedForTurnRef.current = null;
+    }
+    setThreadPlanSidebarOpen(threadId, nextOpen);
+  }, [
+    activePlan?.turnId,
+    sidebarProposedPlan?.turnId,
+    planSidebarOpen,
+    setThreadPlanSidebarOpen,
+    threadId,
+  ]);
 
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: {
@@ -2302,12 +2347,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   useEffect(() => {
     setExpandedWorkGroups({});
     setPullRequestDialogState(null);
-    if (planSidebarOpenOnNextThreadRef.current) {
-      planSidebarOpenOnNextThreadRef.current = false;
-      setPlanSidebarOpen(true);
-    } else {
-      setPlanSidebarOpen(false);
-    }
     planSidebarDismissedForTurnRef.current = null;
   }, [activeThread?.id]);
 
@@ -2593,6 +2632,48 @@ export default function ChatView({ threadId }: ChatViewProps) {
     };
   }, [phase]);
 
+  useEffect(() => {
+    const pendingNavigation = pendingLaunchNavigationRef.current;
+    if (!pendingNavigation) {
+      return;
+    }
+
+    const launch =
+      planImplementationLaunches.find((entry) => entry.launchId === pendingNavigation.launchId) ??
+      null;
+    if (!launch) {
+      return;
+    }
+
+    if (launch.status === "failed") {
+      pendingLaunchNavigationRef.current = null;
+      toastManager.add({
+        type: "error",
+        title: "Could not prepare implementation worktree",
+        description: launch.failureReason ?? "The launch failed before the turn started.",
+      });
+      return;
+    }
+
+    if (launch.status === "cancelled") {
+      pendingLaunchNavigationRef.current = null;
+      return;
+    }
+
+    const targetThreadExists = threads.some(
+      (thread) => thread.id === pendingNavigation.targetThreadId,
+    );
+    if (!targetThreadExists || !isPlanImplementationLaunchPreparedOrLater(launch.status)) {
+      return;
+    }
+
+    pendingLaunchNavigationRef.current = null;
+    setThreadPlanSidebarOpen(pendingNavigation.targetThreadId, true);
+    void navigate({
+      to: "/$threadId",
+      params: { threadId: pendingNavigation.targetThreadId },
+    });
+  }, [navigate, planImplementationLaunches, setThreadPlanSidebarOpen, threads]);
   useEffect(() => {
     if (!activeThreadId) return;
     const previous = terminalOpenByThreadRef.current[activeThreadId] ?? false;
@@ -3385,7 +3466,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         // step-tracking activities that the sidebar will display.
         if (nextInteractionMode === "default") {
           planSidebarDismissedForTurnRef.current = null;
-          setPlanSidebarOpen(true);
+          setThreadPlanSidebarOpen(activeThread.id, true);
         }
         sendInFlightRef.current = false;
       } catch (err) {
@@ -3418,6 +3499,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setComposerDraftInteractionMode,
       setThreadError,
       selectedModel,
+      setThreadPlanSidebarOpen,
     ],
   );
 
@@ -3497,8 +3579,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         return waitForStartedServerThread(nextThreadId);
       })
       .then(() => {
-        // Signal that the plan sidebar should open on the new thread.
-        planSidebarOpenOnNextThreadRef.current = true;
+        setThreadPlanSidebarOpen(nextThreadId, true);
         return navigate({
           to: "/$threadId",
           params: { threadId: nextThreadId },
@@ -3536,7 +3617,143 @@ export default function ChatView({ threadId }: ChatViewProps) {
     selectedProvider,
     selectedProviderModels,
     selectedModel,
+    setThreadPlanSidebarOpen,
   ]);
+
+  const onImplementPlanInNewWorktree = useCallback(async () => {
+    const api = readNativeApi();
+    if (
+      !api ||
+      !activeThread ||
+      !activeProject ||
+      !activeProposedPlan ||
+      !isServerThread ||
+      isSendBusy ||
+      isConnecting ||
+      sendInFlightRef.current ||
+      !canImplementInNewWorktree
+    ) {
+      return;
+    }
+
+    const assistantDeliveryMode = settings.enableAssistantStreaming ? "streaming" : "buffered";
+
+    sendInFlightRef.current = true;
+    beginLocalDispatch({ preparingWorktree: true });
+    const finish = () => {
+      sendInFlightRef.current = false;
+      resetLocalDispatch();
+    };
+
+    await api.orchestration
+      .launchPlanImplementation({
+        sourceThreadId: activeThread.id,
+        planId: activeProposedPlan.id,
+        ...(selectedProvider !== undefined ? { provider: selectedProvider } : {}),
+        ...(selectedModel ? { model: selectedModel } : {}),
+        ...(composerModelOptions ? { modelOptions: composerModelOptions } : {}),
+        assistantDeliveryMode,
+        runtimeMode,
+        runSetup: true,
+      })
+      .then((result) => {
+        pendingLaunchNavigationRef.current = {
+          launchId: result.launchId,
+          targetThreadId: result.targetThreadId,
+        };
+      })
+      .catch((err) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not launch implementation worktree",
+          description:
+            err instanceof Error
+              ? err.message
+              : "An error occurred while launching the implementation worktree.",
+        });
+      })
+      .then(finish, finish);
+  }, [
+    activeProject,
+    activeProposedPlan,
+    activeThread,
+    beginLocalDispatch,
+    canImplementInNewWorktree,
+    isConnecting,
+    isSendBusy,
+    isServerThread,
+    resetLocalDispatch,
+    runtimeMode,
+    composerModelOptions,
+    selectedModel,
+    selectedProvider,
+    settings.enableAssistantStreaming,
+  ]);
+
+  const onCancelPlanImplementationLaunch = useCallback(async () => {
+    const api = readNativeApi();
+    if (
+      !api ||
+      !activeThreadLaunch ||
+      !canCancelPlanImplementationLaunch(activeThreadLaunch.status)
+    ) {
+      return;
+    }
+
+    await api.orchestration
+      .cancelPlanImplementationLaunch({
+        launchId: activeThreadLaunch.launchId,
+      })
+      .then(async () => {
+        if (
+          activeThreadLaunch.targetThreadId === threadId &&
+          isThreadEmptyForLaunchCancellation(activeThread)
+        ) {
+          await navigate({
+            to: "/$threadId",
+            params: { threadId: activeThreadLaunch.sourceThreadId },
+          });
+        }
+      })
+      .catch((err) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not cancel implementation launch",
+          description:
+            err instanceof Error ? err.message : "An error occurred while cancelling the launch.",
+        });
+      });
+  }, [activeThread, activeThreadLaunch, navigate, threadId]);
+
+  const onRetryPlanImplementationLaunch = useCallback(async () => {
+    const api = readNativeApi();
+    if (
+      !api ||
+      !activeThreadLaunch ||
+      !canRetryPlanImplementationLaunch(activeThreadLaunch.status)
+    ) {
+      return;
+    }
+
+    await api.orchestration
+      .retryPlanImplementationLaunch({
+        launchId: activeThreadLaunch.launchId,
+      })
+      .then((result) => {
+        pendingLaunchNavigationRef.current = {
+          launchId: result.launchId,
+          targetThreadId: result.targetThreadId,
+        };
+      })
+      .catch((err) => {
+        toastManager.add({
+          type: "error",
+          title: "Could not retry implementation launch",
+          description:
+            err instanceof Error ? err.message : "An error occurred while retrying the launch.",
+        });
+      });
+  }, [activeThreadLaunch]);
 
   const onProviderModelSelect = useCallback(
     (provider: ProviderKind, model: string) => {
@@ -3586,15 +3803,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [scheduleComposerFocus, setPrompt],
   );
-  const providerTraitsMenuContent = renderProviderTraitsMenuContent({
-    provider: selectedProvider,
-    threadId,
-    model: selectedModel,
-    models: selectedProviderModels,
-    modelOptions: composerModelOptions?.[selectedProvider],
-    prompt,
-    onPromptChange: setPromptFromTraits,
-  });
   const providerTraitsPicker = renderProviderTraitsPicker({
     provider: selectedProvider,
     threadId,
@@ -3964,6 +4172,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
       {/* Error banner */}
       <ProviderStatusBanner status={activeProviderStatus} />
+      <ProviderStatusBanner status={activeProviderStatus} />
+      <PlanImplementationLaunchBanner
+        launch={
+          activeThreadLaunchIsTargetThread && activeThreadLaunch?.status !== "started"
+            ? activeThreadLaunch
+            : null
+        }
+        onCancel={() => void onCancelPlanImplementationLaunch()}
+        onRetry={() => void onRetryPlanImplementationLaunch()}
+      />
       <ThreadErrorBanner
         error={activeThread.error}
         onDismiss={() => setThreadError(activeThread.id, null)}
@@ -4215,6 +4433,106 @@ export default function ChatView({ threadId }: ChatViewProps) {
                         )}
                         onRespondToApproval={onRespondToApproval}
                       />
+
+                      {isComposerFooterCompact ? (
+                        <CompactComposerControlsMenu
+                          planSidebarAvailable={planSidebarAvailable}
+                          interactionMode={interactionMode}
+                          planSidebarOpen={planSidebarOpen}
+                          runtimeMode={runtimeMode}
+                          traitsMenuContent={providerTraitsPicker}
+                          onToggleInteractionMode={toggleInteractionMode}
+                          onTogglePlanSidebar={togglePlanSidebar}
+                          onToggleRuntimeMode={toggleRuntimeMode}
+                        />
+                      ) : (
+                        <>
+                          {providerTraitsPicker ? (
+                            <>
+                              <Separator
+                                orientation="vertical"
+                                className="mx-0.5 hidden h-4 sm:block"
+                              />
+                              {providerTraitsPicker}
+                            </>
+                          ) : null}
+
+                          <Separator
+                            orientation="vertical"
+                            className="mx-0.5 hidden h-4 sm:block"
+                          />
+
+                          <Button
+                            variant="ghost"
+                            className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
+                            size="sm"
+                            type="button"
+                            onClick={toggleInteractionMode}
+                            title={
+                              interactionMode === "plan"
+                                ? "Plan mode — click to return to normal chat mode"
+                                : "Default mode — click to enter plan mode"
+                            }
+                          >
+                            <BotIcon />
+                            <span className="sr-only sm:not-sr-only">
+                              {interactionMode === "plan" ? "Plan" : "Chat"}
+                            </span>
+                          </Button>
+
+                          <Separator
+                            orientation="vertical"
+                            className="mx-0.5 hidden h-4 sm:block"
+                          />
+
+                          <Button
+                            variant="ghost"
+                            className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
+                            size="sm"
+                            type="button"
+                            onClick={() =>
+                              void handleRuntimeModeChange(
+                                runtimeMode === "full-access" ? "approval-required" : "full-access",
+                              )
+                            }
+                            title={
+                              runtimeMode === "full-access"
+                                ? "Full access — click to require approvals"
+                                : "Approval required — click for full access"
+                            }
+                          >
+                            {runtimeMode === "full-access" ? <LockOpenIcon /> : <LockIcon />}
+                            <span className="sr-only sm:not-sr-only">
+                              {runtimeMode === "full-access" ? "Full access" : "Supervised"}
+                            </span>
+                          </Button>
+
+                          {planSidebarAvailable ? (
+                            <>
+                              <Separator
+                                orientation="vertical"
+                                className="mx-0.5 hidden h-4 sm:block"
+                              />
+                              <Button
+                                variant="ghost"
+                                className={cn(
+                                  "shrink-0 whitespace-nowrap px-2 sm:px-3",
+                                  planSidebarOpen
+                                    ? "text-blue-400 hover:text-blue-300"
+                                    : "text-muted-foreground/70 hover:text-foreground/80",
+                                )}
+                                size="sm"
+                                type="button"
+                                onClick={togglePlanSidebar}
+                                title={planSidebarOpen ? "Hide plan sidebar" : "Show plan sidebar"}
+                              >
+                                <ListTodoIcon />
+                                <span className="sr-only sm:not-sr-only">Plan</span>
+                              </Button>
+                            </>
+                          ) : null}
+                        </>
+                      )}
                     </div>
                   ) : (
                     <div
@@ -4254,13 +4572,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
                         {isComposerFooterCompact ? (
                           <CompactComposerControlsMenu
-                            activePlan={Boolean(
-                              activePlan || sidebarProposedPlan || planSidebarOpen,
-                            )}
+                            planSidebarAvailable={planSidebarAvailable}
                             interactionMode={interactionMode}
                             planSidebarOpen={planSidebarOpen}
                             runtimeMode={runtimeMode}
-                            traitsMenuContent={providerTraitsMenuContent}
+                            traitsMenuContent={providerTraitsPicker}
                             onToggleInteractionMode={toggleInteractionMode}
                             onTogglePlanSidebar={togglePlanSidebar}
                             onToggleRuntimeMode={toggleRuntimeMode}
@@ -4376,32 +4692,196 @@ export default function ChatView({ threadId }: ChatViewProps) {
                             Preparing worktree...
                           </span>
                         ) : null}
-                        <ComposerPrimaryActions
-                          compact={isComposerPrimaryActionsCompact}
-                          pendingAction={
-                            activePendingProgress
-                              ? {
-                                  questionIndex: activePendingProgress.questionIndex,
-                                  isLastQuestion: activePendingProgress.isLastQuestion,
-                                  canAdvance: activePendingProgress.canAdvance,
-                                  isResponding: activePendingIsResponding,
-                                  isComplete: Boolean(activePendingResolvedAnswers),
-                                }
-                              : null
-                          }
-                          isRunning={phase === "running"}
-                          showPlanFollowUpPrompt={
-                            pendingUserInputs.length === 0 && showPlanFollowUpPrompt
-                          }
-                          promptHasText={prompt.trim().length > 0}
-                          isSendBusy={isSendBusy}
-                          isConnecting={isConnecting}
-                          isPreparingWorktree={isPreparingWorktree}
-                          hasSendableContent={composerSendState.hasSendableContent}
-                          onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
-                          onInterrupt={() => void onInterrupt()}
-                          onImplementPlanInNewThread={() => void onImplementPlanInNewThread()}
-                        />
+                        {activePendingProgress ? (
+                          <div className="flex items-center gap-2">
+                            {activePendingProgress.questionIndex > 0 ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-full"
+                                onClick={onPreviousActivePendingUserInputQuestion}
+                                disabled={activePendingIsResponding}
+                              >
+                                Previous
+                              </Button>
+                            ) : null}
+                            <Button
+                              type="submit"
+                              size="sm"
+                              className="rounded-full px-4"
+                              disabled={
+                                activePendingIsResponding ||
+                                (activePendingProgress.isLastQuestion
+                                  ? !activePendingResolvedAnswers
+                                  : !activePendingProgress.canAdvance)
+                              }
+                            >
+                              {activePendingIsResponding
+                                ? "Submitting..."
+                                : activePendingProgress.isLastQuestion
+                                  ? "Submit answers"
+                                  : "Next question"}
+                            </Button>
+                          </div>
+                        ) : phase === "running" ? (
+                          <button
+                            type="button"
+                            className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-rose-500/90 text-white transition-all duration-150 hover:bg-rose-500 hover:scale-105 sm:h-8 sm:w-8"
+                            onClick={() => void onInterrupt()}
+                            aria-label="Stop generation"
+                          >
+                            <svg
+                              width="12"
+                              height="12"
+                              viewBox="0 0 12 12"
+                              fill="currentColor"
+                              aria-hidden="true"
+                            >
+                              <rect x="2" y="2" width="8" height="8" rx="1.5" />
+                            </svg>
+                          </button>
+                        ) : pendingUserInputs.length === 0 ? (
+                          showPlanFollowUpPrompt ? (
+                            prompt.trim().length > 0 ? (
+                              <Button
+                                type="submit"
+                                size="sm"
+                                className="h-9 rounded-full px-4 sm:h-8"
+                                disabled={isSendBusy || isConnecting}
+                              >
+                                {isConnecting || isSendBusy ? "Sending..." : "Refine"}
+                              </Button>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                {activePlanImplementationLaunch &&
+                                activePlanImplementationLaunch.sourceThreadId ===
+                                  activeThread?.id &&
+                                activePlanImplementationLaunch.status !== "started" &&
+                                activePlanLaunchStatusLabel ? (
+                                  <span className="text-muted-foreground/70 text-xs">
+                                    {activePlanLaunchStatusLabel}
+                                  </span>
+                                ) : null}
+                                <Button
+                                  type="submit"
+                                  size="sm"
+                                  className="h-9 rounded-l-full rounded-r-none px-4 sm:h-8"
+                                  disabled={isSendBusy || isConnecting}
+                                >
+                                  {isConnecting || isSendBusy ? "Sending..." : "Implement"}
+                                </Button>
+                                <Menu>
+                                  <MenuTrigger
+                                    render={
+                                      <Button
+                                        size="sm"
+                                        variant="default"
+                                        className="h-9 rounded-l-none rounded-r-full border-l-white/12 px-2 sm:h-8"
+                                        aria-label="Implementation actions"
+                                        disabled={isSendBusy || isConnecting}
+                                      />
+                                    }
+                                  >
+                                    <ChevronDownIcon className="size-3.5" />
+                                  </MenuTrigger>
+                                  <MenuPopup align="end" side="top">
+                                    <MenuItem
+                                      disabled={isSendBusy || isConnecting}
+                                      onClick={() => void onImplementPlanInNewThread()}
+                                    >
+                                      Implement in a new thread
+                                    </MenuItem>
+                                    {isImplementInNewWorktreeActionDisabled &&
+                                    implementInNewWorktreeDisabledReason ? (
+                                      <Tooltip>
+                                        <TooltipTrigger
+                                          render={
+                                            <span className="block w-full cursor-not-allowed" />
+                                          }
+                                        >
+                                          <MenuItem className="w-full" disabled>
+                                            {implementInNewWorktreeActionLabel}
+                                          </MenuItem>
+                                        </TooltipTrigger>
+                                        <TooltipPopup
+                                          side="left"
+                                          align="center"
+                                          className="max-w-64 whitespace-normal leading-tight"
+                                        >
+                                          {implementInNewWorktreeDisabledReason}
+                                        </TooltipPopup>
+                                      </Tooltip>
+                                    ) : (
+                                      <MenuItem
+                                        onClick={() =>
+                                          void (canRetryActivePlanImplementationLaunch
+                                            ? onRetryPlanImplementationLaunch()
+                                            : onImplementPlanInNewWorktree())
+                                        }
+                                      >
+                                        {implementInNewWorktreeActionLabel}
+                                      </MenuItem>
+                                    )}
+                                  </MenuPopup>
+                                </Menu>
+                              </div>
+                            )
+                          ) : (
+                            <button
+                              type="submit"
+                              className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/90 text-primary-foreground transition-all duration-150 hover:bg-primary hover:scale-105 disabled:opacity-30 disabled:hover:scale-100 sm:h-8 sm:w-8"
+                              disabled={
+                                isSendBusy || isConnecting || !composerSendState.hasSendableContent
+                              }
+                              aria-label={
+                                isConnecting
+                                  ? "Connecting"
+                                  : isPreparingWorktree
+                                    ? "Preparing worktree"
+                                    : isSendBusy
+                                      ? "Sending"
+                                      : "Send message"
+                              }
+                            >
+                              {isConnecting || isSendBusy ? (
+                                <svg
+                                  width="14"
+                                  height="14"
+                                  viewBox="0 0 14 14"
+                                  fill="none"
+                                  className="animate-spin"
+                                  aria-hidden="true"
+                                >
+                                  <circle
+                                    cx="7"
+                                    cy="7"
+                                    r="5.5"
+                                    stroke="currentColor"
+                                    strokeWidth="1.5"
+                                    strokeLinecap="round"
+                                    strokeDasharray="20 12"
+                                  />
+                                </svg>
+                              ) : (
+                                <svg
+                                  width="14"
+                                  height="14"
+                                  viewBox="0 0 14 14"
+                                  fill="none"
+                                  aria-hidden="true"
+                                >
+                                  <path
+                                    d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5"
+                                    stroke="currentColor"
+                                    strokeWidth="1.8"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+                              )}
+                            </button>
+                          )
+                        ) : null}
                       </div>
                     </div>
                   )}
@@ -4448,12 +4928,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
             workspaceRoot={activeWorkspaceRoot}
             timestampFormat={timestampFormat}
             onClose={() => {
-              setPlanSidebarOpen(false);
-              // Track that the user explicitly dismissed for this turn so auto-open won't fight them.
               const turnKey = activePlan?.turnId ?? sidebarProposedPlan?.turnId ?? null;
               if (turnKey) {
                 planSidebarDismissedForTurnRef.current = turnKey;
               }
+              setThreadPlanSidebarOpen(threadId, false);
             }}
           />
         ) : null}
@@ -4543,6 +5022,55 @@ export default function ChatView({ threadId }: ChatViewProps) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function PlanImplementationLaunchBanner({
+  launch,
+  onCancel,
+  onRetry,
+}: {
+  launch: PlanImplementationLaunch | null;
+  onCancel: () => void;
+  onRetry: () => void;
+}) {
+  if (!launch) {
+    return null;
+  }
+
+  const variant =
+    launch.status === "failed" ? "error" : launch.status === "cancelled" ? "warning" : "info";
+
+  return (
+    <div className="mx-auto max-w-3xl pt-3">
+      <Alert variant={variant}>
+        <CircleAlertIcon />
+        <AlertTitle>{launchBannerTitle(launch)}</AlertTitle>
+        <AlertDescription className="line-clamp-4" title={launchBannerDescription(launch)}>
+          {launchBannerDescription(launch)}
+          {(launch.cleanupStatus === "failed" || launch.cleanupError) && (
+            <span className="text-xs">
+              Cleanup: {launch.cleanupError ?? "Cleanup did not complete successfully."}
+            </span>
+          )}
+        </AlertDescription>
+        {(canCancelPlanImplementationLaunch(launch.status) ||
+          canRetryPlanImplementationLaunch(launch.status)) && (
+          <AlertAction>
+            {canCancelPlanImplementationLaunch(launch.status) && (
+              <Button size="sm" variant="outline" onClick={onCancel}>
+                Cancel
+              </Button>
+            )}
+            {canRetryPlanImplementationLaunch(launch.status) && (
+              <Button size="sm" onClick={onRetry}>
+                Retry
+              </Button>
+            )}
+          </AlertAction>
+        )}
+      </Alert>
     </div>
   );
 }

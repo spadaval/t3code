@@ -1,6 +1,7 @@
 import type {
   OrchestrationEvent,
   OrchestrationReadModel,
+  PlanImplementationLaunchId,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -51,8 +52,8 @@ interface CommandEnvelope {
 }
 
 function commandToAggregateRef(command: OrchestrationCommand): {
-  readonly aggregateKind: "project" | "thread";
-  readonly aggregateId: ProjectId | ThreadId;
+  readonly aggregateKind: "project" | "thread" | "planImplementationLaunch";
+  readonly aggregateId: ProjectId | ThreadId | PlanImplementationLaunchId;
 } {
   switch (command.type) {
     case "project.create":
@@ -61,6 +62,15 @@ function commandToAggregateRef(command: OrchestrationCommand): {
       return {
         aggregateKind: "project",
         aggregateId: command.projectId,
+      };
+    case "plan-implementation-launch.request":
+    case "plan-implementation-launch.mark-worktree-prepared":
+    case "plan-implementation-launch.mark-started":
+    case "plan-implementation-launch.fail":
+    case "plan-implementation-launch.cancel":
+      return {
+        aggregateKind: "planImplementationLaunch",
+        aggregateId: command.launchId,
       };
     default:
       return {

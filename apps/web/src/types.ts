@@ -1,5 +1,6 @@
 import type {
   ModelSelection,
+  OrchestrationPlanImplementationLaunch,
   OrchestrationLatestTurn,
   OrchestrationProposedPlanId,
   OrchestrationSessionStatus,
@@ -23,6 +24,7 @@ export const DEFAULT_THREAD_TERMINAL_HEIGHT = 280;
 export const DEFAULT_THREAD_TERMINAL_ID = "default";
 export const MAX_TERMINALS_PER_GROUP = 4;
 export type ProjectScript = ContractProjectScript;
+export type PlanImplementationLaunch = OrchestrationPlanImplementationLaunch;
 
 export interface ThreadTerminalGroup {
   id: string;

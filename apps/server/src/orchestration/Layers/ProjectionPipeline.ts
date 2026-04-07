@@ -1,3 +1,4 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ApprovalRequestId,
   type ChatAttachment,
@@ -8,6 +9,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
+import { ProjectionPlanImplementationLaunchRepository } from "../../persistence/Services/ProjectionPlanImplementationLaunches.ts";
 import { ProjectionPendingApprovalRepository } from "../../persistence/Services/ProjectionPendingApprovals.ts";
 import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
@@ -28,6 +30,7 @@ import {
 } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
+import { ProjectionPlanImplementationLaunchRepositoryLive } from "../../persistence/Layers/ProjectionPlanImplementationLaunches.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
@@ -51,6 +54,7 @@ import {
 export const ORCHESTRATION_PROJECTOR_NAMES = {
   projects: "projection.projects",
   threads: "projection.threads",
+  planImplementationLaunches: "projection.plan-implementation-launches",
   threadMessages: "projection.thread-messages",
   threadProposedPlans: "projection.thread-proposed-plans",
   threadActivities: "projection.thread-activities",
@@ -362,6 +366,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionStateRepository = yield* ProjectionStateRepository;
     const projectionProjectRepository = yield* ProjectionProjectRepository;
     const projectionThreadRepository = yield* ProjectionThreadRepository;
+    const projectionPlanImplementationLaunchRepository =
+      yield* ProjectionPlanImplementationLaunchRepository;
     const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
     const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
     const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
@@ -611,6 +617,105 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             updatedAt: event.occurredAt,
           });
           return;
+        }
+
+        default:
+          return;
+      }
+    });
+
+    const applyPlanImplementationLaunchesProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyPlanImplementationLaunchesProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "plan-implementation-launch.requested": {
+          yield* projectionPlanImplementationLaunchRepository.upsert({
+            launchId: event.payload.launchId,
+            sourceThreadId: event.payload.sourceThreadId,
+            sourcePlanId: event.payload.sourcePlanId,
+            projectId: event.payload.projectId,
+            targetThreadId: event.payload.targetThreadId,
+            retryOfLaunchId: event.payload.retryOfLaunchId,
+            status: "requested",
+            branch: null,
+            worktreePath: null,
+            failureReason: null,
+            cleanupStatus: "not-required",
+            cleanupError: null,
+            title: event.payload.title,
+            setupEnabled: event.payload.setupEnabled,
+            promptText: event.payload.promptText,
+            provider: event.payload.provider,
+            model: event.payload.model,
+            modelOptions: event.payload.modelOptions,
+            providerOptions: event.payload.providerOptions,
+            assistantDeliveryMode: event.payload.assistantDeliveryMode,
+            runtimeMode: event.payload.runtimeMode,
+            requestedAt: event.payload.requestedAt,
+            preparedAt: null,
+            startedAt: null,
+            failedAt: null,
+            cancelledAt: null,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "plan-implementation-launch.worktree-prepared":
+        case "plan-implementation-launch.started":
+        case "plan-implementation-launch.failed":
+        case "plan-implementation-launch.cancelled": {
+          const existingRow = yield* projectionPlanImplementationLaunchRepository.getById({
+            launchId: event.payload.launchId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+
+          switch (event.type) {
+            case "plan-implementation-launch.worktree-prepared":
+              yield* projectionPlanImplementationLaunchRepository.upsert({
+                ...existingRow.value,
+                status: "prepared",
+                branch: event.payload.branch,
+                worktreePath: event.payload.worktreePath,
+                preparedAt: event.payload.preparedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "plan-implementation-launch.started":
+              yield* projectionPlanImplementationLaunchRepository.upsert({
+                ...existingRow.value,
+                status: "started",
+                startedAt: event.payload.startedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "plan-implementation-launch.failed":
+              yield* projectionPlanImplementationLaunchRepository.upsert({
+                ...existingRow.value,
+                status: "failed",
+                failureReason: event.payload.failureReason,
+                cleanupStatus: event.payload.cleanupStatus,
+                cleanupError: event.payload.cleanupError,
+                failedAt: event.payload.failedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "plan-implementation-launch.cancelled":
+              yield* projectionPlanImplementationLaunchRepository.upsert({
+                ...existingRow.value,
+                status: "cancelled",
+                cleanupStatus: event.payload.cleanupStatus,
+                cleanupError: event.payload.cleanupError,
+                cancelledAt: event.payload.cancelledAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+          }
         }
 
         default:
@@ -1169,6 +1274,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         apply: applyProjectsProjection,
       },
       {
+        name: ORCHESTRATION_PROJECTOR_NAMES.planImplementationLaunches,
+        apply: applyPlanImplementationLaunchesProjection,
+      },
+      {
         name: ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
         apply: applyThreadMessagesProjection,
       },
@@ -1294,6 +1403,8 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   OrchestrationProjectionPipeline,
   makeOrchestrationProjectionPipeline(),
 ).pipe(
+  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(ProjectionPlanImplementationLaunchRepositoryLive),
   Layer.provideMerge(ProjectionProjectRepositoryLive),
   Layer.provideMerge(ProjectionThreadRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),

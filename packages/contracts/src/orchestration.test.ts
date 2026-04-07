@@ -13,6 +13,7 @@ import {
   ProjectMetaUpdatedPayload,
   OrchestrationProposedPlan,
   OrchestrationSession,
+  PlanImplementationLaunchRequestedPayload,
   ProjectCreateCommand,
   ThreadMetaUpdatedPayload,
   ThreadTurnStartCommand,
@@ -27,6 +28,9 @@ const decodeProjectCreateCommand = Schema.decodeUnknownEffect(ProjectCreateComma
 const decodeProjectCreatedPayload = Schema.decodeUnknownEffect(ProjectCreatedPayload);
 const decodeProjectMetaUpdatedPayload = Schema.decodeUnknownEffect(ProjectMetaUpdatedPayload);
 const decodeThreadTurnStartCommand = Schema.decodeUnknownEffect(ThreadTurnStartCommand);
+const decodePlanImplementationLaunchRequestedPayload = Schema.decodeUnknownEffect(
+  PlanImplementationLaunchRequestedPayload,
+);
 const decodeThreadTurnStartRequestedPayload = Schema.decodeUnknownEffect(
   ThreadTurnStartRequestedPayload,
 );
@@ -401,6 +405,37 @@ it.effect("accepts a source proposed plan reference in thread.turn.start", () =>
       threadId: "thread-1",
       planId: "plan-1",
     });
+  }),
+);
+
+it.effect("decodes plan implementation launch requested payload execution snapshot", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodePlanImplementationLaunchRequestedPayload({
+      launchId: "launch-1",
+      sourceThreadId: " thread-1 ",
+      sourcePlanId: " plan-1 ",
+      projectId: " project-1 ",
+      targetThreadId: " thread-2 ",
+      retryOfLaunchId: null,
+      title: " Implement auth flow ",
+      setupEnabled: true,
+      promptText: "Implement this plan",
+      provider: "codex",
+      model: " gpt-5-codex ",
+      modelOptions: { codex: { reasoningEffort: "high" } },
+      providerOptions: null,
+      assistantDeliveryMode: "buffered",
+      runtimeMode: "full-access",
+      requestedAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(parsed.sourceThreadId, "thread-1");
+    assert.strictEqual(parsed.sourcePlanId, "plan-1");
+    assert.strictEqual(parsed.projectId, "project-1");
+    assert.strictEqual(parsed.targetThreadId, "thread-2");
+    assert.strictEqual(parsed.title, "Implement auth flow");
+    assert.strictEqual(parsed.model, "gpt-5-codex");
+    assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
   }),
 );
 
