@@ -179,7 +179,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
   const diffSearch = useSearch({ strict: false, select: (search) => parseDiffRouteSearch(search) });
-  const diffOpen = diffSearch.diff === "1";
+  const diffOpen = diffSearch.rightPane === "diff";
   const activeThreadId = routeThreadId;
   const activeThread = useStore((store) =>
     activeThreadId ? store.threads.find((thread) => thread.id === activeThreadId) : undefined,
@@ -338,7 +338,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
       params: { threadId: activeThread.id },
       search: (previous) => {
         const rest = stripDiffSearchParams(previous);
-        return { ...rest, diff: "1", diffTurnId: turnId };
+        return { ...rest, rightPane: "diff", diffTurnId: turnId };
       },
     });
   };
@@ -349,7 +349,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
       params: { threadId: activeThread.id },
       search: (previous) => {
         const rest = stripDiffSearchParams(previous);
-        return { ...rest, diff: "1" };
+        return { ...rest, rightPane: "diff" };
       },
     });
   };

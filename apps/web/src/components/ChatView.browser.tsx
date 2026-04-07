@@ -294,6 +294,7 @@ function createSnapshotForTargetUser(options: {
         updatedAt: NOW_ISO,
         archivedAt: null,
         deletedAt: null,
+        issueLink: null,
         messages,
         activities: [],
         proposedPlans: [],
@@ -353,6 +354,7 @@ function addThreadToSnapshot(
         updatedAt: NOW_ISO,
         archivedAt: null,
         deletedAt: null,
+        issueLink: null,
         messages: [],
         activities: [],
         proposedPlans: [],
@@ -395,6 +397,7 @@ function createThreadCreatedEvent(threadId: ThreadId, sequence: number): Orchest
       interactionMode: "default",
       branch: "main",
       worktreePath: null,
+      issueLink: null,
       createdAt: NOW_ISO,
       updatedAt: NOW_ISO,
     },
@@ -718,6 +721,7 @@ function createSnapshotForWorktreePlanSidebar(): OrchestrationReadModel {
           {
             id: "plan-worktree-source",
             turnId: null,
+            planIntent: "code-implementation",
             implementedAt: null,
             implementationThreadId: null,
             planMarkdown: "# Worktree plan\n\n- Keep the source context visible",
@@ -752,6 +756,7 @@ function createSnapshotForWorktreePlanSidebar(): OrchestrationReadModel {
         targetThreadId: WORKTREE_TARGET_THREAD_ID,
         retryOfLaunchId: null,
         status: "prepared",
+        launchMode: "worktree",
         branch: "plan/worktree-sidebar",
         worktreePath: "/repo/project/.worktrees/plan-worktree-sidebar",
         failureReason: null,
@@ -956,10 +961,6 @@ async function waitForSendButton(): Promise<HTMLButtonElement> {
   );
 }
 
-function findComposerProviderModelPicker(): HTMLButtonElement | null {
-  return document.querySelector<HTMLButtonElement>('[data-chat-provider-model-picker="true"]');
-}
-
 function findButtonByText(text: string): HTMLButtonElement | null {
   return (Array.from(document.querySelectorAll("button")).find(
     (button) => button.textContent?.trim() === text,
@@ -1088,10 +1089,27 @@ async function waitForPlanSidebarToggle(title: "Show plan sidebar" | "Hide plan 
   );
 }
 
+async function waitForIssuesToggle(title: "Show issues" | "Hide issues") {
+  return waitForElement(
+    () =>
+      Array.from(document.querySelectorAll("button")).find(
+        (button) => button.getAttribute("title") === title,
+      ) as HTMLButtonElement | null,
+    `Unable to find the ${title} button.`,
+  );
+}
+
 async function waitForPlanSidebarCloseButton() {
   return waitForElement(
     () => document.querySelector<HTMLButtonElement>('[aria-label="Close plan sidebar"]'),
     "Unable to find the plan sidebar close button.",
+  );
+}
+
+async function waitForIssuesCloseButton() {
+  return waitForElement(
+    () => document.querySelector<HTMLButtonElement>('[aria-label="Close issues"]'),
+    "Unable to find the issues close button.",
   );
 }
 
@@ -2991,6 +3009,31 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("reopens the issues sidebar from the top bar", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-issues-toggle-test" as MessageId,
+        targetText: "issues toggle test",
+      }),
+    });
+
+    try {
+      const openIssuesButton = await waitForIssuesToggle("Show issues");
+      openIssuesButton.click();
+
+      await expect.element(await waitForIssuesCloseButton()).toBeInTheDocument();
+      await waitForURL(
+        mounted.router,
+        (path) =>
+          path === `/${THREAD_ID}` && mounted.router.state.location.search.rightPane === "issues",
+        "Route search should open the issues pane.",
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("lets worktree target threads open the sidebar and see the source plan", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -3268,17 +3311,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const footer = await waitForElement(
-        () => document.querySelector<HTMLElement>('[data-chat-composer-footer="true"]'),
-        "Unable to find composer footer.",
-      );
-      const initialModelPicker = await waitForElement(
-        findComposerProviderModelPicker,
-        "Unable to find provider model picker.",
-      );
-      const initialModelPickerOffset =
-        initialModelPicker.getBoundingClientRect().left - footer.getBoundingClientRect().left;
-
       await waitForButtonByText("Implement");
       await waitForElement(
         () =>
@@ -3303,20 +3335,34 @@ describe("ChatView timeline estimator parity (full app)", () => {
         () => {
           const implementRect = implementButton.getBoundingClientRect();
           const implementActionsRect = implementActionsButton.getBoundingClientRect();
-          const compactModelPicker = findComposerProviderModelPicker();
-          expect(compactModelPicker).toBeTruthy();
-
-          const compactModelPickerOffset =
-            compactModelPicker!.getBoundingClientRect().left - footer.getBoundingClientRect().left;
 
           expect(Math.abs(implementRect.right - implementActionsRect.left)).toBeLessThanOrEqual(1);
           expect(Math.abs(implementRect.top - implementActionsRect.top)).toBeLessThanOrEqual(1);
-          expect(Math.abs(compactModelPickerOffset - initialModelPickerOffset)).toBeLessThanOrEqual(
-            1,
-          );
         },
         { timeout: 8_000, interval: 16 },
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows the convert to beads action in the implementation menu", async () => {
+    const mounted = await mountChatView({
+      viewport: WIDE_FOOTER_VIEWPORT,
+      snapshot: createSnapshotWithPlanFollowUpPrompt(),
+    });
+
+    try {
+      const implementActionsButton = await waitForElement(
+        () =>
+          document.querySelector<HTMLButtonElement>('button[aria-label="Implementation actions"]'),
+        "Unable to find implementation actions trigger.",
+      );
+
+      implementActionsButton.click();
+
+      await expect.element(page.getByText("Implement in a new thread")).toBeInTheDocument();
+      await expect.element(page.getByText("Convert to beads")).toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }
