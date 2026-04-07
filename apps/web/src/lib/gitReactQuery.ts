@@ -276,7 +276,7 @@ export function gitPreparePullRequestThreadMutationOptions(input: {
       });
     },
     onSuccess: async () => {
-      await invalidateGitBranchQueries(input.queryClient, input.cwd);
+      await invalidateGitQueries(input.queryClient, { cwd: input.cwd });
     },
   });
 }

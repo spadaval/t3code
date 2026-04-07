@@ -67,6 +67,7 @@ function makeTestLayer(state: {
         state.remoteInvalidationCalls += 1;
       }),
     invalidateStatus: () => Effect.die("invalidateStatus should not be called in this test"),
+    currentPullRequest: () => Effect.die("currentPullRequest should not be called in this test"),
     resolvePullRequest: () => Effect.die("resolvePullRequest should not be called in this test"),
     preparePullRequestThread: () =>
       Effect.die("preparePullRequestThread should not be called in this test"),
@@ -228,6 +229,8 @@ describe("GitStatusBroadcasterLive", () => {
               state.remoteInvalidationCalls += 1;
             }),
           invalidateStatus: () => Effect.die("invalidateStatus should not be called in this test"),
+          currentPullRequest: () =>
+            Effect.die("currentPullRequest should not be called in this test"),
           resolvePullRequest: () =>
             Effect.die("resolvePullRequest should not be called in this test"),
           preparePullRequestThread: () =>

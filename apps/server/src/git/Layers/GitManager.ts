@@ -774,9 +774,11 @@ export const makeGitManager = Effect.fn("makeGitManager")(function* () {
     Cache.invalidate(remoteStatusResultCache, normalizeStatusCacheKey(cwd));
 
   const readCurrentPullRequest = Effect.fn("readCurrentPullRequest")(function* (cwd: string) {
-    const details = yield* gitCore.statusDetails(cwd).pipe(
-      Effect.catchIf(isNotGitRepositoryError, () => Effect.succeed(nonRepositoryStatusDetails)),
-    );
+    const details = yield* gitCore
+      .statusDetails(cwd)
+      .pipe(
+        Effect.catchIf(isNotGitRepositoryError, () => Effect.succeed(nonRepositoryStatusDetails)),
+      );
 
     const pr =
       details.isRepo && details.branch !== null

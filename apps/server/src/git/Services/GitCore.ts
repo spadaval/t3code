@@ -170,6 +170,7 @@ export interface GitCoreShape {
    */
   readonly statusDetailsLocal: (cwd: string) => Effect.Effect<GitStatusDetails, GitCommandError>;
 
+  /**
    * Read file-level working tree diff statistics for a repository.
    */
   readonly workingTree: (cwd: string) => Effect.Effect<GitWorkingTreeResult, GitCommandError>;

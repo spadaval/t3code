@@ -74,6 +74,7 @@ export interface GitManagerShape {
    */
   readonly invalidateStatus: (cwd: string) => Effect.Effect<void, never>;
 
+  /**
    * Read current branch pull request metadata when available.
    */
   readonly currentPullRequest: (

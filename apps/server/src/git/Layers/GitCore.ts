@@ -1118,20 +1118,27 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       );
     }
 
-    const [defaultRefResult, hasOriginRemote] = yield* Effect.all(
-      [
-        executeGit(
-          "GitCore.statusDetails.defaultRef",
-          cwd,
-          ["symbolic-ref", "refs/remotes/origin/HEAD"],
-          {
-            allowNonZeroExit: true,
-          },
-        ),
-        originRemoteExists(cwd).pipe(Effect.catch(() => Effect.succeed(false))),
-      ],
-      { concurrency: "unbounded" },
-    );
+    const [unstagedNumstatStdout, stagedNumstatStdout, defaultRefResult, hasOriginRemote] =
+      yield* Effect.all(
+        [
+          runGitStdout("GitCore.statusDetails.unstagedNumstat", cwd, ["diff", "--numstat"]),
+          runGitStdout("GitCore.statusDetails.stagedNumstat", cwd, [
+            "diff",
+            "--cached",
+            "--numstat",
+          ]),
+          executeGit(
+            "GitCore.statusDetails.defaultRef",
+            cwd,
+            ["symbolic-ref", "refs/remotes/origin/HEAD"],
+            {
+              allowNonZeroExit: true,
+            },
+          ),
+          originRemoteExists(cwd).pipe(Effect.catch(() => Effect.succeed(false))),
+        ],
+        { concurrency: "unbounded" },
+      );
     const statusStdout = statusResult.stdout;
     const defaultBranch =
       defaultRefResult.code === 0
@@ -1143,6 +1150,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     let aheadCount = 0;
     let behindCount = 0;
     let hasWorkingTreeChanges = false;
+    const changedFilesWithoutNumstat = new Set<string>();
 
     for (const line of statusStdout.split(/\r?\n/g)) {
       if (line.startsWith("# branch.head ")) {
@@ -1164,6 +1172,8 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       }
       if (line.trim().length > 0 && !line.startsWith("#")) {
         hasWorkingTreeChanges = true;
+        const pathValue = parsePorcelainPath(line);
+        if (pathValue) changedFilesWithoutNumstat.add(pathValue);
       }
     }
 
@@ -1173,6 +1183,32 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       );
       behindCount = 0;
     }
+
+    const stagedEntries = parseNumstatEntries(stagedNumstatStdout);
+    const unstagedEntries = parseNumstatEntries(unstagedNumstatStdout);
+    const fileStatMap = new Map<string, { insertions: number; deletions: number }>();
+    for (const entry of [...stagedEntries, ...unstagedEntries]) {
+      const existing = fileStatMap.get(entry.path) ?? { insertions: 0, deletions: 0 };
+      existing.insertions += entry.insertions;
+      existing.deletions += entry.deletions;
+      fileStatMap.set(entry.path, existing);
+    }
+
+    let insertions = 0;
+    let deletions = 0;
+    const files = Array.from(fileStatMap.entries())
+      .map(([filePath, stat]) => {
+        insertions += stat.insertions;
+        deletions += stat.deletions;
+        return { path: filePath, insertions: stat.insertions, deletions: stat.deletions };
+      })
+      .toSorted((a, b) => a.path.localeCompare(b.path));
+
+    for (const filePath of changedFilesWithoutNumstat) {
+      if (fileStatMap.has(filePath)) continue;
+      files.push({ path: filePath, insertions: 0, deletions: 0 });
+    }
+    files.sort((a, b) => a.path.localeCompare(b.path));
 
     return {
       isRepo: true,
@@ -1184,6 +1220,11 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       branch,
       upstreamRef,
       hasWorkingTreeChanges,
+      workingTree: {
+        files,
+        insertions,
+        deletions,
+      },
       hasUpstream: upstreamRef !== null,
       aheadCount,
       behindCount,
@@ -1247,7 +1288,6 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
   );
 
   const statusDetails: GitCoreShape["statusDetails"] = Effect.fn("statusDetails")(function* (cwd) {
-    yield* refreshStatusUpstreamIfStale(cwd).pipe(Effect.ignoreCause({ log: true }));
     return yield* readStatusDetailsLocal(cwd);
   });
 
