@@ -1,13 +1,23 @@
-import { ProjectId, ThreadId, type BeadsIssueSummary } from "@t3tools/contracts";
+import {
+  ProjectId,
+  SwarmRunId,
+  ThreadId,
+  type BeadsIssueSummary,
+  type OrchestrationSwarmRun,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
+  collectCoordinatorEpics,
+  deriveEpicCoordinatorState,
   findLatestTrackerRefinementPlan,
-  getEpicCoordinatorImplementAction,
+  getEpicCoordinatorPrimaryAction,
   groupIssuesByEpic,
   isEpicIssueType,
   listEpicChildIssues,
+  partitionCoordinatorEpics,
   partitionCoordinatorSwarms,
+  selectLatestSwarmRun,
   type TrackerRefinementPlanCandidate,
 } from "./issuePanel";
 
@@ -33,6 +43,37 @@ function makeIssue(
     parent: null,
     ...rest,
   } satisfies BeadsIssueSummary;
+}
+
+function makeSwarmRun(overrides: Partial<OrchestrationSwarmRun> = {}): OrchestrationSwarmRun {
+  return {
+    runId: SwarmRunId.makeUnsafe("run-1"),
+    projectId: ProjectId.makeUnsafe("project-1"),
+    epicIssueId: "EPIC-1",
+    swarmId: "swarm-1",
+    status: "running",
+    schedulerMode: "automatic",
+    workspaceMode: "shared",
+    provider: "codex",
+    model: "gpt-5.4-mini",
+    modelOptions: null,
+    providerOptions: null,
+    assistantDeliveryMode: null,
+    runtimeMode: "full-access",
+    activeTaskExecutionId: null,
+    latestTaskExecutionId: null,
+    lastError: null,
+    requestedAt: "2026-01-01T00:00:00.000Z",
+    startedAt: "2026-01-01T00:01:00.000Z",
+    idledAt: null,
+    pausedAt: null,
+    blockedAt: null,
+    failedAt: null,
+    cancelledAt: null,
+    completedAt: null,
+    updatedAt: "2026-01-01T00:02:00.000Z",
+    ...overrides,
+  } satisfies OrchestrationSwarmRun;
 }
 
 describe("groupIssuesByEpic", () => {
@@ -148,41 +189,101 @@ describe("isEpicIssueType", () => {
   });
 });
 
-describe("getEpicCoordinatorImplementAction", () => {
-  it("disables implement while support or validation is loading", () => {
+describe("deriveEpicCoordinatorState", () => {
+  it("returns checking while swarm support or validation is loading", () => {
     expect(
-      getEpicCoordinatorImplementAction({
+      deriveEpicCoordinatorState({
         swarmSupport: null,
+        status: null,
         validation: null,
+        swarmRuns: [],
         isSupportPending: true,
         isValidationPending: false,
       }),
     ).toEqual({
-      kind: "implement",
-      label: "Checking swarm...",
-      disabled: true,
+      kind: "checking",
+      latestRun: null,
     });
   });
 
-  it("disables implement when swarm support is unavailable", () => {
+  it("returns unsupported when swarm support is unavailable", () => {
     expect(
-      getEpicCoordinatorImplementAction({
+      deriveEpicCoordinatorState({
         swarmSupport: { supported: false },
+        status: null,
         validation: null,
+        swarmRuns: [],
         isSupportPending: false,
         isValidationPending: false,
       }),
     ).toEqual({
-      kind: "implement",
-      label: "Implement",
-      disabled: true,
+      kind: "unsupported",
+      latestRun: null,
     });
   });
 
-  it("enables implement only for valid existing swarms", () => {
+  it("returns no_swarm when no swarm exists and there is no run history", () => {
     expect(
-      getEpicCoordinatorImplementAction({
+      deriveEpicCoordinatorState({
         swarmSupport: { supported: true },
+        status: { swarm: null },
+        validation: { valid: false, swarm: null },
+        swarmRuns: [],
+        isSupportPending: false,
+        isValidationPending: false,
+      }),
+    ).toEqual({
+      kind: "no_swarm",
+      latestRun: null,
+    });
+  });
+
+  it("returns needs_repair when a swarm exists but beads validation fails", () => {
+    expect(
+      deriveEpicCoordinatorState({
+        swarmSupport: { supported: true },
+        status: {
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 1,
+            blockedIssueCount: 1,
+            activeWorkerCount: 0,
+          },
+        },
+        validation: {
+          valid: false,
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 1,
+            blockedIssueCount: 1,
+            activeWorkerCount: 0,
+          },
+        },
+        swarmRuns: [],
+        isSupportPending: false,
+        isValidationPending: false,
+      }),
+    ).toEqual({
+      kind: "needs_repair",
+      latestRun: null,
+    });
+  });
+
+  it("returns ready when a valid swarm exists and no run has started", () => {
+    expect(
+      deriveEpicCoordinatorState({
+        swarmSupport: { supported: true },
+        status: null,
         validation: {
           valid: true,
           swarm: {
@@ -197,28 +298,340 @@ describe("getEpicCoordinatorImplementAction", () => {
             activeWorkerCount: 1,
           },
         },
+        swarmRuns: [],
         isSupportPending: false,
         isValidationPending: false,
       }),
     ).toEqual({
-      kind: "implement",
-      label: "Implement",
+      kind: "ready",
+      latestRun: null,
+    });
+  });
+
+  it("prefers a non-terminal run over newer historical runs", () => {
+    const runningRun = makeSwarmRun({
+      runId: SwarmRunId.makeUnsafe("run-running"),
+      status: "running",
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    });
+    const completedRun = makeSwarmRun({
+      runId: SwarmRunId.makeUnsafe("run-completed"),
+      status: "completed",
+      updatedAt: "2026-01-03T00:00:00.000Z",
+      completedAt: "2026-01-03T00:00:00.000Z",
+    });
+
+    expect(
+      deriveEpicCoordinatorState({
+        swarmSupport: { supported: true },
+        status: null,
+        validation: {
+          valid: true,
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "epic-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 1,
+            readyIssueCount: 1,
+            blockedIssueCount: 0,
+            activeWorkerCount: 1,
+          },
+        },
+        swarmRuns: [completedRun, runningRun],
+        isSupportPending: false,
+        isValidationPending: false,
+      }),
+    ).toEqual({
+      kind: "running",
+      latestRun: runningRun,
+    });
+  });
+
+  it.each([
+    ["requested", "running"],
+    ["running", "running"],
+    ["idle", "idle"],
+    ["paused", "paused"],
+    ["blocked", "blocked"],
+    ["failed", "failed"],
+    ["cancelled", "cancelled"],
+    ["completed", "completed"],
+  ] as const)("maps run status %s to %s", (runStatus, expectedKind) => {
+    const run = makeSwarmRun({
+      status: runStatus,
+      ...(runStatus === "failed" ? { lastError: "boom" } : {}),
+      ...(runStatus === "completed" ? { completedAt: "2026-01-01T00:03:00.000Z" } : {}),
+      ...(runStatus === "cancelled" ? { cancelledAt: "2026-01-01T00:03:00.000Z" } : {}),
+      ...(runStatus === "paused" ? { pausedAt: "2026-01-01T00:03:00.000Z" } : {}),
+      ...(runStatus === "blocked" ? { blockedAt: "2026-01-01T00:03:00.000Z" } : {}),
+      ...(runStatus === "idle" ? { idledAt: "2026-01-01T00:03:00.000Z" } : {}),
+    });
+
+    expect(
+      deriveEpicCoordinatorState({
+        swarmSupport: { supported: true },
+        status: null,
+        validation: {
+          valid: true,
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 1,
+            readyIssueCount: 1,
+            blockedIssueCount: 0,
+            activeWorkerCount: 1,
+          },
+        },
+        swarmRuns: [run],
+        isSupportPending: false,
+        isValidationPending: false,
+      }),
+    ).toEqual({
+      kind: expectedKind,
+      latestRun: run,
+    });
+  });
+});
+
+describe("selectLatestSwarmRun", () => {
+  it("returns the latest non-terminal run before newer terminal history", () => {
+    const runningRun = makeSwarmRun({
+      runId: SwarmRunId.makeUnsafe("run-running"),
+      status: "running",
+      updatedAt: "2026-01-03T00:00:00.000Z",
+    });
+    const completedRun = makeSwarmRun({
+      runId: SwarmRunId.makeUnsafe("run-completed"),
+      status: "completed",
+      updatedAt: "2026-01-04T00:00:00.000Z",
+      completedAt: "2026-01-04T00:00:00.000Z",
+    });
+
+    expect(selectLatestSwarmRun([completedRun, runningRun])).toEqual(runningRun);
+  });
+});
+
+describe("getEpicCoordinatorPrimaryAction", () => {
+  it("disables the CTA while swarm state is still loading", () => {
+    expect(
+      getEpicCoordinatorPrimaryAction({
+        swarmSupport: null,
+        status: null,
+        validation: null,
+        swarmRuns: [],
+        isSupportPending: true,
+        isValidationPending: false,
+      }),
+    ).toEqual({
+      kind: "checking",
+      label: "Checking swarm...",
+      disabled: true,
+    });
+  });
+
+  it("returns Create swarm when the epic has no swarm", () => {
+    expect(
+      getEpicCoordinatorPrimaryAction({
+        swarmSupport: { supported: true },
+        status: { swarm: null },
+        validation: { valid: false, swarm: null },
+        swarmRuns: [],
+        isSupportPending: false,
+        isValidationPending: false,
+      }),
+    ).toEqual({
+      kind: "create_swarm",
+      label: "Create swarm",
       disabled: false,
     });
   });
 
-  it("shows plan implementation when the swarm is missing or invalid", () => {
+  it("returns Repair swarm when the epic swarm exists but is invalid", () => {
     expect(
-      getEpicCoordinatorImplementAction({
+      getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
-        validation: { valid: false, swarm: null },
+        status: {
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 1,
+            blockedIssueCount: 1,
+            activeWorkerCount: 0,
+          },
+        },
+        validation: {
+          valid: false,
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 1,
+            blockedIssueCount: 1,
+            activeWorkerCount: 0,
+          },
+        },
+        swarmRuns: [],
         isSupportPending: false,
         isValidationPending: false,
       }),
     ).toEqual({
-      kind: "plan_implementation",
-      label: "Plan implementation",
+      kind: "repair_swarm",
+      label: "Repair swarm",
       disabled: false,
+    });
+  });
+
+  it("returns Start swarm when the swarm is valid and runnable", () => {
+    expect(
+      getEpicCoordinatorPrimaryAction({
+        swarmSupport: { supported: true },
+        status: null,
+        validation: {
+          valid: true,
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 2,
+            blockedIssueCount: 0,
+            activeWorkerCount: 0,
+          },
+        },
+        swarmRuns: [],
+        isSupportPending: false,
+        isValidationPending: false,
+      }),
+    ).toEqual({
+      kind: "start_swarm",
+      label: "Start swarm",
+      disabled: false,
+    });
+  });
+
+  it("returns Open coordinator when a swarm run already exists", () => {
+    expect(
+      getEpicCoordinatorPrimaryAction({
+        swarmSupport: { supported: true },
+        status: null,
+        validation: {
+          valid: true,
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 1,
+            blockedIssueCount: 0,
+            activeWorkerCount: 0,
+          },
+        },
+        swarmRuns: [makeSwarmRun({ status: "completed" })],
+        isSupportPending: false,
+        isValidationPending: false,
+      }),
+    ).toEqual({
+      kind: "open_coordinator",
+      label: "Open coordinator",
+      disabled: false,
+    });
+  });
+});
+
+describe("collectCoordinatorEpics", () => {
+  it("deduplicates epics across issue rows, swarm summaries, and run history", () => {
+    const epicIssue = makeIssue({
+      id: "EPIC-1",
+      title: "Epic from issues",
+      issueType: "epic",
+    });
+
+    expect(
+      collectCoordinatorEpics({
+        epicIssues: [epicIssue],
+        swarms: [
+          {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic from swarm",
+            totalIssueCount: 3,
+            completedIssueCount: 0,
+            activeIssueCount: 0,
+            readyIssueCount: 1,
+            blockedIssueCount: 0,
+            activeWorkerCount: 0,
+          },
+          {
+            swarmId: "swarm-2",
+            epicId: "EPIC-2",
+            epicTitle: "Epic from swarm only",
+            totalIssueCount: 2,
+            completedIssueCount: 0,
+            activeIssueCount: 0,
+            readyIssueCount: 1,
+            blockedIssueCount: 0,
+            activeWorkerCount: 0,
+          },
+        ],
+        swarmRuns: [
+          makeSwarmRun({
+            epicIssueId: "EPIC-3",
+            swarmId: "swarm-3",
+          }),
+        ],
+      }),
+    ).toEqual([
+      {
+        epicId: "EPIC-1",
+        epicTitle: "Epic from issues",
+        issue: epicIssue,
+      },
+      {
+        epicId: "EPIC-2",
+        epicTitle: "Epic from swarm only",
+        issue: null,
+      },
+      {
+        epicId: "EPIC-3",
+        epicTitle: "EPIC-3",
+        issue: null,
+      },
+    ]);
+  });
+});
+
+describe("partitionCoordinatorEpics", () => {
+  it("groups states into needs-attention, active, and history buckets", () => {
+    expect(
+      partitionCoordinatorEpics([
+        { id: "needs-repair", stateKind: "needs_repair" as const },
+        { id: "running", stateKind: "running" as const },
+        { id: "completed", stateKind: "completed" as const },
+        { id: "idle", stateKind: "idle" as const },
+      ]),
+    ).toEqual({
+      needsAttention: [
+        { id: "needs-repair", stateKind: "needs_repair" },
+        { id: "idle", stateKind: "idle" },
+      ],
+      active: [{ id: "running", stateKind: "running" }],
+      history: [{ id: "completed", stateKind: "completed" }],
     });
   });
 });

@@ -121,6 +121,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         updatedAt: NOW_ISO,
         archivedAt: null,
         deletedAt: null,
+        issueLink: null,
         messages: [
           {
             id: "msg-1" as MessageId,
@@ -147,6 +148,8 @@ function createMinimalSnapshot(): OrchestrationReadModel {
       },
     ],
     planImplementationLaunches: [],
+    swarmRuns: [],
+    swarmTaskExecutions: [],
     updatedAt: NOW_ISO,
   };
 }

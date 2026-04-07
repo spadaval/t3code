@@ -1,4 +1,10 @@
-import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@t3tools/contracts";
+import type {
+  OrchestrationEvent,
+  OrchestrationReadModel,
+  OrchestrationSwarmRun,
+  OrchestrationSwarmTaskExecution,
+  ThreadId,
+} from "@t3tools/contracts";
 import {
   OrchestrationCheckpointSummary,
   OrchestrationPlanImplementationLaunch,
@@ -19,6 +25,19 @@ import {
   ProjectCreatedPayload,
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
+  SwarmRunBlockedPayload,
+  SwarmRunCancelledPayload,
+  SwarmRunCompletedPayload,
+  SwarmRunFailedPayload,
+  SwarmRunIdledPayload,
+  SwarmRunPausedPayload,
+  SwarmRunRequestedPayload,
+  SwarmRunResumedPayload,
+  SwarmRunStartedPayload,
+  SwarmTaskExecutionCancelledPayload,
+  SwarmTaskExecutionCompletedPayload,
+  SwarmTaskExecutionFailedPayload,
+  SwarmTaskExecutionStartedPayload,
   ThreadActivityAppendedPayload,
   ThreadArchivedPayload,
   ThreadCreatedPayload,
@@ -58,6 +77,24 @@ function updateLaunch(
 ): OrchestrationPlanImplementationLaunch[] {
   return launches.map((launch) =>
     launch.launchId === launchId ? { ...launch, ...patch } : launch,
+  );
+}
+
+function updateSwarmRun(
+  runs: ReadonlyArray<OrchestrationSwarmRun>,
+  runId: OrchestrationSwarmRun["runId"],
+  patch: Partial<OrchestrationSwarmRun>,
+): OrchestrationSwarmRun[] {
+  return runs.map((run) => (run.runId === runId ? { ...run, ...patch } : run));
+}
+
+function updateSwarmTaskExecution(
+  executions: ReadonlyArray<OrchestrationSwarmTaskExecution>,
+  executionId: OrchestrationSwarmTaskExecution["executionId"],
+  patch: Partial<OrchestrationSwarmTaskExecution>,
+): OrchestrationSwarmTaskExecution[] {
+  return executions.map((execution) =>
+    execution.executionId === executionId ? { ...execution, ...patch } : execution,
   );
 }
 
@@ -177,6 +214,8 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
     projects: [],
     threads: [],
     planImplementationLaunches: [],
+    swarmRuns: [],
+    swarmTaskExecutions: [],
     updatedAt: nowIso,
   };
 }
@@ -795,6 +834,284 @@ export function projectEvent(
               status: "cancelled" as const,
               cleanupStatus: payload.cleanupStatus,
               cleanupError: payload.cleanupError,
+              cancelledAt: payload.cancelledAt,
+              updatedAt: payload.updatedAt,
+            },
+          ),
+        })),
+      );
+
+    case "swarm-run.requested":
+      return decodeForEvent(SwarmRunRequestedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const run: OrchestrationSwarmRun = {
+            runId: payload.runId,
+            projectId: payload.projectId,
+            epicIssueId: payload.epicIssueId,
+            swarmId: payload.swarmId,
+            status: "requested",
+            schedulerMode: payload.schedulerMode,
+            workspaceMode: payload.workspaceMode,
+            provider: payload.provider,
+            model: payload.model,
+            modelOptions: payload.modelOptions,
+            providerOptions: payload.providerOptions,
+            assistantDeliveryMode: payload.assistantDeliveryMode,
+            runtimeMode: payload.runtimeMode,
+            activeTaskExecutionId: null,
+            latestTaskExecutionId: null,
+            lastError: null,
+            requestedAt: payload.requestedAt,
+            startedAt: null,
+            idledAt: null,
+            pausedAt: null,
+            blockedAt: null,
+            failedAt: null,
+            cancelledAt: null,
+            completedAt: null,
+            updatedAt: payload.updatedAt,
+          };
+
+          return {
+            ...nextBase,
+            swarmRuns: [
+              ...nextBase.swarmRuns.filter((entry) => entry.runId !== payload.runId),
+              run,
+            ].toSorted(
+              (left, right) =>
+                left.requestedAt.localeCompare(right.requestedAt) ||
+                left.runId.localeCompare(right.runId),
+            ),
+          };
+        }),
+      );
+
+    case "swarm-run.started":
+      return decodeForEvent(SwarmRunStartedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
+            status: "running",
+            startedAt: payload.startedAt,
+            lastError: null,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "swarm-run.idled":
+      return decodeForEvent(SwarmRunIdledPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
+            status: "idle",
+            activeTaskExecutionId: null,
+            idledAt: payload.idledAt,
+            lastError: null,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "swarm-run.paused":
+      return decodeForEvent(SwarmRunPausedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
+            status: "paused",
+            activeTaskExecutionId: null,
+            pausedAt: payload.pausedAt,
+            lastError: null,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "swarm-run.resumed":
+      return decodeForEvent(SwarmRunResumedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
+            status: "running",
+            lastError: null,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "swarm-run.blocked":
+      return decodeForEvent(SwarmRunBlockedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
+            status: "blocked",
+            activeTaskExecutionId: null,
+            lastError: payload.reason,
+            blockedAt: payload.blockedAt,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "swarm-run.failed":
+      return decodeForEvent(SwarmRunFailedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
+            status: "failed",
+            activeTaskExecutionId: null,
+            lastError: payload.reason,
+            failedAt: payload.failedAt,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "swarm-run.cancelled":
+      return decodeForEvent(SwarmRunCancelledPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
+            status: "cancelled",
+            activeTaskExecutionId: null,
+            cancelledAt: payload.cancelledAt,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "swarm-run.completed":
+      return decodeForEvent(SwarmRunCompletedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
+            status: "completed",
+            activeTaskExecutionId: null,
+            completedAt: payload.completedAt,
+            updatedAt: payload.updatedAt,
+          }),
+        })),
+      );
+
+    case "swarm-task-execution.started":
+      return decodeForEvent(
+        SwarmTaskExecutionStartedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const execution: OrchestrationSwarmTaskExecution = {
+            executionId: payload.executionId,
+            runId: payload.runId,
+            issueId: payload.issueId,
+            workerThreadId: payload.workerThreadId,
+            sequenceNumber: payload.sequenceNumber,
+            status: "active",
+            lastError: null,
+            startedAt: payload.startedAt,
+            completedAt: null,
+            failedAt: null,
+            cancelledAt: null,
+            updatedAt: payload.updatedAt,
+          };
+
+          return {
+            ...nextBase,
+            swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
+              activeTaskExecutionId: payload.executionId,
+              latestTaskExecutionId: payload.executionId,
+              updatedAt: payload.updatedAt,
+            }),
+            swarmTaskExecutions: [
+              ...nextBase.swarmTaskExecutions.filter(
+                (entry) => entry.executionId !== payload.executionId,
+              ),
+              execution,
+            ].toSorted(
+              (left, right) =>
+                left.runId.localeCompare(right.runId) ||
+                left.sequenceNumber - right.sequenceNumber ||
+                left.executionId.localeCompare(right.executionId),
+            ),
+          };
+        }),
+      );
+
+    case "swarm-task-execution.completed":
+      return decodeForEvent(
+        SwarmTaskExecutionCompletedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
+            activeTaskExecutionId: null,
+            latestTaskExecutionId: payload.executionId,
+            updatedAt: payload.updatedAt,
+          }),
+          swarmTaskExecutions: updateSwarmTaskExecution(
+            nextBase.swarmTaskExecutions,
+            payload.executionId,
+            {
+              status: "completed",
+              lastError: null,
+              completedAt: payload.completedAt,
+              updatedAt: payload.updatedAt,
+            },
+          ),
+        })),
+      );
+
+    case "swarm-task-execution.failed":
+      return decodeForEvent(
+        SwarmTaskExecutionFailedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
+            activeTaskExecutionId: null,
+            latestTaskExecutionId: payload.executionId,
+            updatedAt: payload.updatedAt,
+          }),
+          swarmTaskExecutions: updateSwarmTaskExecution(
+            nextBase.swarmTaskExecutions,
+            payload.executionId,
+            {
+              status: "failed",
+              lastError: payload.reason,
+              failedAt: payload.failedAt,
+              updatedAt: payload.updatedAt,
+            },
+          ),
+        })),
+      );
+
+    case "swarm-task-execution.cancelled":
+      return decodeForEvent(
+        SwarmTaskExecutionCancelledPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
+            activeTaskExecutionId: null,
+            latestTaskExecutionId: payload.executionId,
+            updatedAt: payload.updatedAt,
+          }),
+          swarmTaskExecutions: updateSwarmTaskExecution(
+            nextBase.swarmTaskExecutions,
+            payload.executionId,
+            {
+              status: "cancelled",
+              lastError: null,
               cancelledAt: payload.cancelledAt,
               updatedAt: payload.updatedAt,
             },

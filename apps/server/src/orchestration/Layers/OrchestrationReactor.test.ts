@@ -6,6 +6,7 @@ import { PlanImplementationWorkflow } from "../Services/PlanImplementationWorkfl
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { OrchestrationReactor } from "../Services/OrchestrationReactor.ts";
+import { SwarmExecutionWorkflow } from "../Services/SwarmExecutionWorkflow.ts";
 import { makeOrchestrationReactor } from "./OrchestrationReactor.ts";
 
 describe("OrchestrationReactor", () => {
@@ -61,6 +62,23 @@ describe("OrchestrationReactor", () => {
             retryPlanImplementationLaunch: () => Effect.die("unused"),
           }),
         ),
+        Layer.provide(
+          Layer.succeed(SwarmExecutionWorkflow, {
+            start: Effect.sync(() => {
+              started.push("swarm-execution-workflow");
+            }),
+            drain: Effect.void,
+            startSwarmRun: () => Effect.die("unused"),
+            continueSwarmRun: () => Effect.die("unused"),
+            pauseSwarmRun: () => Effect.die("unused"),
+            resumeSwarmRun: () => Effect.die("unused"),
+            cancelSwarmRun: () => Effect.die("unused"),
+            startSwarmTaskExecution: () => Effect.die("unused"),
+            completeSwarmTaskExecution: () => Effect.die("unused"),
+            failSwarmTaskExecution: () => Effect.die("unused"),
+            cancelSwarmTaskExecution: () => Effect.die("unused"),
+          }),
+        ),
       ),
     );
 
@@ -73,6 +91,7 @@ describe("OrchestrationReactor", () => {
       "provider-command-reactor",
       "checkpoint-reactor",
       "plan-implementation-workflow",
+      "swarm-execution-workflow",
     ]);
 
     await Effect.runPromise(Scope.close(scope, Exit.void));

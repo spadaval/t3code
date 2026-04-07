@@ -1,8 +1,10 @@
 import "../index.css";
 
-import { ThreadId, type BeadsIssueSummary } from "@t3tools/contracts";
+import { ProjectId, ThreadId, type BeadsIssueSummary } from "@t3tools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+
+import { useIssuePaneStore } from "~/issuePaneStore";
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-issues-panel");
 const TEST_CWD = "/repo/project";
@@ -11,6 +13,23 @@ const testState = vi.hoisted(() => ({
   issueListFetching: false,
   issueListRefetchSpy: vi.fn(() => Promise.resolve()),
   issueListIssues: [] as BeadsIssueSummary[],
+  issueDetail: null as Record<string, unknown> | null,
+  issueDetailsById: {} as Record<string, Record<string, unknown> | null>,
+  swarmSupport: null as Record<string, unknown> | null,
+  swarmValidation: null as Record<string, unknown> | null,
+  swarmStatus: null as Record<string, unknown> | null,
+  swarmRuns: [] as Record<string, unknown>[],
+  swarmTaskExecutions: [] as Record<string, unknown>[],
+  swarmValidationByEpicId: {} as Record<string, Record<string, unknown> | null>,
+  swarmStatusByEpicId: {} as Record<string, Record<string, unknown> | null>,
+  navigateSpy: vi.fn(() => Promise.resolve()),
+  invalidateQueriesSpy: vi.fn(() => Promise.resolve()),
+  startIssueWorkflowSpy: vi.fn(() =>
+    Promise.resolve({ threadId: "thread-workflow", created: true }),
+  ),
+  startEpicQuickRefineSpy: vi.fn(() => Promise.resolve()),
+  startEpicPlannedRefineSpy: vi.fn(() => Promise.resolve()),
+  startEpicPlanImplementationSpy: vi.fn(() => Promise.resolve()),
 }));
 
 function makeIssue(
@@ -37,6 +56,18 @@ function makeIssue(
   };
 }
 
+function makeIssueDetail(
+  overrides: Partial<Record<string, unknown>> & Pick<BeadsIssueSummary, "id" | "title">,
+) {
+  return {
+    ...makeIssue(overrides),
+    comments: [],
+    history: [],
+    dependencies: [],
+    ...overrides,
+  };
+}
+
 vi.mock("@tanstack/react-pacer", () => ({
   useDebouncedValue: (value: string) => [value],
 }));
@@ -47,7 +78,7 @@ vi.mock("@tanstack/react-router", async () => {
 
   return {
     ...actual,
-    useNavigate: () => vi.fn(),
+    useNavigate: () => testState.navigateSpy,
   };
 });
 
@@ -57,22 +88,133 @@ vi.mock("@tanstack/react-query", async () => {
 
   return {
     ...actual,
-    useMutation: vi.fn(() => ({
-      mutateAsync: vi.fn(),
+    useMutation: vi.fn((options?: { __tag?: string }) => ({
+      mutateAsync:
+        options?.__tag === "start-issue-workflow"
+          ? testState.startIssueWorkflowSpy
+          : options?.__tag === "start-epic-quick-refine"
+            ? testState.startEpicQuickRefineSpy
+            : options?.__tag === "start-epic-planned-refine"
+              ? testState.startEpicPlannedRefineSpy
+              : options?.__tag === "start-epic-plan-implementation"
+                ? testState.startEpicPlanImplementationSpy
+                : vi.fn(),
       isPending: false,
     })),
-    useQueryClient: vi.fn(() => ({})),
+    useQueryClient: vi.fn(() => ({
+      invalidateQueries: testState.invalidateQueriesSpy,
+    })),
+    useQueries: vi.fn(({ queries }: { queries: Array<{ queryKey?: readonly unknown[] }> }) =>
+      queries.map((query) => {
+        const epicId = query.queryKey?.[2];
+
+        if (query.queryKey?.[1] === "epic-swarm-validation") {
+          return {
+            data:
+              (typeof epicId === "string" ? testState.swarmValidationByEpicId[epicId] : null) ??
+              testState.swarmValidation,
+            isPending: false,
+            isError: false,
+            error: null,
+            isFetching: false,
+            refetch: vi.fn(),
+          };
+        }
+
+        if (query.queryKey?.[1] === "epic-swarm-status") {
+          return {
+            data:
+              (typeof epicId === "string" ? testState.swarmStatusByEpicId[epicId] : null) ??
+              testState.swarmStatus,
+            isPending: false,
+            isError: false,
+            error: null,
+            isFetching: false,
+            refetch: vi.fn(),
+          };
+        }
+
+        return {
+          data: null,
+          isPending: false,
+          isError: false,
+          error: null,
+          isFetching: false,
+          refetch: vi.fn(),
+        };
+      }),
+    ),
     useQuery: vi.fn((options: { queryKey?: readonly unknown[] }) => {
       if (options.queryKey?.[1] === "issues") {
+        const issueTypesKey = options.queryKey?.[2];
+        const filteredIssues =
+          typeof issueTypesKey === "string" && issueTypesKey.length > 0
+            ? testState.issueListIssues.filter((issue) =>
+                issueTypesKey.split(",").includes(issue.issueType),
+              )
+            : testState.issueListIssues;
         return {
           data: {
-            issues: testState.issueListIssues,
+            issues: filteredIssues,
           },
           isPending: false,
           isError: false,
           error: null,
           isFetching: testState.issueListFetching,
           refetch: testState.issueListRefetchSpy,
+        };
+      }
+
+      if (options.queryKey?.[1] === "issue") {
+        const issueId = options.queryKey?.[2];
+        return {
+          data:
+            (typeof issueId === "string" ? testState.issueDetailsById[issueId] : null) ??
+            testState.issueDetail,
+          isPending: false,
+          isError: false,
+          error: null,
+          isFetching: false,
+          refetch: vi.fn(),
+        };
+      }
+
+      if (options.queryKey?.[1] === "swarm-support") {
+        return {
+          data: testState.swarmSupport,
+          isPending: false,
+          isError: false,
+          error: null,
+          isFetching: false,
+          refetch: vi.fn(),
+        };
+      }
+
+      if (options.queryKey?.[1] === "epic-swarm-validation") {
+        const epicId = options.queryKey?.[2];
+        return {
+          data:
+            (typeof epicId === "string" ? testState.swarmValidationByEpicId[epicId] : null) ??
+            testState.swarmValidation,
+          isPending: false,
+          isError: false,
+          error: null,
+          isFetching: false,
+          refetch: vi.fn(),
+        };
+      }
+
+      if (options.queryKey?.[1] === "epic-swarm-status") {
+        const epicId = options.queryKey?.[2];
+        return {
+          data:
+            (typeof epicId === "string" ? testState.swarmStatusByEpicId[epicId] : null) ??
+            testState.swarmStatus,
+          isPending: false,
+          isError: false,
+          error: null,
+          isFetching: false,
+          refetch: vi.fn(),
         };
       }
 
@@ -103,6 +245,7 @@ vi.mock("~/composerDraftStore", () => ({
 vi.mock("~/hooks/useSettings", () => ({
   useSettings: vi.fn(() => ({
     timestampFormat: "absolute",
+    enableAssistantStreaming: false,
   })),
 }));
 
@@ -112,11 +255,6 @@ vi.mock("~/issuePanel", async () => {
   return {
     ...actual,
     findLatestTrackerRefinementPlan: vi.fn(() => null),
-    getEpicCoordinatorImplementAction: vi.fn(() => ({
-      kind: "implement",
-      label: "Implement",
-      disabled: false,
-    })),
   };
 });
 
@@ -125,21 +263,39 @@ vi.mock("~/issueThreads", () => ({
 }));
 
 vi.mock("~/lib/beadsReactQuery", () => ({
-  beadsIssueDetailOptions: vi.fn(() => ({ queryKey: ["beads", "issue"] })),
-  beadsQueryIssuesOptions: vi.fn(() => ({ queryKey: ["beads", "issues"] })),
-  beadsSwarmSupportOptions: vi.fn(() => ({ queryKey: ["beads", "swarm-support"] })),
-  beadsEpicSwarmValidationOptions: vi.fn(() => ({
-    queryKey: ["beads", "epic-swarm-validation"],
+  beadsQueryKeys: {
+    all: ["beads"],
+  },
+  beadsIssueDetailOptions: vi.fn((input?: { issueId?: string | null } | null) => ({
+    queryKey: ["beads", "issue", input?.issueId ?? null],
   })),
-  beadsEpicSwarmStatusOptions: vi.fn(() => ({ queryKey: ["beads", "epic-swarm-status"] })),
+  beadsQueryIssuesOptions: vi.fn((input?: { issueTypes?: string[] }) => ({
+    queryKey: ["beads", "issues", input?.issueTypes?.join(",") ?? ""],
+  })),
+  beadsSwarmSupportOptions: vi.fn(() => ({ queryKey: ["beads", "swarm-support"] })),
+  beadsEpicSwarmValidationOptions: vi.fn((input?: { epicIssueId?: string | null } | null) => ({
+    queryKey: ["beads", "epic-swarm-validation", input?.epicIssueId ?? null],
+  })),
+  beadsEpicSwarmStatusOptions: vi.fn((input?: { epicIssueId?: string | null } | null) => ({
+    queryKey: ["beads", "epic-swarm-status", input?.epicIssueId ?? null],
+  })),
   beadsListSwarmsOptions: vi.fn(() => ({ queryKey: ["beads", "swarms"] })),
-  beadsStartEpicPlannedRefineMutationOptions: vi.fn(() => ({})),
-  beadsStartEpicPlanImplementationMutationOptions: vi.fn(() => ({})),
-  beadsStartEpicQuickRefineMutationOptions: vi.fn(() => ({})),
-  beadsStartWorkflowMutationOptions: vi.fn(() => ({})),
+  beadsStartEpicPlannedRefineMutationOptions: vi.fn(() => ({
+    __tag: "start-epic-planned-refine",
+  })),
+  beadsStartEpicPlanImplementationMutationOptions: vi.fn(() => ({
+    __tag: "start-epic-plan-implementation",
+  })),
+  beadsStartEpicQuickRefineMutationOptions: vi.fn(() => ({
+    __tag: "start-epic-quick-refine",
+  })),
+  beadsStartWorkflowMutationOptions: vi.fn(() => ({
+    __tag: "start-issue-workflow",
+  })),
 }));
 
 vi.mock("~/providerModels", () => ({
+  getDefaultServerModel: vi.fn(() => "gpt-5.4-mini"),
   getProviderModels: vi.fn(() => []),
   resolveSelectableProvider: vi.fn((_, provider) => provider ?? "codex"),
 }));
@@ -148,10 +304,22 @@ vi.mock("~/rpc/serverState", () => ({
   useServerConfig: vi.fn(() => ({
     providers: [],
   })),
+  resetServerStateForTests: vi.fn(),
 }));
 
 vi.mock("~/store", () => ({
-  useStore: (selector: (state: { threads: [] }) => unknown) => selector({ threads: [] }),
+  useStore: (
+    selector: (state: {
+      threads: [];
+      swarmRuns: typeof testState.swarmRuns;
+      swarmTaskExecutions: typeof testState.swarmTaskExecutions;
+    }) => unknown,
+  ) =>
+    selector({
+      threads: [],
+      swarmRuns: testState.swarmRuns,
+      swarmTaskExecutions: testState.swarmTaskExecutions,
+    }),
 }));
 
 vi.mock("~/storeSelectors", () => ({
@@ -181,6 +349,32 @@ function getRefreshButton(): HTMLButtonElement {
   return button;
 }
 
+function getButtonByText(label: string): HTMLButtonElement {
+  const button = [...document.querySelectorAll("button")].find(
+    (candidate) => candidate.textContent?.trim() === label,
+  );
+  expect(button, `Expected to find button with text "${label}"`).toBeTruthy();
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error(`Expected "${label}" control to be an HTMLButtonElement`);
+  }
+  return button;
+}
+
+function getTabByText(label: string): HTMLButtonElement {
+  const button = [...document.querySelectorAll('button[role="tab"]')].find(
+    (candidate) => candidate.textContent?.trim() === label,
+  );
+  expect(button, `Expected to find tab with text "${label}"`).toBeTruthy();
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error(`Expected "${label}" tab to be an HTMLButtonElement`);
+  }
+  return button;
+}
+
+async function flushPromises() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe("IssuesPanel refresh button", () => {
   beforeEach(() => {
     testState.issueListFetching = false;
@@ -191,12 +385,242 @@ describe("IssuesPanel refresh button", () => {
         title: "Issue row",
       }),
     ];
+    testState.issueDetail = null;
+    testState.issueDetailsById = {};
+    testState.swarmSupport = null;
+    testState.swarmValidation = null;
+    testState.swarmStatus = null;
+    testState.swarmRuns = [];
+    testState.swarmTaskExecutions = [];
+    testState.swarmValidationByEpicId = {};
+    testState.swarmStatusByEpicId = {};
+    testState.navigateSpy.mockClear();
+    testState.invalidateQueriesSpy.mockClear();
+    testState.startIssueWorkflowSpy.mockClear();
+    testState.startEpicQuickRefineSpy.mockClear();
+    testState.startEpicPlannedRefineSpy.mockClear();
+    testState.startEpicPlanImplementationSpy.mockClear();
+    useIssuePaneStore.setState({ byThreadId: {} });
     document.body.innerHTML = "";
   });
 
   afterEach(() => {
     vi.clearAllMocks();
     document.body.innerHTML = "";
+  });
+
+  it("shows Create swarm for epics with no swarm", async () => {
+    testState.issueListIssues = [
+      makeIssue({
+        id: "EPIC-1",
+        title: "Epic row",
+        issueType: "epic",
+      }),
+    ];
+    testState.issueDetail = makeIssueDetail({
+      id: "EPIC-1",
+      title: "Epic row",
+      issueType: "epic",
+    });
+    testState.swarmSupport = { supported: true };
+    testState.swarmValidation = {
+      valid: false,
+      swarm: null,
+      errors: ["Epic is missing a swarm."],
+      warnings: [],
+      readyFronts: [],
+      estimatedWorkerSessions: 0,
+      maxParallelism: 0,
+    };
+    testState.swarmStatus = {
+      swarm: null,
+      completed: [],
+      active: [],
+      ready: [],
+      blocked: [],
+    };
+    useIssuePaneStore.getState().setSelectedIssueId(THREAD_ID, "EPIC-1");
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <IssuesPanel
+        activeThreadId={THREAD_ID}
+        cwd={TEST_CWD}
+        projectId={null}
+        projectDefaultModelSelection={null}
+        onClose={() => {}}
+      />,
+      { container: host },
+    );
+
+    try {
+      expect(document.body.textContent).toContain("Create swarm");
+      expect(document.body.textContent).toContain("No swarm exists for this epic yet.");
+    } finally {
+      screen.unmount();
+    }
+  });
+
+  it("shows Repair swarm for epics with invalid swarms", async () => {
+    const swarmSummary = {
+      swarmId: "swarm-repair",
+      epicId: "EPIC-REPAIR",
+      epicTitle: "Repair epic",
+      totalIssueCount: 3,
+      completedIssueCount: 1,
+      activeIssueCount: 0,
+      readyIssueCount: 1,
+      blockedIssueCount: 1,
+      activeWorkerCount: 0,
+    };
+
+    testState.issueListIssues = [
+      makeIssue({
+        id: "EPIC-REPAIR",
+        title: "Repair epic",
+        issueType: "epic",
+      }),
+    ];
+    testState.issueDetail = makeIssueDetail({
+      id: "EPIC-REPAIR",
+      title: "Repair epic",
+      issueType: "epic",
+    });
+    testState.swarmSupport = { supported: true };
+    testState.swarmValidation = {
+      valid: false,
+      swarm: swarmSummary,
+      errors: ["Swarm validation failed."],
+      warnings: [],
+      readyFronts: [],
+      estimatedWorkerSessions: 1,
+      maxParallelism: 1,
+    };
+    testState.swarmStatus = {
+      swarm: swarmSummary,
+      completed: [],
+      active: [],
+      ready: [],
+      blocked: [makeIssue({ id: "TASK-BLOCKED", title: "Blocked task" })],
+    };
+    useIssuePaneStore.getState().setSelectedIssueId(THREAD_ID, "EPIC-REPAIR");
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <IssuesPanel
+        activeThreadId={THREAD_ID}
+        cwd={TEST_CWD}
+        projectId={ProjectId.makeUnsafe("project-1")}
+        projectDefaultModelSelection={null}
+        onClose={() => {}}
+      />,
+      { container: host },
+    );
+
+    try {
+      expect(document.body.textContent).toContain("Repair swarm");
+      expect(document.body.textContent).toContain(
+        "needs repair before coordinated implementation can start",
+      );
+    } finally {
+      screen.unmount();
+    }
+  });
+
+  it("shows Open coordinator when the epic already has swarm run history", async () => {
+    const swarmSummary = {
+      swarmId: "swarm-1",
+      epicId: "EPIC-1",
+      epicTitle: "Epic row",
+      totalIssueCount: 2,
+      completedIssueCount: 1,
+      activeIssueCount: 0,
+      readyIssueCount: 1,
+      blockedIssueCount: 0,
+      activeWorkerCount: 0,
+    };
+
+    testState.issueListIssues = [
+      makeIssue({
+        id: "EPIC-1",
+        title: "Epic row",
+        issueType: "epic",
+      }),
+    ];
+    testState.issueDetail = makeIssueDetail({
+      id: "EPIC-1",
+      title: "Epic row",
+      issueType: "epic",
+    });
+    testState.swarmSupport = { supported: true };
+    testState.swarmValidation = {
+      valid: true,
+      swarm: swarmSummary,
+      errors: [],
+      warnings: [],
+      readyFronts: [],
+      estimatedWorkerSessions: 1,
+      maxParallelism: 1,
+    };
+    testState.swarmStatus = {
+      swarm: swarmSummary,
+      completed: [],
+      active: [],
+      ready: [],
+      blocked: [],
+    };
+    testState.swarmRuns = [
+      {
+        runId: "run-1",
+        projectId: "project-1",
+        epicIssueId: "EPIC-1",
+        swarmId: "swarm-1",
+        status: "completed",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        provider: "codex",
+        model: "gpt-5.4-mini",
+        modelOptions: null,
+        providerOptions: null,
+        assistantDeliveryMode: null,
+        runtimeMode: "full-access",
+        activeTaskExecutionId: null,
+        latestTaskExecutionId: null,
+        lastError: null,
+        requestedAt: "2026-01-01T00:00:00.000Z",
+        startedAt: "2026-01-01T00:01:00.000Z",
+        idledAt: null,
+        pausedAt: null,
+        blockedAt: null,
+        failedAt: null,
+        cancelledAt: null,
+        completedAt: "2026-01-01T00:02:00.000Z",
+        updatedAt: "2026-01-01T00:02:00.000Z",
+      },
+    ];
+    useIssuePaneStore.getState().setSelectedIssueId(THREAD_ID, "EPIC-1");
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <IssuesPanel
+        activeThreadId={THREAD_ID}
+        cwd={TEST_CWD}
+        projectId={ProjectId.makeUnsafe("project-1")}
+        projectDefaultModelSelection={null}
+        onClose={() => {}}
+      />,
+      { container: host },
+    );
+
+    try {
+      expect(document.body.textContent).toContain("Open coordinator");
+      expect(document.body.textContent).toContain("The latest swarm run completed.");
+    } finally {
+      screen.unmount();
+    }
   });
 
   it("renders an explicit refresh button and refetches the issue list on click", async () => {
@@ -322,6 +746,713 @@ describe("IssuesPanel refresh button", () => {
       expect(otherSection?.textContent).toContain("Standalone task");
       expect(otherSection?.textContent).not.toContain("Alpha epic");
       expect(otherSection?.textContent).not.toContain("Beta epic");
+    } finally {
+      screen.unmount();
+    }
+  });
+
+  it("switches to Coordinator, opens an epic, and transitions footer actions to a child issue", async () => {
+    testState.issueListIssues = [
+      makeIssue({
+        id: "EPIC-1",
+        title: "Epic row",
+        issueType: "epic",
+      }),
+      makeIssue({
+        id: "TASK-1",
+        title: "Child task",
+        parent: { id: "EPIC-1", title: "Epic row" },
+      }),
+    ];
+    testState.issueDetailsById = {
+      "EPIC-1": makeIssueDetail({
+        id: "EPIC-1",
+        title: "Epic row",
+        issueType: "epic",
+      }),
+      "TASK-1": makeIssueDetail({
+        id: "TASK-1",
+        title: "Child task",
+        parent: { id: "EPIC-1", title: "Epic row" },
+      }),
+    };
+    testState.swarmSupport = { supported: true };
+    testState.swarmValidationByEpicId = {
+      "EPIC-1": {
+        epicId: "EPIC-1",
+        epicTitle: "Epic row",
+        valid: false,
+        swarm: null,
+        errors: ["Epic is missing a swarm."],
+        warnings: [],
+        readyFronts: [],
+        estimatedWorkerSessions: 0,
+        maxParallelism: 0,
+      },
+    };
+    testState.swarmStatusByEpicId = {
+      "EPIC-1": {
+        epicId: "EPIC-1",
+        epicTitle: "Epic row",
+        swarm: null,
+        completed: [],
+        active: [],
+        ready: [],
+        blocked: [],
+      },
+    };
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <IssuesPanel
+        activeThreadId={THREAD_ID}
+        cwd={TEST_CWD}
+        projectId={ProjectId.makeUnsafe("project-1")}
+        projectDefaultModelSelection={null}
+        onClose={() => {}}
+      />,
+      { container: host },
+    );
+
+    try {
+      getTabByText("Coordinator").click();
+      await flushPromises();
+
+      expect(getTabByText("Coordinator").getAttribute("aria-selected")).toBe("true");
+      expect(document.querySelector('[role="tabpanel"][aria-label="Coordinator"]')).toBeTruthy();
+
+      getButtonByText("Open epic").click();
+      await flushPromises();
+
+      expect(getTabByText("Issues").getAttribute("aria-selected")).toBe("true");
+      expect(useIssuePaneStore.getState().byThreadId[THREAD_ID]?.selectedIssueId).toBe("EPIC-1");
+      expect(document.body.textContent).toContain("Quick refine");
+      expect(document.body.textContent).toContain("Planned refine");
+      expect(document.body.textContent).toContain("Create swarm");
+      expect(document.body.textContent).toContain("Children (1)");
+
+      const childIssueButton = document.querySelector(
+        'button[aria-label="Select issue TASK-1: Child task"]',
+      );
+      expect(childIssueButton).toBeTruthy();
+      if (!(childIssueButton instanceof HTMLButtonElement)) {
+        throw new Error("Expected child issue row selector to be an HTMLButtonElement");
+      }
+      childIssueButton.click();
+      await flushPromises();
+
+      expect(useIssuePaneStore.getState().byThreadId[THREAD_ID]?.selectedIssueId).toBe("TASK-1");
+      expect(document.body.textContent).toContain("Refine");
+      expect(document.body.textContent).toContain("Implement");
+      expect(document.body.textContent).not.toContain("Quick refine");
+      expect(document.body.textContent).not.toContain("Planned refine");
+      expect(document.body.textContent).not.toContain("Create swarm");
+    } finally {
+      screen.unmount();
+    }
+  });
+
+  it("starts epic plan implementation from the issue footer", async () => {
+    testState.issueListIssues = [
+      makeIssue({
+        id: "EPIC-PLAN",
+        title: "Plan epic",
+        issueType: "epic",
+      }),
+    ];
+    testState.issueDetailsById = {
+      "EPIC-PLAN": makeIssueDetail({
+        id: "EPIC-PLAN",
+        title: "Plan epic",
+        issueType: "epic",
+      }),
+    };
+    testState.swarmSupport = { supported: true };
+    testState.swarmValidation = {
+      valid: false,
+      swarm: null,
+      errors: ["Epic is missing a swarm."],
+      warnings: [],
+      readyFronts: [],
+      estimatedWorkerSessions: 0,
+      maxParallelism: 0,
+    };
+    testState.swarmStatus = {
+      swarm: null,
+      completed: [],
+      active: [],
+      ready: [],
+      blocked: [],
+    };
+    useIssuePaneStore.getState().setSelectedIssueId(THREAD_ID, "EPIC-PLAN");
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <IssuesPanel
+        activeThreadId={THREAD_ID}
+        cwd={TEST_CWD}
+        projectId={ProjectId.makeUnsafe("project-1")}
+        projectDefaultModelSelection={null}
+        onClose={() => {}}
+      />,
+      { container: host },
+    );
+
+    try {
+      getButtonByText("Create swarm").click();
+      await flushPromises();
+
+      expect(testState.startEpicPlanImplementationSpy).toHaveBeenCalledWith({
+        cwd: TEST_CWD,
+        projectId: "project-1",
+        epicIssueId: "EPIC-PLAN",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5.4-mini",
+        },
+        runtimeMode: "full-access",
+      });
+      expect(testState.invalidateQueriesSpy).toHaveBeenCalledWith({
+        queryKey: ["beads"],
+      });
+    } finally {
+      screen.unmount();
+    }
+  });
+
+  it("starts issue implementation from the task footer", async () => {
+    testState.issueListIssues = [
+      makeIssue({
+        id: "TASK-IMPLEMENT",
+        title: "Implement me",
+      }),
+    ];
+    testState.issueDetailsById = {
+      "TASK-IMPLEMENT": makeIssueDetail({
+        id: "TASK-IMPLEMENT",
+        title: "Implement me",
+      }),
+    };
+    useIssuePaneStore.getState().setSelectedIssueId(THREAD_ID, "TASK-IMPLEMENT");
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <IssuesPanel
+        activeThreadId={THREAD_ID}
+        cwd={TEST_CWD}
+        projectId={ProjectId.makeUnsafe("project-1")}
+        projectDefaultModelSelection={null}
+        onClose={() => {}}
+      />,
+      { container: host },
+    );
+
+    try {
+      getButtonByText("Implement").click();
+      await flushPromises();
+
+      expect(testState.startIssueWorkflowSpy).toHaveBeenCalledWith({
+        cwd: TEST_CWD,
+        projectId: "project-1",
+        issueId: "TASK-IMPLEMENT",
+        workflow: "solve",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5.4-mini",
+        },
+        runtimeMode: "full-access",
+      });
+    } finally {
+      screen.unmount();
+    }
+  });
+
+  it("opens the start swarm sheet from a ready coordinator card", async () => {
+    const swarmSummary = {
+      swarmId: "swarm-ready",
+      epicId: "EPIC-READY",
+      epicTitle: "Ready epic",
+      totalIssueCount: 3,
+      completedIssueCount: 0,
+      activeIssueCount: 0,
+      readyIssueCount: 2,
+      blockedIssueCount: 0,
+      activeWorkerCount: 0,
+    };
+
+    testState.issueListIssues = [
+      makeIssue({
+        id: "EPIC-READY",
+        title: "Ready epic",
+        issueType: "epic",
+      }),
+    ];
+    testState.swarmSupport = { supported: true };
+    testState.swarmValidationByEpicId = {
+      "EPIC-READY": {
+        epicId: "EPIC-READY",
+        epicTitle: "Ready epic",
+        valid: true,
+        swarm: swarmSummary,
+        errors: [],
+        warnings: [],
+        readyFronts: [],
+        estimatedWorkerSessions: 1,
+        maxParallelism: 1,
+      },
+    };
+    testState.swarmStatusByEpicId = {
+      "EPIC-READY": {
+        epicId: "EPIC-READY",
+        epicTitle: "Ready epic",
+        swarm: swarmSummary,
+        completed: [],
+        active: [],
+        ready: [
+          makeIssue({
+            id: "TASK-1",
+            title: "Ready task",
+          }),
+        ],
+        blocked: [],
+      },
+    };
+    useIssuePaneStore.getState().setActivePanelTab(THREAD_ID, "coordinator");
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <IssuesPanel
+        activeThreadId={THREAD_ID}
+        cwd={TEST_CWD}
+        projectId={ProjectId.makeUnsafe("project-1")}
+        projectDefaultModelSelection={null}
+        onClose={() => {}}
+      />,
+      { container: host },
+    );
+
+    try {
+      getButtonByText("Start swarm").click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(document.body.textContent).toContain("Shared workspace");
+      expect(document.body.textContent).toContain("Scheduler mode");
+      expect(document.body.textContent).toContain("automatic");
+      expect(document.body.textContent).toContain("Assistant delivery mode");
+    } finally {
+      screen.unmount();
+    }
+  });
+
+  it("renders idle coordinator cards with ready previews and a continue CTA", async () => {
+    const swarmSummary = {
+      swarmId: "swarm-idle",
+      epicId: "EPIC-IDLE",
+      epicTitle: "Idle epic",
+      totalIssueCount: 4,
+      completedIssueCount: 1,
+      activeIssueCount: 0,
+      readyIssueCount: 2,
+      blockedIssueCount: 0,
+      activeWorkerCount: 0,
+    };
+
+    testState.issueListIssues = [
+      makeIssue({
+        id: "EPIC-IDLE",
+        title: "Idle epic",
+        issueType: "epic",
+      }),
+    ];
+    testState.swarmSupport = { supported: true };
+    testState.swarmRuns = [
+      {
+        runId: "run-idle",
+        projectId: "project-1",
+        epicIssueId: "EPIC-IDLE",
+        swarmId: "swarm-idle",
+        status: "idle",
+        schedulerMode: "semi-automatic",
+        workspaceMode: "shared",
+        provider: "codex",
+        model: "gpt-5.4-mini",
+        modelOptions: null,
+        providerOptions: null,
+        assistantDeliveryMode: "buffered",
+        runtimeMode: "full-access",
+        activeTaskExecutionId: null,
+        latestTaskExecutionId: "execution-1",
+        lastError: null,
+        requestedAt: "2026-01-01T00:00:00.000Z",
+        startedAt: "2026-01-01T00:01:00.000Z",
+        idledAt: "2026-01-01T00:02:00.000Z",
+        pausedAt: null,
+        blockedAt: null,
+        failedAt: null,
+        cancelledAt: null,
+        completedAt: null,
+        updatedAt: "2026-01-01T00:02:00.000Z",
+      },
+    ];
+    testState.swarmValidationByEpicId = {
+      "EPIC-IDLE": {
+        epicId: "EPIC-IDLE",
+        epicTitle: "Idle epic",
+        valid: true,
+        swarm: swarmSummary,
+        errors: [],
+        warnings: [],
+        readyFronts: [],
+        estimatedWorkerSessions: 1,
+        maxParallelism: 1,
+      },
+    };
+    testState.swarmStatusByEpicId = {
+      "EPIC-IDLE": {
+        epicId: "EPIC-IDLE",
+        epicTitle: "Idle epic",
+        swarm: swarmSummary,
+        completed: [],
+        active: [],
+        ready: [
+          makeIssue({
+            id: "TASK-NEXT-1",
+            title: "First ready issue",
+          }),
+          makeIssue({
+            id: "TASK-NEXT-2",
+            title: "Second ready issue",
+          }),
+        ],
+        blocked: [],
+      },
+    };
+    useIssuePaneStore.getState().setActivePanelTab(THREAD_ID, "coordinator");
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <IssuesPanel
+        activeThreadId={THREAD_ID}
+        cwd={TEST_CWD}
+        projectId={ProjectId.makeUnsafe("project-1")}
+        projectDefaultModelSelection={null}
+        onClose={() => {}}
+      />,
+      { container: host },
+    );
+
+    try {
+      expect(document.body.textContent).toContain("Ready for next issue");
+      expect(document.body.textContent).toContain("Semi-automatic");
+      expect(document.body.textContent).toContain("First ready issue");
+      expect(document.body.textContent).toContain("Second ready issue");
+      expect(document.body.textContent).toContain("Continue");
+    } finally {
+      screen.unmount();
+    }
+  });
+
+  it("renders coordinator run history rows and worker execution details", async () => {
+    const swarmSummary = {
+      swarmId: "swarm-history",
+      epicId: "EPIC-HISTORY",
+      epicTitle: "History epic",
+      totalIssueCount: 2,
+      completedIssueCount: 2,
+      activeIssueCount: 0,
+      readyIssueCount: 0,
+      blockedIssueCount: 0,
+      activeWorkerCount: 0,
+    };
+
+    testState.issueListIssues = [
+      makeIssue({
+        id: "EPIC-HISTORY",
+        title: "History epic",
+        issueType: "epic",
+      }),
+    ];
+    testState.swarmSupport = { supported: true };
+    testState.swarmRuns = [
+      {
+        runId: "run-history",
+        projectId: "project-1",
+        epicIssueId: "EPIC-HISTORY",
+        swarmId: "swarm-history",
+        status: "completed",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        provider: "codex",
+        model: "gpt-5.4-mini",
+        modelOptions: null,
+        providerOptions: null,
+        assistantDeliveryMode: "buffered",
+        runtimeMode: "full-access",
+        activeTaskExecutionId: null,
+        latestTaskExecutionId: "execution-history",
+        lastError: null,
+        requestedAt: "2026-01-01T00:00:00.000Z",
+        startedAt: "2026-01-01T00:01:00.000Z",
+        idledAt: null,
+        pausedAt: null,
+        blockedAt: null,
+        failedAt: null,
+        cancelledAt: null,
+        completedAt: "2026-01-01T00:03:00.000Z",
+        updatedAt: "2026-01-01T00:03:00.000Z",
+      },
+    ];
+    testState.swarmTaskExecutions = [
+      {
+        executionId: "execution-history",
+        runId: "run-history",
+        issueId: "TASK-HISTORY",
+        workerThreadId: "thread-worker-1",
+        sequenceNumber: 1,
+        status: "completed",
+        lastError: null,
+        startedAt: "2026-01-01T00:01:00.000Z",
+        completedAt: "2026-01-01T00:02:30.000Z",
+        failedAt: null,
+        cancelledAt: null,
+        updatedAt: "2026-01-01T00:02:30.000Z",
+      },
+    ];
+    testState.swarmValidationByEpicId = {
+      "EPIC-HISTORY": {
+        epicId: "EPIC-HISTORY",
+        epicTitle: "History epic",
+        valid: true,
+        swarm: swarmSummary,
+        errors: [],
+        warnings: [],
+        readyFronts: [],
+        estimatedWorkerSessions: 1,
+        maxParallelism: 1,
+      },
+    };
+    testState.swarmStatusByEpicId = {
+      "EPIC-HISTORY": {
+        epicId: "EPIC-HISTORY",
+        epicTitle: "History epic",
+        swarm: swarmSummary,
+        completed: [],
+        active: [],
+        ready: [],
+        blocked: [],
+      },
+    };
+    useIssuePaneStore.getState().setActivePanelTab(THREAD_ID, "coordinator");
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <IssuesPanel
+        activeThreadId={THREAD_ID}
+        cwd={TEST_CWD}
+        projectId={ProjectId.makeUnsafe("project-1")}
+        projectDefaultModelSelection={null}
+        onClose={() => {}}
+      />,
+      { container: host },
+    );
+
+    try {
+      getButtonByText("View history").click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(document.body.textContent).toContain("Timeline");
+      expect(document.body.textContent).toContain("Executions (1)");
+      expect(document.body.textContent).toContain("run-history");
+      expect(document.body.textContent).toContain("TASK-HISTORY");
+      expect(document.body.textContent).toContain("Open worker thread");
+    } finally {
+      screen.unmount();
+    }
+  });
+
+  it("groups coordinator cards into needs-attention, active, and history sections", async () => {
+    const runningSwarm = {
+      swarmId: "swarm-running",
+      epicId: "EPIC-RUNNING",
+      epicTitle: "Running epic",
+      totalIssueCount: 4,
+      completedIssueCount: 1,
+      activeIssueCount: 1,
+      readyIssueCount: 1,
+      blockedIssueCount: 0,
+      activeWorkerCount: 1,
+    };
+    const historySwarm = {
+      swarmId: "swarm-history",
+      epicId: "EPIC-HISTORY",
+      epicTitle: "History epic",
+      totalIssueCount: 2,
+      completedIssueCount: 2,
+      activeIssueCount: 0,
+      readyIssueCount: 0,
+      blockedIssueCount: 0,
+      activeWorkerCount: 0,
+    };
+
+    testState.issueListIssues = [
+      makeIssue({
+        id: "EPIC-NO-SWARM",
+        title: "No swarm epic",
+        issueType: "epic",
+      }),
+      makeIssue({
+        id: "EPIC-RUNNING",
+        title: "Running epic",
+        issueType: "epic",
+      }),
+      makeIssue({
+        id: "EPIC-HISTORY",
+        title: "History epic",
+        issueType: "epic",
+      }),
+    ];
+    testState.swarmSupport = { supported: true };
+    testState.swarmRuns = [
+      {
+        runId: "run-running",
+        projectId: "project-1",
+        epicIssueId: "EPIC-RUNNING",
+        swarmId: "swarm-running",
+        status: "running",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        provider: "codex",
+        model: "gpt-5.4-mini",
+        modelOptions: null,
+        providerOptions: null,
+        assistantDeliveryMode: "buffered",
+        runtimeMode: "full-access",
+        activeTaskExecutionId: null,
+        latestTaskExecutionId: null,
+        lastError: null,
+        requestedAt: "2026-01-01T00:00:00.000Z",
+        startedAt: "2026-01-01T00:01:00.000Z",
+        idledAt: null,
+        pausedAt: null,
+        blockedAt: null,
+        failedAt: null,
+        cancelledAt: null,
+        completedAt: null,
+        updatedAt: "2026-01-01T00:02:00.000Z",
+      },
+      {
+        runId: "run-history",
+        projectId: "project-1",
+        epicIssueId: "EPIC-HISTORY",
+        swarmId: "swarm-history",
+        status: "completed",
+        schedulerMode: "semi-automatic",
+        workspaceMode: "shared",
+        provider: "codex",
+        model: "gpt-5.4-mini",
+        modelOptions: null,
+        providerOptions: null,
+        assistantDeliveryMode: "buffered",
+        runtimeMode: "full-access",
+        activeTaskExecutionId: null,
+        latestTaskExecutionId: null,
+        lastError: null,
+        requestedAt: "2026-01-01T00:03:00.000Z",
+        startedAt: "2026-01-01T00:04:00.000Z",
+        idledAt: null,
+        pausedAt: null,
+        blockedAt: null,
+        failedAt: null,
+        cancelledAt: null,
+        completedAt: "2026-01-01T00:05:00.000Z",
+        updatedAt: "2026-01-01T00:05:00.000Z",
+      },
+    ];
+    testState.swarmValidationByEpicId = {
+      "EPIC-RUNNING": {
+        epicId: "EPIC-RUNNING",
+        epicTitle: "Running epic",
+        valid: true,
+        swarm: runningSwarm,
+        errors: [],
+        warnings: [],
+        readyFronts: [],
+        estimatedWorkerSessions: 1,
+        maxParallelism: 1,
+      },
+      "EPIC-HISTORY": {
+        epicId: "EPIC-HISTORY",
+        epicTitle: "History epic",
+        valid: true,
+        swarm: historySwarm,
+        errors: [],
+        warnings: [],
+        readyFronts: [],
+        estimatedWorkerSessions: 1,
+        maxParallelism: 1,
+      },
+    };
+    testState.swarmStatusByEpicId = {
+      "EPIC-RUNNING": {
+        epicId: "EPIC-RUNNING",
+        epicTitle: "Running epic",
+        swarm: runningSwarm,
+        completed: [],
+        active: [makeIssue({ id: "TASK-ACTIVE", title: "Active task" })],
+        ready: [makeIssue({ id: "TASK-READY", title: "Ready task" })],
+        blocked: [],
+      },
+      "EPIC-HISTORY": {
+        epicId: "EPIC-HISTORY",
+        epicTitle: "History epic",
+        swarm: historySwarm,
+        completed: [],
+        active: [],
+        ready: [],
+        blocked: [],
+      },
+    };
+    useIssuePaneStore.getState().setActivePanelTab(THREAD_ID, "coordinator");
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <IssuesPanel
+        activeThreadId={THREAD_ID}
+        cwd={TEST_CWD}
+        projectId={ProjectId.makeUnsafe("project-1")}
+        projectDefaultModelSelection={null}
+        onClose={() => {}}
+      />,
+      { container: host },
+    );
+
+    try {
+      const needsAttentionHeading = [...document.querySelectorAll("h3")].find((candidate) =>
+        candidate.textContent?.includes("Needs Attention (1)"),
+      );
+      const activeHeading = [...document.querySelectorAll("h3")].find((candidate) =>
+        candidate.textContent?.includes("Active (1)"),
+      );
+      const historyHeading = [...document.querySelectorAll("h3")].find((candidate) =>
+        candidate.textContent?.includes("History (1)"),
+      );
+      const needsAttentionSection = needsAttentionHeading?.closest("section");
+      const activeSection = activeHeading?.closest("section");
+      const historySection = historyHeading?.closest("section");
+
+      expect(needsAttentionSection?.textContent).toContain("No swarm epic");
+      expect(needsAttentionSection?.textContent).toContain("Create swarm");
+      expect(activeSection?.textContent).toContain("Running epic");
+      expect(activeSection?.textContent).toContain("Automatic");
+      expect(historySection?.textContent).toContain("History epic");
+      expect(historySection?.textContent).toContain("Semi-automatic");
     } finally {
       screen.unmount();
     }

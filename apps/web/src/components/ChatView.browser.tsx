@@ -311,6 +311,8 @@ function createSnapshotForTargetUser(options: {
       },
     ],
     planImplementationLaunches: [],
+    swarmRuns: [],
+    swarmTaskExecutions: [],
     updatedAt: NOW_ISO,
   };
 }

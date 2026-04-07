@@ -10,7 +10,7 @@ vi.mock("../../processRunner", () => ({
 import { runProcess } from "../../processRunner";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { BeadsService } from "../Services/BeadsService.ts";
-import { BeadsServiceLive } from "./BeadsService.ts";
+import { BeadsServiceLive, BeadsTrackerServiceLive } from "./BeadsService.ts";
 
 const mockedRunProcess = vi.mocked(runProcess);
 const mockedGetReadModel = vi.fn(() =>
@@ -18,6 +18,8 @@ const mockedGetReadModel = vi.fn(() =>
     snapshotSequence: 0,
     updatedAt: new Date().toISOString(),
     planImplementationLaunches: [],
+    swarmRuns: [],
+    swarmTaskExecutions: [],
     projects: [],
     threads: [],
   }),
@@ -33,7 +35,12 @@ const orchestrationEngineLayer = Layer.mock(OrchestrationEngineService)({
   streamDomainEvents: Stream.empty,
 });
 
-const layer = it.layer(BeadsServiceLive.pipe(Layer.provide(orchestrationEngineLayer)));
+const layer = it.layer(
+  BeadsServiceLive.pipe(
+    Layer.provide(BeadsTrackerServiceLive),
+    Layer.provide(orchestrationEngineLayer),
+  ),
+);
 
 afterEach(() => {
   mockedRunProcess.mockReset();
@@ -44,6 +51,8 @@ afterEach(() => {
       snapshotSequence: 0,
       updatedAt: new Date().toISOString(),
       planImplementationLaunches: [],
+      swarmRuns: [],
+      swarmTaskExecutions: [],
       projects: [],
       threads: [],
     }),
@@ -633,7 +642,7 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
-  it.effect("starts epic implementation planning in a tracker-only linked thread", () =>
+  it.effect("starts missing-swarm planning in a tracker-only linked thread", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
       const dispatchedCommands: unknown[] = [];
@@ -720,7 +729,7 @@ layer("BeadsServiceLive", (it) => {
       expect(dispatchedCommands[0]).toMatchObject({
         type: "thread.create",
         projectId: ProjectId.makeUnsafe("project-1"),
-        title: "EPIC-1: Epic coordination (Plan implementation)",
+        title: "EPIC-1: Epic coordination (Create swarm)",
         interactionMode: "default",
         branch: null,
         worktreePath: null,
@@ -737,12 +746,157 @@ layer("BeadsServiceLive", (it) => {
         interactionMode: "default",
         message: {
           text: expect.stringContaining(
-            "create or repair the epic swarm required for implementation",
+            "Use bd to create the epic swarm required for implementation",
           ),
         },
       });
-      expect((dispatchedCommands[1] as { message: { text: string } }).message.text).toContain(
+      const messageText = (dispatchedCommands[1] as { message: { text: string } }).message.text;
+      expect(messageText).toContain(
+        "Do not describe this as a repair task because no swarm exists yet.",
+      );
+      expect(messageText).toContain(
         "Do not implement application code, and do not create a worktree unless tracker-only recovery is impossible.",
+      );
+    }),
+  );
+
+  it.effect("starts swarm repair planning when an invalid swarm already exists", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const dispatchedCommands: unknown[] = [];
+
+      installBdJsonMock({
+        context: {
+          beads_dir: "/repo/.beads",
+          repo_root: "/repo",
+          cwd_repo_root: "/repo",
+          is_redirected: false,
+          is_worktree: false,
+          backend: "dolt",
+          dolt_mode: "server",
+          database: "repo",
+          project_id: "project-1",
+          role: "maintainer",
+          bd_version: "1.0.0",
+        },
+        "show EPIC-1 --long": [
+          {
+            id: "EPIC-1",
+            title: "Epic coordination",
+            description: "Break this into tasks",
+            notes: "Coordinate across workers",
+            status: "open",
+            priority: 2,
+            issue_type: "epic",
+            assignee: null,
+            owner: "alice",
+            created_at: now,
+            created_by: "alice",
+            updated_at: now,
+            labels: ["coordinator"],
+            dependencies: [],
+            dependents: [],
+          },
+        ],
+        "comments EPIC-1": [],
+        "history EPIC-1": [],
+        "swarm list": {
+          swarms: [
+            {
+              swarm_id: "swarm-1",
+              epic_id: "EPIC-1",
+              epic_title: "Epic coordination",
+              total_issue_count: 3,
+              completed_issue_count: 0,
+              active_issue_count: 0,
+              ready_issue_count: 1,
+              blocked_issue_count: 2,
+              active_worker_count: 0,
+            },
+          ],
+        },
+        "swarm validate EPIC-1": {
+          valid: false,
+          swarm: {
+            swarm_id: "swarm-1",
+            epic_id: "EPIC-1",
+            epic_title: "Epic coordination",
+            total_issue_count: 3,
+            completed_issue_count: 0,
+            active_issue_count: 0,
+            ready_issue_count: 1,
+            blocked_issue_count: 2,
+            active_worker_count: 0,
+          },
+          errors: ["Blocked issue graph is inconsistent."],
+          warnings: [],
+          ready_fronts: [],
+          estimated_worker_sessions: 0,
+          max_parallelism: 0,
+        },
+        "swarm status EPIC-1": {
+          swarm: {
+            swarm_id: "swarm-1",
+            epic_id: "EPIC-1",
+            epic_title: "Epic coordination",
+            total_issue_count: 3,
+            completed_issue_count: 0,
+            active_issue_count: 0,
+            ready_issue_count: 1,
+            blocked_issue_count: 2,
+            active_worker_count: 0,
+          },
+          completed: [],
+          active: [],
+          ready: [
+            {
+              id: "READY-1",
+              title: "Ready child",
+              status: "open",
+              priority: 2,
+              issue_type: "task",
+              assignee: null,
+              owner: null,
+            },
+          ],
+          blocked: [
+            {
+              id: "BLOCKED-1",
+              title: "Blocked child",
+              status: "blocked",
+              priority: 2,
+              issue_type: "task",
+              assignee: null,
+              owner: null,
+            },
+          ],
+        },
+      });
+      mockedDispatch.mockImplementation((command: unknown) => {
+        dispatchedCommands.push(command);
+        return Effect.succeed({ sequence: dispatchedCommands.length });
+      });
+
+      const beads = yield* BeadsService;
+      const result = yield* beads.startEpicPlanImplementation({
+        cwd: "/repo",
+        projectId: ProjectId.makeUnsafe("project-1"),
+        epicIssueId: "EPIC-1",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+      });
+
+      assert.equal(result.created, true);
+      expect(dispatchedCommands[0]).toMatchObject({
+        type: "thread.create",
+        title: "EPIC-1: Epic coordination (Repair swarm)",
+      });
+      const messageText = (dispatchedCommands[1] as { message: { text: string } }).message.text;
+      expect(messageText).toContain(
+        "Use bd to repair the existing epic swarm required for implementation",
+      );
+      expect(messageText).toContain(
+        "Repair the current swarm instead of creating a replacement unless recovery is impossible.",
       );
     }),
   );

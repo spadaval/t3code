@@ -1,8 +1,10 @@
 import type {
   BeadsIssueSummary,
+  BeadsSwarmStatus,
   BeadsSwarmSummary,
   BeadsSwarmSupport,
   BeadsSwarmValidation,
+  OrchestrationSwarmRun,
   ThreadId,
 } from "@t3tools/contracts";
 
@@ -17,6 +19,88 @@ export interface EpicGroup {
 export interface CoordinatorSwarmSections {
   readonly runningSwarms: ReadonlyArray<BeadsSwarmSummary>;
   readonly readyToRunSwarms: ReadonlyArray<BeadsSwarmSummary>;
+}
+
+export interface CoordinatorEpicEntry {
+  readonly epicId: string;
+  readonly epicTitle: string;
+  readonly issue: BeadsIssueSummary | null;
+}
+
+export interface CoordinatorEpicStateSections<T> {
+  readonly needsAttention: ReadonlyArray<T>;
+  readonly active: ReadonlyArray<T>;
+  readonly history: ReadonlyArray<T>;
+}
+
+export type EpicCoordinatorStateKind =
+  | "checking"
+  | "unsupported"
+  | "no_swarm"
+  | "needs_repair"
+  | "ready"
+  | "running"
+  | "idle"
+  | "paused"
+  | "blocked"
+  | "failed"
+  | "cancelled"
+  | "completed";
+
+export interface EpicCoordinatorState {
+  readonly kind: EpicCoordinatorStateKind;
+  readonly latestRun: OrchestrationSwarmRun | null;
+}
+
+export interface EpicCoordinatorPrimaryAction {
+  readonly kind:
+    | "checking"
+    | "unsupported"
+    | "create_swarm"
+    | "repair_swarm"
+    | "start_swarm"
+    | "open_coordinator";
+  readonly label: string;
+  readonly disabled: boolean;
+}
+
+const NON_TERMINAL_SWARM_RUN_STATUSES = new Set<OrchestrationSwarmRun["status"]>([
+  "requested",
+  "running",
+  "idle",
+  "paused",
+  "blocked",
+]);
+
+const ACTIVE_COORDINATOR_STATE_KINDS = new Set<EpicCoordinatorStateKind>(["running"]);
+
+const HISTORY_COORDINATOR_STATE_KINDS = new Set<EpicCoordinatorStateKind>([
+  "cancelled",
+  "completed",
+]);
+
+function compareSwarmRunsByPriority(
+  left: OrchestrationSwarmRun,
+  right: OrchestrationSwarmRun,
+): number {
+  const nonTerminalDelta =
+    Number(NON_TERMINAL_SWARM_RUN_STATUSES.has(right.status)) -
+    Number(NON_TERMINAL_SWARM_RUN_STATUSES.has(left.status));
+  if (nonTerminalDelta !== 0) {
+    return nonTerminalDelta;
+  }
+
+  const updatedAtDelta = right.updatedAt.localeCompare(left.updatedAt);
+  if (updatedAtDelta !== 0) {
+    return updatedAtDelta;
+  }
+
+  const requestedAtDelta = right.requestedAt.localeCompare(left.requestedAt);
+  if (requestedAtDelta !== 0) {
+    return requestedAtDelta;
+  }
+
+  return right.runId.localeCompare(left.runId);
 }
 
 export function isEpicIssueType(issueType: string | null | undefined): boolean {
@@ -106,41 +190,190 @@ export function listEpicChildIssues(input: {
   return input.issues.filter((issue) => issue.parent?.id === input.epicId);
 }
 
-export function getEpicCoordinatorImplementAction(input: {
+export function selectLatestSwarmRun(
+  swarmRuns: ReadonlyArray<OrchestrationSwarmRun>,
+): OrchestrationSwarmRun | null {
+  return [...swarmRuns].toSorted(compareSwarmRunsByPriority)[0] ?? null;
+}
+
+export function deriveEpicCoordinatorState(input: {
   readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
+  readonly status: Pick<BeadsSwarmStatus, "swarm"> | null;
   readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm"> | null;
+  readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
   readonly isSupportPending: boolean;
   readonly isValidationPending: boolean;
-}) {
+}): EpicCoordinatorState {
   if (input.isSupportPending || input.isValidationPending) {
     return {
-      kind: "implement",
-      label: "Checking swarm...",
-      disabled: true,
-    } as const;
+      kind: "checking",
+      latestRun: null,
+    };
   }
 
   if (input.swarmSupport?.supported !== true) {
     return {
-      kind: "implement",
-      label: "Implement",
-      disabled: true,
-    } as const;
+      kind: "unsupported",
+      latestRun: null,
+    };
   }
 
-  if (input.validation?.valid === true && input.validation.swarm !== null) {
+  const latestRun = selectLatestSwarmRun(input.swarmRuns);
+  if (latestRun !== null) {
     return {
-      kind: "implement",
-      label: "Implement",
-      disabled: false,
-    } as const;
+      kind: latestRun.status === "requested" ? "running" : latestRun.status,
+      latestRun,
+    };
+  }
+
+  const swarm = input.validation?.swarm ?? input.status?.swarm ?? null;
+  if (swarm === null) {
+    return {
+      kind: "no_swarm",
+      latestRun: null,
+    };
+  }
+
+  if (input.validation?.valid === false) {
+    return {
+      kind: "needs_repair",
+      latestRun: null,
+    };
+  }
+
+  if (input.validation?.valid === true) {
+    return {
+      kind: "ready",
+      latestRun: null,
+    };
   }
 
   return {
-    kind: "plan_implementation",
-    label: "Plan implementation",
-    disabled: false,
-  } as const;
+    kind: "checking",
+    latestRun: null,
+  };
+}
+
+export function getEpicCoordinatorPrimaryAction(input: {
+  readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
+  readonly status: Pick<BeadsSwarmStatus, "swarm"> | null;
+  readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm"> | null;
+  readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
+  readonly isSupportPending: boolean;
+  readonly isValidationPending: boolean;
+}): EpicCoordinatorPrimaryAction {
+  const state = deriveEpicCoordinatorState(input);
+
+  switch (state.kind) {
+    case "checking":
+      return {
+        kind: "checking",
+        label: "Checking swarm...",
+        disabled: true,
+      };
+    case "unsupported":
+      return {
+        kind: "unsupported",
+        label: "Swarm unavailable",
+        disabled: true,
+      };
+    case "no_swarm":
+      return {
+        kind: "create_swarm",
+        label: "Create swarm",
+        disabled: false,
+      };
+    case "needs_repair":
+      return {
+        kind: "repair_swarm",
+        label: "Repair swarm",
+        disabled: false,
+      };
+    case "ready":
+      return {
+        kind: "start_swarm",
+        label: "Start swarm",
+        disabled: false,
+      };
+    case "running":
+    case "idle":
+    case "paused":
+    case "blocked":
+    case "failed":
+    case "cancelled":
+    case "completed":
+      return {
+        kind: "open_coordinator",
+        label: "Open coordinator",
+        disabled: false,
+      };
+  }
+}
+
+export function collectCoordinatorEpics(input: {
+  readonly epicIssues: ReadonlyArray<BeadsIssueSummary>;
+  readonly swarms: ReadonlyArray<BeadsSwarmSummary>;
+  readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
+}): CoordinatorEpicEntry[] {
+  const entries = new Map<string, CoordinatorEpicEntry>();
+
+  for (const issue of input.epicIssues) {
+    entries.set(issue.id, {
+      epicId: issue.id,
+      epicTitle: issue.title,
+      issue,
+    });
+  }
+
+  for (const swarm of input.swarms) {
+    if (!entries.has(swarm.epicId)) {
+      entries.set(swarm.epicId, {
+        epicId: swarm.epicId,
+        epicTitle: swarm.epicTitle,
+        issue: null,
+      });
+    }
+  }
+
+  for (const run of input.swarmRuns) {
+    if (!entries.has(run.epicIssueId)) {
+      entries.set(run.epicIssueId, {
+        epicId: run.epicIssueId,
+        epicTitle: run.epicIssueId,
+        issue: null,
+      });
+    }
+  }
+
+  return [...entries.values()];
+}
+
+export function partitionCoordinatorEpics<T extends { stateKind: EpicCoordinatorStateKind }>(
+  items: ReadonlyArray<T>,
+): CoordinatorEpicStateSections<T> {
+  const needsAttention: T[] = [];
+  const active: T[] = [];
+  const history: T[] = [];
+
+  for (const item of items) {
+    if (ACTIVE_COORDINATOR_STATE_KINDS.has(item.stateKind)) {
+      active.push(item);
+      continue;
+    }
+
+    if (HISTORY_COORDINATOR_STATE_KINDS.has(item.stateKind)) {
+      history.push(item);
+      continue;
+    }
+
+    needsAttention.push(item);
+  }
+
+  return {
+    needsAttention,
+    active,
+    history,
+  };
 }
 
 export function partitionCoordinatorSwarms(

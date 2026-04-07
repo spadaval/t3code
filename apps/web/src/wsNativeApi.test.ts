@@ -88,6 +88,11 @@ const rpcClientMock = {
     launchPlanImplementation: vi.fn(),
     cancelPlanImplementationLaunch: vi.fn(),
     retryPlanImplementationLaunch: vi.fn(),
+    startSwarmRun: vi.fn(),
+    continueSwarmRun: vi.fn(),
+    pauseSwarmRun: vi.fn(),
+    resumeSwarmRun: vi.fn(),
+    cancelSwarmRun: vi.fn(),
     onDomainEvent: vi.fn((listener: (event: OrchestrationEvent) => void) =>
       registerListener(orchestrationEventListeners, listener),
     ),
@@ -414,6 +419,58 @@ describe("wsNativeApi", () => {
 
     expect(rpcClientMock.orchestration.retryPlanImplementationLaunch).toHaveBeenCalledWith({
       launchId: "launch-1",
+    });
+  });
+
+  it("forwards swarm control requests to the RPC client", async () => {
+    rpcClientMock.orchestration.startSwarmRun = vi
+      .fn()
+      .mockResolvedValue({ runId: "run-1", status: "requested" });
+    rpcClientMock.orchestration.continueSwarmRun = vi
+      .fn()
+      .mockResolvedValue({ runId: "run-1", status: "running" });
+    rpcClientMock.orchestration.pauseSwarmRun = vi
+      .fn()
+      .mockResolvedValue({ runId: "run-1", status: "paused" });
+    rpcClientMock.orchestration.resumeSwarmRun = vi
+      .fn()
+      .mockResolvedValue({ runId: "run-1", status: "running" });
+    rpcClientMock.orchestration.cancelSwarmRun = vi
+      .fn()
+      .mockResolvedValue({ runId: "run-1", status: "cancelled" });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.orchestration.startSwarmRun({
+      projectId: ProjectId.makeUnsafe("project-1"),
+      epicIssueId: "EPIC-1",
+      schedulerMode: "semi-automatic",
+      workspaceMode: "shared",
+      runtimeMode: "full-access",
+    });
+    await api.orchestration.continueSwarmRun({ runId: "run-1" as never });
+    await api.orchestration.pauseSwarmRun({ runId: "run-1" as never });
+    await api.orchestration.resumeSwarmRun({ runId: "run-1" as never });
+    await api.orchestration.cancelSwarmRun({ runId: "run-1" as never });
+
+    expect(rpcClientMock.orchestration.startSwarmRun).toHaveBeenCalledWith({
+      projectId: "project-1",
+      epicIssueId: "EPIC-1",
+      schedulerMode: "semi-automatic",
+      workspaceMode: "shared",
+      runtimeMode: "full-access",
+    });
+    expect(rpcClientMock.orchestration.continueSwarmRun).toHaveBeenCalledWith({
+      runId: "run-1",
+    });
+    expect(rpcClientMock.orchestration.pauseSwarmRun).toHaveBeenCalledWith({
+      runId: "run-1",
+    });
+    expect(rpcClientMock.orchestration.resumeSwarmRun).toHaveBeenCalledWith({
+      runId: "run-1",
+    });
+    expect(rpcClientMock.orchestration.cancelSwarmRun).toHaveBeenCalledWith({
+      runId: "run-1",
     });
   });
 

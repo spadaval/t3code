@@ -1,10 +1,4 @@
-import type {
-  OrchestrationEvent,
-  OrchestrationReadModel,
-  PlanImplementationLaunchId,
-  ProjectId,
-  ThreadId,
-} from "@t3tools/contracts";
+import type { OrchestrationEvent, OrchestrationReadModel } from "@t3tools/contracts";
 import { OrchestrationCommand } from "@t3tools/contracts";
 import {
   Cause,
@@ -52,8 +46,8 @@ interface CommandEnvelope {
 }
 
 function commandToAggregateRef(command: OrchestrationCommand): {
-  readonly aggregateKind: "project" | "thread" | "planImplementationLaunch";
-  readonly aggregateId: ProjectId | ThreadId | PlanImplementationLaunchId;
+  readonly aggregateKind: OrchestrationEvent["aggregateKind"];
+  readonly aggregateId: OrchestrationEvent["aggregateId"];
 } {
   switch (command.type) {
     case "project.create":
@@ -71,6 +65,27 @@ function commandToAggregateRef(command: OrchestrationCommand): {
       return {
         aggregateKind: "planImplementationLaunch",
         aggregateId: command.launchId,
+      };
+    case "swarm-run.request":
+    case "swarm-run.mark-started":
+    case "swarm-run.mark-idle":
+    case "swarm-run.pause":
+    case "swarm-run.resume":
+    case "swarm-run.block":
+    case "swarm-run.fail":
+    case "swarm-run.cancel":
+    case "swarm-run.complete":
+      return {
+        aggregateKind: "swarmRun",
+        aggregateId: command.runId,
+      };
+    case "swarm-task-execution.start":
+    case "swarm-task-execution.complete":
+    case "swarm-task-execution.fail":
+    case "swarm-task-execution.cancel":
+      return {
+        aggregateKind: "swarmTaskExecution",
+        aggregateId: command.executionId,
       };
     default:
       return {

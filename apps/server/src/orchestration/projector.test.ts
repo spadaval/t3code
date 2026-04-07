@@ -2,6 +2,8 @@ import {
   CommandId,
   EventId,
   ProjectId,
+  SwarmRunId,
+  SwarmTaskExecutionId,
   ThreadId,
   type OrchestrationEvent,
 } from "@t3tools/contracts";
@@ -27,7 +29,13 @@ function makeEvent(input: {
     aggregateId:
       input.aggregateKind === "project"
         ? ProjectId.makeUnsafe(input.aggregateId)
-        : ThreadId.makeUnsafe(input.aggregateId),
+        : input.aggregateKind === "thread"
+          ? ThreadId.makeUnsafe(input.aggregateId)
+          : input.aggregateKind === "swarmRun"
+            ? SwarmRunId.makeUnsafe(input.aggregateId)
+            : input.aggregateKind === "swarmTaskExecution"
+              ? SwarmTaskExecutionId.makeUnsafe(input.aggregateId)
+              : ThreadId.makeUnsafe(input.aggregateId),
     occurredAt: input.occurredAt,
     commandId: input.commandId === null ? null : CommandId.makeUnsafe(input.commandId),
     causationEventId: null,
@@ -84,6 +92,7 @@ describe("orchestration projector", () => {
         interactionMode: "default",
         branch: null,
         worktreePath: null,
+        issueLink: null,
         latestTurn: null,
         createdAt: now,
         updatedAt: now,
@@ -231,6 +240,131 @@ describe("orchestration projector", () => {
     expect(next.snapshotSequence).toBe(7);
     expect(next.updatedAt).toBe("2026-01-01T00:00:00.000Z");
     expect(next.threads).toEqual([]);
+  });
+
+  it("projects swarm runs and task executions into the read model", async () => {
+    const requestedAt = "2026-04-06T00:00:00.000Z";
+    const startedAt = "2026-04-06T00:00:01.000Z";
+    const completedAt = "2026-04-06T00:00:02.000Z";
+
+    const afterRequested = await Effect.runPromise(
+      projectEvent(
+        createEmptyReadModel(requestedAt),
+        makeEvent({
+          sequence: 1,
+          type: "swarm-run.requested",
+          aggregateKind: "swarmRun",
+          aggregateId: "run-1",
+          occurredAt: requestedAt,
+          commandId: "cmd-swarm-requested",
+          payload: {
+            runId: "run-1",
+            projectId: "project-1",
+            epicIssueId: "EPIC-1",
+            swarmId: "SWARM-1",
+            schedulerMode: "automatic",
+            workspaceMode: "shared",
+            provider: "codex",
+            model: "gpt-5.4",
+            modelOptions: null,
+            providerOptions: null,
+            assistantDeliveryMode: "streaming",
+            runtimeMode: "full-access",
+            requestedAt,
+            updatedAt: requestedAt,
+          },
+        }),
+      ),
+    );
+
+    const afterStarted = await Effect.runPromise(
+      projectEvent(
+        afterRequested,
+        makeEvent({
+          sequence: 2,
+          type: "swarm-task-execution.started",
+          aggregateKind: "swarmTaskExecution",
+          aggregateId: "execution-1",
+          occurredAt: startedAt,
+          commandId: "cmd-execution-started",
+          payload: {
+            executionId: "execution-1",
+            runId: "run-1",
+            issueId: "TASK-1",
+            workerThreadId: null,
+            sequenceNumber: 1,
+            startedAt,
+            updatedAt: startedAt,
+          },
+        }),
+      ),
+    );
+
+    const afterCompleted = await Effect.runPromise(
+      projectEvent(
+        afterStarted,
+        makeEvent({
+          sequence: 3,
+          type: "swarm-task-execution.completed",
+          aggregateKind: "swarmTaskExecution",
+          aggregateId: "execution-1",
+          occurredAt: completedAt,
+          commandId: "cmd-execution-completed",
+          payload: {
+            executionId: "execution-1",
+            runId: "run-1",
+            completedAt,
+            updatedAt: completedAt,
+          },
+        }),
+      ),
+    );
+
+    expect(afterCompleted.swarmRuns).toEqual([
+      {
+        runId: "run-1",
+        projectId: "project-1",
+        epicIssueId: "EPIC-1",
+        swarmId: "SWARM-1",
+        status: "requested",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        provider: "codex",
+        model: "gpt-5.4",
+        modelOptions: null,
+        providerOptions: null,
+        assistantDeliveryMode: "streaming",
+        runtimeMode: "full-access",
+        activeTaskExecutionId: null,
+        latestTaskExecutionId: "execution-1",
+        lastError: null,
+        requestedAt,
+        startedAt: null,
+        idledAt: null,
+        pausedAt: null,
+        blockedAt: null,
+        failedAt: null,
+        cancelledAt: null,
+        completedAt: null,
+        updatedAt: completedAt,
+      },
+    ]);
+    expect(afterCompleted.swarmTaskExecutions).toEqual([
+      {
+        executionId: "execution-1",
+        runId: "run-1",
+        issueId: "TASK-1",
+        workerThreadId: null,
+        sequenceNumber: 1,
+        status: "completed",
+        lastError: null,
+        startedAt,
+        completedAt,
+        failedAt: null,
+        cancelledAt: null,
+        updatedAt: completedAt,
+      },
+    ]);
   });
 
   it("tracks latest turn id from session lifecycle events", async () => {

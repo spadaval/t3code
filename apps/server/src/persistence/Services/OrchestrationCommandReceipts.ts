@@ -14,6 +14,8 @@ import {
   OrchestrationCommandReceiptStatus,
   PlanImplementationLaunchId,
   ProjectId,
+  SwarmRunId,
+  SwarmTaskExecutionId,
   ThreadId,
 } from "@t3tools/contracts";
 import { Option, Schema, ServiceMap } from "effect";
@@ -24,7 +26,13 @@ import type { OrchestrationCommandReceiptRepositoryError } from "../Errors.ts";
 export const OrchestrationCommandReceipt = Schema.Struct({
   commandId: CommandId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([ProjectId, ThreadId, PlanImplementationLaunchId]),
+  aggregateId: Schema.Union([
+    ProjectId,
+    ThreadId,
+    PlanImplementationLaunchId,
+    SwarmRunId,
+    SwarmTaskExecutionId,
+  ]),
   acceptedAt: IsoDateTime,
   resultSequence: NonNegativeInt,
   status: OrchestrationCommandReceiptStatus,

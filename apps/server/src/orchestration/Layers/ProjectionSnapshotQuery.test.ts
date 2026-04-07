@@ -1,21 +1,49 @@
-import { CheckpointRef, EventId, MessageId, ProjectId, ThreadId, TurnId } from "@t3tools/contracts";
+import {
+  CheckpointRef,
+  EventId,
+  MessageId,
+  ProjectId,
+  SwarmRunId,
+  SwarmTaskExecutionId,
+  ThreadId,
+  TurnId,
+} from "@t3tools/contracts";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
+import { layerConfig } from "../../persistence/Layers/Sqlite.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
+import { ServerConfig } from "../../config.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.makeUnsafe(value);
+const asSwarmRunId = (value: string): SwarmRunId => SwarmRunId.makeUnsafe(value);
+const asSwarmTaskExecutionId = (value: string): SwarmTaskExecutionId =>
+  SwarmTaskExecutionId.makeUnsafe(value);
 
 const projectionSnapshotLayer = it.layer(
-  OrchestrationProjectionSnapshotQueryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
+  (() => {
+    const serverConfigLayer = ServerConfig.layerTest(process.cwd(), {
+      prefix: "t3-projection-snapshot-query-test-",
+    });
+    const sqliteLayer = layerConfig.pipe(
+      Layer.provideMerge(serverConfigLayer),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    return OrchestrationProjectionSnapshotQueryLive.pipe(
+      Layer.provideMerge(sqliteLayer),
+      Layer.provideMerge(serverConfigLayer),
+      Layer.provideMerge(NodeServices.layer),
+    );
+  })(),
 );
 
 projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
@@ -208,6 +236,94 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         )
       `;
 
+      yield* sql`
+        INSERT INTO projection_swarm_runs (
+          run_id,
+          project_id,
+          epic_issue_id,
+          swarm_id,
+          status,
+          scheduler_mode,
+          workspace_mode,
+          provider,
+          model,
+          model_options_json,
+          provider_options_json,
+          assistant_delivery_mode,
+          runtime_mode,
+          active_task_execution_id,
+          latest_task_execution_id,
+          last_error,
+          requested_at,
+          started_at,
+          idled_at,
+          paused_at,
+          blocked_at,
+          failed_at,
+          cancelled_at,
+          completed_at,
+          updated_at
+        )
+        VALUES (
+          'run-1',
+          'project-1',
+          'EPIC-1',
+          'SWARM-1',
+          'running',
+          'automatic',
+          'shared',
+          'codex',
+          'gpt-5.4',
+          '{"codex":{"reasoningEffort":"medium"}}',
+          '{"codex":{"approvalPolicy":"never","sandboxMode":"danger-full-access"}}',
+          'streaming',
+          'full-access',
+          'execution-1',
+          'execution-1',
+          NULL,
+          '2026-02-24T00:00:08.500Z',
+          '2026-02-24T00:00:09.000Z',
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          '2026-02-24T00:00:10.500Z'
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_swarm_task_executions (
+          execution_id,
+          run_id,
+          issue_id,
+          worker_thread_id,
+          sequence_number,
+          status,
+          last_error,
+          started_at,
+          completed_at,
+          failed_at,
+          cancelled_at,
+          updated_at
+        )
+        VALUES (
+          'execution-1',
+          'run-1',
+          'TASK-1',
+          'thread-1',
+          1,
+          'active',
+          NULL,
+          '2026-02-24T00:00:10.000Z',
+          NULL,
+          NULL,
+          NULL,
+          '2026-02-24T00:00:10.500Z'
+        )
+      `;
+
       let sequence = 5;
       for (const projector of Object.values(ORCHESTRATION_PROJECTOR_NAMES)) {
         yield* sql`
@@ -228,7 +344,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const snapshot = yield* snapshotQuery.getSnapshot();
 
       assert.equal(snapshot.snapshotSequence, 5);
-      assert.equal(snapshot.updatedAt, "2026-02-24T00:00:09.000Z");
+      assert.equal(snapshot.updatedAt, "2026-02-24T00:00:10.500Z");
       assert.deepEqual(snapshot.projects, [
         {
           id: asProjectId("project-1"),
@@ -336,6 +452,60 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             lastError: null,
             updatedAt: "2026-02-24T00:00:07.000Z",
           },
+        },
+      ]);
+      assert.deepEqual(snapshot.swarmRuns, [
+        {
+          runId: asSwarmRunId("run-1"),
+          projectId: asProjectId("project-1"),
+          epicIssueId: "EPIC-1",
+          swarmId: "SWARM-1",
+          status: "running",
+          schedulerMode: "automatic",
+          workspaceMode: "shared",
+          provider: "codex",
+          model: "gpt-5.4",
+          modelOptions: {
+            codex: {
+              reasoningEffort: "medium",
+            },
+          },
+          providerOptions: {
+            codex: {
+              approvalPolicy: "never",
+              sandboxMode: "danger-full-access",
+            },
+          },
+          assistantDeliveryMode: "streaming",
+          runtimeMode: "full-access",
+          activeTaskExecutionId: asSwarmTaskExecutionId("execution-1"),
+          latestTaskExecutionId: asSwarmTaskExecutionId("execution-1"),
+          lastError: null,
+          requestedAt: "2026-02-24T00:00:08.500Z",
+          startedAt: "2026-02-24T00:00:09.000Z",
+          idledAt: null,
+          pausedAt: null,
+          blockedAt: null,
+          failedAt: null,
+          cancelledAt: null,
+          completedAt: null,
+          updatedAt: "2026-02-24T00:00:10.500Z",
+        },
+      ]);
+      assert.deepEqual(snapshot.swarmTaskExecutions, [
+        {
+          executionId: asSwarmTaskExecutionId("execution-1"),
+          runId: asSwarmRunId("run-1"),
+          issueId: "TASK-1",
+          workerThreadId: ThreadId.makeUnsafe("thread-1"),
+          sequenceNumber: 1,
+          status: "active",
+          lastError: null,
+          startedAt: "2026-02-24T00:00:10.000Z",
+          completedAt: null,
+          failedAt: null,
+          cancelledAt: null,
+          updatedAt: "2026-02-24T00:00:10.500Z",
         },
       ]);
     }),

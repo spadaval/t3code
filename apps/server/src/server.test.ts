@@ -67,6 +67,10 @@ import {
   type PlanImplementationWorkflowShape,
 } from "./orchestration/Services/PlanImplementationWorkflow.ts";
 import {
+  SwarmExecutionWorkflow,
+  type SwarmExecutionWorkflowShape,
+} from "./orchestration/Services/SwarmExecutionWorkflow.ts";
+import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -106,6 +110,8 @@ const makeDefaultOrchestrationReadModel = () => {
     snapshotSequence: 0,
     updatedAt: now,
     planImplementationLaunches: [],
+    swarmRuns: [],
+    swarmTaskExecutions: [],
     projects: [
       {
         id: defaultProjectId,
@@ -274,6 +280,7 @@ const buildAppUnderTest = (options?: {
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
     planImplementationWorkflow?: Partial<PlanImplementationWorkflowShape>;
+    swarmExecutionWorkflow?: Partial<SwarmExecutionWorkflowShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
     browserTraceCollector?: Partial<BrowserTraceCollectorShape>;
@@ -501,6 +508,42 @@ const buildAppUnderTest = (options?: {
               status: "requested",
             }),
           ...options?.layers?.planImplementationWorkflow,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(SwarmExecutionWorkflow)({
+          start: Effect.void,
+          drain: Effect.void,
+          startSwarmRun: () =>
+            Effect.succeed({
+              runId: "run-1" as any,
+              status: "running",
+            }),
+          continueSwarmRun: () =>
+            Effect.succeed({
+              runId: "run-1" as any,
+              status: "running",
+            }),
+          pauseSwarmRun: () =>
+            Effect.succeed({
+              runId: "run-1" as any,
+              status: "paused",
+            }),
+          resumeSwarmRun: () =>
+            Effect.succeed({
+              runId: "run-1" as any,
+              status: "running",
+            }),
+          cancelSwarmRun: () =>
+            Effect.succeed({
+              runId: "run-1" as any,
+              status: "cancelled",
+            }),
+          startSwarmTaskExecution: () => Effect.die("unused"),
+          completeSwarmTaskExecution: () => Effect.die("unused"),
+          failSwarmTaskExecution: () => Effect.die("unused"),
+          cancelSwarmTaskExecution: () => Effect.die("unused"),
+          ...options?.layers?.swarmExecutionWorkflow,
         }),
       ),
       Layer.provide(
@@ -2011,6 +2054,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         snapshotSequence: 1,
         updatedAt: now,
         planImplementationLaunches: [],
+        swarmRuns: [],
+        swarmTaskExecutions: [],
         projects: [
           {
             id: ProjectId.makeUnsafe("project-a"),

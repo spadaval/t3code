@@ -3,8 +3,12 @@ import type {
   OrchestrationPlanImplementationLaunch,
   OrchestrationProject,
   OrchestrationReadModel,
+  OrchestrationSwarmRun,
+  OrchestrationSwarmTaskExecution,
   OrchestrationThread,
   ProjectId,
+  SwarmRunId,
+  SwarmTaskExecutionId,
   ThreadId,
 } from "@t3tools/contracts";
 import { Effect } from "effect";
@@ -37,6 +41,20 @@ export function findPlanImplementationLaunchById(
   launchId: OrchestrationPlanImplementationLaunch["launchId"],
 ): OrchestrationPlanImplementationLaunch | undefined {
   return readModel.planImplementationLaunches.find((launch) => launch.launchId === launchId);
+}
+
+export function findSwarmRunById(
+  readModel: OrchestrationReadModel,
+  runId: SwarmRunId,
+): OrchestrationSwarmRun | undefined {
+  return readModel.swarmRuns.find((run) => run.runId === runId);
+}
+
+export function findSwarmTaskExecutionById(
+  readModel: OrchestrationReadModel,
+  executionId: SwarmTaskExecutionId,
+): OrchestrationSwarmTaskExecution | undefined {
+  return readModel.swarmTaskExecutions.find((execution) => execution.executionId === executionId);
 }
 
 export function listThreadsByProjectId(
@@ -179,6 +197,72 @@ export function requirePlanImplementationLaunchAbsent(input: {
     invariantError(
       input.command.type,
       `Plan implementation launch '${input.launchId}' already exists and cannot be created twice.`,
+    ),
+  );
+}
+
+export function requireSwarmRun(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly runId: SwarmRunId;
+}): Effect.Effect<OrchestrationSwarmRun, OrchestrationCommandInvariantError> {
+  const run = findSwarmRunById(input.readModel, input.runId);
+  if (run) {
+    return Effect.succeed(run);
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Swarm run '${input.runId}' does not exist for command '${input.command.type}'.`,
+    ),
+  );
+}
+
+export function requireSwarmRunAbsent(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly runId: SwarmRunId;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (!findSwarmRunById(input.readModel, input.runId)) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Swarm run '${input.runId}' already exists and cannot be created twice.`,
+    ),
+  );
+}
+
+export function requireSwarmTaskExecution(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly executionId: SwarmTaskExecutionId;
+}): Effect.Effect<OrchestrationSwarmTaskExecution, OrchestrationCommandInvariantError> {
+  const execution = findSwarmTaskExecutionById(input.readModel, input.executionId);
+  if (execution) {
+    return Effect.succeed(execution);
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Swarm task execution '${input.executionId}' does not exist for command '${input.command.type}'.`,
+    ),
+  );
+}
+
+export function requireSwarmTaskExecutionAbsent(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly executionId: SwarmTaskExecutionId;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (!findSwarmTaskExecutionById(input.readModel, input.executionId)) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Swarm task execution '${input.executionId}' already exists and cannot be created twice.`,
     ),
   );
 }

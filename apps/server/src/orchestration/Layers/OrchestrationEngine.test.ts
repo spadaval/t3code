@@ -97,6 +97,8 @@ describe("OrchestrationEngine", () => {
       snapshotSequence: 7,
       updatedAt: "2026-03-03T00:00:04.000Z",
       planImplementationLaunches: [],
+      swarmRuns: [],
+      swarmTaskExecutions: [],
       projects: [
         {
           id: asProjectId("project-bootstrap"),

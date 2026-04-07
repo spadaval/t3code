@@ -72,9 +72,11 @@ import type {
 } from "./terminal";
 import type { ServerUpsertKeybindingInput } from "./server";
 import type {
+  OrchestrationCancelSwarmRunInput,
   ClientOrchestrationCommand,
   OrchestrationCancelPlanImplementationLaunchInput,
   OrchestrationCancelPlanImplementationLaunchResult,
+  OrchestrationContinueSwarmRunInput,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
   OrchestrationGetTurnDiffInput,
@@ -82,8 +84,12 @@ import type {
   OrchestrationEvent,
   OrchestrationLaunchPlanImplementationInput,
   OrchestrationLaunchPlanImplementationResult,
+  OrchestrationPauseSwarmRunInput,
   OrchestrationReadModel,
   OrchestrationRetryPlanImplementationLaunchInput,
+  OrchestrationResumeSwarmRunInput,
+  OrchestrationStartSwarmRunInput,
+  OrchestrationSwarmRunControlResult,
 } from "./orchestration";
 import { EditorId } from "./editor";
 import { ServerSettings, ServerSettingsPatch } from "./settings";
@@ -236,6 +242,21 @@ export interface NativeApi {
     retryPlanImplementationLaunch: (
       input: OrchestrationRetryPlanImplementationLaunchInput,
     ) => Promise<OrchestrationLaunchPlanImplementationResult>;
+    startSwarmRun: (
+      input: OrchestrationStartSwarmRunInput,
+    ) => Promise<OrchestrationSwarmRunControlResult>;
+    continueSwarmRun: (
+      input: OrchestrationContinueSwarmRunInput,
+    ) => Promise<OrchestrationSwarmRunControlResult>;
+    pauseSwarmRun: (
+      input: OrchestrationPauseSwarmRunInput,
+    ) => Promise<OrchestrationSwarmRunControlResult>;
+    resumeSwarmRun: (
+      input: OrchestrationResumeSwarmRunInput,
+    ) => Promise<OrchestrationSwarmRunControlResult>;
+    cancelSwarmRun: (
+      input: OrchestrationCancelSwarmRunInput,
+    ) => Promise<OrchestrationSwarmRunControlResult>;
     onDomainEvent: (
       callback: (event: OrchestrationEvent) => void,
       options?: {

@@ -64,6 +64,7 @@ const readModel: OrchestrationReadModel = {
       runtimeMode: "full-access",
       branch: null,
       worktreePath: null,
+      issueLink: null,
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
@@ -87,6 +88,7 @@ const readModel: OrchestrationReadModel = {
       runtimeMode: "full-access",
       branch: null,
       worktreePath: null,
+      issueLink: null,
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
@@ -100,6 +102,8 @@ const readModel: OrchestrationReadModel = {
     },
   ],
   planImplementationLaunches: [],
+  swarmRuns: [],
+  swarmTaskExecutions: [],
 };
 
 const messageSendCommand: OrchestrationCommand = {

@@ -42,6 +42,7 @@ import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRun
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor";
 import { PlanImplementationWorkflowLive } from "./orchestration/Layers/PlanImplementationWorkflow";
+import { SwarmExecutionWorkflowLive } from "./orchestration/Layers/SwarmExecutionWorkflow";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry";
 import { ServerSettingsLive } from "./serverSettings";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
@@ -51,7 +52,7 @@ import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
 import { ProjectSetupScriptRunnerLive } from "./project/Layers/ProjectSetupScriptRunner";
 import { ObservabilityLive } from "./observability/Layers/Observability";
 import { ProjectionPlanImplementationLaunchRepositoryLive } from "./persistence/Layers/ProjectionPlanImplementationLaunches";
-import { BeadsServiceLive } from "./beads/Layers/BeadsService";
+import { BeadsServiceLive, BeadsTrackerServiceLive } from "./beads/Layers/BeadsService";
 
 const PtyAdapterLive = Layer.unwrap(
   Effect.gen(function* () {
@@ -107,6 +108,7 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(ProviderCommandReactorLive),
   Layer.provideMerge(CheckpointReactorLive),
   Layer.provideMerge(PlanImplementationWorkflowLive),
+  Layer.provideMerge(SwarmExecutionWorkflowLive),
   Layer.provideMerge(RuntimeReceiptBusLive),
 );
 
@@ -191,10 +193,15 @@ const WorkspaceLayerLive = Layer.mergeAll(
   ),
 );
 
-const BeadsLayerLive = BeadsServiceLive.pipe(
-  Layer.provide(OrchestrationLayerLive),
-  Layer.provide(PersistenceLayerLive),
-);
+const BeadsTrackerLayerLive = BeadsTrackerServiceLive;
+
+const BeadsLayerLive = Layer.mergeAll(
+  BeadsTrackerLayerLive,
+  BeadsServiceLive.pipe(
+    Layer.provide(BeadsTrackerLayerLive),
+    Layer.provide(OrchestrationLayerLive),
+  ),
+).pipe(Layer.provide(PersistenceLayerLive));
 
 const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   // Core Services

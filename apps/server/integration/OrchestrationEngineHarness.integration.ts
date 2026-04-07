@@ -53,6 +53,7 @@ import { OrchestrationReactorLive } from "../src/orchestration/Layers/Orchestrat
 import { ProviderCommandReactorLive } from "../src/orchestration/Layers/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionLive } from "../src/orchestration/Layers/ProviderRuntimeIngestion.ts";
 import { PlanImplementationWorkflow } from "../src/orchestration/Services/PlanImplementationWorkflow.ts";
+import { SwarmExecutionWorkflow } from "../src/orchestration/Services/SwarmExecutionWorkflow.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -341,6 +342,21 @@ export const makeOrchestrationIntegrationHarness = (
           launchPlanImplementation: () => Effect.die("unused"),
           cancelPlanImplementationLaunch: () => Effect.die("unused"),
           retryPlanImplementationLaunch: () => Effect.die("unused"),
+        }),
+      ),
+      Layer.provide(
+        Layer.succeed(SwarmExecutionWorkflow, {
+          start: Effect.void,
+          drain: Effect.void,
+          startSwarmRun: () => Effect.die("unused"),
+          continueSwarmRun: () => Effect.die("unused"),
+          pauseSwarmRun: () => Effect.die("unused"),
+          resumeSwarmRun: () => Effect.die("unused"),
+          cancelSwarmRun: () => Effect.die("unused"),
+          startSwarmTaskExecution: () => Effect.die("unused"),
+          completeSwarmTaskExecution: () => Effect.die("unused"),
+          failSwarmTaskExecution: () => Effect.die("unused"),
+          cancelSwarmTaskExecution: () => Effect.die("unused"),
         }),
       ),
     );

@@ -1,4 +1,5 @@
 import type {
+  AssistantDeliveryMode,
   BeadsIssueDetail,
   BeadsIssueSummary,
   BeadsSwarmStatus,
@@ -6,11 +7,16 @@ import type {
   BeadsSwarmSupport,
   BeadsSwarmValidation,
   ModelSelection,
+  OrchestrationStartSwarmRunInput,
+  OrchestrationSwarmRun,
+  OrchestrationSwarmTaskExecution,
   ProjectId,
   ProviderKind,
+  RuntimeMode,
+  ServerProvider,
   ThreadId,
 } from "@t3tools/contracts";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
@@ -35,16 +41,19 @@ import { useComposerThreadDraft, useEffectiveComposerModelState } from "~/compos
 import { stripDiffSearchParams } from "~/diffRouteSearch";
 import { useSettings } from "~/hooks/useSettings";
 import {
+  collectCoordinatorEpics,
+  deriveEpicCoordinatorState,
   findLatestTrackerRefinementPlan,
-  getEpicCoordinatorImplementAction,
+  getEpicCoordinatorPrimaryAction,
   groupIssuesByEpic,
   isEpicIssueType,
   listEpicChildIssues,
-  partitionCoordinatorSwarms,
+  partitionCoordinatorEpics,
 } from "~/issuePanel";
 import { listIssueLinkedThreads } from "~/issueThreads";
 import { getIssuePaneState, useIssuePaneStore, type IssuePaneScope } from "~/issuePaneStore";
 import {
+  beadsQueryKeys,
   beadsListSwarmsOptions,
   beadsEpicSwarmStatusOptions,
   beadsEpicSwarmValidationOptions,
@@ -56,6 +65,7 @@ import {
   beadsStartWorkflowMutationOptions,
   beadsSwarmSupportOptions,
 } from "~/lib/beadsReactQuery";
+import { readNativeApi } from "~/nativeApi";
 import { useStore } from "~/store";
 import { cn } from "~/lib/utils";
 import { DEFAULT_RUNTIME_MODE } from "~/types";
@@ -79,7 +89,11 @@ import { Input } from "./ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 import { toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
-import { getProviderModels, resolveSelectableProvider } from "~/providerModels";
+import {
+  getDefaultServerModel,
+  getProviderModels,
+  resolveSelectableProvider,
+} from "~/providerModels";
 
 const ACTIVE_STATUSES = ["open", "in_progress", "blocked", "deferred"] as const;
 type CoordinatorWorkflowAction =
@@ -473,10 +487,214 @@ function LinkedThreadsSection(props: {
   );
 }
 
+type CoordinatorCardData = {
+  epic: ReturnType<typeof collectCoordinatorEpics>[number];
+  stateKind: ReturnType<typeof deriveEpicCoordinatorState>["kind"];
+  latestRun: OrchestrationSwarmRun | null;
+  swarmSummary: BeadsSwarmSummary | null;
+  validation: BeadsSwarmValidation | null;
+  status: BeadsSwarmStatus | null;
+  validationError: Error | null;
+  statusError: Error | null;
+  runs: ReadonlyArray<OrchestrationSwarmRun>;
+  executions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
+  activeExecution: OrchestrationSwarmTaskExecution | null;
+  activeWorkerThreadTitle: string | null;
+};
+
+type StartSwarmDialogState = {
+  epicId: string;
+  epicTitle: string;
+  validation: BeadsSwarmValidation | null;
+  status: BeadsSwarmStatus | null;
+};
+
+function describeCoordinatorState(kind: ReturnType<typeof deriveEpicCoordinatorState>["kind"]): {
+  label: string;
+  variant: "outline" | "warning" | "success" | "info" | "destructive" | "secondary";
+  copy: string;
+} {
+  switch (kind) {
+    case "no_swarm":
+      return {
+        label: "No swarm",
+        variant: "outline",
+        copy: "No swarm exists for this epic yet. Create one before implementation can be coordinated.",
+      };
+    case "needs_repair":
+      return {
+        label: "Needs repair",
+        variant: "warning",
+        copy: "This epic already has a swarm, but it needs repair before coordinated implementation can start.",
+      };
+    case "ready":
+      return {
+        label: "Ready",
+        variant: "success",
+        copy: "The epic swarm is valid and ready to start.",
+      };
+    case "running":
+      return {
+        label: "Running",
+        variant: "info",
+        copy: "A swarm run is active for this epic.",
+      };
+    case "idle":
+      return {
+        label: "Idle",
+        variant: "warning",
+        copy: "The current swarm run is idle and ready for the next issue.",
+      };
+    case "paused":
+      return {
+        label: "Paused",
+        variant: "warning",
+        copy: "The current swarm run is paused.",
+      };
+    case "blocked":
+      return {
+        label: "Blocked",
+        variant: "destructive",
+        copy: "The current swarm run is blocked and needs attention.",
+      };
+    case "failed":
+      return {
+        label: "Failed",
+        variant: "destructive",
+        copy: "The latest swarm run failed. Review the error and history before retrying.",
+      };
+    case "cancelled":
+      return {
+        label: "Cancelled",
+        variant: "secondary",
+        copy: "The latest swarm run was cancelled.",
+      };
+    case "completed":
+      return {
+        label: "Completed",
+        variant: "success",
+        copy: "The latest swarm run completed.",
+      };
+    case "unsupported":
+      return {
+        label: "Unavailable",
+        variant: "secondary",
+        copy: "Swarm-backed implementation is unavailable for this backend.",
+      };
+    case "checking":
+      return {
+        label: "Checking",
+        variant: "secondary",
+        copy: "Checking swarm state...",
+      };
+  }
+}
+
+function formatSwarmSchedulerMode(mode: OrchestrationSwarmRun["schedulerMode"]): string {
+  return mode === "semi-automatic" ? "Semi-automatic" : "Automatic";
+}
+
+function formatSwarmRunStatus(status: OrchestrationSwarmRun["status"]): string {
+  const label = status === "requested" ? "Requested" : status.replace(/_/g, " ");
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function formatRuntimeMode(mode: RuntimeMode): string {
+  return mode === "approval-required" ? "Supervised" : "Full access";
+}
+
+function formatAssistantDeliveryMode(mode: AssistantDeliveryMode): string {
+  return mode === "streaming" ? "Streaming" : "Buffered";
+}
+
+function compareRunsNewestFirst(left: OrchestrationSwarmRun, right: OrchestrationSwarmRun): number {
+  const updatedAtDelta = right.updatedAt.localeCompare(left.updatedAt);
+  if (updatedAtDelta !== 0) {
+    return updatedAtDelta;
+  }
+
+  const requestedAtDelta = right.requestedAt.localeCompare(left.requestedAt);
+  if (requestedAtDelta !== 0) {
+    return requestedAtDelta;
+  }
+
+  return right.runId.localeCompare(left.runId);
+}
+
+function coordinatorCardStateRank(kind: CoordinatorCardData["stateKind"]): number {
+  switch (kind) {
+    case "failed":
+      return 0;
+    case "blocked":
+      return 1;
+    case "paused":
+      return 2;
+    case "idle":
+      return 3;
+    case "needs_repair":
+      return 4;
+    case "no_swarm":
+      return 5;
+    case "ready":
+      return 6;
+    case "running":
+      return 7;
+    case "cancelled":
+      return 8;
+    case "completed":
+      return 9;
+    case "unsupported":
+      return 10;
+    case "checking":
+      return 11;
+  }
+}
+
+function compareCoordinatorCards(left: CoordinatorCardData, right: CoordinatorCardData): number {
+  const rankDelta =
+    coordinatorCardStateRank(left.stateKind) - coordinatorCardStateRank(right.stateKind);
+  if (rankDelta !== 0) {
+    return rankDelta;
+  }
+
+  const leftTimestamp = left.latestRun?.updatedAt ?? left.epic.issue?.updatedAt ?? "";
+  const rightTimestamp = right.latestRun?.updatedAt ?? right.epic.issue?.updatedAt ?? "";
+  const timestampDelta = rightTimestamp.localeCompare(leftTimestamp);
+  if (timestampDelta !== 0) {
+    return timestampDelta;
+  }
+
+  return left.epic.epicTitle.localeCompare(right.epic.epicTitle);
+}
+
+function buildCoordinatorRunTimeline(run: OrchestrationSwarmRun): ReadonlyArray<{
+  label: string;
+  timestamp: string;
+  description: string | null;
+}> {
+  const entries = [
+    { label: "Requested", timestamp: run.requestedAt, description: null },
+    run.startedAt ? { label: "Started", timestamp: run.startedAt, description: null } : null,
+    run.idledAt ? { label: "Idled", timestamp: run.idledAt, description: null } : null,
+    run.pausedAt ? { label: "Paused", timestamp: run.pausedAt, description: null } : null,
+    run.blockedAt
+      ? { label: "Blocked", timestamp: run.blockedAt, description: run.lastError }
+      : null,
+    run.failedAt ? { label: "Failed", timestamp: run.failedAt, description: run.lastError } : null,
+    run.cancelledAt
+      ? { label: "Cancelled", timestamp: run.cancelledAt, description: run.lastError }
+      : null,
+    run.completedAt ? { label: "Completed", timestamp: run.completedAt, description: null } : null,
+  ].filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+  return entries.toSorted((left, right) => left.timestamp.localeCompare(right.timestamp));
+}
+
 function EpicSwarmStatusOverviewSection(props: {
   swarmSupport: BeadsSwarmSupport | null;
   swarmValidation: BeadsSwarmValidation | null;
   swarmStatus: BeadsSwarmStatus | null;
+  coordinatorState: ReturnType<typeof deriveEpicCoordinatorState>;
   swarmSupportPending: boolean;
   swarmValidationPending: boolean;
   swarmStatusPending: boolean;
@@ -485,6 +703,7 @@ function EpicSwarmStatusOverviewSection(props: {
   swarmStatusError: Error | null;
 }) {
   const swarmSummary = props.swarmValidation?.swarm ?? props.swarmStatus?.swarm ?? null;
+  const state = describeCoordinatorState(props.coordinatorState.kind);
 
   return (
     <section className="space-y-2">
@@ -509,6 +728,9 @@ function EpicSwarmStatusOverviewSection(props: {
               <Badge size="sm" variant="success">
                 Swarm supported
               </Badge>
+              <Badge size="sm" variant={state.variant}>
+                {state.label}
+              </Badge>
               {swarmSummary ? (
                 <Badge size="sm" variant="secondary">
                   {swarmSummary.swarmId}
@@ -519,6 +741,7 @@ function EpicSwarmStatusOverviewSection(props: {
                 </Badge>
               )}
             </div>
+            <p className="text-sm text-foreground">{state.copy}</p>
 
             {props.swarmValidationPending ? (
               <p className="text-sm text-muted-foreground">Validating epic swarm...</p>
@@ -527,9 +750,7 @@ function EpicSwarmStatusOverviewSection(props: {
             ) : props.swarmValidation ? (
               <div className="space-y-1.5">
                 <p className="text-sm text-foreground">
-                  {props.swarmValidation.valid
-                    ? "Epic swarm is valid."
-                    : "Epic swarm is not ready."}
+                  {props.swarmValidation.valid ? "Epic swarm is valid." : "Epic swarm is invalid."}
                 </p>
                 {props.swarmValidation.maxParallelism !== null ? (
                   <p className="text-sm text-muted-foreground">
@@ -559,11 +780,7 @@ function EpicSwarmStatusOverviewSection(props: {
                 {swarmSummary.activeIssueCount} active · {swarmSummary.readyIssueCount} ready ·{" "}
                 {swarmSummary.blockedIssueCount} blocked · {swarmSummary.activeWorkerCount} workers
               </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Create or repair a swarm before implementation can be coordinated for this epic.
-              </p>
-            )}
+            ) : null}
           </div>
         )}
       </div>
@@ -571,47 +788,644 @@ function EpicSwarmStatusOverviewSection(props: {
   );
 }
 
-function ProjectCoordinatorSwarmRow(props: {
-  swarm: BeadsSwarmSummary;
-  onOpenEpic: (epicId: string) => void;
+function StartSwarmRunDialog(props: {
+  open: boolean;
+  dialogState: StartSwarmDialogState | null;
+  providers: ReadonlyArray<ServerProvider>;
+  defaultProvider: ProviderKind;
+  defaultModel: string;
+  defaultRuntimeMode: RuntimeMode;
+  defaultAssistantDeliveryMode: AssistantDeliveryMode;
+  isStarting: boolean;
+  startDisabled: boolean;
+  onOpenChange: (open: boolean) => void;
+  onStart: (
+    input: Pick<
+      OrchestrationStartSwarmRunInput,
+      "schedulerMode" | "provider" | "model" | "runtimeMode" | "assistantDeliveryMode"
+    >,
+  ) => void;
 }) {
+  const [schedulerMode, setSchedulerMode] =
+    useState<OrchestrationStartSwarmRunInput["schedulerMode"]>("automatic");
+  const [provider, setProvider] = useState<ProviderKind>(() =>
+    resolveSelectableProvider(props.providers, props.defaultProvider),
+  );
+  const [model, setModel] = useState(props.defaultModel);
+  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(props.defaultRuntimeMode);
+  const [assistantDeliveryMode, setAssistantDeliveryMode] = useState<AssistantDeliveryMode>(
+    props.defaultAssistantDeliveryMode,
+  );
+  const providerModels = getProviderModels(props.providers, provider);
+  const validation = props.dialogState?.validation ?? null;
+  const swarmSummary = validation?.swarm ?? props.dialogState?.status?.swarm ?? null;
+  const readyCount = props.dialogState?.status?.ready.length ?? swarmSummary?.readyIssueCount ?? 0;
+
+  useEffect(() => {
+    if (!props.open) {
+      return;
+    }
+
+    const nextProvider = resolveSelectableProvider(props.providers, props.defaultProvider);
+    setSchedulerMode("automatic");
+    setProvider(nextProvider);
+    setModel(props.defaultModel);
+    setRuntimeMode(props.defaultRuntimeMode);
+    setAssistantDeliveryMode(props.defaultAssistantDeliveryMode);
+  }, [
+    props.defaultAssistantDeliveryMode,
+    props.defaultModel,
+    props.defaultProvider,
+    props.defaultRuntimeMode,
+    props.open,
+    props.dialogState?.epicId,
+    props.providers,
+  ]);
+
+  useEffect(() => {
+    if (!props.open || providerModels.length === 0) {
+      return;
+    }
+
+    if (providerModels.some((candidate) => candidate.slug === model)) {
+      return;
+    }
+
+    setModel(getDefaultServerModel(props.providers, provider));
+  }, [model, props.open, props.providers, provider, providerModels]);
+
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogPopup className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Start swarm</DialogTitle>
+          <DialogDescription>
+            {props.dialogState
+              ? `${props.dialogState.epicId}: ${props.dialogState.epicTitle}`
+              : "Select an epic to start a swarm run."}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel className="space-y-4">
+          {props.dialogState ? (
+            <>
+              <div className="space-y-2 rounded-xl border border-border/60 bg-muted/10 p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  {swarmSummary ? (
+                    <Badge size="sm" variant="secondary">
+                      {swarmSummary.swarmId}
+                    </Badge>
+                  ) : (
+                    <Badge size="sm" variant="outline">
+                      No swarm
+                    </Badge>
+                  )}
+                  <Badge size="sm" variant="outline">
+                    Shared workspace
+                  </Badge>
+                  <Badge size="sm" variant="outline">
+                    {readyCount} ready
+                  </Badge>
+                </div>
+                <p className="text-sm text-foreground">
+                  Workers run sequentially in the shared project workspace for this MVP.
+                </p>
+                {validation ? (
+                  <div className="space-y-1">
+                    <p className="text-sm text-foreground">
+                      {validation.valid ? "Validation passed." : "Validation failed."}
+                    </p>
+                    {validation.errors.length > 0 ? (
+                      <p className="text-sm text-destructive">{validation.errors.join(" ")}</p>
+                    ) : null}
+                    {validation.warnings.length > 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        {validation.warnings.join(" ")}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Validation details are still loading for this swarm.
+                  </p>
+                )}
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="grid gap-1.5">
+                  <span className="text-xs font-medium text-foreground">Scheduler mode</span>
+                  <Select
+                    value={schedulerMode}
+                    onValueChange={(value) =>
+                      value &&
+                      setSchedulerMode(value as OrchestrationStartSwarmRunInput["schedulerMode"])
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectPopup>
+                      <SelectItem value="automatic">Automatic</SelectItem>
+                      <SelectItem value="semi-automatic">Semi-automatic</SelectItem>
+                    </SelectPopup>
+                  </Select>
+                </label>
+
+                <label className="grid gap-1.5">
+                  <span className="text-xs font-medium text-foreground">Provider</span>
+                  <Select
+                    value={provider}
+                    onValueChange={(value) => value && setProvider(value as ProviderKind)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectPopup>
+                      {props.providers.map((providerEntry) => (
+                        <SelectItem key={providerEntry.provider} value={providerEntry.provider}>
+                          {providerEntry.provider}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                </label>
+
+                <label className="grid gap-1.5">
+                  <span className="text-xs font-medium text-foreground">Model</span>
+                  {providerModels.length > 0 ? (
+                    <Select value={model} onValueChange={(value) => value && setModel(value)}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectPopup>
+                        {providerModels.map((candidate) => (
+                          <SelectItem key={candidate.slug} value={candidate.slug}>
+                            {candidate.name}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                  ) : (
+                    <Input value={model} onChange={(event) => setModel(event.target.value)} />
+                  )}
+                </label>
+
+                <label className="grid gap-1.5">
+                  <span className="text-xs font-medium text-foreground">Runtime mode</span>
+                  <Select
+                    value={runtimeMode}
+                    onValueChange={(value) => value && setRuntimeMode(value as RuntimeMode)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectPopup>
+                      <SelectItem value="full-access">Full access</SelectItem>
+                      <SelectItem value="approval-required">Supervised</SelectItem>
+                    </SelectPopup>
+                  </Select>
+                </label>
+
+                <label className="grid gap-1.5 md:col-span-2">
+                  <span className="text-xs font-medium text-foreground">
+                    Assistant delivery mode
+                  </span>
+                  <Select
+                    value={assistantDeliveryMode}
+                    onValueChange={(value) =>
+                      value && setAssistantDeliveryMode(value as AssistantDeliveryMode)
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectPopup>
+                      <SelectItem value="streaming">Streaming</SelectItem>
+                      <SelectItem value="buffered">Buffered</SelectItem>
+                    </SelectPopup>
+                  </Select>
+                </label>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">Swarm details are unavailable.</p>
+          )}
+        </DialogPanel>
+        <DialogFooter>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => props.onOpenChange(false)}
+            disabled={props.isStarting}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={props.startDisabled || props.isStarting || model.trim().length === 0}
+            onClick={() =>
+              props.onStart({
+                schedulerMode,
+                provider,
+                model: model.trim(),
+                runtimeMode,
+                assistantDeliveryMode,
+              })
+            }
+          >
+            {props.isStarting ? "Starting..." : "Start swarm"}
+          </Button>
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
+function CoordinatorEpicCard(props: {
+  card: CoordinatorCardData;
+  timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
+  swarmActionKey: string | null;
+  onOpenEpic: (epicId: string) => void;
+  onSelectIssue: (issueId: string) => void;
+  onOpenWorkerThread: (threadId: ThreadId) => void;
+  onCreateSwarm: (epicId: string) => void;
+  onRepairSwarm: (epicId: string) => void;
+  onOpenStartSwarm: (card: CoordinatorCardData) => void;
+  onContinueRun: (runId: OrchestrationSwarmRun["runId"]) => void;
+  onPauseRun: (runId: OrchestrationSwarmRun["runId"]) => void;
+  onResumeRun: (runId: OrchestrationSwarmRun["runId"]) => void;
+  onCancelRun: (runId: OrchestrationSwarmRun["runId"]) => void;
+}) {
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const state = describeCoordinatorState(props.card.stateKind);
+  const latestRun = props.card.latestRun;
+  const swarmSummary = props.card.swarmSummary;
+  const readyPreviews = props.card.status?.ready.slice(0, 3) ?? [];
+  const latestFailure = latestRun?.lastError ?? props.card.activeExecution?.lastError ?? null;
+  const activeWorkerThreadId = props.card.activeExecution?.workerThreadId ?? null;
+  const startActionKey = `start:${props.card.epic.epicId}`;
+  const createActionKey = `create:${props.card.epic.epicId}`;
+  const repairActionKey = `repair:${props.card.epic.epicId}`;
+  const continueActionKey = latestRun ? `continue:${latestRun.runId}` : null;
+  const pauseActionKey = latestRun ? `pause:${latestRun.runId}` : null;
+  const resumeActionKey = latestRun ? `resume:${latestRun.runId}` : null;
+  const cancelActionKey = latestRun ? `cancel:${latestRun.runId}` : null;
+
   return (
     <div className="rounded-xl border border-border/60 bg-muted/10 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
-          <p className="truncate font-medium text-sm text-foreground">{props.swarm.epicTitle}</p>
+          <p className="truncate font-medium text-sm text-foreground">
+            {props.card.epic.epicTitle}
+          </p>
           <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>{props.swarm.epicId}</span>
+            <span>{props.card.epic.epicId}</span>
             <span className="opacity-40">·</span>
-            <span>{props.swarm.swarmId}</span>
+            <span>{swarmSummary?.swarmId ?? "No swarm"}</span>
+            {latestRun ? (
+              <>
+                <span className="opacity-40">·</span>
+                <span>{formatSwarmSchedulerMode(latestRun.schedulerMode)}</span>
+              </>
+            ) : null}
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge size="sm" variant={state.variant}>
+            {state.label}
+          </Badge>
+          {latestRun ? (
+            <Badge size="sm" variant="outline">
+              {formatSwarmRunStatus(latestRun.status)}
+            </Badge>
+          ) : null}
+        </div>
+      </div>
+
+      <p className="mt-3 text-sm text-foreground">{state.copy}</p>
+
+      {swarmSummary ? (
+        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+          <Badge size="sm" variant="secondary">
+            {swarmSummary.completedIssueCount}/{swarmSummary.totalIssueCount} completed
+          </Badge>
+          <Badge size="sm" variant="outline">
+            {swarmSummary.activeIssueCount} active
+          </Badge>
+          <Badge size="sm" variant="outline">
+            {swarmSummary.readyIssueCount} ready
+          </Badge>
+          <Badge size="sm" variant="outline">
+            {swarmSummary.blockedIssueCount} blocked
+          </Badge>
+          <Badge size="sm" variant="outline">
+            {swarmSummary.activeWorkerCount} workers
+          </Badge>
+        </div>
+      ) : null}
+
+      {props.card.validationError ? (
+        <p className="mt-3 text-sm text-destructive">{props.card.validationError.message}</p>
+      ) : null}
+      {props.card.statusError ? (
+        <p className="mt-1 text-sm text-destructive">{props.card.statusError.message}</p>
+      ) : null}
+
+      {latestFailure ? (
+        <div className="mt-3 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2">
+          <p className="text-sm text-destructive">{latestFailure}</p>
+        </div>
+      ) : null}
+
+      {latestRun ? (
+        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+          <Badge size="sm" variant="outline">
+            {formatRuntimeMode(latestRun.runtimeMode)}
+          </Badge>
+          <Badge size="sm" variant="outline">
+            {formatAssistantDeliveryMode(latestRun.assistantDeliveryMode ?? "buffered")}
+          </Badge>
+          <Badge size="sm" variant="outline">
+            {latestRun.provider ?? "Default provider"}
+          </Badge>
+          <Badge size="sm" variant="outline">
+            {latestRun.model ?? "Default model"}
+          </Badge>
+        </div>
+      ) : null}
+
+      {props.card.activeExecution ? (
+        <div className="mt-3 rounded-lg border border-border/60 bg-background/70 p-3">
+          <p className="font-medium text-sm text-foreground">Active worker</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {props.card.activeExecution.issueId} · execution #
+            {props.card.activeExecution.sequenceNumber}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Started{" "}
+            {formatShortTimestamp(props.card.activeExecution.startedAt, props.timestampFormat)}
+          </p>
+          {activeWorkerThreadId ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Badge size="sm" variant="outline">
+                {props.card.activeWorkerThreadTitle ?? activeWorkerThreadId}
+              </Badge>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => props.onOpenWorkerThread(activeWorkerThreadId)}
+              >
+                Open active worker
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {latestRun?.status === "idle" && latestRun.schedulerMode === "semi-automatic" ? (
+        <div className="mt-3 rounded-lg border border-warning/30 bg-warning/5 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="font-medium text-sm text-foreground">Ready for next issue</p>
+              <p className="text-sm text-muted-foreground">
+                Continue this shared-workspace run one issue at a time.
+              </p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              disabled={props.swarmActionKey === continueActionKey}
+              onClick={() => latestRun && props.onContinueRun(latestRun.runId)}
+            >
+              {props.swarmActionKey === continueActionKey ? "Continuing..." : "Continue"}
+            </Button>
+          </div>
+          {readyPreviews.length > 0 ? (
+            <div className="mt-3 space-y-2">
+              {readyPreviews.map((issue) => (
+                <IssueSummaryLine
+                  key={issue.id}
+                  issue={issue}
+                  onSelect={() => props.onSelectIssue(issue.id)}
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {props.card.stateKind === "no_swarm" ? (
+          <Button
+            type="button"
+            size="sm"
+            disabled={props.swarmActionKey === createActionKey}
+            onClick={() => props.onCreateSwarm(props.card.epic.epicId)}
+          >
+            {props.swarmActionKey === createActionKey ? "Starting..." : "Create swarm"}
+          </Button>
+        ) : null}
+        {props.card.stateKind === "needs_repair" ? (
+          <Button
+            type="button"
+            size="sm"
+            disabled={props.swarmActionKey === repairActionKey}
+            onClick={() => props.onRepairSwarm(props.card.epic.epicId)}
+          >
+            {props.swarmActionKey === repairActionKey ? "Starting..." : "Repair swarm"}
+          </Button>
+        ) : null}
+        {props.card.stateKind === "ready" ? (
+          <Button
+            type="button"
+            size="sm"
+            disabled={props.swarmActionKey === startActionKey}
+            onClick={() => props.onOpenStartSwarm(props.card)}
+          >
+            {props.swarmActionKey === startActionKey ? "Starting..." : "Start swarm"}
+          </Button>
+        ) : null}
+        {latestRun?.status === "running" && latestRun.activeTaskExecutionId === null ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={props.swarmActionKey === pauseActionKey}
+            onClick={() => props.onPauseRun(latestRun.runId)}
+          >
+            {props.swarmActionKey === pauseActionKey ? "Pausing..." : "Pause"}
+          </Button>
+        ) : null}
+        {latestRun?.status === "paused" ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={props.swarmActionKey === resumeActionKey}
+            onClick={() => props.onResumeRun(latestRun.runId)}
+          >
+            {props.swarmActionKey === resumeActionKey ? "Resuming..." : "Resume"}
+          </Button>
+        ) : null}
+        {latestRun &&
+        latestRun.status !== "cancelled" &&
+        latestRun.status !== "completed" &&
+        latestRun.status !== "failed" ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="destructive-outline"
+            disabled={props.swarmActionKey === cancelActionKey}
+            onClick={() => props.onCancelRun(latestRun.runId)}
+          >
+            {props.swarmActionKey === cancelActionKey ? "Cancelling..." : "Cancel"}
+          </Button>
+        ) : null}
         <Button
           type="button"
           size="sm"
           variant="outline"
-          onClick={() => props.onOpenEpic(props.swarm.epicId)}
+          onClick={() => props.onOpenEpic(props.card.epic.epicId)}
         >
           Open epic
         </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => setHistoryExpanded((current) => !current)}
+        >
+          {historyExpanded ? "Hide history" : "View history"}
+        </Button>
+        {activeWorkerThreadId ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => props.onOpenWorkerThread(activeWorkerThreadId)}
+          >
+            Open active worker
+          </Button>
+        ) : null}
       </div>
-      <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-        <Badge size="sm" variant="secondary">
-          {props.swarm.completedIssueCount}/{props.swarm.totalIssueCount} completed
-        </Badge>
-        <Badge size="sm" variant="outline">
-          {props.swarm.activeIssueCount} active
-        </Badge>
-        <Badge size="sm" variant="outline">
-          {props.swarm.readyIssueCount} ready
-        </Badge>
-        <Badge size="sm" variant="outline">
-          {props.swarm.blockedIssueCount} blocked
-        </Badge>
-        <Badge size="sm" variant="outline">
-          {props.swarm.activeWorkerCount} workers
-        </Badge>
-      </div>
+
+      {historyExpanded ? (
+        <div className="mt-4 space-y-3">
+          {props.card.runs.length > 0 ? (
+            props.card.runs.toSorted(compareRunsNewestFirst).map((run) => {
+              const timeline = buildCoordinatorRunTimeline(run);
+              const runExecutions = props.card.executions
+                .filter((execution) => execution.runId === run.runId)
+                .toSorted((left, right) => left.sequenceNumber - right.sequenceNumber);
+
+              return (
+                <div
+                  key={run.runId}
+                  className="rounded-lg border border-border/60 bg-background/70 p-3"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="font-medium text-sm text-foreground">{run.runId}</p>
+                      <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span>{formatSwarmRunStatus(run.status)}</span>
+                        <span className="opacity-40">·</span>
+                        <span>{formatSwarmSchedulerMode(run.schedulerMode)}</span>
+                        <span className="opacity-40">·</span>
+                        <span>
+                          Requested {formatShortTimestamp(run.requestedAt, props.timestampFormat)}
+                        </span>
+                      </p>
+                    </div>
+                    <Badge
+                      size="sm"
+                      variant={
+                        describeCoordinatorState(
+                          run.status === "requested" ? "running" : run.status,
+                        ).variant
+                      }
+                    >
+                      {formatSwarmRunStatus(run.status)}
+                    </Badge>
+                  </div>
+
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground">
+                        Timeline
+                      </p>
+                      {timeline.map((entry) => (
+                        <div
+                          key={`${run.runId}:${entry.label}:${entry.timestamp}`}
+                          className="rounded-md border border-border/50 px-2.5 py-2"
+                        >
+                          <p className="text-sm text-foreground">{entry.label}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {formatShortTimestamp(entry.timestamp, props.timestampFormat)}
+                          </p>
+                          {entry.description ? (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {entry.description}
+                            </p>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <p className="font-medium text-xs uppercase tracking-wide text-muted-foreground">
+                        Executions ({runExecutions.length})
+                      </p>
+                      {runExecutions.length > 0 ? (
+                        runExecutions.map((execution) => (
+                          <div
+                            key={execution.executionId}
+                            className="rounded-md border border-border/50 px-2.5 py-2"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-sm text-foreground">
+                                {execution.issueId} · #{execution.sequenceNumber}
+                              </p>
+                              <Badge size="sm" variant="outline">
+                                {execution.status}
+                              </Badge>
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Started{" "}
+                              {formatShortTimestamp(execution.startedAt, props.timestampFormat)}
+                            </p>
+                            {execution.workerThreadId ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="mt-2"
+                                onClick={() => props.onOpenWorkerThread(execution.workerThreadId!)}
+                              >
+                                Open worker thread
+                              </Button>
+                            ) : null}
+                            {execution.lastError ? (
+                              <p className="mt-2 text-xs text-destructive">{execution.lastError}</p>
+                            ) : null}
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          No worker executions recorded.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <p className="text-sm text-muted-foreground">No swarm runs recorded yet.</p>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -620,13 +1434,25 @@ function ProjectCoordinatorContent(props: {
   swarmSupport: BeadsSwarmSupport | null;
   swarmSupportPending: boolean;
   swarmSupportError: Error | null;
-  swarms: ReadonlyArray<BeadsSwarmSummary>;
-  swarmsPending: boolean;
-  swarmsError: Error | null;
+  cards: ReadonlyArray<CoordinatorCardData>;
+  cardsPending: boolean;
+  cardsError: Error | null;
+  timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
+  swarmActionKey: string | null;
   onOpenEpic: (epicId: string) => void;
+  onSelectIssue: (issueId: string) => void;
+  onOpenWorkerThread: (threadId: ThreadId) => void;
+  onCreateSwarm: (epicId: string) => void;
+  onRepairSwarm: (epicId: string) => void;
+  onOpenStartSwarm: (card: CoordinatorCardData) => void;
+  onContinueRun: (runId: OrchestrationSwarmRun["runId"]) => void;
+  onPauseRun: (runId: OrchestrationSwarmRun["runId"]) => void;
+  onResumeRun: (runId: OrchestrationSwarmRun["runId"]) => void;
+  onCancelRun: (runId: OrchestrationSwarmRun["runId"]) => void;
 }) {
-  const { runningSwarms, readyToRunSwarms } = partitionCoordinatorSwarms(props.swarms);
-  const hasCoordinatorSwarms = runningSwarms.length > 0 || readyToRunSwarms.length > 0;
+  const sections = partitionCoordinatorEpics(props.cards.toSorted(compareCoordinatorCards));
+  const totalCards =
+    sections.needsAttention.length + sections.active.length + sections.history.length;
 
   return (
     <div
@@ -652,51 +1478,105 @@ function ProjectCoordinatorContent(props: {
             <p className="mt-1 text-sm text-muted-foreground">{props.swarmSupport.reason}</p>
           ) : null}
         </div>
-      ) : props.swarmsPending ? (
-        <p className="text-sm text-muted-foreground">Loading swarms...</p>
-      ) : props.swarmsError ? (
-        <p className="text-sm text-destructive">{props.swarmsError.message}</p>
-      ) : !hasCoordinatorSwarms ? (
+      ) : props.cardsPending ? (
+        <p className="text-sm text-muted-foreground">Loading coordinator history...</p>
+      ) : props.cardsError ? (
+        <p className="text-sm text-destructive">{props.cardsError.message}</p>
+      ) : totalCards === 0 ? (
         <div className="rounded-xl border border-border/60 bg-muted/10 p-4">
-          <p className="text-sm text-muted-foreground">No swarms are running or ready to run.</p>
+          <p className="text-sm text-muted-foreground">No epics or swarm history were found.</p>
         </div>
       ) : (
         <>
           <section className="space-y-2">
             <h3 className="font-medium text-xs uppercase tracking-wide text-muted-foreground">
-              Running swarms ({runningSwarms.length})
+              Needs Attention ({sections.needsAttention.length})
             </h3>
-            {runningSwarms.length > 0 ? (
-              <div className="space-y-2">
-                {runningSwarms.map((swarm) => (
-                  <ProjectCoordinatorSwarmRow
-                    key={swarm.swarmId}
-                    swarm={swarm}
+            {sections.needsAttention.length > 0 ? (
+              <div className="space-y-3">
+                {sections.needsAttention.map((card) => (
+                  <CoordinatorEpicCard
+                    key={card.epic.epicId}
+                    card={card}
+                    timestampFormat={props.timestampFormat}
+                    swarmActionKey={props.swarmActionKey}
                     onOpenEpic={props.onOpenEpic}
+                    onSelectIssue={props.onSelectIssue}
+                    onOpenWorkerThread={props.onOpenWorkerThread}
+                    onCreateSwarm={props.onCreateSwarm}
+                    onRepairSwarm={props.onRepairSwarm}
+                    onOpenStartSwarm={props.onOpenStartSwarm}
+                    onContinueRun={props.onContinueRun}
+                    onPauseRun={props.onPauseRun}
+                    onResumeRun={props.onResumeRun}
+                    onCancelRun={props.onCancelRun}
                   />
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">No swarms are currently running.</p>
+              <p className="text-sm text-muted-foreground">Nothing needs attention right now.</p>
             )}
           </section>
 
           <section className="space-y-2">
             <h3 className="font-medium text-xs uppercase tracking-wide text-muted-foreground">
-              Ready to run ({readyToRunSwarms.length})
+              Active ({sections.active.length})
             </h3>
-            {readyToRunSwarms.length > 0 ? (
-              <div className="space-y-2">
-                {readyToRunSwarms.map((swarm) => (
-                  <ProjectCoordinatorSwarmRow
-                    key={swarm.swarmId}
-                    swarm={swarm}
+            {sections.active.length > 0 ? (
+              <div className="space-y-3">
+                {sections.active.map((card) => (
+                  <CoordinatorEpicCard
+                    key={card.epic.epicId}
+                    card={card}
+                    timestampFormat={props.timestampFormat}
+                    swarmActionKey={props.swarmActionKey}
                     onOpenEpic={props.onOpenEpic}
+                    onSelectIssue={props.onSelectIssue}
+                    onOpenWorkerThread={props.onOpenWorkerThread}
+                    onCreateSwarm={props.onCreateSwarm}
+                    onRepairSwarm={props.onRepairSwarm}
+                    onOpenStartSwarm={props.onOpenStartSwarm}
+                    onContinueRun={props.onContinueRun}
+                    onPauseRun={props.onPauseRun}
+                    onResumeRun={props.onResumeRun}
+                    onCancelRun={props.onCancelRun}
                   />
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">No swarms are ready to run.</p>
+              <p className="text-sm text-muted-foreground">No swarm runs are currently active.</p>
+            )}
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="font-medium text-xs uppercase tracking-wide text-muted-foreground">
+              History ({sections.history.length})
+            </h3>
+            {sections.history.length > 0 ? (
+              <div className="space-y-3">
+                {sections.history.map((card) => (
+                  <CoordinatorEpicCard
+                    key={card.epic.epicId}
+                    card={card}
+                    timestampFormat={props.timestampFormat}
+                    swarmActionKey={props.swarmActionKey}
+                    onOpenEpic={props.onOpenEpic}
+                    onSelectIssue={props.onSelectIssue}
+                    onOpenWorkerThread={props.onOpenWorkerThread}
+                    onCreateSwarm={props.onCreateSwarm}
+                    onRepairSwarm={props.onRepairSwarm}
+                    onOpenStartSwarm={props.onOpenStartSwarm}
+                    onContinueRun={props.onContinueRun}
+                    onPauseRun={props.onPauseRun}
+                    onResumeRun={props.onResumeRun}
+                    onCancelRun={props.onCancelRun}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No completed or cancelled swarm runs yet.
+              </p>
             )}
           </section>
         </>
@@ -717,6 +1597,7 @@ function IssueOverviewContent(props: {
   swarmSupport: BeadsSwarmSupport | null;
   swarmValidation: BeadsSwarmValidation | null;
   swarmStatus: BeadsSwarmStatus | null;
+  coordinatorState: ReturnType<typeof deriveEpicCoordinatorState>;
   swarmSupportPending: boolean;
   swarmValidationPending: boolean;
   swarmStatusPending: boolean;
@@ -805,6 +1686,7 @@ function IssueOverviewContent(props: {
             swarmSupport={props.swarmSupport}
             swarmValidation={props.swarmValidation}
             swarmStatus={props.swarmStatus}
+            coordinatorState={props.coordinatorState}
             swarmSupportPending={props.swarmSupportPending}
             swarmValidationPending={props.swarmValidationPending}
             swarmStatusPending={props.swarmStatusPending}
@@ -946,6 +1828,7 @@ function IssueDetailDialog(props: {
   swarmSupport: BeadsSwarmSupport | null;
   swarmValidation: BeadsSwarmValidation | null;
   swarmStatus: BeadsSwarmStatus | null;
+  coordinatorState: ReturnType<typeof deriveEpicCoordinatorState>;
   swarmSupportPending: boolean;
   swarmValidationPending: boolean;
   swarmStatusPending: boolean;
@@ -970,12 +1853,12 @@ function IssueDetailDialog(props: {
   onStartIssueImplement: () => void;
   onStartEpicQuickRefine: () => void;
   onStartEpicPlannedRefine: () => void;
-  onTriggerImplementAction: () => void;
+  onTriggerEpicPrimaryAction: () => void;
   workflowActionsDisabled: boolean;
   workflowActionsBusy: boolean;
   activeWorkflow: CoordinatorWorkflowAction;
-  implementActionLabel: string;
-  implementActionDisabled: boolean;
+  epicPrimaryActionLabel: string;
+  epicPrimaryActionDisabled: boolean;
   latestPlannedRefine: {
     threadId: ThreadId;
     threadTitle: string;
@@ -1039,6 +1922,7 @@ function IssueDetailDialog(props: {
               swarmSupport={props.swarmSupport}
               swarmValidation={props.swarmValidation}
               swarmStatus={props.swarmStatus}
+              coordinatorState={props.coordinatorState}
               swarmSupportPending={props.swarmSupportPending}
               swarmValidationPending={props.swarmValidationPending}
               swarmStatusPending={props.swarmStatusPending}
@@ -1076,14 +1960,14 @@ function IssueDetailDialog(props: {
                 </Button>
                 <Button
                   type="button"
-                  disabled={props.workflowActionsDisabled || props.implementActionDisabled}
-                  onClick={props.onTriggerImplementAction}
+                  disabled={props.workflowActionsDisabled || props.epicPrimaryActionDisabled}
+                  onClick={props.onTriggerEpicPrimaryAction}
                 >
                   {props.workflowActionsBusy &&
                   (props.activeWorkflow === "solve" ||
                     props.activeWorkflow === "plan_implementation")
                     ? "Starting..."
-                    : props.implementActionLabel}
+                    : props.epicPrimaryActionLabel}
                 </Button>
               </>
             ) : showBasicWorkflowActions ? (
@@ -1146,6 +2030,10 @@ export function IssuesPanel({
   const setSearch = useIssuePaneStore((store) => store.setSearch);
   const setScope = useIssuePaneStore((store) => store.setScope);
   const [activeWorkflow, setActiveWorkflow] = useState<CoordinatorWorkflowAction>(null);
+  const [swarmActionKey, setSwarmActionKey] = useState<string | null>(null);
+  const [startSwarmDialogState, setStartSwarmDialogState] = useState<StartSwarmDialogState | null>(
+    null,
+  );
   const startIssueWorkflowMutation = useMutation(
     beadsStartWorkflowMutationOptions({ queryClient }),
   );
@@ -1209,7 +2097,12 @@ export function IssuesPanel({
   );
   const runtimeMode =
     composerDraft.runtimeMode ?? serverThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
+  const assistantDeliveryMode: AssistantDeliveryMode = settings.enableAssistantStreaming
+    ? "streaming"
+    : "buffered";
   const threads = useStore((store) => store.threads);
+  const swarmRuns = useStore((store) => store.swarmRuns);
+  const swarmTaskExecutions = useStore((store) => store.swarmTaskExecutions);
   const selectedIssueDetailQuery = useQuery(
     cwd && state.selectedIssueId
       ? beadsIssueDetailOptions({
@@ -1313,9 +2206,166 @@ export function IssuesPanel({
       enabled: Boolean(cwd && state.activePanelTab === "coordinator"),
     }),
   );
-  const epicImplementAction = getEpicCoordinatorImplementAction({
+  const coordinatorEpicIssuesQuery = useQuery(
+    beadsQueryIssuesOptions({
+      cwd: cwd ?? "",
+      issueTypes: ["epic"],
+      sortBy: "updated",
+      enabled: Boolean(cwd && state.activePanelTab === "coordinator"),
+    }),
+  );
+  const projectSwarmRuns = useMemo(
+    () => (projectId === null ? [] : swarmRuns.filter((run) => run.projectId === projectId)),
+    [projectId, swarmRuns],
+  );
+  const projectSwarmTaskExecutions = useMemo(() => {
+    const runIds = new Set(projectSwarmRuns.map((run) => run.runId));
+    return swarmTaskExecutions.filter((execution) => runIds.has(execution.runId));
+  }, [projectSwarmRuns, swarmTaskExecutions]);
+  const projectSwarmRunsByEpicId = useMemo(() => {
+    const grouped = new Map<string, OrchestrationSwarmRun[]>();
+    for (const run of projectSwarmRuns) {
+      const existing = grouped.get(run.epicIssueId);
+      if (existing) {
+        existing.push(run);
+      } else {
+        grouped.set(run.epicIssueId, [run]);
+      }
+    }
+    return grouped;
+  }, [projectSwarmRuns]);
+  const projectSwarmExecutionsByRunId = useMemo(() => {
+    const grouped = new Map<OrchestrationSwarmRun["runId"], OrchestrationSwarmTaskExecution[]>();
+    for (const execution of projectSwarmTaskExecutions) {
+      const existing = grouped.get(execution.runId);
+      if (existing) {
+        existing.push(execution);
+      } else {
+        grouped.set(execution.runId, [execution]);
+      }
+    }
+    return grouped;
+  }, [projectSwarmTaskExecutions]);
+  const threadTitlesById = useMemo(() => {
+    return new Map(threads.map((thread) => [thread.id, thread.title] as const));
+  }, [threads]);
+  const coordinatorEpics = useMemo(
+    () =>
+      collectCoordinatorEpics({
+        epicIssues: coordinatorEpicIssuesQuery.data?.issues ?? [],
+        swarms: coordinatorSwarmsQuery.data?.swarms ?? [],
+        swarmRuns: projectSwarmRuns,
+      }),
+    [
+      coordinatorEpicIssuesQuery.data?.issues,
+      coordinatorSwarmsQuery.data?.swarms,
+      projectSwarmRuns,
+    ],
+  );
+  const coordinatorShouldLoadEpicState =
+    Boolean(cwd && state.activePanelTab === "coordinator") &&
+    swarmSupportQuery.data?.supported === true;
+  const coordinatorValidationQueries = useQueries({
+    queries:
+      coordinatorShouldLoadEpicState && cwd
+        ? coordinatorEpics.map((epic) =>
+            beadsEpicSwarmValidationOptions({
+              cwd,
+              epicIssueId: epic.epicId,
+            }),
+          )
+        : [],
+  });
+  const coordinatorStatusQueries = useQueries({
+    queries:
+      coordinatorShouldLoadEpicState && cwd
+        ? coordinatorEpics.map((epic) =>
+            beadsEpicSwarmStatusOptions({
+              cwd,
+              epicIssueId: epic.epicId,
+            }),
+          )
+        : [],
+  });
+  const selectedEpicSwarmRuns = useMemo(
+    () =>
+      selectedEpicIssueId === null || projectId === null
+        ? []
+        : swarmRuns.filter(
+            (run) => run.projectId === projectId && run.epicIssueId === selectedEpicIssueId,
+          ),
+    [projectId, selectedEpicIssueId, swarmRuns],
+  );
+  const coordinatorCards = useMemo<CoordinatorCardData[]>(() => {
+    return coordinatorEpics.map((epic, index) => {
+      const validationQuery = coordinatorValidationQueries[index];
+      const statusQuery = coordinatorStatusQueries[index];
+      const runs = projectSwarmRunsByEpicId.get(epic.epicId) ?? [];
+      const executions = runs.flatMap((run) => projectSwarmExecutionsByRunId.get(run.runId) ?? []);
+      const coordinatorState = deriveEpicCoordinatorState({
+        swarmSupport: swarmSupportQuery.data
+          ? { supported: swarmSupportQuery.data.supported }
+          : null,
+        status: statusQuery?.data ?? null,
+        validation: validationQuery?.data ?? null,
+        swarmRuns: runs,
+        isSupportPending: swarmSupportQuery.isPending,
+        isValidationPending:
+          Boolean(validationQuery?.isPending) ||
+          Boolean(statusQuery?.isPending) ||
+          Boolean(validationQuery?.error) ||
+          Boolean(statusQuery?.error),
+      });
+      const activeExecutionId =
+        coordinatorState.latestRun?.activeTaskExecutionId ??
+        coordinatorState.latestRun?.latestTaskExecutionId ??
+        null;
+      const activeExecution =
+        activeExecutionId === null
+          ? null
+          : (executions.find((execution) => execution.executionId === activeExecutionId) ?? null);
+
+      return {
+        epic,
+        stateKind: coordinatorState.kind,
+        latestRun: coordinatorState.latestRun,
+        swarmSummary: validationQuery?.data?.swarm ?? statusQuery?.data?.swarm ?? null,
+        validation: validationQuery?.data ?? null,
+        status: statusQuery?.data ?? null,
+        validationError: validationQuery?.error instanceof Error ? validationQuery.error : null,
+        statusError: statusQuery?.error instanceof Error ? statusQuery.error : null,
+        runs,
+        executions,
+        activeExecution,
+        activeWorkerThreadTitle:
+          activeExecution?.workerThreadId !== null && activeExecution?.workerThreadId !== undefined
+            ? (threadTitlesById.get(activeExecution.workerThreadId) ?? null)
+            : null,
+      };
+    });
+  }, [
+    coordinatorEpics,
+    coordinatorStatusQueries,
+    coordinatorValidationQueries,
+    projectSwarmExecutionsByRunId,
+    projectSwarmRunsByEpicId,
+    swarmSupportQuery.data,
+    swarmSupportQuery.isPending,
+    threadTitlesById,
+  ]);
+  const epicCoordinatorState = deriveEpicCoordinatorState({
     swarmSupport: selectedIssueIsEpic ? (swarmSupportQuery.data ?? null) : null,
+    status: selectedIssueIsEpic ? (swarmStatusQuery.data ?? null) : null,
     validation: selectedIssueIsEpic ? (swarmValidationQuery.data ?? null) : null,
+    swarmRuns: selectedEpicSwarmRuns,
+    isSupportPending: selectedIssueIsEpic ? swarmSupportQuery.isPending : false,
+    isValidationPending: selectedIssueIsEpic ? swarmValidationQuery.isPending : false,
+  });
+  const epicPrimaryAction = getEpicCoordinatorPrimaryAction({
+    swarmSupport: selectedIssueIsEpic ? (swarmSupportQuery.data ?? null) : null,
+    status: selectedIssueIsEpic ? (swarmStatusQuery.data ?? null) : null,
+    validation: selectedIssueIsEpic ? (swarmValidationQuery.data ?? null) : null,
+    swarmRuns: selectedEpicSwarmRuns,
     isSupportPending: selectedIssueIsEpic ? swarmSupportQuery.isPending : false,
     isValidationPending: selectedIssueIsEpic ? swarmValidationQuery.isPending : false,
   });
@@ -1410,25 +2460,62 @@ export function IssuesPanel({
     }
   };
 
-  const startEpicPlanImplementation = async () => {
-    if (!cwd || !projectId || !selectedEpicIssueId) {
+  const openCoordinator = () => {
+    closeSelectedIssue();
+    setActivePanelTab(activeThreadId, "coordinator");
+  };
+
+  const openCoordinatorIssue = (issueId: string) => {
+    setSelectedIssueId(activeThreadId, issueId);
+    setActivePanelTab(activeThreadId, "issues");
+  };
+
+  const invalidateCoordinatorQueries = async () => {
+    await queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
+  };
+
+  const openStartSwarmDialog = (input: {
+    epicId: string;
+    epicTitle: string;
+    validation: BeadsSwarmValidation | null;
+    status: BeadsSwarmStatus | null;
+  }) => {
+    setStartSwarmDialogState({
+      epicId: input.epicId,
+      epicTitle: input.epicTitle,
+      validation: input.validation,
+      status: input.status,
+    });
+  };
+
+  const startEpicPlanImplementation = async (input: {
+    epicIssueId: string;
+    actionKind: "create_swarm" | "repair_swarm";
+  }) => {
+    if (!cwd || !projectId) {
       return;
     }
 
+    const actionKey = `${input.actionKind === "create_swarm" ? "create" : "repair"}:${input.epicIssueId}`;
     setActiveWorkflow("plan_implementation");
+    setSwarmActionKey(actionKey);
     try {
       await startEpicPlanImplementationMutation.mutateAsync({
         cwd,
         projectId,
-        epicIssueId: selectedEpicIssueId,
+        epicIssueId: input.epicIssueId,
         modelSelection: selectedModelSelection,
         runtimeMode,
       });
+      await invalidateCoordinatorQueries();
       toastManager.add({
         type: "success",
-        title: "Implementation planning started",
+        title:
+          input.actionKind === "create_swarm" ? "Swarm creation started" : "Swarm repair started",
         description:
-          "The tracker-only planning thread was created and linked to this epic. Open it from Linked threads when you want to switch context.",
+          input.actionKind === "create_swarm"
+            ? "A tracker-only thread was created to create the missing epic swarm and linked to this epic."
+            : "A tracker-only thread was created to repair the existing epic swarm and linked to this epic.",
       });
     } catch (error) {
       toastManager.add({
@@ -1438,7 +2525,117 @@ export function IssuesPanel({
       });
     } finally {
       setActiveWorkflow(null);
+      setSwarmActionKey((current) => (current === actionKey ? null : current));
     }
+  };
+
+  const runSwarmControlAction = async (input: {
+    actionKey: string;
+    title: string;
+    description: string;
+    execute: (api: NonNullable<ReturnType<typeof readNativeApi>>) => Promise<unknown>;
+  }): Promise<boolean> => {
+    const api = readNativeApi();
+    if (!api) {
+      return false;
+    }
+
+    setSwarmActionKey(input.actionKey);
+    try {
+      await input.execute(api);
+      await invalidateCoordinatorQueries();
+      toastManager.add({
+        type: "success",
+        title: input.title,
+        description: input.description,
+      });
+      return true;
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Swarm action failed",
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+      return false;
+    } finally {
+      setSwarmActionKey((current) => (current === input.actionKey ? null : current));
+    }
+  };
+
+  const startSwarmRun = async (
+    input: Pick<
+      OrchestrationStartSwarmRunInput,
+      "schedulerMode" | "provider" | "model" | "runtimeMode" | "assistantDeliveryMode"
+    >,
+  ) => {
+    if (!cwd || !projectId || !startSwarmDialogState) {
+      return;
+    }
+
+    const actionKey = `start:${startSwarmDialogState.epicId}`;
+    const modelOptions =
+      input.provider === selectedProvider &&
+      input.model === selectedModel &&
+      composerProviderState.modelOptionsForDispatch
+        ? { [selectedProvider]: composerProviderState.modelOptionsForDispatch }
+        : undefined;
+
+    const started = await runSwarmControlAction({
+      actionKey,
+      title: "Swarm run started",
+      description: `${startSwarmDialogState.epicId} entered ${formatSwarmSchedulerMode(input.schedulerMode).toLowerCase()} mode.`,
+      execute: (api) =>
+        api.orchestration.startSwarmRun({
+          projectId,
+          epicIssueId: startSwarmDialogState.epicId,
+          schedulerMode: input.schedulerMode,
+          workspaceMode: "shared",
+          provider: input.provider,
+          model: input.model,
+          ...(modelOptions ? { modelOptions } : {}),
+          assistantDeliveryMode: input.assistantDeliveryMode,
+          runtimeMode: input.runtimeMode,
+        }),
+    });
+    if (started) {
+      setStartSwarmDialogState(null);
+    }
+  };
+
+  const continueSwarmRun = async (runId: OrchestrationSwarmRun["runId"]) => {
+    await runSwarmControlAction({
+      actionKey: `continue:${runId}`,
+      title: "Swarm run continued",
+      description: "The coordinator queued the next ready issue for this run.",
+      execute: (api) => api.orchestration.continueSwarmRun({ runId }),
+    });
+  };
+
+  const pauseSwarmRun = async (runId: OrchestrationSwarmRun["runId"]) => {
+    await runSwarmControlAction({
+      actionKey: `pause:${runId}`,
+      title: "Swarm run paused",
+      description: "The coordinator paused this run.",
+      execute: (api) => api.orchestration.pauseSwarmRun({ runId }),
+    });
+  };
+
+  const resumeSwarmRun = async (runId: OrchestrationSwarmRun["runId"]) => {
+    await runSwarmControlAction({
+      actionKey: `resume:${runId}`,
+      title: "Swarm run resumed",
+      description: "The coordinator resumed this run.",
+      execute: (api) => api.orchestration.resumeSwarmRun({ runId }),
+    });
+  };
+
+  const cancelSwarmRun = async (runId: OrchestrationSwarmRun["runId"]) => {
+    await runSwarmControlAction({
+      actionKey: `cancel:${runId}`,
+      title: "Swarm run cancelled",
+      description: "The coordinator cancelled this run.",
+      execute: (api) => api.orchestration.cancelSwarmRun({ runId }),
+    });
   };
 
   useEffect(() => {
@@ -1603,14 +2800,47 @@ export function IssuesPanel({
             swarmSupportError={
               swarmSupportQuery.error instanceof Error ? swarmSupportQuery.error : null
             }
-            swarms={coordinatorSwarmsQuery.data?.swarms ?? []}
-            swarmsPending={coordinatorSwarmsQuery.isPending}
-            swarmsError={
-              coordinatorSwarmsQuery.error instanceof Error ? coordinatorSwarmsQuery.error : null
+            cards={coordinatorCards}
+            cardsPending={coordinatorEpicIssuesQuery.isPending || coordinatorSwarmsQuery.isPending}
+            cardsError={
+              coordinatorEpicIssuesQuery.error instanceof Error
+                ? coordinatorEpicIssuesQuery.error
+                : coordinatorSwarmsQuery.error instanceof Error
+                  ? coordinatorSwarmsQuery.error
+                  : null
             }
-            onOpenEpic={(epicId) => {
-              setSelectedIssueId(activeThreadId, epicId);
-              setActivePanelTab(activeThreadId, "issues");
+            timestampFormat={settings.timestampFormat}
+            swarmActionKey={swarmActionKey}
+            onOpenEpic={openCoordinatorIssue}
+            onSelectIssue={openCoordinatorIssue}
+            onOpenWorkerThread={(threadId) => {
+              void openLinkedThread(threadId);
+            }}
+            onCreateSwarm={(epicId) => {
+              void startEpicPlanImplementation({ epicIssueId: epicId, actionKind: "create_swarm" });
+            }}
+            onRepairSwarm={(epicId) => {
+              void startEpicPlanImplementation({ epicIssueId: epicId, actionKind: "repair_swarm" });
+            }}
+            onOpenStartSwarm={(card) =>
+              openStartSwarmDialog({
+                epicId: card.epic.epicId,
+                epicTitle: card.epic.epicTitle,
+                validation: card.validation,
+                status: card.status,
+              })
+            }
+            onContinueRun={(runId) => {
+              void continueSwarmRun(runId);
+            }}
+            onPauseRun={(runId) => {
+              void pauseSwarmRun(runId);
+            }}
+            onResumeRun={(runId) => {
+              void resumeSwarmRun(runId);
+            }}
+            onCancelRun={(runId) => {
+              void cancelSwarmRun(runId);
             }}
           />
         )}
@@ -1626,6 +2856,7 @@ export function IssuesPanel({
         swarmSupport={selectedIssueIsEpic ? (swarmSupportQuery.data ?? null) : null}
         swarmValidation={selectedIssueIsEpic ? (swarmValidationQuery.data ?? null) : null}
         swarmStatus={selectedIssueIsEpic ? (swarmStatusQuery.data ?? null) : null}
+        coordinatorState={epicCoordinatorState}
         swarmSupportPending={selectedIssueIsEpic ? swarmSupportQuery.isPending : false}
         swarmValidationPending={selectedIssueIsEpic ? swarmValidationQuery.isPending : false}
         swarmStatusPending={selectedIssueIsEpic ? swarmStatusQuery.isPending : false}
@@ -1664,12 +2895,39 @@ export function IssuesPanel({
           void startEpicRefine("planned_refine");
         }}
         open={state.selectedIssueId !== null}
-        onTriggerImplementAction={() => {
-          if (selectedIssueIsEpic && epicImplementAction.kind === "plan_implementation") {
-            void startEpicPlanImplementation();
+        onTriggerEpicPrimaryAction={() => {
+          if (!selectedIssueIsEpic) {
+            void runIssueWorkflow("solve");
             return;
           }
-          void runIssueWorkflow("solve");
+
+          if (
+            epicPrimaryAction.kind === "create_swarm" ||
+            epicPrimaryAction.kind === "repair_swarm"
+          ) {
+            if (!selectedEpicIssueId) {
+              return;
+            }
+            void startEpicPlanImplementation({
+              epicIssueId: selectedEpicIssueId,
+              actionKind: epicPrimaryAction.kind,
+            });
+            return;
+          }
+
+          if (epicPrimaryAction.kind === "start_swarm" && selectedIssueDetailQuery.data) {
+            openStartSwarmDialog({
+              epicId: selectedIssueDetailQuery.data.id,
+              epicTitle: selectedIssueDetailQuery.data.title,
+              validation: swarmValidationQuery.data ?? null,
+              status: swarmStatusQuery.data ?? null,
+            });
+            return;
+          }
+
+          if (epicPrimaryAction.kind === "open_coordinator") {
+            openCoordinator();
+          }
         }}
         onOpenChange={(open) => {
           if (!open) {
@@ -1680,9 +2938,37 @@ export function IssuesPanel({
         workflowActionsDisabled={workflowActionsDisabled}
         workflowActionsBusy={workflowActionsDisabled}
         activeWorkflow={activeWorkflow}
-        implementActionLabel={selectedIssueIsEpic ? epicImplementAction.label : "Implement"}
-        implementActionDisabled={selectedIssueIsEpic ? epicImplementAction.disabled : false}
+        epicPrimaryActionLabel={selectedIssueIsEpic ? epicPrimaryAction.label : "Implement"}
+        epicPrimaryActionDisabled={selectedIssueIsEpic ? epicPrimaryAction.disabled : false}
         latestPlannedRefine={selectedIssueIsEpic ? latestPlannedRefine : null}
+      />
+
+      <StartSwarmRunDialog
+        open={startSwarmDialogState !== null}
+        dialogState={startSwarmDialogState}
+        providers={providerStatuses}
+        defaultProvider={selectedProvider}
+        defaultModel={selectedModel}
+        defaultRuntimeMode={runtimeMode}
+        defaultAssistantDeliveryMode={assistantDeliveryMode}
+        isStarting={
+          startSwarmDialogState !== null &&
+          swarmActionKey === `start:${startSwarmDialogState.epicId}`
+        }
+        startDisabled={
+          projectId === null ||
+          startSwarmDialogState === null ||
+          startSwarmDialogState.validation?.valid !== true ||
+          startSwarmDialogState.validation.swarm === null
+        }
+        onOpenChange={(open) => {
+          if (!open) {
+            setStartSwarmDialogState(null);
+          }
+        }}
+        onStart={(input) => {
+          void startSwarmRun(input);
+        }}
       />
     </>
   );

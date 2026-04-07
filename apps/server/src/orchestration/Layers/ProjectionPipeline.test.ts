@@ -15,10 +15,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
-import {
-  makeSqlitePersistenceLive,
-  SqlitePersistenceMemory,
-} from "../../persistence/Layers/Sqlite.ts";
+import { makeSqlitePersistenceLive, layerConfig } from "../../persistence/Layers/Sqlite.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import {
@@ -30,13 +27,28 @@ import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
 import { ServerConfig } from "../../config.ts";
 
-const makeProjectionPipelinePrefixedTestLayer = (prefix: string) =>
-  OrchestrationProjectionPipelineLive.pipe(
-    Layer.provideMerge(OrchestrationEventStoreLive),
-    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix })),
-    Layer.provideMerge(SqlitePersistenceMemory),
+function makeTestPersistenceLayer(prefix: string) {
+  const serverConfigLayer = ServerConfig.layerTest(process.cwd(), { prefix });
+  const sqliteLayer = layerConfig.pipe(
+    Layer.provideMerge(serverConfigLayer),
     Layer.provideMerge(NodeServices.layer),
   );
+
+  return {
+    serverConfigLayer,
+    sqliteLayer,
+  };
+}
+
+const makeProjectionPipelinePrefixedTestLayer = (prefix: string) => {
+  const { serverConfigLayer, sqliteLayer } = makeTestPersistenceLayer(prefix);
+  return OrchestrationProjectionPipelineLive.pipe(
+    Layer.provideMerge(OrchestrationEventStoreLive),
+    Layer.provideMerge(serverConfigLayer),
+    Layer.provideMerge(sqliteLayer),
+    Layer.provideMerge(NodeServices.layer),
+  );
+};
 
 const exists = (filePath: string) =>
   Effect.gen(function* () {
@@ -166,6 +178,146 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       for (const row of stateRows) {
         assert.equal(row.lastAppliedSequence, 3);
       }
+    }),
+  );
+
+  it.effect("projects swarm runs and task executions into dedicated projection tables", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const requestedAt = "2026-04-06T00:00:00.000Z";
+      const startedAt = "2026-04-06T00:00:01.000Z";
+      const failedAt = "2026-04-06T00:00:02.000Z";
+
+      yield* eventStore.append({
+        type: "project.created",
+        eventId: EventId.makeUnsafe("evt-swarm-project"),
+        aggregateKind: "project",
+        aggregateId: ProjectId.makeUnsafe("project-swarm"),
+        occurredAt: requestedAt,
+        commandId: CommandId.makeUnsafe("cmd-swarm-project"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-swarm-project"),
+        metadata: {},
+        payload: {
+          projectId: ProjectId.makeUnsafe("project-swarm"),
+          title: "Swarm Project",
+          workspaceRoot: "/tmp/project-swarm",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: requestedAt,
+          updatedAt: requestedAt,
+        },
+      });
+
+      yield* eventStore.append({
+        type: "swarm-run.requested",
+        eventId: EventId.makeUnsafe("evt-swarm-run"),
+        aggregateKind: "swarmRun",
+        aggregateId: "run-1" as never,
+        occurredAt: requestedAt,
+        commandId: CommandId.makeUnsafe("cmd-swarm-run"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-swarm-run"),
+        metadata: {},
+        payload: {
+          runId: "run-1" as never,
+          projectId: ProjectId.makeUnsafe("project-swarm"),
+          epicIssueId: "EPIC-1",
+          swarmId: "SWARM-1",
+          schedulerMode: "automatic",
+          workspaceMode: "shared",
+          provider: "codex",
+          model: "gpt-5.4",
+          modelOptions: null,
+          providerOptions: null,
+          assistantDeliveryMode: "streaming",
+          runtimeMode: "full-access",
+          requestedAt,
+          updatedAt: requestedAt,
+        },
+      });
+
+      yield* eventStore.append({
+        type: "swarm-task-execution.started",
+        eventId: EventId.makeUnsafe("evt-swarm-execution-started"),
+        aggregateKind: "swarmTaskExecution",
+        aggregateId: "execution-1" as never,
+        occurredAt: startedAt,
+        commandId: CommandId.makeUnsafe("cmd-swarm-execution-started"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-swarm-execution-started"),
+        metadata: {},
+        payload: {
+          executionId: "execution-1" as never,
+          runId: "run-1" as never,
+          issueId: "TASK-1",
+          workerThreadId: null,
+          sequenceNumber: 1,
+          startedAt,
+          updatedAt: startedAt,
+        },
+      });
+
+      yield* eventStore.append({
+        type: "swarm-task-execution.failed",
+        eventId: EventId.makeUnsafe("evt-swarm-execution-failed"),
+        aggregateKind: "swarmTaskExecution",
+        aggregateId: "execution-1" as never,
+        occurredAt: failedAt,
+        commandId: CommandId.makeUnsafe("cmd-swarm-execution-failed"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-swarm-execution-failed"),
+        metadata: {},
+        payload: {
+          executionId: "execution-1" as never,
+          runId: "run-1" as never,
+          reason: "worker crashed",
+          failedAt,
+          updatedAt: failedAt,
+        },
+      });
+
+      yield* projectionPipeline.bootstrap;
+
+      const runRows = yield* sql<{
+        readonly runId: string;
+        readonly status: string;
+        readonly latestTaskExecutionId: string | null;
+      }>`
+        SELECT
+          run_id AS "runId",
+          status,
+          latest_task_execution_id AS "latestTaskExecutionId"
+        FROM projection_swarm_runs
+      `;
+      assert.deepEqual(runRows, [
+        {
+          runId: "run-1",
+          status: "requested",
+          latestTaskExecutionId: "execution-1",
+        },
+      ]);
+
+      const executionRows = yield* sql<{
+        readonly executionId: string;
+        readonly status: string;
+        readonly lastError: string | null;
+      }>`
+        SELECT
+          execution_id AS "executionId",
+          status,
+          last_error AS "lastError"
+        FROM projection_swarm_task_executions
+      `;
+      assert.deepEqual(executionRows, [
+        {
+          executionId: "execution-1",
+          status: "failed",
+          lastError: "worker crashed",
+        },
+      ]);
     }),
   );
 });
@@ -1841,19 +1993,20 @@ it.effect("restores pending turn-start metadata across projection pipeline resta
 );
 
 const engineLayer = it.layer(
-  OrchestrationEngineLive.pipe(
-    Layer.provide(OrchestrationProjectionSnapshotQueryLive),
-    Layer.provide(OrchestrationProjectionPipelineLive),
-    Layer.provide(OrchestrationEventStoreLive),
-    Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-    Layer.provideMerge(SqlitePersistenceMemory),
-    Layer.provideMerge(
-      ServerConfig.layerTest(process.cwd(), {
-        prefix: "t3-projection-pipeline-engine-dispatch-",
-      }),
-    ),
-    Layer.provideMerge(NodeServices.layer),
-  ),
+  (() => {
+    const { serverConfigLayer, sqliteLayer } = makeTestPersistenceLayer(
+      "t3-projection-pipeline-engine-dispatch-",
+    );
+    return OrchestrationEngineLive.pipe(
+      Layer.provide(OrchestrationProjectionSnapshotQueryLive),
+      Layer.provide(OrchestrationProjectionPipelineLive),
+      Layer.provide(OrchestrationEventStoreLive),
+      Layer.provide(OrchestrationCommandReceiptRepositoryLive),
+      Layer.provideMerge(sqliteLayer),
+      Layer.provideMerge(serverConfigLayer),
+      Layer.provideMerge(NodeServices.layer),
+    );
+  })(),
 );
 
 engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {

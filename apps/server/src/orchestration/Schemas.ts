@@ -25,6 +25,19 @@ import {
   ThreadApprovalResponseRequestedPayload as ContractsThreadApprovalResponseRequestedPayloadSchema,
   ThreadCheckpointRevertRequestedPayload as ContractsThreadCheckpointRevertRequestedPayloadSchema,
   ThreadSessionStopRequestedPayload as ContractsThreadSessionStopRequestedPayloadSchema,
+  SwarmRunRequestedPayload as ContractsSwarmRunRequestedPayloadSchema,
+  SwarmRunStartedPayload as ContractsSwarmRunStartedPayloadSchema,
+  SwarmRunIdledPayload as ContractsSwarmRunIdledPayloadSchema,
+  SwarmRunPausedPayload as ContractsSwarmRunPausedPayloadSchema,
+  SwarmRunResumedPayload as ContractsSwarmRunResumedPayloadSchema,
+  SwarmRunBlockedPayload as ContractsSwarmRunBlockedPayloadSchema,
+  SwarmRunFailedPayload as ContractsSwarmRunFailedPayloadSchema,
+  SwarmRunCancelledPayload as ContractsSwarmRunCancelledPayloadSchema,
+  SwarmRunCompletedPayload as ContractsSwarmRunCompletedPayloadSchema,
+  SwarmTaskExecutionStartedPayload as ContractsSwarmTaskExecutionStartedPayloadSchema,
+  SwarmTaskExecutionCompletedPayload as ContractsSwarmTaskExecutionCompletedPayloadSchema,
+  SwarmTaskExecutionFailedPayload as ContractsSwarmTaskExecutionFailedPayloadSchema,
+  SwarmTaskExecutionCancelledPayload as ContractsSwarmTaskExecutionCancelledPayloadSchema,
 } from "@t3tools/contracts";
 
 // Server-internal alias surface, backed by contract schemas as the source of truth.
@@ -65,3 +78,16 @@ export const PlanImplementationLaunchFailedPayload =
   ContractsPlanImplementationLaunchFailedPayloadSchema;
 export const PlanImplementationLaunchCancelledPayload =
   ContractsPlanImplementationLaunchCancelledPayloadSchema;
+export const SwarmRunRequestedPayload = ContractsSwarmRunRequestedPayloadSchema;
+export const SwarmRunStartedPayload = ContractsSwarmRunStartedPayloadSchema;
+export const SwarmRunIdledPayload = ContractsSwarmRunIdledPayloadSchema;
+export const SwarmRunPausedPayload = ContractsSwarmRunPausedPayloadSchema;
+export const SwarmRunResumedPayload = ContractsSwarmRunResumedPayloadSchema;
+export const SwarmRunBlockedPayload = ContractsSwarmRunBlockedPayloadSchema;
+export const SwarmRunFailedPayload = ContractsSwarmRunFailedPayloadSchema;
+export const SwarmRunCancelledPayload = ContractsSwarmRunCancelledPayloadSchema;
+export const SwarmRunCompletedPayload = ContractsSwarmRunCompletedPayloadSchema;
+export const SwarmTaskExecutionStartedPayload = ContractsSwarmTaskExecutionStartedPayloadSchema;
+export const SwarmTaskExecutionCompletedPayload = ContractsSwarmTaskExecutionCompletedPayloadSchema;
+export const SwarmTaskExecutionFailedPayload = ContractsSwarmTaskExecutionFailedPayloadSchema;
+export const SwarmTaskExecutionCancelledPayload = ContractsSwarmTaskExecutionCancelledPayloadSchema;

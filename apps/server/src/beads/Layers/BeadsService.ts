@@ -37,6 +37,10 @@ import { Effect, Layer, Option, Ref, Schema, Semaphore, SynchronizedRef } from "
 import { runProcess } from "../../processRunner.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { BeadsService, type BeadsServiceShape } from "../Services/BeadsService.ts";
+import {
+  BeadsTrackerService,
+  type BeadsTrackerServiceShape,
+} from "../Services/BeadsTrackerService.ts";
 
 const MAX_BD_OUTPUT_BYTES = 512 * 1024;
 const decodeIssueSummary = Schema.decodeUnknownSync(BeadsIssueSummary);
@@ -485,8 +489,19 @@ function buildEpicPlannedRefineThreadTitle(issue: BeadsIssueSummaryType): string
   return `${issue.id}: ${issue.title} (Planned refine)`;
 }
 
-function buildEpicPlanImplementationThreadTitle(issue: BeadsIssueSummaryType): string {
-  return `${issue.id}: ${issue.title} (Plan implementation)`;
+type EpicPlanImplementationIntent = "create_swarm" | "repair_swarm";
+
+function resolveEpicPlanImplementationIntent(
+  validation: Pick<BeadsSwarmValidation, "swarm">,
+): EpicPlanImplementationIntent {
+  return validation.swarm === null ? "create_swarm" : "repair_swarm";
+}
+
+function buildEpicPlanImplementationThreadTitle(
+  issue: BeadsIssueSummaryType,
+  intent: EpicPlanImplementationIntent,
+): string {
+  return `${issue.id}: ${issue.title} (${intent === "create_swarm" ? "Create swarm" : "Repair swarm"})`;
 }
 
 function buildEpicRefinePrompt(issue: BeadsIssueDetailType, mode: "quick" | "planned"): string {
@@ -538,6 +553,7 @@ function buildEpicPlanImplementationPrompt(input: {
   issue: BeadsIssueDetailType;
   validation: BeadsSwarmValidation;
   status: BeadsSwarmStatus;
+  intent: EpicPlanImplementationIntent;
 }): string {
   const sections = [
     `Epic: ${input.issue.id}`,
@@ -575,8 +591,15 @@ function buildEpicPlanImplementationPrompt(input: {
     "Blocked issues:",
     formatIssueRelationList(input.status.blocked),
     "",
-    "Prepare swarm-backed implementation for this epic.",
-    "This is tracker-only coordination work. Use bd to create or repair the epic swarm required for implementation and any required tracker metadata.",
+    input.intent === "create_swarm"
+      ? "Prepare swarm-backed implementation for this epic by creating the missing swarm."
+      : "Prepare swarm-backed implementation for this epic by repairing the existing swarm.",
+    input.intent === "create_swarm"
+      ? "This is tracker-only coordination work. Use bd to create the epic swarm required for implementation and any required tracker metadata."
+      : "This is tracker-only coordination work. Use bd to repair the existing epic swarm required for implementation and correct any tracker metadata drift.",
+    input.intent === "create_swarm"
+      ? "Do not describe this as a repair task because no swarm exists yet."
+      : "Repair the current swarm instead of creating a replacement unless recovery is impossible.",
     "Do not implement application code, and do not create a worktree unless tracker-only recovery is impossible.",
     "When you finish, summarize the resulting swarm state and any blockers that still prevent launching worker threads.",
   ];
@@ -584,84 +607,8 @@ function buildEpicPlanImplementationPrompt(input: {
   return sections.join("\n");
 }
 
-const makeBeadsService = Effect.gen(function* () {
-  const orchestrationEngine = yield* OrchestrationEngineService;
-  const sessionActivityRef = yield* Ref.make<ReadonlyArray<SessionActivityRecord>>([]);
+const makeBeadsTrackerService = Effect.gen(function* () {
   const bdLocksRef = yield* SynchronizedRef.make(new Map<string, Semaphore.Semaphore>());
-
-  const appendSessionActivity = (record: SessionActivityRecord) =>
-    Ref.update(sessionActivityRef, (records) => [record, ...records].slice(0, 200));
-
-  const startLinkedIssueThread = Effect.fn("BeadsService.startLinkedIssueThread")(
-    function* (input: {
-      cwd: string;
-      projectId: BeadsStartWorkflowInput["projectId"];
-      issue: BeadsIssueDetailType;
-      modelSelection: BeadsStartWorkflowInput["modelSelection"];
-      runtimeMode: BeadsStartWorkflowInput["runtimeMode"];
-      interactionMode: "default" | "plan";
-      threadTitle: string;
-      promptText: string;
-      workflowKind: BeadsStartWorkflowInput["workflow"] | "plan-implementation";
-      createThreadErrorMessage: string;
-      startTurnErrorMessage: string;
-    }) {
-      const nextThreadId = threadId();
-      const createdAt = nowIso();
-
-      yield* orchestrationEngine
-        .dispatch({
-          type: "thread.create",
-          commandId: commandId("create-thread"),
-          threadId: nextThreadId,
-          projectId: input.projectId,
-          title: input.threadTitle,
-          modelSelection: input.modelSelection,
-          runtimeMode: input.runtimeMode,
-          interactionMode: input.interactionMode,
-          branch: null,
-          worktreePath: null,
-          issueLink: buildIssueLink(input.issue, input.cwd),
-          createdAt,
-        })
-        .pipe(Effect.mapError((cause) => toBeadsError(input.createThreadErrorMessage, cause)));
-
-      yield* orchestrationEngine
-        .dispatch({
-          type: "thread.turn.start",
-          commandId: commandId("start-turn"),
-          threadId: nextThreadId,
-          message: {
-            messageId: messageId("initial"),
-            role: "user",
-            text: input.promptText,
-            attachments: [],
-          },
-          modelSelection: input.modelSelection,
-          runtimeMode: input.runtimeMode,
-          interactionMode: input.interactionMode,
-          titleSeed: input.threadTitle,
-          createdAt,
-        })
-        .pipe(Effect.mapError((cause) => toBeadsError(input.startTurnErrorMessage, cause)));
-
-      yield* appendSessionActivity({
-        cwd: input.cwd,
-        entry: {
-          kind: "workflow-started",
-          issue: input.issue,
-          createdAt,
-          workflowKind: input.workflowKind,
-          threadId: nextThreadId,
-        },
-      });
-
-      return {
-        threadId: nextThreadId,
-        created: true,
-      } satisfies BeadsStartWorkflowResult;
-    },
-  );
 
   const getBdSemaphore = (cwd: string): Effect.Effect<Semaphore.Semaphore> =>
     SynchronizedRef.modifyEffect(bdLocksRef, (current) => {
@@ -770,7 +717,7 @@ const makeBeadsService = Effect.gen(function* () {
       ),
     );
 
-  const queryIssues: BeadsServiceShape["queryIssues"] = (input) =>
+  const queryIssues: BeadsTrackerServiceShape["queryIssues"] = (input) =>
     runBdJson(input.cwd, ["list", "--all", "--limit", "0"], (json) => {
       const rawIssues = asRecordArray(json);
       const issueTitleById = buildIssueTitleMap(rawIssues);
@@ -784,9 +731,9 @@ const makeBeadsService = Effect.gen(function* () {
       } satisfies BeadsQueryIssuesResult;
     });
 
-  const getIssue: BeadsServiceShape["getIssue"] = (input) => getIssueDetail(input);
+  const getIssue: BeadsTrackerServiceShape["getIssue"] = (input) => getIssueDetail(input);
 
-  const updateIssue: BeadsServiceShape["updateIssue"] = (input) =>
+  const updateIssue: BeadsTrackerServiceShape["updateIssue"] = (input) =>
     Effect.gen(function* () {
       const args = ["update", input.issueId];
 
@@ -824,7 +771,7 @@ const makeBeadsService = Effect.gen(function* () {
         }
       }
 
-      const updated = yield* runBdJson(input.cwd, args, (json) => {
+      return yield* runBdJson(input.cwd, args, (json) => {
         const items = Array.isArray(json) ? json : [];
         const issue = items[0] as Record<string, unknown> | undefined;
         if (!issue) {
@@ -832,46 +779,15 @@ const makeBeadsService = Effect.gen(function* () {
         }
         return mapIssueSummary(issue);
       });
-
-      yield* appendSessionActivity({
-        cwd: input.cwd,
-        entry: {
-          kind: "updated",
-          issue: updated,
-          createdAt: nowIso(),
-        },
-      });
-
-      return updated;
     });
 
-  const commentIssue: BeadsServiceShape["commentIssue"] = (input) =>
+  const commentIssue: BeadsTrackerServiceShape["commentIssue"] = (input) =>
     Effect.gen(function* () {
       yield* runBdRaw(input.cwd, ["comment", input.issueId, input.text]);
-      const detail = yield* getIssueDetail({ cwd: input.cwd, issueId: input.issueId });
-      yield* appendSessionActivity({
-        cwd: input.cwd,
-        entry: {
-          kind: "commented",
-          issue: detail,
-          createdAt: nowIso(),
-        },
-      });
-      return detail;
+      return yield* getIssueDetail({ cwd: input.cwd, issueId: input.issueId });
     });
 
-  const getSessionActivity: BeadsServiceShape["getSessionActivity"] = (input) =>
-    Ref.get(sessionActivityRef).pipe(
-      Effect.map((records) =>
-        decodeSessionActivity({
-          entries: records
-            .filter((record) => record.cwd === input.cwd)
-            .map((record) => record.entry),
-        }),
-      ),
-    );
-
-  const getContext: BeadsServiceShape["getContext"] = (input) =>
+  const getContext: BeadsTrackerServiceShape["getContext"] = (input) =>
     runBdJson(input.cwd, ["context"], (json) => {
       const record = asRecord(json);
       if (!record) {
@@ -880,10 +796,10 @@ const makeBeadsService = Effect.gen(function* () {
       return mapBeadsContext(record);
     });
 
-  const getSwarmSupport: BeadsServiceShape["getSwarmSupport"] = (input) =>
+  const getSwarmSupport: BeadsTrackerServiceShape["getSwarmSupport"] = (input) =>
     getContext({ cwd: input.cwd }).pipe(Effect.map((context) => deriveSwarmSupport(context)));
 
-  const listSwarms: BeadsServiceShape["listSwarms"] = (input) =>
+  const listSwarms: BeadsTrackerServiceShape["listSwarms"] = (input) =>
     Effect.gen(function* () {
       const support = yield* getSwarmSupport({ cwd: input.cwd });
       if (!support.supported) {
@@ -900,7 +816,7 @@ const makeBeadsService = Effect.gen(function* () {
       });
     });
 
-  const getIssueGraph: BeadsServiceShape["getIssueGraph"] = (input) =>
+  const getIssueGraph: BeadsTrackerServiceShape["getIssueGraph"] = (input) =>
     Effect.gen(function* () {
       const [rawIssue, comments, history] = yield* Effect.all(
         [
@@ -940,14 +856,14 @@ const makeBeadsService = Effect.gen(function* () {
       ),
     );
 
-  const getEpicSwarm: BeadsServiceShape["getEpicSwarm"] = (input) =>
+  const getEpicSwarm: BeadsTrackerServiceShape["getEpicSwarm"] = (input) =>
     listSwarms({ cwd: input.cwd }).pipe(
       Effect.map(
         (result) => result.swarms.find((swarm) => swarm.epicId === input.epicIssueId) ?? null,
       ),
     );
 
-  const validateEpicSwarm: BeadsServiceShape["validateEpicSwarm"] = (input) =>
+  const validateEpicSwarm: BeadsTrackerServiceShape["validateEpicSwarm"] = (input) =>
     Effect.gen(function* () {
       const [epic, support] = yield* Effect.all(
         [
@@ -994,7 +910,7 @@ const makeBeadsService = Effect.gen(function* () {
       });
     });
 
-  const getEpicSwarmStatus: BeadsServiceShape["getEpicSwarmStatus"] = (input) =>
+  const getEpicSwarmStatus: BeadsTrackerServiceShape["getEpicSwarmStatus"] = (input) =>
     Effect.gen(function* () {
       const [epic, support] = yield* Effect.all(
         [
@@ -1041,9 +957,158 @@ const makeBeadsService = Effect.gen(function* () {
       });
     });
 
+  return {
+    queryIssues,
+    getIssue,
+    updateIssue,
+    commentIssue,
+    getContext,
+    getSwarmSupport,
+    getIssueGraph,
+    getEpicSwarm,
+    validateEpicSwarm,
+    getEpicSwarmStatus,
+    listSwarms,
+  } satisfies BeadsTrackerServiceShape;
+});
+
+const makeBeadsService = Effect.gen(function* () {
+  const orchestrationEngine = yield* OrchestrationEngineService;
+  const beadsTracker = yield* BeadsTrackerService;
+  const sessionActivityRef = yield* Ref.make<ReadonlyArray<SessionActivityRecord>>([]);
+
+  const appendSessionActivity = (record: SessionActivityRecord) =>
+    Ref.update(sessionActivityRef, (records) => [record, ...records].slice(0, 200));
+
+  const startLinkedIssueThread = Effect.fn("BeadsService.startLinkedIssueThread")(
+    function* (input: {
+      cwd: string;
+      projectId: BeadsStartWorkflowInput["projectId"];
+      issue: BeadsIssueDetailType;
+      modelSelection: BeadsStartWorkflowInput["modelSelection"];
+      runtimeMode: BeadsStartWorkflowInput["runtimeMode"];
+      interactionMode: "default" | "plan";
+      threadTitle: string;
+      promptText: string;
+      workflowKind: BeadsStartWorkflowInput["workflow"] | "plan-implementation";
+      createThreadErrorMessage: string;
+      startTurnErrorMessage: string;
+    }) {
+      const nextThreadId = threadId();
+      const createdAt = nowIso();
+
+      yield* orchestrationEngine
+        .dispatch({
+          type: "thread.create",
+          commandId: commandId("create-thread"),
+          threadId: nextThreadId,
+          projectId: input.projectId,
+          title: input.threadTitle,
+          modelSelection: input.modelSelection,
+          runtimeMode: input.runtimeMode,
+          interactionMode: input.interactionMode,
+          branch: null,
+          worktreePath: null,
+          issueLink: buildIssueLink(input.issue, input.cwd),
+          createdAt,
+        })
+        .pipe(Effect.mapError((cause) => toBeadsError(input.createThreadErrorMessage, cause)));
+
+      yield* orchestrationEngine
+        .dispatch({
+          type: "thread.turn.start",
+          commandId: commandId("start-turn"),
+          threadId: nextThreadId,
+          message: {
+            messageId: messageId("initial"),
+            role: "user",
+            text: input.promptText,
+            attachments: [],
+          },
+          modelSelection: input.modelSelection,
+          runtimeMode: input.runtimeMode,
+          interactionMode: input.interactionMode,
+          titleSeed: input.threadTitle,
+          createdAt,
+        })
+        .pipe(Effect.mapError((cause) => toBeadsError(input.startTurnErrorMessage, cause)));
+
+      yield* appendSessionActivity({
+        cwd: input.cwd,
+        entry: {
+          kind: "workflow-started",
+          issue: input.issue,
+          createdAt,
+          workflowKind: input.workflowKind,
+          threadId: nextThreadId,
+        },
+      });
+
+      return {
+        threadId: nextThreadId,
+        created: true,
+      } satisfies BeadsStartWorkflowResult;
+    },
+  );
+
+  const queryIssues: BeadsServiceShape["queryIssues"] = (input) => beadsTracker.queryIssues(input);
+  const getIssue: BeadsServiceShape["getIssue"] = (input) => beadsTracker.getIssue(input);
+
+  const updateIssue: BeadsServiceShape["updateIssue"] = (input) =>
+    Effect.gen(function* () {
+      const updated = yield* beadsTracker.updateIssue(input);
+      yield* appendSessionActivity({
+        cwd: input.cwd,
+        entry: {
+          kind: "updated",
+          issue: updated,
+          createdAt: nowIso(),
+        },
+      });
+      return updated;
+    });
+
+  const commentIssue: BeadsServiceShape["commentIssue"] = (input) =>
+    Effect.gen(function* () {
+      const detail = yield* beadsTracker.commentIssue(input);
+      yield* appendSessionActivity({
+        cwd: input.cwd,
+        entry: {
+          kind: "commented",
+          issue: detail,
+          createdAt: nowIso(),
+        },
+      });
+      return detail;
+    });
+
+  const getSessionActivity: BeadsServiceShape["getSessionActivity"] = (input) =>
+    Ref.get(sessionActivityRef).pipe(
+      Effect.map((records) =>
+        decodeSessionActivity({
+          entries: records
+            .filter((record) => record.cwd === input.cwd)
+            .map((record) => record.entry),
+        }),
+      ),
+    );
+
+  const getContext: BeadsServiceShape["getContext"] = (input) => beadsTracker.getContext(input);
+  const getSwarmSupport: BeadsServiceShape["getSwarmSupport"] = (input) =>
+    beadsTracker.getSwarmSupport(input);
+  const listSwarms: BeadsServiceShape["listSwarms"] = (input) => beadsTracker.listSwarms(input);
+  const getIssueGraph: BeadsServiceShape["getIssueGraph"] = (input) =>
+    beadsTracker.getIssueGraph(input);
+  const getEpicSwarm: BeadsServiceShape["getEpicSwarm"] = (input) =>
+    beadsTracker.getEpicSwarm(input);
+  const validateEpicSwarm: BeadsServiceShape["validateEpicSwarm"] = (input) =>
+    beadsTracker.validateEpicSwarm(input);
+  const getEpicSwarmStatus: BeadsServiceShape["getEpicSwarmStatus"] = (input) =>
+    beadsTracker.getEpicSwarmStatus(input);
+
   const startWorkflow: BeadsServiceShape["startWorkflow"] = (input) =>
     Effect.gen(function* () {
-      const issue = yield* getIssueDetail({ cwd: input.cwd, issueId: input.issueId });
+      const issue = yield* beadsTracker.getIssue({ cwd: input.cwd, issueId: input.issueId });
       const readModel = yield* orchestrationEngine
         .getReadModel()
         .pipe(
@@ -1107,7 +1172,7 @@ const makeBeadsService = Effect.gen(function* () {
 
   const startEpicQuickRefine: BeadsServiceShape["startEpicQuickRefine"] = (input) =>
     Effect.gen(function* () {
-      const epic = yield* getIssueDetail({ cwd: input.cwd, issueId: input.epicIssueId });
+      const epic = yield* beadsTracker.getIssue({ cwd: input.cwd, issueId: input.epicIssueId });
       return yield* startLinkedIssueThread({
         cwd: input.cwd,
         projectId: input.projectId,
@@ -1125,7 +1190,7 @@ const makeBeadsService = Effect.gen(function* () {
 
   const startEpicPlannedRefine: BeadsServiceShape["startEpicPlannedRefine"] = (input) =>
     Effect.gen(function* () {
-      const epic = yield* getIssueDetail({ cwd: input.cwd, issueId: input.epicIssueId });
+      const epic = yield* beadsTracker.getIssue({ cwd: input.cwd, issueId: input.epicIssueId });
       return yield* startLinkedIssueThread({
         cwd: input.cwd,
         projectId: input.projectId,
@@ -1145,8 +1210,8 @@ const makeBeadsService = Effect.gen(function* () {
     Effect.gen(function* () {
       const [support, epic] = yield* Effect.all(
         [
-          getSwarmSupport({ cwd: input.cwd }),
-          getIssueDetail({ cwd: input.cwd, issueId: input.epicIssueId }),
+          beadsTracker.getSwarmSupport({ cwd: input.cwd }),
+          beadsTracker.getIssue({ cwd: input.cwd, issueId: input.epicIssueId }),
         ],
         { concurrency: "unbounded" },
       );
@@ -1159,11 +1224,12 @@ const makeBeadsService = Effect.gen(function* () {
 
       const [validation, status] = yield* Effect.all(
         [
-          validateEpicSwarm({ cwd: input.cwd, epicIssueId: input.epicIssueId }),
-          getEpicSwarmStatus({ cwd: input.cwd, epicIssueId: input.epicIssueId }),
+          beadsTracker.validateEpicSwarm({ cwd: input.cwd, epicIssueId: input.epicIssueId }),
+          beadsTracker.getEpicSwarmStatus({ cwd: input.cwd, epicIssueId: input.epicIssueId }),
         ],
         { concurrency: "unbounded" },
       );
+      const intent = resolveEpicPlanImplementationIntent(validation);
 
       return yield* startLinkedIssueThread({
         cwd: input.cwd,
@@ -1172,11 +1238,12 @@ const makeBeadsService = Effect.gen(function* () {
         modelSelection: input.modelSelection,
         runtimeMode: input.runtimeMode,
         interactionMode: "default",
-        threadTitle: buildEpicPlanImplementationThreadTitle(epic),
+        threadTitle: buildEpicPlanImplementationThreadTitle(epic, intent),
         promptText: buildEpicPlanImplementationPrompt({
           issue: epic,
           validation,
           status,
+          intent,
         }),
         workflowKind: "plan-implementation",
         createThreadErrorMessage: "Failed to create epic implementation-planning thread.",
@@ -1204,4 +1271,5 @@ const makeBeadsService = Effect.gen(function* () {
   } satisfies BeadsServiceShape;
 });
 
+export const BeadsTrackerServiceLive = Layer.effect(BeadsTrackerService, makeBeadsTrackerService);
 export const BeadsServiceLive = Layer.effect(BeadsService, makeBeadsService);

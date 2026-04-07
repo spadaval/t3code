@@ -36,6 +36,7 @@ import { normalizeDispatchCommand } from "./orchestration/Normalizer";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { PlanImplementationWorkflow } from "./orchestration/Services/PlanImplementationWorkflow";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
+import { SwarmExecutionWorkflow } from "./orchestration/Services/SwarmExecutionWorkflow";
 import {
   observeRpcEffect,
   observeRpcStream,
@@ -57,6 +58,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const orchestrationEngine = yield* OrchestrationEngineService;
     const planImplementationWorkflow = yield* PlanImplementationWorkflow;
+    const swarmExecutionWorkflow = yield* SwarmExecutionWorkflow;
     const checkpointDiffQuery = yield* CheckpointDiffQuery;
     const keybindings = yield* Keybindings;
     const open = yield* Open;
@@ -507,6 +509,76 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                   }),
               ),
             ),
+          { "rpc.aggregate": "orchestration" },
+        ),
+      [ORCHESTRATION_WS_METHODS.startSwarmRun]: (input) =>
+        observeRpcEffect(
+          ORCHESTRATION_WS_METHODS.startSwarmRun,
+          swarmExecutionWorkflow.startSwarmRun(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationDispatchCommandError({
+                  message: "Failed to start swarm run",
+                  cause,
+                }),
+            ),
+          ),
+          { "rpc.aggregate": "orchestration" },
+        ),
+      [ORCHESTRATION_WS_METHODS.continueSwarmRun]: (input) =>
+        observeRpcEffect(
+          ORCHESTRATION_WS_METHODS.continueSwarmRun,
+          swarmExecutionWorkflow.continueSwarmRun(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationDispatchCommandError({
+                  message: "Failed to continue swarm run",
+                  cause,
+                }),
+            ),
+          ),
+          { "rpc.aggregate": "orchestration" },
+        ),
+      [ORCHESTRATION_WS_METHODS.pauseSwarmRun]: (input) =>
+        observeRpcEffect(
+          ORCHESTRATION_WS_METHODS.pauseSwarmRun,
+          swarmExecutionWorkflow.pauseSwarmRun(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationDispatchCommandError({
+                  message: "Failed to pause swarm run",
+                  cause,
+                }),
+            ),
+          ),
+          { "rpc.aggregate": "orchestration" },
+        ),
+      [ORCHESTRATION_WS_METHODS.resumeSwarmRun]: (input) =>
+        observeRpcEffect(
+          ORCHESTRATION_WS_METHODS.resumeSwarmRun,
+          swarmExecutionWorkflow.resumeSwarmRun(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationDispatchCommandError({
+                  message: "Failed to resume swarm run",
+                  cause,
+                }),
+            ),
+          ),
+          { "rpc.aggregate": "orchestration" },
+        ),
+      [ORCHESTRATION_WS_METHODS.cancelSwarmRun]: (input) =>
+        observeRpcEffect(
+          ORCHESTRATION_WS_METHODS.cancelSwarmRun,
+          swarmExecutionWorkflow.cancelSwarmRun(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationDispatchCommandError({
+                  message: "Failed to cancel swarm run",
+                  cause,
+                }),
+            ),
+          ),
           { "rpc.aggregate": "orchestration" },
         ),
       [WS_METHODS.subscribeOrchestrationDomainEvents]: (_input) =>

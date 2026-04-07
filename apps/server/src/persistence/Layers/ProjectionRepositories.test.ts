@@ -1,20 +1,38 @@
-import { ProjectId, ThreadId } from "@t3tools/contracts";
+import { ProjectId, SwarmRunId, SwarmTaskExecutionId, ThreadId } from "@t3tools/contracts";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { SqlitePersistenceMemory } from "./Sqlite.ts";
+import { ProjectionSwarmRunRepositoryLive } from "./ProjectionSwarmRuns.ts";
+import { ProjectionSwarmTaskExecutionRepositoryLive } from "./ProjectionSwarmTaskExecutions.ts";
+import { layerConfig } from "./Sqlite.ts";
 import { ProjectionProjectRepositoryLive } from "./ProjectionProjects.ts";
 import { ProjectionThreadRepositoryLive } from "./ProjectionThreads.ts";
 import { ProjectionProjectRepository } from "../Services/ProjectionProjects.ts";
+import { ProjectionSwarmRunRepository } from "../Services/ProjectionSwarmRuns.ts";
+import { ProjectionSwarmTaskExecutionRepository } from "../Services/ProjectionSwarmTaskExecutions.ts";
 import { ProjectionThreadRepository } from "../Services/ProjectionThreads.ts";
+import { ServerConfig } from "../../config.ts";
 
 const projectionRepositoriesLayer = it.layer(
-  Layer.mergeAll(
-    ProjectionProjectRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
-    ProjectionThreadRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
-    SqlitePersistenceMemory,
-  ),
+  (() => {
+    const serverConfigLayer = ServerConfig.layerTest(process.cwd(), {
+      prefix: "t3-projection-repositories-test-",
+    });
+    const sqliteLayer = layerConfig.pipe(
+      Layer.provide(serverConfigLayer),
+      Layer.provide(NodeServices.layer),
+    );
+
+    return Layer.mergeAll(
+      ProjectionProjectRepositoryLive.pipe(Layer.provideMerge(sqliteLayer)),
+      ProjectionSwarmRunRepositoryLive.pipe(Layer.provideMerge(sqliteLayer)),
+      ProjectionSwarmTaskExecutionRepositoryLive.pipe(Layer.provideMerge(sqliteLayer)),
+      ProjectionThreadRepositoryLive.pipe(Layer.provideMerge(sqliteLayer)),
+      sqliteLayer,
+    );
+  })(),
 );
 
 projectionRepositoriesLayer("Projection repositories", (it) => {
@@ -118,6 +136,135 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       assert.deepStrictEqual(Option.getOrNull(persisted)?.modelSelection, {
         provider: "claudeAgent",
         model: "claude-opus-4-6",
+      });
+    }),
+  );
+
+  it.effect("stores JSON for swarm run provider options and links active execution ids", () =>
+    Effect.gen(function* () {
+      const swarmRuns = yield* ProjectionSwarmRunRepository;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* swarmRuns.upsert({
+        runId: SwarmRunId.makeUnsafe("run-json-options"),
+        projectId: ProjectId.makeUnsafe("project-null-options"),
+        epicIssueId: "EPIC-1",
+        swarmId: "SWARM-1",
+        status: "running",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        provider: "codex",
+        model: "gpt-5.4",
+        modelOptions: {
+          codex: {
+            reasoningEffort: "high",
+          },
+        },
+        providerOptions: {
+          codex: {
+            approvalPolicy: "never",
+            sandboxMode: "danger-full-access",
+          },
+        },
+        assistantDeliveryMode: "streaming",
+        runtimeMode: "full-access",
+        activeTaskExecutionId: SwarmTaskExecutionId.makeUnsafe("execution-active"),
+        latestTaskExecutionId: SwarmTaskExecutionId.makeUnsafe("execution-active"),
+        lastError: null,
+        requestedAt: "2026-04-06T00:00:00.000Z",
+        startedAt: "2026-04-06T00:00:01.000Z",
+        idledAt: null,
+        pausedAt: null,
+        blockedAt: null,
+        failedAt: null,
+        cancelledAt: null,
+        completedAt: null,
+        updatedAt: "2026-04-06T00:00:02.000Z",
+      });
+
+      const rows = yield* sql<{
+        readonly modelOptions: string | null;
+        readonly providerOptions: string | null;
+        readonly activeTaskExecutionId: string | null;
+      }>`
+        SELECT
+          model_options_json AS "modelOptions",
+          provider_options_json AS "providerOptions",
+          active_task_execution_id AS "activeTaskExecutionId"
+        FROM projection_swarm_runs
+        WHERE run_id = 'run-json-options'
+      `;
+      const row = rows[0];
+      if (!row) {
+        return yield* Effect.fail(new Error("Expected projection_swarm_runs row to exist."));
+      }
+
+      assert.strictEqual(
+        row.modelOptions,
+        JSON.stringify({
+          codex: {
+            reasoningEffort: "high",
+          },
+        }),
+      );
+      assert.strictEqual(
+        row.providerOptions,
+        JSON.stringify({
+          codex: {
+            approvalPolicy: "never",
+            sandboxMode: "danger-full-access",
+          },
+        }),
+      );
+      assert.strictEqual(row.activeTaskExecutionId, "execution-active");
+
+      const persisted = yield* swarmRuns.getById({
+        runId: SwarmRunId.makeUnsafe("run-json-options"),
+      });
+      assert.deepStrictEqual(Option.getOrNull(persisted)?.providerOptions, {
+        codex: {
+          approvalPolicy: "never",
+          sandboxMode: "danger-full-access",
+        },
+      });
+    }),
+  );
+
+  it.effect("stores swarm task execution rows and nullable worker thread ids", () =>
+    Effect.gen(function* () {
+      const executions = yield* ProjectionSwarmTaskExecutionRepository;
+
+      yield* executions.upsert({
+        executionId: SwarmTaskExecutionId.makeUnsafe("execution-1"),
+        runId: SwarmRunId.makeUnsafe("run-json-options"),
+        issueId: "TASK-1",
+        workerThreadId: null,
+        sequenceNumber: 1,
+        status: "active",
+        lastError: null,
+        startedAt: "2026-04-06T00:00:03.000Z",
+        completedAt: null,
+        failedAt: null,
+        cancelledAt: null,
+        updatedAt: "2026-04-06T00:00:03.000Z",
+      });
+
+      const persisted = yield* executions.getById({
+        executionId: SwarmTaskExecutionId.makeUnsafe("execution-1"),
+      });
+      assert.deepStrictEqual(Option.getOrNull(persisted), {
+        executionId: SwarmTaskExecutionId.makeUnsafe("execution-1"),
+        runId: SwarmRunId.makeUnsafe("run-json-options"),
+        issueId: "TASK-1",
+        workerThreadId: null,
+        sequenceNumber: 1,
+        status: "active",
+        lastError: null,
+        startedAt: "2026-04-06T00:00:03.000Z",
+        completedAt: null,
+        failedAt: null,
+        cancelledAt: null,
+        updatedAt: "2026-04-06T00:00:03.000Z",
       });
     }),
   );

@@ -69,6 +69,8 @@ function makeState(thread: Thread): AppState {
     threadIdsByProjectId,
     bootstrapComplete: true,
     planImplementationLaunches: [],
+    swarmRuns: [],
+    swarmTaskExecutions: [],
     threadsHydrated: true,
   };
 }
@@ -149,6 +151,8 @@ function makeReadModel(thread: OrchestrationReadModel["threads"][number]): Orche
     ],
     threads: [thread],
     planImplementationLaunches: [],
+    swarmRuns: [],
+    swarmTaskExecutions: [],
   };
 }
 
@@ -253,6 +257,62 @@ describe("store read model sync", () => {
     expect(next.threads[0]?.archivedAt).toBe(archivedAt);
   });
 
+  it("hydrates swarm runs and executions from the read model snapshot", () => {
+    const initialState = makeState(makeThread());
+    const next = syncServerReadModel(initialState, {
+      ...makeReadModel(makeReadModelThread({})),
+      swarmRuns: [
+        {
+          runId: "run-1" as never,
+          projectId: ProjectId.makeUnsafe("project-1"),
+          epicIssueId: "EPIC-1",
+          swarmId: "SWARM-1",
+          status: "running",
+          schedulerMode: "automatic",
+          workspaceMode: "shared",
+          provider: "codex",
+          model: "gpt-5.4",
+          modelOptions: null,
+          providerOptions: null,
+          assistantDeliveryMode: "streaming",
+          runtimeMode: "full-access",
+          activeTaskExecutionId: "execution-1" as never,
+          latestTaskExecutionId: "execution-1" as never,
+          lastError: null,
+          requestedAt: "2026-04-06T00:00:00.000Z",
+          startedAt: "2026-04-06T00:00:01.000Z",
+          idledAt: null,
+          pausedAt: null,
+          blockedAt: null,
+          failedAt: null,
+          cancelledAt: null,
+          completedAt: null,
+          updatedAt: "2026-04-06T00:00:02.000Z",
+        },
+      ],
+      swarmTaskExecutions: [
+        {
+          executionId: "execution-1" as never,
+          runId: "run-1" as never,
+          issueId: "TASK-1",
+          workerThreadId: ThreadId.makeUnsafe("thread-1"),
+          sequenceNumber: 1,
+          status: "active",
+          lastError: null,
+          startedAt: "2026-04-06T00:00:01.000Z",
+          completedAt: null,
+          failedAt: null,
+          cancelledAt: null,
+          updatedAt: "2026-04-06T00:00:02.000Z",
+        },
+      ],
+    });
+
+    expect(next.swarmRuns).toHaveLength(1);
+    expect(next.swarmRuns[0]?.latestTaskExecutionId).toBe("execution-1");
+    expect(next.swarmTaskExecutions[0]?.workerThreadId).toBe(ThreadId.makeUnsafe("thread-1"));
+  });
+
   it("replaces projects using snapshot order during recovery", () => {
     const project1 = ProjectId.makeUnsafe("project-1");
     const project2 = ProjectId.makeUnsafe("project-2");
@@ -285,6 +345,8 @@ describe("store read model sync", () => {
       threadIdsByProjectId: {},
       bootstrapComplete: true,
       planImplementationLaunches: [],
+      swarmRuns: [],
+      swarmTaskExecutions: [],
       threadsHydrated: true,
     };
     const readModel: OrchestrationReadModel = {
@@ -309,6 +371,8 @@ describe("store read model sync", () => {
       ],
       threads: [],
       planImplementationLaunches: [],
+      swarmRuns: [],
+      swarmTaskExecutions: [],
     };
 
     const next = syncServerReadModel(initialState, readModel);
@@ -401,6 +465,8 @@ describe("incremental orchestration updates", () => {
       threadIdsByProjectId: {},
       bootstrapComplete: true,
       planImplementationLaunches: [],
+      swarmRuns: [],
+      swarmTaskExecutions: [],
       threadsHydrated: true,
     };
 
@@ -464,6 +530,8 @@ describe("incremental orchestration updates", () => {
       },
       bootstrapComplete: true,
       planImplementationLaunches: [],
+      swarmRuns: [],
+      swarmTaskExecutions: [],
       threadsHydrated: true,
     };
 
@@ -531,6 +599,68 @@ describe("incremental orchestration updates", () => {
     expect(next.threads[0]?.messages[0]?.text).toBe("hello world");
     expect(next.threads[0]?.latestTurn?.state).toBe("running");
     expect(next.threads[1]).toBe(thread2);
+  });
+
+  it("applies swarm run and execution lifecycle events incrementally", () => {
+    const state = makeState(makeThread());
+
+    const next = applyOrchestrationEvents(state, [
+      makeEvent("swarm-run.requested", {
+        runId: "run-1" as never,
+        projectId: ProjectId.makeUnsafe("project-1"),
+        epicIssueId: "EPIC-1",
+        swarmId: "SWARM-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        provider: "codex",
+        model: "gpt-5.4",
+        modelOptions: null,
+        providerOptions: null,
+        assistantDeliveryMode: "streaming",
+        runtimeMode: "full-access",
+        requestedAt: "2026-04-06T00:00:00.000Z",
+        updatedAt: "2026-04-06T00:00:00.000Z",
+      }),
+      makeEvent("swarm-task-execution.started", {
+        executionId: "execution-1" as never,
+        runId: "run-1" as never,
+        issueId: "TASK-1",
+        workerThreadId: ThreadId.makeUnsafe("thread-1"),
+        sequenceNumber: 1,
+        startedAt: "2026-04-06T00:00:01.000Z",
+        updatedAt: "2026-04-06T00:00:01.000Z",
+      }),
+      makeEvent("swarm-task-execution.failed", {
+        executionId: "execution-1" as never,
+        runId: "run-1" as never,
+        reason: "worker exited",
+        failedAt: "2026-04-06T00:00:02.000Z",
+        updatedAt: "2026-04-06T00:00:02.000Z",
+      }),
+      makeEvent("swarm-run.failed", {
+        runId: "run-1" as never,
+        reason: "worker exited",
+        failedAt: "2026-04-06T00:00:03.000Z",
+        updatedAt: "2026-04-06T00:00:03.000Z",
+      }),
+    ]);
+
+    expect(next.swarmRuns).toEqual([
+      expect.objectContaining({
+        runId: "run-1",
+        status: "failed",
+        activeTaskExecutionId: null,
+        latestTaskExecutionId: "execution-1",
+        lastError: "worker exited",
+      }),
+    ]);
+    expect(next.swarmTaskExecutions).toEqual([
+      expect.objectContaining({
+        executionId: "execution-1",
+        status: "failed",
+        lastError: "worker exited",
+      }),
+    ]);
   });
 
   it("applies replay batches in sequence and updates session state", () => {
