@@ -198,21 +198,41 @@ function mapParentRef(
   return { id: parentId, title: parentTitle };
 }
 
-function mapIssueRelationSummary(raw: Record<string, unknown>): BeadsIssueRelationSummaryType {
+function mapIssueRelationSummary(
+  raw: Record<string, unknown>,
+  fallback?: Record<string, unknown>,
+): BeadsIssueRelationSummaryType {
+  const merged = fallback ? { ...fallback, ...raw } : raw;
   return decodeIssueRelationSummary({
-    id: raw.id,
-    title: raw.title,
-    status: raw.status,
-    priority: asNumber(raw.priority),
-    issueType: raw.issue_type,
-    assignee: trimToNull(raw.assignee),
-    owner: trimToNull(raw.owner),
-    parent: mapParentRef(raw),
+    id: merged.id,
+    title: merged.title,
+    status: merged.status,
+    priority: asNumber(merged.priority),
+    issueType: merged.issue_type,
+    assignee: trimToNull(merged.assignee),
+    owner: trimToNull(merged.owner),
+    parent: mapParentRef(merged),
   });
 }
 
-function mapIssueRelationArray(value: unknown): BeadsIssueRelationSummaryType[] {
-  return asRecordArray(value).map((entry) => mapIssueRelationSummary(entry));
+function mapIssueRelationArray(
+  value: unknown,
+  fallbackById?: ReadonlyMap<string, Record<string, unknown>>,
+): BeadsIssueRelationSummaryType[] {
+  return asRecordArray(value).map((entry) => {
+    const issueId = trimToNull(entry.id);
+    return mapIssueRelationSummary(entry, issueId ? fallbackById?.get(issueId) : undefined);
+  });
+}
+
+function buildIssueRecordLookup(
+  rawIssues: ReadonlyArray<Record<string, unknown>>,
+): ReadonlyMap<string, Record<string, unknown>> {
+  const entries = rawIssues.flatMap((rawIssue) => {
+    const id = trimToNull(rawIssue.id);
+    return id ? ([[id, rawIssue]] as const) : [];
+  });
+  return new Map(entries);
 }
 
 function mapBeadsContext(raw: Record<string, unknown>): BeadsContextType {
@@ -912,12 +932,15 @@ const makeBeadsTrackerService = Effect.gen(function* () {
 
   const getEpicSwarmStatus: BeadsTrackerServiceShape["getEpicSwarmStatus"] = (input) =>
     Effect.gen(function* () {
-      const [epic, support] = yield* Effect.all(
-        [
-          getRawIssue(input.cwd, input.epicIssueId).pipe(Effect.map((raw) => mapIssueSummary(raw))),
-          getSwarmSupport({ cwd: input.cwd }),
-        ],
+      const [rawEpic, support] = yield* Effect.all(
+        [getRawIssue(input.cwd, input.epicIssueId), getSwarmSupport({ cwd: input.cwd })],
         { concurrency: "unbounded" },
+      );
+      const epic = mapIssueSummary(rawEpic);
+      const childIssueRecordById = buildIssueRecordLookup(
+        asRecordArray(rawEpic.dependents).filter(
+          (entry) => trimToNull(entry.dependency_type) === "parent-child",
+        ),
       );
 
       if (!support.supported) {
@@ -950,10 +973,10 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         epicId: epic.id,
         epicTitle: epic.title,
         swarm,
-        completed: mapIssueRelationArray(rawStatus.completed),
-        active: mapIssueRelationArray(rawStatus.active),
-        ready: mapIssueRelationArray(rawStatus.ready),
-        blocked: mapIssueRelationArray(rawStatus.blocked),
+        completed: mapIssueRelationArray(rawStatus.completed, childIssueRecordById),
+        active: mapIssueRelationArray(rawStatus.active, childIssueRecordById),
+        ready: mapIssueRelationArray(rawStatus.ready, childIssueRecordById),
+        blocked: mapIssueRelationArray(rawStatus.blocked, childIssueRecordById),
       });
     });
 

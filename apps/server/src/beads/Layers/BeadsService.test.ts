@@ -516,6 +516,114 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
+  it.effect("hydrates sparse swarm status entries from epic child records", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      installBdJsonMock({
+        context: {
+          beads_dir: "/repo/.beads",
+          repo_root: "/repo",
+          cwd_repo_root: "/repo",
+          is_redirected: false,
+          is_worktree: false,
+          backend: "dolt",
+          dolt_mode: "shared",
+          database: "repo",
+          project_id: "project-1",
+          role: "contributor",
+          bd_version: "1.0.0",
+        },
+        "show EPIC-1 --long": [
+          {
+            id: "EPIC-1",
+            title: "Epic coordination",
+            description: "Track epic swarm progress",
+            notes: null,
+            status: "open",
+            priority: 2,
+            issue_type: "epic",
+            assignee: null,
+            owner: "alice",
+            created_at: now,
+            created_by: "alice",
+            updated_at: now,
+            labels: [],
+            dependents: [
+              {
+                id: "READY-1",
+                title: "Ready child",
+                status: "open",
+                priority: 2,
+                issue_type: "task",
+                assignee: null,
+                owner: "alice",
+                dependency_type: "parent-child",
+              },
+              {
+                id: "BLOCKED-1",
+                title: "Blocked child",
+                status: "blocked",
+                priority: 1,
+                issue_type: "task",
+                assignee: null,
+                owner: "bob",
+                dependency_type: "parent-child",
+              },
+            ],
+            dependencies: [],
+          },
+        ],
+        "swarm list": {
+          swarms: [],
+        },
+        "swarm status EPIC-1": {
+          completed: [],
+          active: [],
+          ready: [
+            {
+              id: "READY-1",
+              title: "Ready child",
+            },
+          ],
+          blocked: [
+            {
+              id: "BLOCKED-1",
+              title: "Blocked child",
+            },
+          ],
+        },
+      });
+
+      const beads = yield* BeadsService;
+      const status = yield* beads.getEpicSwarmStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
+
+      assert.deepStrictEqual(status.ready, [
+        {
+          id: "READY-1",
+          title: "Ready child",
+          status: "open",
+          priority: 2,
+          issueType: "task",
+          assignee: null,
+          owner: "alice",
+          parent: null,
+        },
+      ]);
+      assert.deepStrictEqual(status.blocked, [
+        {
+          id: "BLOCKED-1",
+          title: "Blocked child",
+          status: "blocked",
+          priority: 1,
+          issueType: "task",
+          assignee: null,
+          owner: "bob",
+          parent: null,
+        },
+      ]);
+    }),
+  );
+
   it.effect("starts epic quick refine in a default-mode linked thread", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();

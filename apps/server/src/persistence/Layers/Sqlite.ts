@@ -2,7 +2,6 @@ import { Effect, Layer, FileSystem, Path } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { runMigrations } from "../Migrations.ts";
-import { repairCanonicalModelSelections } from "../Migrations/016_CanonicalizeModelSelections.ts";
 import { ServerConfig } from "../../config.ts";
 
 type RuntimeSqliteLayerConfig = {
@@ -32,7 +31,6 @@ const setup = Layer.effectDiscard(
     const sql = yield* SqlClient.SqlClient;
     yield* sql`PRAGMA journal_mode = WAL;`;
     yield* sql`PRAGMA foreign_keys = ON;`;
-    yield* repairCanonicalModelSelections;
     yield* runMigrations();
   }),
 );
