@@ -459,7 +459,7 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Plan Ready", pulse: false });
   });
 
-  it("does not show plan ready after the proposed plan was implemented elsewhere", () => {
+  it("does not show plan ready after the proposed plan already has a terminal follow-up outcome", () => {
     expect(
       resolveThreadStatusPill({
         thread: {

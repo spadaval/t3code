@@ -42,6 +42,7 @@ import { useComposerThreadDraft, useEffectiveComposerModelState } from "~/compos
 import { stripDiffSearchParams } from "~/diffRouteSearch";
 import { useSettings } from "~/hooks/useSettings";
 import {
+  describeProposedPlanFollowUpOutcome,
   findLatestTrackerRefinementPlan,
   groupIssuesByEpic,
   isEpicIssueType,
@@ -400,9 +401,7 @@ function LatestPlannedRefineSection(props: {
             </span>
             {props.latestPlannedRefine.followUpOutcome ? (
               <Badge size="sm" variant="outline">
-                {props.latestPlannedRefine.followUpOutcome.kind === "convert-to-tracker"
-                  ? "Converted to tracker"
-                  : "Implementation started"}
+                {describeProposedPlanFollowUpOutcome(props.latestPlannedRefine.followUpOutcome)}
               </Badge>
             ) : (
               <Badge size="sm" variant="success">

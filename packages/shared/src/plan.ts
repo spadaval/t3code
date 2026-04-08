@@ -10,6 +10,12 @@ export function buildPlanToBeadsPrompt(planMarkdown: string): string {
   ].join("\n\n");
 }
 
+export function describeProposedPlanFollowUpOutcome(outcome: {
+  kind: "implement-code" | "convert-to-tracker";
+}): string {
+  return outcome.kind === "convert-to-tracker" ? "Converted to tracker" : "Implementation started";
+}
+
 export function buildPlanImplementationThreadTitle(planMarkdown: string): string {
   const heading = planMarkdown.match(/^\s{0,3}#{1,6}\s+(.+)$/m)?.[1]?.trim();
   if (!heading || heading.length === 0) {

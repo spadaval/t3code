@@ -3,6 +3,7 @@ import {
   buildPlanImplementationThreadTitle as buildPlanImplementationThreadTitleShared,
   buildPlanToBeadsPrompt as buildPlanToBeadsPromptShared,
   buildPlanToBeadsThreadTitle as buildPlanToBeadsThreadTitleShared,
+  describeProposedPlanFollowUpOutcome as describeProposedPlanFollowUpOutcomeShared,
 } from "@t3tools/shared/plan";
 
 export function proposedPlanTitle(planMarkdown: string): string | null {
@@ -83,6 +84,12 @@ export function buildPlanImplementationPrompt(planMarkdown: string): string {
 
 export function buildPlanToBeadsPrompt(planMarkdown: string): string {
   return buildPlanToBeadsPromptShared(planMarkdown);
+}
+
+export function describeProposedPlanFollowUpOutcome(outcome: {
+  kind: "implement-code" | "convert-to-tracker";
+}): string {
+  return describeProposedPlanFollowUpOutcomeShared(outcome);
 }
 
 export function resolvePlanFollowUpSubmission(input: { draftText: string; planMarkdown: string }): {

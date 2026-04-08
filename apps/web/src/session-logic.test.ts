@@ -422,7 +422,7 @@ describe("findLatestProposedPlan", () => {
 });
 
 describe("hasActionableProposedPlan", () => {
-  it("returns true for an unimplemented proposed plan", () => {
+  it("returns true when a proposed plan has no terminal follow-up outcome", () => {
     expect(
       hasActionableProposedPlan({
         id: "plan-1",
@@ -436,7 +436,7 @@ describe("hasActionableProposedPlan", () => {
     ).toBe(true);
   });
 
-  it("returns false for a proposed plan already implemented elsewhere", () => {
+  it("returns false when a proposed plan already has a terminal follow-up outcome", () => {
     expect(
       hasActionableProposedPlan({
         id: "plan-1",

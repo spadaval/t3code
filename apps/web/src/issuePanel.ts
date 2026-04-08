@@ -19,6 +19,7 @@ import {
   type SwarmCoordinatorFetchLifecycle,
   type SwarmCoordinatorFetchLifecycleKind,
 } from "@t3tools/shared/swarm";
+import { describeProposedPlanFollowUpOutcome as describeProposedPlanFollowUpOutcomeShared } from "@t3tools/shared/plan";
 
 export interface EpicGroup {
   readonly key: string;
@@ -184,6 +185,12 @@ export function describeSharedWorkspaceProjectConflict(
     run,
     message: describeSharedWorkspaceProjectConflictMessage(run),
   };
+}
+
+export function describeProposedPlanFollowUpOutcome(outcome: {
+  readonly kind: "implement-code" | "convert-to-tracker";
+}): string {
+  return describeProposedPlanFollowUpOutcomeShared(outcome);
 }
 
 export function isEpicIssueType(issueType: string | null | undefined): boolean {

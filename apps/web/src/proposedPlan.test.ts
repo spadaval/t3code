@@ -7,6 +7,7 @@ import {
   buildPlanToBeadsPrompt,
   buildPlanToBeadsThreadTitle,
   buildProposedPlanMarkdownFilename,
+  describeProposedPlanFollowUpOutcome,
   proposedPlanTitle,
   resolvePlanFollowUpSubmission,
   stripDisplayedPlanMarkdown,
@@ -38,6 +39,20 @@ describe("buildPlanToBeadsPrompt", () => {
         "Generate the necessary beads issues with `bd` for this plan instead of implementing it.",
         "## Ship it\n\n- step 1",
       ].join("\n\n"),
+    );
+  });
+});
+
+describe("describeProposedPlanFollowUpOutcome", () => {
+  it("returns implementation-specific copy for code follow-up", () => {
+    expect(describeProposedPlanFollowUpOutcome({ kind: "implement-code" })).toBe(
+      "Implementation started",
+    );
+  });
+
+  it("returns tracker-specific copy for tracker conversion follow-up", () => {
+    expect(describeProposedPlanFollowUpOutcome({ kind: "convert-to-tracker" })).toBe(
+      "Converted to tracker",
     );
   });
 });
