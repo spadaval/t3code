@@ -554,7 +554,7 @@ function describeCoordinatorState(kind: BeadsCoordinatorEpicStateKind): {
       return {
         label: "Failed",
         variant: "destructive",
-        copy: "The latest swarm run failed due to a fatal coordinator or configuration problem.",
+        copy: "The latest swarm run failed. Retry the run, repair the swarm, or refresh tracker state from here.",
       };
     case "cancelled":
       return {
@@ -1193,6 +1193,7 @@ function CoordinatorEpicCard(props: {
   const pauseActionKey = latestRun ? `pause:${latestRun.runId}` : null;
   const resumeActionKey = latestRun ? `resume:${latestRun.runId}` : null;
   const cancelActionKey = latestRun ? `cancel:${latestRun.runId}` : null;
+  const failedRecoveryAction = latestRun?.status === "failed" ? props.card.primaryAction : null;
 
   return (
     <div className="rounded-xl border border-border/60 bg-muted/10 p-4">
@@ -1463,6 +1464,55 @@ function CoordinatorEpicCard(props: {
             onClick={() => props.onOpenStartSwarm(props.card)}
           >
             {props.swarmActionKey === startActionKey ? "Starting..." : "Start swarm"}
+          </Button>
+        ) : null}
+        {failedRecoveryAction?.kind === "create_swarm" ? (
+          <Button
+            type="button"
+            size="sm"
+            disabled={props.swarmActionKey === createActionKey || failedRecoveryAction.disabled}
+            onClick={() => props.onCreateSwarm(props.card.epicId)}
+          >
+            {props.swarmActionKey === createActionKey
+              ? failedRecoveryAction.busyLabel
+              : failedRecoveryAction.label}
+          </Button>
+        ) : null}
+        {failedRecoveryAction?.kind === "repair_swarm" ? (
+          <Button
+            type="button"
+            size="sm"
+            disabled={props.swarmActionKey === repairActionKey || failedRecoveryAction.disabled}
+            onClick={() => props.onRepairSwarm(props.card.epicId)}
+          >
+            {props.swarmActionKey === repairActionKey
+              ? failedRecoveryAction.busyLabel
+              : failedRecoveryAction.label}
+          </Button>
+        ) : null}
+        {failedRecoveryAction?.kind === "start_swarm" ? (
+          <Button
+            type="button"
+            size="sm"
+            disabled={props.swarmActionKey === startActionKey || failedRecoveryAction.disabled}
+            onClick={() => props.onOpenStartSwarm(props.card)}
+          >
+            {props.swarmActionKey === startActionKey
+              ? failedRecoveryAction.busyLabel
+              : failedRecoveryAction.label}
+          </Button>
+        ) : null}
+        {failedRecoveryAction?.kind === "refresh_swarm_state" ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={props.swarmActionKey === refreshActionKey || failedRecoveryAction.disabled}
+            onClick={() => props.onRefreshSwarmStatus(props.card.epicId)}
+          >
+            {props.swarmActionKey === refreshActionKey
+              ? failedRecoveryAction.busyLabel
+              : failedRecoveryAction.label}
           </Button>
         ) : null}
         {latestRun?.status === "running" && props.card.activeExecution === null ? (

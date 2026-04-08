@@ -236,6 +236,66 @@ function deriveEpicCoordinatorState(input: {
   };
 }
 
+function getFailedSwarmRecoveryAction(input: {
+  readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
+  readonly status: Pick<BeadsSwarmStatus, "swarm"> | null;
+  readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm"> | null;
+  readonly projectConflict: BeadsCoordinatorProjectConflict | null;
+}): BeadsCoordinatorPrimaryAction {
+  if (input.swarmSupport?.supported !== true) {
+    return {
+      kind: "unsupported",
+      label: "Swarm unavailable",
+      busyLabel: "Swarm unavailable",
+      disabled: true,
+    };
+  }
+
+  if (input.projectConflict) {
+    return {
+      kind: "open_coordinator",
+      label: "View active swarm",
+      busyLabel: "Opening...",
+      disabled: false,
+    };
+  }
+
+  const swarm = input.validation?.swarm ?? input.status?.swarm ?? null;
+  if (swarm === null) {
+    return {
+      kind: "create_swarm",
+      label: "Create swarm",
+      busyLabel: "Starting...",
+      disabled: false,
+    };
+  }
+
+  if (input.validation?.valid === false) {
+    return {
+      kind: "repair_swarm",
+      label: "Repair swarm",
+      busyLabel: "Starting...",
+      disabled: false,
+    };
+  }
+
+  if (input.validation?.valid === true) {
+    return {
+      kind: "start_swarm",
+      label: "Retry swarm",
+      busyLabel: "Retrying...",
+      disabled: false,
+    };
+  }
+
+  return {
+    kind: "refresh_swarm_state",
+    label: "Refresh swarm status",
+    busyLabel: "Refreshing...",
+    disabled: false,
+  };
+}
+
 function getEpicCoordinatorPrimaryAction(input: {
   readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
   readonly status: Pick<BeadsSwarmStatus, "swarm" | "ready" | "active" | "blocked"> | null;
@@ -361,6 +421,12 @@ function getEpicCoordinatorPrimaryAction(input: {
             disabled: false,
           };
     case "failed":
+      return getFailedSwarmRecoveryAction({
+        swarmSupport: input.swarmSupport,
+        status: input.status,
+        validation: input.validation,
+        projectConflict: input.projectConflict,
+      });
     case "cancelled":
     case "completed":
       return {

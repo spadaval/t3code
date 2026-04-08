@@ -688,6 +688,118 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     });
   });
 
+  it("returns Retry swarm when the latest run failed but the swarm is still valid", () => {
+    expect(
+      getEpicCoordinatorPrimaryAction({
+        swarmSupport: { supported: true },
+        status: {
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 1,
+            blockedIssueCount: 0,
+            activeWorkerCount: 0,
+          },
+          ready: [],
+          active: [],
+          blocked: [],
+        },
+        validation: {
+          valid: true,
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 1,
+            blockedIssueCount: 0,
+            activeWorkerCount: 0,
+          },
+          readyFronts: [],
+        },
+        swarmRuns: [makeSwarmRun({ status: "failed", lastError: "boom" })],
+        projectConflict: null,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
+      }),
+    ).toEqual({
+      kind: "start_swarm",
+      label: "Retry swarm",
+      busyLabel: "Retrying...",
+      disabled: false,
+    });
+  });
+
+  it("returns Repair swarm when the latest run failed and validation is now broken", () => {
+    expect(
+      getEpicCoordinatorPrimaryAction({
+        swarmSupport: { supported: true },
+        status: {
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 1,
+            blockedIssueCount: 1,
+            activeWorkerCount: 0,
+          },
+          ready: [],
+          active: [],
+          blocked: [],
+        },
+        validation: {
+          valid: false,
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 1,
+            blockedIssueCount: 1,
+            activeWorkerCount: 0,
+          },
+          readyFronts: [],
+        },
+        swarmRuns: [makeSwarmRun({ status: "failed", lastError: "boom" })],
+        projectConflict: null,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
+      }),
+    ).toEqual({
+      kind: "repair_swarm",
+      label: "Repair swarm",
+      busyLabel: "Starting...",
+      disabled: false,
+    });
+  });
+
+  it("returns Create swarm when the latest run failed after the swarm disappeared", () => {
+    expect(
+      getEpicCoordinatorPrimaryAction({
+        swarmSupport: { supported: true },
+        status: { swarm: null, ready: [], active: [], blocked: [] },
+        validation: { valid: false, swarm: null, readyFronts: [] },
+        swarmRuns: [makeSwarmRun({ status: "failed", lastError: "boom" })],
+        projectConflict: null,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
+      }),
+    ).toEqual({
+      kind: "create_swarm",
+      label: "Create swarm",
+      busyLabel: "Starting...",
+      disabled: false,
+    });
+  });
+
   it("returns Continue swarm for recoverable blocked worker failures when tracker state can advance", () => {
     expect(
       getEpicCoordinatorPrimaryAction({

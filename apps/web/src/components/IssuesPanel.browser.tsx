@@ -1457,6 +1457,126 @@ describe("IssuesPanel refresh button", () => {
     }
   });
 
+  it("renders failed coordinator cards with a retry action", async () => {
+    const swarmSummary = {
+      swarmId: "swarm-failed",
+      epicId: "EPIC-FAILED",
+      epicTitle: "Failed epic",
+      totalIssueCount: 4,
+      completedIssueCount: 1,
+      activeIssueCount: 0,
+      readyIssueCount: 1,
+      blockedIssueCount: 0,
+      activeWorkerCount: 0,
+    };
+    const failedRun = {
+      runId: "run-failed",
+      projectId: "project-1",
+      epicIssueId: "EPIC-FAILED",
+      swarmId: "swarm-failed",
+      status: "failed",
+      schedulerMode: "automatic",
+      workspaceMode: "shared",
+      provider: "codex",
+      model: "gpt-5.4-mini",
+      modelOptions: null,
+      providerOptions: null,
+      assistantDeliveryMode: "buffered",
+      runtimeMode: "full-access",
+      lastError: "Coordinator crashed",
+      requestedAt: "2026-01-01T00:00:00.000Z",
+      startedAt: "2026-01-01T00:01:00.000Z",
+      idledAt: null,
+      pausedAt: null,
+      blockedAt: null,
+      blockedContext: null,
+      failedAt: "2026-01-01T00:02:00.000Z",
+      cancelledAt: null,
+      completedAt: null,
+      updatedAt: "2026-01-01T00:02:00.000Z",
+    };
+
+    testState.projectCoordinatorSnapshot = {
+      support: { supported: true },
+      epics: [
+        {
+          epicId: "EPIC-FAILED",
+          epicTitle: "Failed epic",
+          issue: makeIssue({
+            id: "EPIC-FAILED",
+            title: "Failed epic",
+            issueType: "epic",
+          }),
+          fetchLifecycle: {
+            kind: "ready",
+            detail: null,
+          },
+          stateKind: "failed",
+          primaryAction: {
+            kind: "start_swarm",
+            label: "Retry swarm",
+            busyLabel: "Retrying...",
+            disabled: false,
+          },
+          latestRun: failedRun,
+          projectConflict: null,
+          swarmSummary,
+          validation: {
+            epicId: "EPIC-FAILED",
+            epicTitle: "Failed epic",
+            valid: true,
+            swarm: swarmSummary,
+            errors: [],
+            warnings: [],
+            readyFronts: [],
+            estimatedWorkerSessions: 1,
+            maxParallelism: 1,
+          },
+          status: {
+            epicId: "EPIC-FAILED",
+            epicTitle: "Failed epic",
+            swarm: swarmSummary,
+            completed: [],
+            active: [],
+            ready: [makeIssue({ id: "TASK-READY", title: "Ready task" })],
+            blocked: [],
+          },
+          runs: [failedRun],
+          executions: [],
+          activeExecution: null,
+        },
+      ],
+    };
+    useIssuePaneStore.getState().setActivePanelTab(THREAD_ID, "coordinator");
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <IssuesPanel
+        activeThreadId={THREAD_ID}
+        cwd={TEST_CWD}
+        projectId={ProjectId.makeUnsafe("project-1")}
+        projectDefaultModelSelection={null}
+        onClose={() => {}}
+      />,
+      { container: host },
+    );
+
+    try {
+      expect(document.body.textContent).toContain("Retry swarm");
+      expect(document.body.textContent).toContain("The latest swarm run failed.");
+
+      getButtonByText("Retry swarm").click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(document.body.textContent).toContain("Scheduler mode");
+      expect(document.body.textContent).toContain("Start swarm");
+    } finally {
+      testState.projectCoordinatorSnapshot = null;
+      screen.unmount();
+    }
+  });
+
   it("renders coordinator run history rows and worker execution details", async () => {
     const swarmSummary = {
       swarmId: "swarm-history",
