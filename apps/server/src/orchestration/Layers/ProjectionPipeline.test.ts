@@ -240,6 +240,29 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       });
 
       yield* eventStore.append({
+        type: "swarm-task-execution.requested",
+        eventId: EventId.makeUnsafe("evt-swarm-execution-requested"),
+        aggregateKind: "swarmTaskExecution",
+        aggregateId: "execution-1" as never,
+        occurredAt: requestedAt,
+        commandId: CommandId.makeUnsafe("cmd-swarm-execution-requested"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-swarm-execution-requested"),
+        metadata: {},
+        payload: {
+          executionId: "execution-1" as never,
+          runId: "run-1" as never,
+          issueId: "TASK-1",
+          workerThreadId: "thread-1" as never,
+          sequenceNumber: 1,
+          originalStatus: "open",
+          originalAssignee: "issue-owner",
+          requestedAt,
+          updatedAt: requestedAt,
+        },
+      });
+
+      yield* eventStore.append({
         type: "swarm-task-execution.started",
         eventId: EventId.makeUnsafe("evt-swarm-execution-started"),
         aggregateKind: "swarmTaskExecution",
@@ -252,9 +275,6 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         payload: {
           executionId: "execution-1" as never,
           runId: "run-1" as never,
-          issueId: "TASK-1",
-          workerThreadId: null,
-          sequenceNumber: 1,
           startedAt,
           updatedAt: startedAt,
         },
@@ -300,11 +320,13 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       const executionRows = yield* sql<{
         readonly executionId: string;
         readonly status: string;
+        readonly requestedAt: string;
         readonly lastError: string | null;
       }>`
         SELECT
           execution_id AS "executionId",
           status,
+          requested_at AS "requestedAt",
           last_error AS "lastError"
         FROM projection_swarm_task_executions
       `;
@@ -312,6 +334,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         {
           executionId: "execution-1",
           status: "failed",
+          requestedAt,
           lastError: "worker crashed",
         },
       ]);

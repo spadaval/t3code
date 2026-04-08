@@ -38,6 +38,7 @@ import Migration0022 from "./Migrations/022_ProjectionPlanMetadata.ts";
 import Migration0023 from "./Migrations/023_ProjectionSwarmRuns.ts";
 import Migration0024 from "./Migrations/024_ProjectionSwarmRunBlockedContext.ts";
 import Migration0025 from "./Migrations/025_RemoveProjectionSwarmRunExecutionPointers.ts";
+import Migration0026 from "./Migrations/026_ProjectionSwarmTaskExecutionRequests.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -75,6 +76,7 @@ export const migrationEntries = [
   [23, "ProjectionSwarmRuns", Migration0023],
   [24, "ProjectionSwarmRunBlockedContext", Migration0024],
   [25, "RemoveProjectionSwarmRunExecutionPointers", Migration0025],
+  [26, "ProjectionSwarmTaskExecutionRequests", Migration0026],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

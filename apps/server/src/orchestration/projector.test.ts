@@ -277,11 +277,36 @@ describe("orchestration projector", () => {
       ),
     );
 
-    const afterStarted = await Effect.runPromise(
+    const afterExecutionRequested = await Effect.runPromise(
       projectEvent(
         afterRequested,
         makeEvent({
           sequence: 2,
+          type: "swarm-task-execution.requested",
+          aggregateKind: "swarmTaskExecution",
+          aggregateId: "execution-1",
+          occurredAt: requestedAt,
+          commandId: "cmd-execution-requested",
+          payload: {
+            executionId: "execution-1",
+            runId: "run-1",
+            issueId: "TASK-1",
+            workerThreadId: "thread-1",
+            sequenceNumber: 1,
+            originalStatus: "open",
+            originalAssignee: "issue-owner",
+            requestedAt,
+            updatedAt: requestedAt,
+          },
+        }),
+      ),
+    );
+
+    const afterStarted = await Effect.runPromise(
+      projectEvent(
+        afterExecutionRequested,
+        makeEvent({
+          sequence: 3,
           type: "swarm-task-execution.started",
           aggregateKind: "swarmTaskExecution",
           aggregateId: "execution-1",
@@ -290,9 +315,6 @@ describe("orchestration projector", () => {
           payload: {
             executionId: "execution-1",
             runId: "run-1",
-            issueId: "TASK-1",
-            workerThreadId: null,
-            sequenceNumber: 1,
             startedAt,
             updatedAt: startedAt,
           },
@@ -304,7 +326,7 @@ describe("orchestration projector", () => {
       projectEvent(
         afterStarted,
         makeEvent({
-          sequence: 3,
+          sequence: 4,
           type: "swarm-task-execution.completed",
           aggregateKind: "swarmTaskExecution",
           aggregateId: "execution-1",
@@ -353,10 +375,13 @@ describe("orchestration projector", () => {
         executionId: "execution-1",
         runId: "run-1",
         issueId: "TASK-1",
-        workerThreadId: null,
+        workerThreadId: "thread-1",
         sequenceNumber: 1,
+        originalStatus: "open",
+        originalAssignee: "issue-owner",
         status: "completed",
         lastError: null,
+        requestedAt,
         startedAt,
         completedAt,
         failedAt: null,

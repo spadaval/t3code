@@ -38,8 +38,11 @@ function makeExecution(
     workerThreadId: null,
     sequenceNumber,
     status,
+    originalStatus: "open",
+    originalAssignee: null,
     lastError: null,
-    startedAt: `2026-04-06T00:00:0${sequenceNumber}.000Z`,
+    requestedAt: `2026-04-06T00:00:0${sequenceNumber}.000Z`,
+    startedAt: status === "requested" ? null : `2026-04-06T00:00:0${sequenceNumber}.000Z`,
     completedAt: status === "completed" ? `2026-04-06T00:00:1${sequenceNumber}.000Z` : null,
     failedAt: status === "failed" ? `2026-04-06T00:00:1${sequenceNumber}.000Z` : null,
     cancelledAt: status === "cancelled" ? `2026-04-06T00:00:1${sequenceNumber}.000Z` : null,
@@ -101,6 +104,7 @@ describe("swarm", () => {
       }),
     ).toMatchObject({
       activeExecution: { executionId: "execution-2" },
+      currentExecution: { executionId: "execution-2" },
       latestExecution: { executionId: "execution-2" },
       nonTerminalExecutions: [{ executionId: "execution-2" }],
     });
@@ -108,6 +112,19 @@ describe("swarm", () => {
 
   it("keeps all non-terminal executions for invariant checks", () => {
     const runId = "run-1" as SwarmRunId;
+
+    expect(
+      deriveSwarmRunExecutionState({
+        runId,
+        executions: [
+          makeExecution("execution-2", runId, 2, "requested"),
+          makeExecution("execution-1", runId, 1, "active"),
+        ],
+      }),
+    ).toMatchObject({
+      activeExecution: { executionId: "execution-1" },
+      currentExecution: { executionId: "execution-2" },
+    });
 
     expect(
       deriveSwarmRunExecutionState({

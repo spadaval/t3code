@@ -12,9 +12,10 @@ import {
   requireProject,
   requireProjectAbsent,
   requireSwarmRun,
+  requireSwarmRunInAllowedStatus,
   requireSwarmRunAbsent,
-  requireSwarmTaskExecution,
   requireSwarmTaskExecutionAbsent,
+  requireSwarmTaskExecutionForRunInAllowedStatus,
   requireThread,
   requireThreadArchived,
   requireThreadAbsent,
@@ -866,7 +867,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-run.mark-started": {
-      yield* requireSwarmRun({
+      yield* requireSwarmRunInAllowedStatus({
         readModel,
         command,
         runId: command.runId,
@@ -932,7 +933,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-run.resume": {
-      yield* requireSwarmRun({
+      yield* requireSwarmRunInAllowedStatus({
         readModel,
         command,
         runId: command.runId,
@@ -954,7 +955,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-run.block": {
-      yield* requireSwarmRun({
+      yield* requireSwarmRunInAllowedStatus({
         readModel,
         command,
         runId: command.runId,
@@ -978,7 +979,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-run.fail": {
-      yield* requireSwarmRun({
+      yield* requireSwarmRunInAllowedStatus({
         readModel,
         command,
         runId: command.runId,
@@ -1001,7 +1002,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-run.cancel": {
-      yield* requireSwarmRun({
+      yield* requireSwarmRunInAllowedStatus({
         readModel,
         command,
         runId: command.runId,
@@ -1023,7 +1024,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-run.complete": {
-      yield* requireSwarmRun({
+      yield* requireSwarmRunInAllowedStatus({
         readModel,
         command,
         runId: command.runId,
@@ -1044,8 +1045,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "swarm-task-execution.start": {
-      yield* requireSwarmRun({
+    case "swarm-task-execution.request": {
+      yield* requireSwarmRunInAllowedStatus({
         readModel,
         command,
         runId: command.runId,
@@ -1062,13 +1063,44 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           occurredAt: command.createdAt,
           commandId: command.commandId,
         }),
-        type: "swarm-task-execution.started",
+        type: "swarm-task-execution.requested",
         payload: {
           executionId: command.executionId,
           runId: command.runId,
           issueId: command.issueId,
-          workerThreadId: command.workerThreadId ?? null,
+          workerThreadId: command.workerThreadId,
           sequenceNumber: command.sequenceNumber,
+          originalStatus: command.originalStatus,
+          originalAssignee: command.originalAssignee,
+          requestedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "swarm-task-execution.start": {
+      yield* requireSwarmRunInAllowedStatus({
+        readModel,
+        command,
+        runId: command.runId,
+      });
+      yield* requireSwarmTaskExecutionForRunInAllowedStatus({
+        readModel,
+        command,
+        executionId: command.executionId,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "swarmTaskExecution",
+          aggregateId: command.executionId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "swarm-task-execution.started",
+        payload: {
+          executionId: command.executionId,
+          runId: command.runId,
           startedAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -1076,15 +1108,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-task-execution.complete": {
-      yield* requireSwarmRun({
+      yield* requireSwarmRunInAllowedStatus({
         readModel,
         command,
         runId: command.runId,
       });
-      yield* requireSwarmTaskExecution({
+      yield* requireSwarmTaskExecutionForRunInAllowedStatus({
         readModel,
         command,
         executionId: command.executionId,
+        runId: command.runId,
       });
       return {
         ...withEventBase({
@@ -1104,15 +1137,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-task-execution.fail": {
-      yield* requireSwarmRun({
+      yield* requireSwarmRunInAllowedStatus({
         readModel,
         command,
         runId: command.runId,
       });
-      yield* requireSwarmTaskExecution({
+      yield* requireSwarmTaskExecutionForRunInAllowedStatus({
         readModel,
         command,
         executionId: command.executionId,
+        runId: command.runId,
       });
       return {
         ...withEventBase({
@@ -1133,15 +1167,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-task-execution.cancel": {
-      yield* requireSwarmRun({
+      yield* requireSwarmRunInAllowedStatus({
         readModel,
         command,
         runId: command.runId,
       });
-      yield* requireSwarmTaskExecution({
+      yield* requireSwarmTaskExecutionForRunInAllowedStatus({
         readModel,
         command,
         executionId: command.executionId,
+        runId: command.runId,
       });
       return {
         ...withEventBase({

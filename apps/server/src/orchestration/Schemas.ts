@@ -34,6 +34,7 @@ import {
   SwarmRunFailedPayload as ContractsSwarmRunFailedPayloadSchema,
   SwarmRunCancelledPayload as ContractsSwarmRunCancelledPayloadSchema,
   SwarmRunCompletedPayload as ContractsSwarmRunCompletedPayloadSchema,
+  SwarmTaskExecutionRequestedPayload as ContractsSwarmTaskExecutionRequestedPayloadSchema,
   SwarmTaskExecutionStartedPayload as ContractsSwarmTaskExecutionStartedPayloadSchema,
   SwarmTaskExecutionCompletedPayload as ContractsSwarmTaskExecutionCompletedPayloadSchema,
   SwarmTaskExecutionFailedPayload as ContractsSwarmTaskExecutionFailedPayloadSchema,
@@ -87,6 +88,7 @@ export const SwarmRunBlockedPayload = ContractsSwarmRunBlockedPayloadSchema;
 export const SwarmRunFailedPayload = ContractsSwarmRunFailedPayloadSchema;
 export const SwarmRunCancelledPayload = ContractsSwarmRunCancelledPayloadSchema;
 export const SwarmRunCompletedPayload = ContractsSwarmRunCompletedPayloadSchema;
+export const SwarmTaskExecutionRequestedPayload = ContractsSwarmTaskExecutionRequestedPayloadSchema;
 export const SwarmTaskExecutionStartedPayload = ContractsSwarmTaskExecutionStartedPayloadSchema;
 export const SwarmTaskExecutionCompletedPayload = ContractsSwarmTaskExecutionCompletedPayloadSchema;
 export const SwarmTaskExecutionFailedPayload = ContractsSwarmTaskExecutionFailedPayloadSchema;

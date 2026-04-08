@@ -1296,19 +1296,64 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         })),
       };
 
-    case "swarm-task-execution.started": {
+    case "swarm-task-execution.requested": {
       const nextExecution = mapSwarmTaskExecution({
         executionId: event.payload.executionId,
         runId: event.payload.runId,
         issueId: event.payload.issueId,
         workerThreadId: event.payload.workerThreadId,
         sequenceNumber: event.payload.sequenceNumber,
-        status: "active",
+        status: "requested",
+        originalStatus: event.payload.originalStatus,
+        originalAssignee: event.payload.originalAssignee,
         lastError: null,
-        startedAt: event.payload.startedAt,
+        requestedAt: event.payload.requestedAt,
+        startedAt: null,
         completedAt: null,
         failedAt: null,
         cancelledAt: null,
+        updatedAt: event.payload.updatedAt,
+      });
+      return {
+        ...state,
+        swarmRuns: updateSwarmRun(state.swarmRuns, event.payload.runId, (run) => ({
+          ...run,
+          updatedAt: event.payload.updatedAt,
+        })),
+        swarmTaskExecutions: [
+          ...state.swarmTaskExecutions.filter(
+            (execution) => execution.executionId !== nextExecution.executionId,
+          ),
+          nextExecution,
+        ].toSorted(
+          (left, right) =>
+            left.runId.localeCompare(right.runId) ||
+            left.sequenceNumber - right.sequenceNumber ||
+            left.executionId.localeCompare(right.executionId),
+        ),
+      };
+    }
+
+    case "swarm-task-execution.started": {
+      const existingExecution =
+        state.swarmTaskExecutions.find(
+          (execution) => execution.executionId === event.payload.executionId,
+        ) ?? null;
+      const nextExecution = mapSwarmTaskExecution({
+        executionId: event.payload.executionId,
+        runId: event.payload.runId,
+        issueId: existingExecution?.issueId ?? "unknown-task",
+        workerThreadId: existingExecution?.workerThreadId ?? null,
+        sequenceNumber: existingExecution?.sequenceNumber ?? 0,
+        status: "active",
+        originalStatus: existingExecution?.originalStatus ?? "open",
+        originalAssignee: existingExecution?.originalAssignee ?? null,
+        lastError: null,
+        requestedAt: existingExecution?.requestedAt ?? event.payload.startedAt,
+        startedAt: event.payload.startedAt,
+        completedAt: existingExecution?.completedAt ?? null,
+        failedAt: existingExecution?.failedAt ?? null,
+        cancelledAt: existingExecution?.cancelledAt ?? null,
         updatedAt: event.payload.updatedAt,
       });
       return {

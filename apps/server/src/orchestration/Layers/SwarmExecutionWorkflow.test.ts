@@ -351,6 +351,30 @@ function applyCommand(
         updatedAt: command.createdAt,
       };
 
+    case "thread.session.stop":
+      return {
+        ...readModel,
+        snapshotSequence: sequence,
+        updatedAt: command.createdAt,
+        threads: readModel.threads.map((thread) =>
+          thread.id !== command.threadId
+            ? thread
+            : {
+                ...thread,
+                updatedAt: command.createdAt,
+                session:
+                  thread.session === null
+                    ? null
+                    : {
+                        ...thread.session,
+                        status: "stopped",
+                        activeTurnId: null,
+                        updatedAt: command.createdAt,
+                      },
+              },
+        ),
+      };
+
     case "thread.delete":
       return {
         ...readModel,
@@ -540,7 +564,7 @@ function applyCommand(
         }),
       );
 
-    case "swarm-task-execution.start":
+    case "swarm-task-execution.request":
       return {
         ...updateRun(
           {
@@ -560,11 +584,14 @@ function applyCommand(
             executionId: command.executionId,
             runId: command.runId,
             issueId: command.issueId,
-            workerThreadId: command.workerThreadId ?? null,
+            workerThreadId: command.workerThreadId,
             sequenceNumber: command.sequenceNumber,
-            status: "active",
+            status: "requested",
+            originalStatus: command.originalStatus,
+            originalAssignee: command.originalAssignee,
             lastError: null,
-            startedAt: command.createdAt,
+            requestedAt: command.createdAt,
+            startedAt: null,
             completedAt: null,
             failedAt: null,
             cancelledAt: null,
@@ -572,6 +599,29 @@ function applyCommand(
           },
         ],
       };
+
+    case "swarm-task-execution.start":
+      return updateExecution(
+        updateRun(
+          {
+            ...readModel,
+            snapshotSequence: sequence,
+            updatedAt: command.createdAt,
+          },
+          command.runId,
+          (run) => ({
+            ...run,
+            updatedAt: command.createdAt,
+          }),
+        ),
+        command.executionId,
+        (execution) => ({
+          ...execution,
+          status: "active",
+          startedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        }),
+      );
 
     case "swarm-task-execution.complete":
       return updateExecution(
@@ -1125,7 +1175,7 @@ describe("SwarmExecutionWorkflow", () => {
           runId: started.runId,
         }),
       ),
-    ).rejects.toThrow("already has an active task execution");
+    ).rejects.toThrow("already has a non-terminal task execution");
   });
 
   it("fails completed worker turns when the issue was not closed by the worker", async () => {
@@ -1174,7 +1224,7 @@ describe("SwarmExecutionWorkflow", () => {
     });
     expect(failedExecution?.status).toBe("failed");
     expect(issue?.status).toBe("open");
-    expect(issue?.assignee).toBe("issue-owner");
+    expect(issue?.assignee).toBeNull();
     expect(issue?.comments.at(-1)?.text).toContain("Swarm worker failed.");
     expect(issue?.comments.at(-1)?.text).toContain("issue 'TASK-1' is still 'in_progress'");
   });
@@ -1231,8 +1281,95 @@ describe("SwarmExecutionWorkflow", () => {
     expect(run?.status).toBe("idle");
     expect(completedExecution?.status).toBe("completed");
     expect(issue?.status).toBe("closed");
-    expect(issue?.assignee).toBe("issue-owner");
+    expect(issue?.assignee).toBe(`t3code-swarm/${started.runId}`);
     expect(issue?.comments.at(-1)?.text).toContain("Swarm worker completed.");
+  });
+
+  it("automatically launches the next worker thread after a completed task when ready work remains", async () => {
+    const harness = await createHarness();
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startSwarmRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const initialSnapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const initialExecution = initialSnapshot.swarmTaskExecutions[0];
+    expect(initialExecution?.workerThreadId).toBeTruthy();
+    if (!initialExecution?.workerThreadId) {
+      return;
+    }
+
+    const baseline = makeTrackerState();
+    harness.setTrackerState(
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [[relationIssue("TASK-2", 2)]],
+        },
+        status: {
+          ...baseline.status,
+          completed: [relationIssue("TASK-1", 1)],
+          ready: [relationIssue("TASK-2", 2)],
+          active: [],
+          blocked: [],
+        },
+      }),
+    );
+    harness.patchIssue("TASK-1", {
+      status: "closed",
+    });
+    harness.patchThread(initialExecution.workerThreadId, {
+      latestTurn: makeCompletedLatestTurn("turn-1"),
+      session: makeReadySession(initialExecution.workerThreadId),
+    });
+
+    await runtime!.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          yield* harness.workflow.start;
+          yield* harness.workflow.drain;
+        }),
+      ),
+    );
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const run = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
+    const completedExecution = snapshot.swarmTaskExecutions.find(
+      (entry) => entry.executionId === initialExecution.executionId,
+    );
+    const nextExecution = snapshot.swarmTaskExecutions.find(
+      (entry) => entry.executionId !== initialExecution.executionId,
+    );
+    const nextThread =
+      nextExecution?.workerThreadId === null || nextExecution?.workerThreadId === undefined
+        ? null
+        : (snapshot.threads.find((thread) => thread.id === nextExecution.workerThreadId) ?? null);
+    const initialIssue = harness.getIssue("TASK-1");
+    const nextIssue = harness.getIssue("TASK-2");
+
+    expect(run?.status).toBe("running");
+    expect(run?.blockedContext).toBeNull();
+    expect(completedExecution?.status).toBe("completed");
+    expect(nextExecution?.status).toBe("active");
+    expect(nextExecution?.issueId).toBe("TASK-2");
+    expect(nextExecution?.workerThreadId).toBeTruthy();
+    expect(snapshot.swarmTaskExecutions).toHaveLength(2);
+    expect(snapshot.threads).toHaveLength(2);
+    expect(nextThread?.title).toBe("TASK-2: Task 2 (Swarm worker)");
+    expect(nextThread?.issueLink?.issueId).toBe("TASK-2");
+    expect(initialIssue?.status).toBe("closed");
+    expect(initialIssue?.assignee).toBe(`t3code-swarm/${started.runId}`);
+    expect(initialIssue?.comments.at(-1)?.text).toContain("Swarm worker completed.");
+    expect(nextIssue?.status).toBe("in_progress");
+    expect(nextIssue?.assignee).toBe(`t3code-swarm/${started.runId}`);
+    expect(nextIssue?.comments.at(-1)?.text).toContain("Swarm worker started.");
   });
 
   it("resumes semi-automatic paused runs back to idle instead of implicitly continuing", async () => {
@@ -1477,7 +1614,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(failedExecution?.status).toBe("failed");
     expect(failedExecution?.lastError).toBe("Worker crashed");
     expect(issue?.status).toBe("open");
-    expect(issue?.assignee).toBe("issue-owner");
+    expect(issue?.assignee).toBeNull();
     expect(issue?.comments.at(-1)?.text).toContain("Swarm worker failed.");
     expect(issue?.comments.at(-1)?.text).toContain("Worker crashed");
   });
@@ -1605,10 +1742,11 @@ describe("SwarmExecutionWorkflow", () => {
     expect(run?.blockedContext).toEqual({
       kind: "worker_failure",
       issueId: "TASK-1",
-      executionId: null,
-      workerThreadId: null,
+      executionId: expect.any(String),
+      workerThreadId: expect.any(String),
     });
-    expect(snapshot.swarmTaskExecutions).toHaveLength(0);
+    expect(snapshot.swarmTaskExecutions).toHaveLength(1);
+    expect(snapshot.swarmTaskExecutions[0]?.status).toBe("failed");
     expect(issue?.status).toBe("open");
     expect(issue?.assignee).toBeNull();
     expect(issue?.comments.at(-1)?.text).toContain("Swarm worker failed.");
@@ -1645,7 +1783,10 @@ describe("SwarmExecutionWorkflow", () => {
           workerThreadId: ThreadId.makeUnsafe("thread-duplicate"),
           sequenceNumber: 2,
           status: "active",
+          originalStatus: "open",
+          originalAssignee: null,
           lastError: null,
+          requestedAt: now,
           startedAt: now,
           completedAt: null,
           failedAt: null,
@@ -1666,7 +1807,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(run?.lastError).toContain("execution-duplicate");
   });
 
-  it("fails shared-workspace runs when continue sees hidden non-terminal execution drift", async () => {
+  it("rejects continuing blocked runs when hidden non-terminal execution drift remains", async () => {
     const harness = await createHarness();
 
     const started = await runtime!.runPromise(
@@ -1701,18 +1842,24 @@ describe("SwarmExecutionWorkflow", () => {
       ),
     }));
 
-    const continued = await runtime!.runPromise(
-      harness.workflow.continueSwarmRun({
-        runId: started.runId,
-      }),
-    );
+    await expect(
+      runtime!.runPromise(
+        harness.workflow.continueSwarmRun({
+          runId: started.runId,
+        }),
+      ),
+    ).rejects.toThrow("already has a non-terminal task execution");
 
     const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
     const run = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
 
-    expect(continued.status).toBe("failed");
-    expect(run?.lastError).toContain("has non-terminal task execution");
-    expect(run?.lastError).toContain(String(execution.executionId));
+    expect(run?.status).toBe("blocked");
+    expect(run?.blockedContext).toEqual({
+      kind: "worker_failure",
+      issueId: "TASK-1",
+      executionId: execution.executionId,
+      workerThreadId: execution.workerThreadId,
+    });
   });
 
   it("fails shared-workspace runs when cancel sees duplicate active worker executions", async () => {
@@ -1746,7 +1893,10 @@ describe("SwarmExecutionWorkflow", () => {
           workerThreadId: ThreadId.makeUnsafe("thread-shadow"),
           sequenceNumber: 2,
           status: "active",
+          originalStatus: "open",
+          originalAssignee: null,
           lastError: null,
+          requestedAt: now,
           startedAt: now,
           completedAt: null,
           failedAt: null,
@@ -1796,7 +1946,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(cancelled.status).toBe("cancelled");
     expect(execution?.status).toBe("cancelled");
     expect(issue?.status).toBe("open");
-    expect(issue?.assignee).toBe("issue-owner");
+    expect(issue?.assignee).toBeNull();
     expect(issue?.comments.at(-1)?.text).toContain("Swarm worker cancelled.");
   });
 

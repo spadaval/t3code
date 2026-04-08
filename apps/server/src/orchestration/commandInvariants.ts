@@ -4,7 +4,9 @@ import type {
   OrchestrationProject,
   OrchestrationReadModel,
   OrchestrationSwarmRun,
+  OrchestrationSwarmRunStatus,
   OrchestrationSwarmTaskExecution,
+  OrchestrationSwarmTaskExecutionStatus,
   OrchestrationThread,
   ProjectId,
   SwarmRunId,
@@ -56,6 +58,33 @@ export function findSwarmTaskExecutionById(
 ): OrchestrationSwarmTaskExecution | undefined {
   return readModel.swarmTaskExecutions.find((execution) => execution.executionId === executionId);
 }
+
+const SWARM_RUN_ALLOWED_TRANSITIONS = {
+  "swarm-run.mark-started": ["requested"],
+  "swarm-run.mark-idle": ["running"],
+  "swarm-run.pause": ["requested", "running", "idle", "blocked"],
+  "swarm-run.resume": ["idle", "paused", "blocked"],
+  "swarm-run.block": ["requested", "running", "idle", "blocked"],
+  "swarm-run.fail": ["requested", "running", "idle", "paused", "blocked"],
+  "swarm-run.cancel": ["requested", "running", "idle", "paused", "blocked"],
+  "swarm-run.complete": ["requested", "running", "idle", "blocked"],
+  "swarm-task-execution.request": ["requested", "running", "idle", "blocked"],
+  "swarm-task-execution.start": ["requested", "running", "idle", "blocked"],
+  "swarm-task-execution.complete": ["requested", "running", "idle", "blocked"],
+  "swarm-task-execution.fail": ["requested", "running", "idle", "blocked"],
+  "swarm-task-execution.cancel": ["requested", "running", "idle", "blocked"],
+} as const satisfies Partial<
+  Record<OrchestrationCommand["type"], ReadonlyArray<OrchestrationSwarmRunStatus>>
+>;
+
+const SWARM_TASK_EXECUTION_ALLOWED_TRANSITIONS = {
+  "swarm-task-execution.start": ["requested"],
+  "swarm-task-execution.complete": ["requested", "active"],
+  "swarm-task-execution.fail": ["requested", "active"],
+  "swarm-task-execution.cancel": ["requested", "active"],
+} as const satisfies Partial<
+  Record<OrchestrationCommand["type"], ReadonlyArray<OrchestrationSwarmTaskExecutionStatus>>
+>;
 
 export function listThreadsByProjectId(
   readModel: OrchestrationReadModel,
@@ -264,6 +293,108 @@ export function requireSwarmTaskExecutionAbsent(input: {
       input.command.type,
       `Swarm task execution '${input.executionId}' already exists and cannot be created twice.`,
     ),
+  );
+}
+
+export function isAllowedSwarmRunStatusTransition(input: {
+  readonly commandType: OrchestrationCommand["type"];
+  readonly status: OrchestrationSwarmRunStatus;
+}): boolean {
+  const allowed =
+    input.commandType in SWARM_RUN_ALLOWED_TRANSITIONS
+      ? SWARM_RUN_ALLOWED_TRANSITIONS[
+          input.commandType as keyof typeof SWARM_RUN_ALLOWED_TRANSITIONS
+        ]
+      : undefined;
+  return allowed
+    ? (allowed as ReadonlyArray<OrchestrationSwarmRunStatus>).includes(input.status)
+    : true;
+}
+
+export function requireSwarmRunStatusTransition(input: {
+  readonly command: OrchestrationCommand;
+  readonly run: OrchestrationSwarmRun;
+}): Effect.Effect<OrchestrationSwarmRun, OrchestrationCommandInvariantError> {
+  if (
+    isAllowedSwarmRunStatusTransition({
+      commandType: input.command.type,
+      status: input.run.status,
+    })
+  ) {
+    return Effect.succeed(input.run);
+  }
+
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Swarm run '${input.run.runId}' in status '${input.run.status}' cannot transition via '${input.command.type}'.`,
+    ),
+  );
+}
+
+export function requireSwarmRunInAllowedStatus(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly runId: SwarmRunId;
+}): Effect.Effect<OrchestrationSwarmRun, OrchestrationCommandInvariantError> {
+  return requireSwarmRun(input).pipe(
+    Effect.flatMap((run) =>
+      requireSwarmRunStatusTransition({
+        command: input.command,
+        run,
+      }),
+    ),
+  );
+}
+
+export function isAllowedSwarmTaskExecutionStatusTransition(input: {
+  readonly commandType: OrchestrationCommand["type"];
+  readonly status: OrchestrationSwarmTaskExecutionStatus;
+}): boolean {
+  const allowed =
+    input.commandType in SWARM_TASK_EXECUTION_ALLOWED_TRANSITIONS
+      ? SWARM_TASK_EXECUTION_ALLOWED_TRANSITIONS[
+          input.commandType as keyof typeof SWARM_TASK_EXECUTION_ALLOWED_TRANSITIONS
+        ]
+      : undefined;
+  return allowed
+    ? (allowed as ReadonlyArray<OrchestrationSwarmTaskExecutionStatus>).includes(input.status)
+    : true;
+}
+
+export function requireSwarmTaskExecutionForRunInAllowedStatus(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly executionId: SwarmTaskExecutionId;
+  readonly runId: SwarmRunId;
+}): Effect.Effect<OrchestrationSwarmTaskExecution, OrchestrationCommandInvariantError> {
+  return requireSwarmTaskExecution(input).pipe(
+    Effect.flatMap((execution) => {
+      if (execution.runId !== input.runId) {
+        return Effect.fail(
+          invariantError(
+            input.command.type,
+            `Swarm task execution '${input.executionId}' belongs to run '${execution.runId}', not '${input.runId}'.`,
+          ),
+        );
+      }
+
+      if (
+        isAllowedSwarmTaskExecutionStatusTransition({
+          commandType: input.command.type,
+          status: execution.status,
+        })
+      ) {
+        return Effect.succeed(execution);
+      }
+
+      return Effect.fail(
+        invariantError(
+          input.command.type,
+          `Swarm task execution '${input.executionId}' in status '${execution.status}' cannot transition via '${input.command.type}'.`,
+        ),
+      );
+    }),
   );
 }
 

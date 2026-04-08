@@ -12,8 +12,12 @@ import { Effect } from "effect";
 
 import {
   findThreadById,
+  isAllowedSwarmRunStatusTransition,
+  isAllowedSwarmTaskExecutionStatusTransition,
   listThreadsByProjectId,
   requireNonNegativeInteger,
+  requireSwarmTaskExecutionForRunInAllowedStatus,
+  requireSwarmRunInAllowedStatus,
   requireThread,
   requireThreadAbsent,
 } from "./commandInvariants.ts";
@@ -102,8 +106,96 @@ const readModel: OrchestrationReadModel = {
     },
   ],
   planImplementationLaunches: [],
-  swarmRuns: [],
-  swarmTaskExecutions: [],
+  swarmRuns: [
+    {
+      runId: "run-1" as never,
+      projectId: ProjectId.makeUnsafe("project-a"),
+      epicIssueId: "EPIC-1",
+      swarmId: "SWARM-1",
+      status: "blocked",
+      schedulerMode: "automatic",
+      workspaceMode: "shared",
+      provider: "codex",
+      model: "gpt-5-codex",
+      modelOptions: null,
+      providerOptions: null,
+      assistantDeliveryMode: null,
+      runtimeMode: "full-access",
+      lastError: null,
+      requestedAt: now,
+      startedAt: now,
+      idledAt: null,
+      pausedAt: null,
+      blockedAt: now,
+      blockedContext: null,
+      failedAt: null,
+      cancelledAt: null,
+      completedAt: null,
+      updatedAt: now,
+    },
+    {
+      runId: "run-2" as never,
+      projectId: ProjectId.makeUnsafe("project-a"),
+      epicIssueId: "EPIC-2",
+      swarmId: "SWARM-2",
+      status: "cancelled",
+      schedulerMode: "automatic",
+      workspaceMode: "shared",
+      provider: "codex",
+      model: "gpt-5-codex",
+      modelOptions: null,
+      providerOptions: null,
+      assistantDeliveryMode: null,
+      runtimeMode: "full-access",
+      lastError: null,
+      requestedAt: now,
+      startedAt: now,
+      idledAt: null,
+      pausedAt: null,
+      blockedAt: null,
+      blockedContext: null,
+      failedAt: null,
+      cancelledAt: now,
+      completedAt: null,
+      updatedAt: now,
+    },
+  ],
+  swarmTaskExecutions: [
+    {
+      executionId: "execution-1" as never,
+      runId: "run-1" as never,
+      issueId: "TASK-1",
+      workerThreadId: null,
+      sequenceNumber: 1,
+      status: "requested",
+      originalStatus: "open",
+      originalAssignee: "issue-owner",
+      lastError: null,
+      requestedAt: now,
+      startedAt: null,
+      completedAt: null,
+      failedAt: null,
+      cancelledAt: null,
+      updatedAt: now,
+    },
+    {
+      executionId: "execution-2" as never,
+      runId: "run-2" as never,
+      issueId: "TASK-2",
+      workerThreadId: null,
+      sequenceNumber: 1,
+      status: "completed",
+      originalStatus: "open",
+      originalAssignee: null,
+      lastError: null,
+      requestedAt: now,
+      startedAt: now,
+      completedAt: now,
+      failedAt: null,
+      cancelledAt: null,
+      updatedAt: now,
+    },
+  ],
 };
 
 const messageSendCommand: OrchestrationCommand = {
@@ -221,5 +313,95 @@ describe("commandInvariants", () => {
         }),
       ),
     ).rejects.toThrow("greater than or equal to 0");
+  });
+
+  it("checks swarm run status transitions", async () => {
+    expect(
+      isAllowedSwarmRunStatusTransition({
+        commandType: "swarm-run.resume",
+        status: "blocked",
+      }),
+    ).toBe(true);
+    expect(
+      isAllowedSwarmRunStatusTransition({
+        commandType: "swarm-run.resume",
+        status: "cancelled",
+      }),
+    ).toBe(false);
+
+    await Effect.runPromise(
+      requireSwarmRunInAllowedStatus({
+        readModel,
+        command: {
+          type: "swarm-run.resume",
+          commandId: CommandId.makeUnsafe("cmd-run-resume"),
+          runId: "run-1" as never,
+          createdAt: now,
+        },
+        runId: "run-1" as never,
+      }),
+    );
+
+    await expect(
+      Effect.runPromise(
+        requireSwarmRunInAllowedStatus({
+          readModel,
+          command: {
+            type: "swarm-run.resume",
+            commandId: CommandId.makeUnsafe("cmd-run-resume-stale"),
+            runId: "run-2" as never,
+            createdAt: now,
+          },
+          runId: "run-2" as never,
+        }),
+      ),
+    ).rejects.toThrow("cannot transition");
+  });
+
+  it("checks swarm task execution run ownership and status transitions", async () => {
+    expect(
+      isAllowedSwarmTaskExecutionStatusTransition({
+        commandType: "swarm-task-execution.complete",
+        status: "requested",
+      }),
+    ).toBe(true);
+    expect(
+      isAllowedSwarmTaskExecutionStatusTransition({
+        commandType: "swarm-task-execution.complete",
+        status: "completed",
+      }),
+    ).toBe(false);
+
+    await Effect.runPromise(
+      requireSwarmTaskExecutionForRunInAllowedStatus({
+        readModel,
+        command: {
+          type: "swarm-task-execution.complete",
+          commandId: CommandId.makeUnsafe("cmd-execution-complete"),
+          executionId: "execution-1" as never,
+          runId: "run-1" as never,
+          createdAt: now,
+        },
+        executionId: "execution-1" as never,
+        runId: "run-1" as never,
+      }),
+    );
+
+    await expect(
+      Effect.runPromise(
+        requireSwarmTaskExecutionForRunInAllowedStatus({
+          readModel,
+          command: {
+            type: "swarm-task-execution.complete",
+            commandId: CommandId.makeUnsafe("cmd-execution-complete-stale"),
+            executionId: "execution-2" as never,
+            runId: "run-1" as never,
+            createdAt: now,
+          },
+          executionId: "execution-2" as never,
+          runId: "run-1" as never,
+        }),
+      ),
+    ).rejects.toThrow(/belongs to run|cannot transition/);
   });
 });

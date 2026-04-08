@@ -1306,7 +1306,10 @@ function CoordinatorEpicCard(props: {
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             Started{" "}
-            {formatShortTimestamp(props.card.activeExecution.startedAt, props.timestampFormat)}
+            {formatShortTimestamp(
+              props.card.activeExecution.startedAt ?? props.card.activeExecution.requestedAt,
+              props.timestampFormat,
+            )}
           </p>
           {activeWorkerThreadId ? (
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1607,8 +1610,11 @@ function CoordinatorEpicCard(props: {
                               </Badge>
                             </div>
                             <p className="mt-1 text-xs text-muted-foreground">
-                              Started{" "}
-                              {formatShortTimestamp(execution.startedAt, props.timestampFormat)}
+                              {execution.startedAt ? "Started " : "Requested "}
+                              {formatShortTimestamp(
+                                execution.startedAt ?? execution.requestedAt,
+                                props.timestampFormat,
+                              )}
                             </p>
                             {execution.workerThreadId ? (
                               <Button

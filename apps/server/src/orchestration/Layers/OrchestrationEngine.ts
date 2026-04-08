@@ -79,6 +79,7 @@ function commandToAggregateRef(command: OrchestrationCommand): {
         aggregateKind: "swarmRun",
         aggregateId: command.runId,
       };
+    case "swarm-task-execution.request":
     case "swarm-task-execution.start":
     case "swarm-task-execution.complete":
     case "swarm-task-execution.fail":

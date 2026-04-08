@@ -37,6 +37,7 @@ import {
   SwarmTaskExecutionCancelledPayload,
   SwarmTaskExecutionCompletedPayload,
   SwarmTaskExecutionFailedPayload,
+  SwarmTaskExecutionRequestedPayload,
   SwarmTaskExecutionStartedPayload,
   ThreadActivityAppendedPayload,
   ThreadArchivedPayload,
@@ -996,9 +997,9 @@ export function projectEvent(
         })),
       );
 
-    case "swarm-task-execution.started":
+    case "swarm-task-execution.requested":
       return decodeForEvent(
-        SwarmTaskExecutionStartedPayload,
+        SwarmTaskExecutionRequestedPayload,
         event.payload,
         event.type,
         "payload",
@@ -1010,12 +1011,65 @@ export function projectEvent(
             issueId: payload.issueId,
             workerThreadId: payload.workerThreadId,
             sequenceNumber: payload.sequenceNumber,
-            status: "active",
+            status: "requested",
+            originalStatus: payload.originalStatus,
+            originalAssignee: payload.originalAssignee,
             lastError: null,
-            startedAt: payload.startedAt,
+            requestedAt: payload.requestedAt,
+            startedAt: null,
             completedAt: null,
             failedAt: null,
             cancelledAt: null,
+            updatedAt: payload.updatedAt,
+          };
+
+          return {
+            ...nextBase,
+            swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
+              updatedAt: payload.updatedAt,
+            }),
+            swarmTaskExecutions: [
+              ...nextBase.swarmTaskExecutions.filter(
+                (entry) => entry.executionId !== payload.executionId,
+              ),
+              execution,
+            ].toSorted(
+              (left, right) =>
+                left.runId.localeCompare(right.runId) ||
+                left.sequenceNumber - right.sequenceNumber ||
+                left.executionId.localeCompare(right.executionId),
+            ),
+          };
+        }),
+      );
+
+    case "swarm-task-execution.started":
+      return decodeForEvent(
+        SwarmTaskExecutionStartedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const existingExecution =
+            nextBase.swarmTaskExecutions.find(
+              (entry) => entry.executionId === payload.executionId,
+            ) ?? null;
+          const execution: OrchestrationSwarmTaskExecution = {
+            executionId: payload.executionId,
+            runId: payload.runId,
+            issueId: existingExecution?.issueId ?? "unknown-task",
+            workerThreadId: existingExecution?.workerThreadId ?? null,
+            sequenceNumber: existingExecution?.sequenceNumber ?? 0,
+            status: "active",
+            originalStatus: existingExecution?.originalStatus ?? "open",
+            originalAssignee: existingExecution?.originalAssignee ?? null,
+            lastError: null,
+            requestedAt: existingExecution?.requestedAt ?? payload.startedAt,
+            startedAt: payload.startedAt,
+            completedAt: existingExecution?.completedAt ?? null,
+            failedAt: existingExecution?.failedAt ?? null,
+            cancelledAt: existingExecution?.cancelledAt ?? null,
             updatedAt: payload.updatedAt,
           };
 

@@ -60,10 +60,12 @@ export function deriveSwarmRunExecutionState(input: {
   readonly executions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
 }): {
   readonly activeExecution: OrchestrationSwarmTaskExecution | null;
+  readonly currentExecution: OrchestrationSwarmTaskExecution | null;
   readonly latestExecution: OrchestrationSwarmTaskExecution | null;
   readonly nonTerminalExecutions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
 } {
   let latestExecution: OrchestrationSwarmTaskExecution | null = null;
+  let activeExecution: OrchestrationSwarmTaskExecution | null = null;
   const nonTerminalExecutions: OrchestrationSwarmTaskExecution[] = [];
 
   for (const execution of input.executions) {
@@ -78,12 +80,20 @@ export function deriveSwarmRunExecutionState(input: {
     if (isNonTerminalSwarmTaskExecutionStatus(execution.status)) {
       nonTerminalExecutions.push(execution);
     }
+
+    if (
+      execution.status === "active" &&
+      (activeExecution === null || compareSwarmTaskExecutions(activeExecution, execution) < 0)
+    ) {
+      activeExecution = execution;
+    }
   }
 
   const orderedNonTerminalExecutions = nonTerminalExecutions.toSorted(compareSwarmTaskExecutions);
 
   return {
-    activeExecution: orderedNonTerminalExecutions.at(-1) ?? null,
+    activeExecution,
+    currentExecution: orderedNonTerminalExecutions.at(-1) ?? null,
     latestExecution,
     nonTerminalExecutions: orderedNonTerminalExecutions,
   };

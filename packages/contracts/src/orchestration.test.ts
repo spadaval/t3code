@@ -640,22 +640,32 @@ it.effect("decodes swarm lifecycle commands", () =>
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     const startExecutionCommand = yield* decodeOrchestrationCommand({
-      type: "swarm-task-execution.start",
-      commandId: "cmd-execution-start",
+      type: "swarm-task-execution.request",
+      commandId: "cmd-execution-request",
       executionId: "execution-1",
       runId: "run-1",
       issueId: "TASK-1",
       workerThreadId: "thread-1",
       sequenceNumber: 1,
+      originalStatus: "open",
+      originalAssignee: "issue-owner",
       createdAt: "2026-01-01T00:00:01.000Z",
+    });
+    const promoteExecutionCommand = yield* decodeOrchestrationCommand({
+      type: "swarm-task-execution.start",
+      commandId: "cmd-execution-start",
+      executionId: "execution-1",
+      runId: "run-1",
+      createdAt: "2026-01-01T00:00:02.000Z",
     });
 
     assert.strictEqual(requestCommand.type, "swarm-run.request");
     assert.strictEqual(requestCommand.runId, "run-1");
     assert.strictEqual(requestCommand.schedulerMode, "semi-automatic");
-    assert.strictEqual(startExecutionCommand.type, "swarm-task-execution.start");
+    assert.strictEqual(startExecutionCommand.type, "swarm-task-execution.request");
     assert.strictEqual(startExecutionCommand.executionId, "execution-1");
     assert.strictEqual(startExecutionCommand.workerThreadId, "thread-1");
+    assert.strictEqual(promoteExecutionCommand.type, "swarm-task-execution.start");
   }),
 );
 
@@ -697,7 +707,10 @@ it.effect("decodes swarm task execution history rows", () =>
       workerThreadId: "thread-9",
       sequenceNumber: 0,
       status: "active",
-      startedAt: "2026-01-01T00:00:00.000Z",
+      originalStatus: "open",
+      originalAssignee: "issue-owner",
+      requestedAt: "2026-01-01T00:00:00.000Z",
+      startedAt: "2026-01-01T00:00:01.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(parsed.workerThreadId, "thread-9");
@@ -730,6 +743,8 @@ it.effect("decodes swarm lifecycle events", () =>
         providerOptions: null,
         assistantDeliveryMode: null,
         runtimeMode: "full-access",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
         requestedAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
       },

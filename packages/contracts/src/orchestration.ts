@@ -472,8 +472,13 @@ export const OrchestrationSwarmTaskExecution = Schema.Struct({
   workerThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
   sequenceNumber: NonNegativeInt,
   status: OrchestrationSwarmTaskExecutionStatus,
+  originalStatus: TrimmedNonEmptyString.pipe(Schema.withDecodingDefault(() => "open")),
+  originalAssignee: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   lastError: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
-  startedAt: IsoDateTime,
+  requestedAt: IsoDateTime,
+  startedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
   completedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
   failedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
   cancelledAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
@@ -938,14 +943,26 @@ const SwarmRunCompleteCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const SwarmTaskExecutionRequestCommand = Schema.Struct({
+  type: Schema.Literal("swarm-task-execution.request"),
+  commandId: CommandId,
+  executionId: SwarmTaskExecutionId,
+  runId: SwarmRunId,
+  issueId: TrimmedNonEmptyString,
+  workerThreadId: ThreadId,
+  sequenceNumber: NonNegativeInt,
+  originalStatus: TrimmedNonEmptyString,
+  originalAssignee: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  createdAt: IsoDateTime,
+});
+
 const SwarmTaskExecutionStartCommand = Schema.Struct({
   type: Schema.Literal("swarm-task-execution.start"),
   commandId: CommandId,
   executionId: SwarmTaskExecutionId,
   runId: SwarmRunId,
-  issueId: TrimmedNonEmptyString,
-  workerThreadId: Schema.optional(ThreadId),
-  sequenceNumber: NonNegativeInt,
   createdAt: IsoDateTime,
 });
 
@@ -996,6 +1013,7 @@ const InternalOrchestrationCommand = Schema.Union([
   SwarmRunFailCommand,
   SwarmRunCancelCommand,
   SwarmRunCompleteCommand,
+  SwarmTaskExecutionRequestCommand,
   SwarmTaskExecutionStartCommand,
   SwarmTaskExecutionCompleteCommand,
   SwarmTaskExecutionFailCommand,
@@ -1046,6 +1064,7 @@ export const OrchestrationEventType = Schema.Literals([
   "swarm-run.failed",
   "swarm-run.cancelled",
   "swarm-run.completed",
+  "swarm-task-execution.requested",
   "swarm-task-execution.started",
   "swarm-task-execution.completed",
   "swarm-task-execution.failed",
@@ -1363,10 +1382,21 @@ export const SwarmRunCompletedPayload = Schema.Struct({
 export const SwarmTaskExecutionStartedPayload = Schema.Struct({
   executionId: SwarmTaskExecutionId,
   runId: SwarmRunId,
-  issueId: TrimmedNonEmptyString,
-  workerThreadId: Schema.NullOr(ThreadId),
-  sequenceNumber: NonNegativeInt,
   startedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const SwarmTaskExecutionRequestedPayload = Schema.Struct({
+  executionId: SwarmTaskExecutionId,
+  runId: SwarmRunId,
+  issueId: TrimmedNonEmptyString,
+  workerThreadId: ThreadId,
+  sequenceNumber: NonNegativeInt,
+  originalStatus: TrimmedNonEmptyString,
+  originalAssignee: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  requestedAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
 
@@ -1599,6 +1629,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("swarm-run.completed"),
     payload: SwarmRunCompletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("swarm-task-execution.requested"),
+    payload: SwarmTaskExecutionRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

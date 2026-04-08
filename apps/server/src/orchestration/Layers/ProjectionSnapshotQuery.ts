@@ -456,7 +456,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           worker_thread_id AS "workerThreadId",
           sequence_number AS "sequenceNumber",
           status,
+          original_status AS "originalStatus",
+          original_assignee AS "originalAssignee",
           last_error AS "lastError",
+          requested_at AS "requestedAt",
           started_at AS "startedAt",
           completed_at AS "completedAt",
           failed_at AS "failedAt",
@@ -727,6 +730,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             updatedAt = maxIso(updatedAt, row.updatedAt);
           }
           for (const row of swarmTaskExecutionRows) {
+            updatedAt = maxIso(updatedAt, row.requestedAt);
+            if (row.startedAt !== null) {
+              updatedAt = maxIso(updatedAt, row.startedAt);
+            }
             updatedAt = maxIso(updatedAt, row.updatedAt);
           }
           for (const row of stateRows) {
@@ -953,7 +960,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               workerThreadId: row.workerThreadId,
               sequenceNumber: row.sequenceNumber,
               status: row.status,
+              originalStatus: row.originalStatus,
+              originalAssignee: row.originalAssignee,
               lastError: row.lastError,
+              requestedAt: row.requestedAt,
               startedAt: row.startedAt,
               completedAt: row.completedAt,
               failedAt: row.failedAt,

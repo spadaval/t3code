@@ -874,6 +874,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           }
         }
 
+        case "swarm-task-execution.requested":
         case "swarm-task-execution.started":
         case "swarm-task-execution.completed":
         case "swarm-task-execution.failed":
@@ -901,22 +902,76 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       "applySwarmTaskExecutionsProjection",
     )(function* (event, _attachmentSideEffects) {
       switch (event.type) {
-        case "swarm-task-execution.started":
+        case "swarm-task-execution.requested":
           yield* projectionSwarmTaskExecutionRepository.upsert({
             executionId: event.payload.executionId,
             runId: event.payload.runId,
             issueId: event.payload.issueId,
             workerThreadId: event.payload.workerThreadId,
             sequenceNumber: event.payload.sequenceNumber,
-            status: "active",
+            status: "requested",
+            originalStatus: event.payload.originalStatus,
+            originalAssignee: event.payload.originalAssignee,
             lastError: null,
-            startedAt: event.payload.startedAt,
+            requestedAt: event.payload.requestedAt,
+            startedAt: null,
             completedAt: null,
             failedAt: null,
             cancelledAt: null,
             updatedAt: event.payload.updatedAt,
           });
           return;
+
+        case "swarm-task-execution.started": {
+          const existingRow = yield* projectionSwarmTaskExecutionRepository.getById({
+            executionId: event.payload.executionId,
+          });
+          yield* projectionSwarmTaskExecutionRepository.upsert({
+            executionId: event.payload.executionId,
+            runId: event.payload.runId,
+            issueId: Option.match(existingRow, {
+              onNone: () => "unknown-task",
+              onSome: (row) => row.issueId,
+            }),
+            workerThreadId: Option.match(existingRow, {
+              onNone: () => null,
+              onSome: (row) => row.workerThreadId,
+            }),
+            sequenceNumber: Option.match(existingRow, {
+              onNone: () => 0,
+              onSome: (row) => row.sequenceNumber,
+            }),
+            status: "active",
+            originalStatus: Option.match(existingRow, {
+              onNone: () => "open",
+              onSome: (row) => row.originalStatus,
+            }),
+            originalAssignee: Option.match(existingRow, {
+              onNone: () => null,
+              onSome: (row) => row.originalAssignee,
+            }),
+            lastError: null,
+            requestedAt: Option.match(existingRow, {
+              onNone: () => event.payload.startedAt,
+              onSome: (row) => row.requestedAt,
+            }),
+            startedAt: event.payload.startedAt,
+            completedAt: Option.match(existingRow, {
+              onNone: () => null,
+              onSome: (row) => row.completedAt,
+            }),
+            failedAt: Option.match(existingRow, {
+              onNone: () => null,
+              onSome: (row) => row.failedAt,
+            }),
+            cancelledAt: Option.match(existingRow, {
+              onNone: () => null,
+              onSome: (row) => row.cancelledAt,
+            }),
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
 
         case "swarm-task-execution.completed":
         case "swarm-task-execution.failed":
