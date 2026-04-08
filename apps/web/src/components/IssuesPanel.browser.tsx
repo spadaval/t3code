@@ -343,6 +343,17 @@ function getButtonByText(label: string): HTMLButtonElement {
   return button;
 }
 
+function getMenuItemByText(label: string): HTMLElement {
+  const item = [...document.querySelectorAll('[data-slot="menu-item"]')].find(
+    (candidate) => candidate.textContent?.trim() === label,
+  );
+  expect(item, `Expected to find menu item with text "${label}"`).toBeTruthy();
+  if (!(item instanceof HTMLElement)) {
+    throw new Error(`Expected "${label}" menu item to be an HTMLElement`);
+  }
+  return item;
+}
+
 function getTabByText(label: string): HTMLButtonElement {
   const button = [...document.querySelectorAll('button[role="tab"]')].find(
     (candidate) => candidate.textContent?.trim() === label,
@@ -1045,6 +1056,61 @@ describe("IssuesPanel refresh button", () => {
         projectId: "project-1",
         issueId: "TASK-IMPLEMENT",
         workflow: "solve",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5.4-mini",
+        },
+        runtimeMode: "full-access",
+      });
+    } finally {
+      screen.unmount();
+    }
+  });
+
+  it("starts planned implementation from the issue footer menu", async () => {
+    testState.issueListIssues = [
+      makeIssue({
+        id: "TASK-PLAN-IMPLEMENT",
+        title: "Plan implementation",
+      }),
+    ];
+    testState.issueDetailsById = {
+      "TASK-PLAN-IMPLEMENT": makeIssueDetail({
+        id: "TASK-PLAN-IMPLEMENT",
+        title: "Plan implementation",
+      }),
+    };
+    useIssuePaneStore.getState().setSelectedIssueId(THREAD_ID, "TASK-PLAN-IMPLEMENT");
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <IssuesPanel
+        activeThreadId={THREAD_ID}
+        cwd={TEST_CWD}
+        projectId={ProjectId.makeUnsafe("project-1")}
+        projectDefaultModelSelection={null}
+        onClose={() => {}}
+      />,
+      { container: host },
+    );
+
+    try {
+      const implementActionsButton = document.querySelector<HTMLButtonElement>(
+        'button[aria-label="Implementation actions"]',
+      );
+      expect(implementActionsButton).toBeTruthy();
+      implementActionsButton?.click();
+      await flushPromises();
+
+      getMenuItemByText("Planned implementation").click();
+      await flushPromises();
+
+      expect(testState.startIssueWorkflowSpy).toHaveBeenCalledWith({
+        cwd: TEST_CWD,
+        projectId: "project-1",
+        issueId: "TASK-PLAN-IMPLEMENT",
+        workflow: "plan-implementation",
         modelSelection: {
           provider: "codex",
           model: "gpt-5.4-mini",

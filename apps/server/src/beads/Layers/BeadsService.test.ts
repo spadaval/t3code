@@ -1027,6 +1027,76 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
+  it.effect("starts planned implementation in a plan-mode linked thread", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const dispatchedCommands: unknown[] = [];
+
+      installBdJsonMock({
+        "show TASK-1 --long": [
+          {
+            id: "TASK-1",
+            title: "Implement settings persistence",
+            description: "Persist the selected settings values.",
+            notes: "Avoid regressions during reconnect.",
+            status: "open",
+            priority: 2,
+            issue_type: "task",
+            assignee: null,
+            owner: "alice",
+            created_at: now,
+            created_by: "alice",
+            updated_at: now,
+            labels: ["settings"],
+            dependencies: [],
+          },
+        ],
+        "comments TASK-1": [],
+        "history TASK-1": [],
+      });
+      mockedDispatch.mockImplementation((command: unknown) => {
+        dispatchedCommands.push(command);
+        return Effect.succeed({ sequence: dispatchedCommands.length });
+      });
+
+      const beads = yield* BeadsService;
+      const result = yield* beads.startWorkflow({
+        cwd: "/repo",
+        projectId: ProjectId.makeUnsafe("project-1"),
+        issueId: "TASK-1",
+        workflow: "plan-implementation",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+      });
+
+      assert.equal(result.created, true);
+      expect(dispatchedCommands).toHaveLength(2);
+      expect(dispatchedCommands[0]).toMatchObject({
+        type: "thread.create",
+        projectId: ProjectId.makeUnsafe("project-1"),
+        title: "TASK-1: Implement settings persistence (Planned implementation)",
+        interactionMode: "plan",
+        issueLink: {
+          issueId: "TASK-1",
+          title: "Implement settings persistence",
+          status: "open",
+          priority: 2,
+        },
+      });
+      expect(dispatchedCommands[1]).toMatchObject({
+        type: "thread.turn.start",
+        threadId: (dispatchedCommands[0] as { threadId: ThreadId }).threadId,
+        interactionMode: "plan",
+        message: {
+          text: expect.stringContaining("Produce a concrete implementation plan for this issue."),
+        },
+      });
+      const messageText = (dispatchedCommands[1] as { message: { text: string } }).message.text;
+      expect(messageText).toContain("Do not implement code yet.");
+      expect(messageText).toContain("acceptance criteria");
+    }),
+  );
+
   it.effect("starts missing-swarm planning in a tracker-only linked thread", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();

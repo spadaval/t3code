@@ -566,7 +566,14 @@ function buildIssueLink(issue: BeadsIssueSummaryType, cwd: string) {
   };
 }
 
-function buildWorkflowThreadTitle(issue: BeadsIssueSummaryType): string {
+function buildWorkflowThreadTitle(
+  issue: BeadsIssueSummaryType,
+  workflow: BeadsStartWorkflowInput["workflow"],
+): string {
+  if (workflow === "plan-implementation") {
+    return `${issue.id}: ${issue.title} (Planned implementation)`;
+  }
+
   return `${issue.id}: ${issue.title}`;
 }
 
@@ -607,6 +614,12 @@ function buildWorkflowPrompt(
       "",
       "Refine this issue into an implementation-ready plan.",
       "Clarify scope, risks, assumptions, acceptance criteria, and propose a concrete implementation plan.",
+    );
+  } else if (workflow === "plan-implementation") {
+    sections.push(
+      "",
+      "Produce a concrete implementation plan for this issue.",
+      "Do not implement code yet. Create an implementation-ready plan with scope, sequencing, risks, assumptions, acceptance criteria, and any tracker follow-up that should be recorded before coding starts.",
     );
   } else if (workflow === "solve") {
     sections.push(
@@ -1630,8 +1643,11 @@ const makeBeadsService = Effect.gen(function* () {
         }
       }
 
-      const nextInteractionMode = input.workflow === "refine" ? "plan" : "default";
-      const nextThreadTitle = buildWorkflowThreadTitle(issue);
+      const nextInteractionMode =
+        input.workflow === "refine" || input.workflow === "plan-implementation"
+          ? "plan"
+          : "default";
+      const nextThreadTitle = buildWorkflowThreadTitle(issue, input.workflow);
       const promptText = buildWorkflowPrompt(issue, input.workflow);
 
       return yield* startLinkedIssueThread({

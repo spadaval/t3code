@@ -84,6 +84,7 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { Input } from "./ui/input";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 import { toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -2138,6 +2139,7 @@ function IssueDetailDialog(props: {
   onOpenLinkedThread: (threadId: ThreadId) => void;
   onStartIssueRefine: () => void;
   onStartIssueImplement: () => void;
+  onStartIssuePlannedImplementation: () => void;
   onStartEpicQuickRefine: () => void;
   onStartEpicPlannedRefine: () => void;
   onTriggerEpicPrimaryAction: () => void;
@@ -2281,15 +2283,42 @@ function IssueDetailDialog(props: {
                     ? "Starting..."
                     : "Refine"}
                 </Button>
-                <Button
-                  type="button"
-                  disabled={props.workflowActionsDisabled}
-                  onClick={props.onStartIssueImplement}
-                >
-                  {props.workflowActionsBusy && props.activeWorkflow === "solve"
-                    ? "Starting..."
-                    : "Implement"}
-                </Button>
+                <div className="flex items-center gap-0">
+                  <Button
+                    type="button"
+                    className="rounded-r-none"
+                    disabled={props.workflowActionsDisabled}
+                    onClick={props.onStartIssueImplement}
+                  >
+                    {props.workflowActionsBusy &&
+                    (props.activeWorkflow === "solve" ||
+                      props.activeWorkflow === "plan_implementation")
+                      ? "Starting..."
+                      : "Implement"}
+                  </Button>
+                  <Menu>
+                    <MenuTrigger
+                      render={
+                        <Button
+                          type="button"
+                          className="rounded-l-none border-l-white/12 px-2"
+                          aria-label="Implementation actions"
+                          disabled={props.workflowActionsDisabled}
+                        />
+                      }
+                    >
+                      <ChevronDownIcon className="size-4" />
+                    </MenuTrigger>
+                    <MenuPopup align="end">
+                      <MenuItem
+                        disabled={props.workflowActionsDisabled}
+                        onClick={props.onStartIssuePlannedImplementation}
+                      >
+                        Planned implementation
+                      </MenuItem>
+                    </MenuPopup>
+                  </Menu>
+                </div>
               </>
             ) : null}
           </DialogFooter>
@@ -2543,12 +2572,12 @@ export function IssuesPanel({
       search: (previous) => stripDiffSearchParams(previous),
     });
   };
-  const runIssueWorkflow = async (workflow: "refine" | "solve") => {
+  const runIssueWorkflow = async (workflow: "refine" | "solve" | "plan-implementation") => {
     if (!cwd || !projectId || !state.selectedIssueId) {
       return;
     }
 
-    setActiveWorkflow(workflow);
+    setActiveWorkflow(workflow === "plan-implementation" ? "plan_implementation" : workflow);
     try {
       const selectedIssueType = selectedIssueDetailQuery.data?.issueType ?? null;
       const result = await startIssueWorkflowMutation.mutateAsync({
@@ -2560,10 +2589,17 @@ export function IssuesPanel({
         runtimeMode,
       });
 
+      const workflowStartedTitle =
+        workflow === "refine"
+          ? "Refine thread started"
+          : workflow === "plan-implementation"
+            ? "Planned implementation thread started"
+            : "Implementation thread started";
+
       if (isEpicIssueType(selectedIssueType)) {
         toastManager.add({
           type: "success",
-          title: workflow === "refine" ? "Refine thread started" : "Implementation thread started",
+          title: workflowStartedTitle,
           description:
             "The new thread was created and linked to this epic. Open it from Linked threads when you want to switch context.",
         });
@@ -3099,6 +3135,9 @@ export function IssuesPanel({
         }}
         onStartIssueImplement={() => {
           void runIssueWorkflow("solve");
+        }}
+        onStartIssuePlannedImplementation={() => {
+          void runIssueWorkflow("plan-implementation");
         }}
         onStartEpicQuickRefine={() => {
           void startEpicRefine("quick_refine");

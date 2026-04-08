@@ -8,6 +8,7 @@ import {
   BeadsIssueGraph,
   BeadsProjectCoordinatorSnapshot,
   BeadsSessionActivityEntry,
+  BeadsStartWorkflowInput,
   BeadsSwarmValidation,
 } from "./beads";
 
@@ -18,6 +19,7 @@ const decodeBeadsProjectCoordinatorSnapshot = Schema.decodeUnknownEffect(
   BeadsProjectCoordinatorSnapshot,
 );
 const decodeBeadsSessionActivityEntry = Schema.decodeUnknownEffect(BeadsSessionActivityEntry);
+const decodeBeadsStartWorkflowInput = Schema.decodeUnknownEffect(BeadsStartWorkflowInput);
 const decodeBeadsSwarmValidation = Schema.decodeUnknownEffect(BeadsSwarmValidation);
 
 it.effect("decodes beads context with backend metadata", () =>
@@ -118,6 +120,24 @@ it.effect("accepts plan-implementation workflow activity entries", () =>
   }),
 );
 
+it.effect("accepts plan-implementation workflow launches", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeBeadsStartWorkflowInput({
+      cwd: "/tmp/repo",
+      projectId: "project-1",
+      issueId: "TASK-1",
+      workflow: "plan-implementation",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5.4-mini",
+      },
+      runtimeMode: "full-access",
+    });
+
+    assert.strictEqual(parsed.workflow, "plan-implementation");
+  }),
+);
+
 it.effect("defaults coordinator snapshot collections", () =>
   Effect.gen(function* () {
     const project = yield* decodeBeadsProjectCoordinatorSnapshot({
@@ -130,15 +150,24 @@ it.effect("defaults coordinator snapshot collections", () =>
       },
     });
     const epic = yield* decodeBeadsEpicCoordinatorSnapshot({
-      epicId: "epic-1",
-      epicTitle: "Epic",
-      fetchLifecycle: { kind: "ready" },
-      stateKind: "ready",
-      primaryAction: {
-        kind: "start_swarm",
-        label: "Start swarm",
-        busyLabel: "Starting...",
-        disabled: false,
+      projectId: "project-1",
+      support: {
+        supported: true,
+        backend: {
+          kind: "dolt",
+        },
+      },
+      epic: {
+        epicId: "epic-1",
+        epicTitle: "Epic",
+        fetchLifecycle: { kind: "ready" },
+        stateKind: "ready",
+        primaryAction: {
+          kind: "start_swarm",
+          label: "Start swarm",
+          busyLabel: "Starting...",
+          disabled: false,
+        },
       },
     });
 

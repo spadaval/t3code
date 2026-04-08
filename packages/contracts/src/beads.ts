@@ -389,7 +389,12 @@ export const BeadsSessionActivityKind = Schema.Literals([
 ]);
 export type BeadsSessionActivityKind = typeof BeadsSessionActivityKind.Type;
 
-export const BeadsIssueWorkflowKind = Schema.Literals(["refine", "solve", "continue"]);
+export const BeadsIssueWorkflowKind = Schema.Literals([
+  "refine",
+  "solve",
+  "continue",
+  "plan-implementation",
+]);
 export type BeadsIssueWorkflowKind = typeof BeadsIssueWorkflowKind.Type;
 
 export const BeadsSessionWorkflowKind = Schema.Literals([
