@@ -242,29 +242,28 @@ type OrchestrationProposedPlanLegacyCompatible =
 export const OrchestrationProposedPlan = Schema.Union([
   OrchestrationProposedPlanShape,
   OrchestrationProposedPlanLegacyShape,
-])
-  .pipe(
-    Schema.decode({
-      decode: SchemaGetter.transform((input: OrchestrationProposedPlanLegacyCompatible) => ({
-        id: input.id,
-        turnId: input.turnId,
-        planMarkdown: input.planMarkdown,
-        planIntent: input.planIntent,
-        followUpOutcome:
-          input.followUpOutcome ??
-          ("implementedAt" in input && input.implementedAt
-            ? {
-                kind: "implement-code" as const,
-                completedAt: input.implementedAt,
-                targetThreadId: input.implementationThreadId,
-              }
-            : null),
-        createdAt: input.createdAt,
-        updatedAt: input.updatedAt,
-      })),
-      encode: SchemaGetter.transform((input: OrchestrationProposedPlanLegacyCompatible) => input),
-    }),
-  ) as unknown as typeof OrchestrationProposedPlanShape;
+]).pipe(
+  Schema.decode({
+    decode: SchemaGetter.transform((input: OrchestrationProposedPlanLegacyCompatible) => ({
+      id: input.id,
+      turnId: input.turnId,
+      planMarkdown: input.planMarkdown,
+      planIntent: input.planIntent,
+      followUpOutcome:
+        input.followUpOutcome ??
+        ("implementedAt" in input && input.implementedAt
+          ? {
+              kind: "implement-code" as const,
+              completedAt: input.implementedAt,
+              targetThreadId: input.implementationThreadId,
+            }
+          : null),
+      createdAt: input.createdAt,
+      updatedAt: input.updatedAt,
+    })),
+    encode: SchemaGetter.transform((input: OrchestrationProposedPlanLegacyCompatible) => input),
+  }),
+) as unknown as typeof OrchestrationProposedPlanShape;
 export type OrchestrationProposedPlan = typeof OrchestrationProposedPlan.Type;
 
 const SourceProposedPlanReference = Schema.Struct({

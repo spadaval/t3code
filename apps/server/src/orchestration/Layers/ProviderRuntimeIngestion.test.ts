@@ -13,6 +13,7 @@ import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   MessageId,
+  PlanImplementationLaunchId,
   ProjectId,
   ProviderItemId,
   type ServerSettings,
@@ -1000,6 +1001,199 @@ describe("ProviderRuntimeIngestion", () => {
         kind: "implement-code",
         completedAt: expect.any(String),
         targetThreadId: "thread-implement",
+      },
+    });
+  });
+
+  it("marks the source proposed plan as converted to tracker for tracker-only launches", async () => {
+    const harness = await createHarness();
+    const sourceThreadId = asThreadId("thread-plan");
+    const targetThreadId = asThreadId("thread-tracker");
+    const sourceTurnId = asTurnId("turn-plan-source");
+    const targetTurnId = asTurnId("turn-plan-tracker");
+    const createdAt = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-thread-create-plan-source-tracker"),
+        threadId: sourceThreadId,
+        projectId: asProjectId("project-1"),
+        title: "Plan Source",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        interactionMode: "plan",
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-set-plan-source-tracker"),
+        threadId: sourceThreadId,
+        session: {
+          threadId: sourceThreadId,
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          updatedAt: createdAt,
+          lastError: null,
+        },
+        createdAt,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-thread-create-plan-target-tracker"),
+        threadId: targetThreadId,
+        projectId: asProjectId("project-1"),
+        title: "Tracker Target",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-set-plan-target-tracker"),
+        threadId: targetThreadId,
+        session: {
+          threadId: targetThreadId,
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          updatedAt: createdAt,
+          lastError: null,
+        },
+        createdAt,
+      }),
+    );
+    harness.setProviderSession({
+      provider: "codex",
+      status: "ready",
+      runtimeMode: "approval-required",
+      threadId: targetThreadId,
+      createdAt,
+      updatedAt: createdAt,
+      activeTurnId: targetTurnId,
+    });
+
+    harness.emit({
+      type: "turn.proposed.completed",
+      eventId: asEventId("evt-plan-source-completed-tracker"),
+      provider: "codex",
+      createdAt,
+      threadId: sourceThreadId,
+      turnId: sourceTurnId,
+      payload: {
+        planMarkdown: "# Tracker plan",
+      },
+    });
+
+    const sourceThreadWithPlan = await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.proposedPlans.some(
+          (proposedPlan: ProviderRuntimeTestProposedPlan) =>
+            proposedPlan.id === "plan:thread-plan:turn:turn-plan-source" &&
+            proposedPlan.followUpOutcome === null,
+        ),
+      2_000,
+      sourceThreadId,
+    );
+    const sourcePlan = sourceThreadWithPlan.proposedPlans.find(
+      (entry: ProviderRuntimeTestProposedPlan) =>
+        entry.id === "plan:thread-plan:turn:turn-plan-source",
+    );
+    expect(sourcePlan).toBeDefined();
+    if (!sourcePlan) {
+      throw new Error("Expected source plan to exist.");
+    }
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "plan-implementation-launch.request",
+        commandId: CommandId.makeUnsafe("cmd-launch-request-tracker-only"),
+        launchId: PlanImplementationLaunchId.makeUnsafe("launch-tracker-only"),
+        sourceThreadId,
+        sourcePlanId: sourcePlan.id,
+        projectId: asProjectId("project-1"),
+        targetThreadId,
+        title: "Tracker Target",
+        setupEnabled: false,
+        launchMode: "tracker-only",
+        promptText: "Convert this plan into tracker work.",
+        model: "gpt-5-codex",
+        assistantDeliveryMode: "buffered",
+        runtimeMode: "approval-required",
+        createdAt,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-plan-target-tracker"),
+        threadId: targetThreadId,
+        message: {
+          messageId: asMessageId("msg-plan-target-tracker"),
+          role: "user",
+          text: "PLEASE CONVERT THIS PLAN INTO TRACKER WORK:\n# Tracker plan",
+          attachments: [],
+        },
+        sourceProposedPlan: {
+          threadId: sourceThreadId,
+          planId: sourcePlan.id,
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: new Date().toISOString(),
+      }),
+    );
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-plan-target-started-tracker"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: targetThreadId,
+      turnId: targetTurnId,
+    });
+
+    const sourceThreadAfterStart = await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.proposedPlans.some(
+          (proposedPlan: ProviderRuntimeTestProposedPlan) =>
+            proposedPlan.id === sourcePlan.id &&
+            proposedPlan.followUpOutcome?.kind === "convert-to-tracker" &&
+            proposedPlan.followUpOutcome.targetThreadId === targetThreadId,
+        ),
+      2_000,
+      sourceThreadId,
+    );
+    expect(
+      sourceThreadAfterStart.proposedPlans.find((entry) => entry.id === sourcePlan.id),
+    ).toMatchObject({
+      followUpOutcome: {
+        kind: "convert-to-tracker",
+        completedAt: expect.any(String),
+        targetThreadId: "thread-tracker",
       },
     });
   });
