@@ -1,10 +1,18 @@
 import "../index.css";
 
 import { ProjectId, ThreadId, type BeadsIssueSummary } from "@t3tools/contracts";
+import { deriveSwarmRunExecutionState } from "@t3tools/shared/swarm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { useIssuePaneStore } from "~/issuePaneStore";
+import {
+  collectCoordinatorEpics,
+  deriveCoordinatorFetchLifecycle,
+  deriveEpicCoordinatorState,
+  findConflictingSharedWorkspaceRun,
+  getEpicCoordinatorPrimaryAction,
+} from "~/issuePanel";
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-issues-panel");
 const TEST_CWD = "/repo/project";
@@ -72,6 +80,170 @@ function makeIssueDetail(
   };
 }
 
+function getMockIssueDetail(issueId: string) {
+  const byId = testState.issueDetailsById[issueId] ?? null;
+  if (byId) {
+    return byId;
+  }
+
+  return testState.issueDetail && testState.issueDetail.id === issueId
+    ? testState.issueDetail
+    : null;
+}
+
+function getMockSwarmValidation(epicId: string) {
+  return testState.swarmValidationByEpicId[epicId] ?? testState.swarmValidation;
+}
+
+function getMockSwarmStatus(epicId: string) {
+  return testState.swarmStatusByEpicId[epicId] ?? testState.swarmStatus;
+}
+
+function getMockIssueSummary(issueId: string) {
+  const issue = testState.issueListIssues.find((candidate) => candidate.id === issueId) ?? null;
+  if (issue) {
+    return issue;
+  }
+
+  const detail = getMockIssueDetail(issueId);
+  return detail ?? null;
+}
+
+function listMockEpicIssues() {
+  return testState.issueListIssues.filter((issue) => issue.issueType === "epic");
+}
+
+function listMockSwarms() {
+  const byId = new Map<string, Record<string, unknown>>();
+
+  for (const validation of Object.values(testState.swarmValidationByEpicId)) {
+    const swarm = (validation?.swarm ?? null) as
+      | (Record<string, unknown> & { swarmId?: unknown })
+      | null;
+    if (swarm && typeof swarm.swarmId === "string") {
+      byId.set(swarm.swarmId, swarm);
+    }
+  }
+
+  for (const status of Object.values(testState.swarmStatusByEpicId)) {
+    const swarm = (status?.swarm ?? null) as
+      | (Record<string, unknown> & { swarmId?: unknown })
+      | null;
+    if (swarm && typeof swarm.swarmId === "string") {
+      byId.set(swarm.swarmId, swarm);
+    }
+  }
+
+  const globalValidationSwarm = (testState.swarmValidation?.swarm ?? null) as
+    | (Record<string, unknown> & { swarmId?: unknown })
+    | null;
+  if (globalValidationSwarm && typeof globalValidationSwarm.swarmId === "string") {
+    byId.set(globalValidationSwarm.swarmId, globalValidationSwarm);
+  }
+
+  const globalStatusSwarm = (testState.swarmStatus?.swarm ?? null) as
+    | (Record<string, unknown> & { swarmId?: unknown })
+    | null;
+  if (globalStatusSwarm && typeof globalStatusSwarm.swarmId === "string") {
+    byId.set(globalStatusSwarm.swarmId, globalStatusSwarm);
+  }
+
+  return [...byId.values()];
+}
+
+function buildMockFetchLifecycle(epicId: string) {
+  const validation = getMockSwarmValidation(epicId);
+  const status = getMockSwarmStatus(epicId);
+  const validationError = testState.swarmValidationErrorByEpicId[epicId]?.message ?? null;
+  const statusError = testState.swarmStatusErrorByEpicId[epicId]?.message ?? null;
+
+  return deriveCoordinatorFetchLifecycle({
+    support: {
+      pending: false,
+      hasData: testState.swarmSupport !== null,
+      error: null,
+    },
+    requireSwarmState: true,
+    validation: {
+      pending: false,
+      hasData: validation !== null,
+      error: validationError,
+    },
+    status: {
+      pending: false,
+      hasData: status !== null,
+      error: statusError,
+    },
+  });
+}
+
+function buildMockEpicCoordinatorSnapshot(epicId: string, projectId: string) {
+  const issue = getMockIssueSummary(epicId);
+  const validation = getMockSwarmValidation(epicId);
+  const status = getMockSwarmStatus(epicId);
+  const fetchLifecycle = buildMockFetchLifecycle(epicId);
+  const projectSwarmRuns = testState.swarmRuns.filter((run) => run.projectId === projectId);
+  const epicSwarmRuns = projectSwarmRuns.filter((run) => run.epicIssueId === epicId);
+  const epicExecutions = testState.swarmTaskExecutions.filter((execution) =>
+    epicSwarmRuns.some((run) => run.runId === execution.runId),
+  );
+  const projectConflict = findConflictingSharedWorkspaceRun({
+    projectSwarmRuns: projectSwarmRuns as any,
+    epicSwarmRuns: epicSwarmRuns as any,
+  });
+  const coordinatorState = deriveEpicCoordinatorState({
+    swarmSupport: testState.swarmSupport as any,
+    status: status as any,
+    validation: validation as any,
+    swarmRuns: epicSwarmRuns as any,
+    fetchLifecycle,
+  });
+  const activeExecution =
+    coordinatorState.latestRun === null
+      ? null
+      : deriveSwarmRunExecutionState({
+          runId: coordinatorState.latestRun.runId,
+          executions: epicExecutions as any,
+        }).activeExecution;
+
+  return {
+    epicId,
+    epicTitle: issue?.title ?? epicId,
+    issue,
+    fetchLifecycle,
+    stateKind: coordinatorState.kind,
+    primaryAction: getEpicCoordinatorPrimaryAction({
+      swarmSupport: testState.swarmSupport as any,
+      status: status as any,
+      validation: validation as any,
+      swarmRuns: epicSwarmRuns as any,
+      projectConflict,
+      fetchLifecycle,
+    }),
+    latestRun: coordinatorState.latestRun,
+    projectConflict,
+    swarmSummary: validation?.swarm ?? status?.swarm ?? null,
+    validation,
+    status,
+    runs: epicSwarmRuns,
+    executions: epicExecutions,
+    activeExecution,
+  };
+}
+
+function buildMockProjectCoordinatorSnapshot(projectId: string) {
+  const epics = collectCoordinatorEpics({
+    epicIssues: listMockEpicIssues(),
+    swarms: listMockSwarms() as any,
+    swarmRuns: testState.swarmRuns.filter((run) => run.projectId === projectId) as any,
+  }).map((entry) => buildMockEpicCoordinatorSnapshot(entry.epicId, projectId));
+
+  return {
+    support: testState.swarmSupport,
+    epics,
+  };
+}
+
 vi.mock("@tanstack/react-pacer", () => ({
   useDebouncedValue: (value: string) => [value],
 }));
@@ -110,7 +282,7 @@ vi.mock("@tanstack/react-query", async () => {
     })),
     useQueries: vi.fn(({ queries }: { queries: Array<{ queryKey?: readonly unknown[] }> }) =>
       queries.map((query) => {
-        const epicId = query.queryKey?.[2];
+        const epicId = query.queryKey?.[3];
 
         if (query.queryKey?.[1] === "epic-swarm-validation") {
           const error =
@@ -154,7 +326,7 @@ vi.mock("@tanstack/react-query", async () => {
     ),
     useQuery: vi.fn((options: { queryKey?: readonly unknown[] }) => {
       if (options.queryKey?.[1] === "issues") {
-        const issueTypesKey = options.queryKey?.[2];
+        const issueTypesKey = options.queryKey?.[6];
         const filteredIssues =
           typeof issueTypesKey === "string" && issueTypesKey.length > 0
             ? testState.issueListIssues.filter((issue) =>
@@ -174,7 +346,7 @@ vi.mock("@tanstack/react-query", async () => {
       }
 
       if (options.queryKey?.[1] === "issue") {
-        const issueId = options.queryKey?.[2];
+        const issueId = options.queryKey?.[3];
         return {
           data:
             (typeof issueId === "string" ? testState.issueDetailsById[issueId] : null) ??
@@ -188,8 +360,11 @@ vi.mock("@tanstack/react-query", async () => {
       }
 
       if (options.queryKey?.[1] === "project-coordinator-snapshot") {
+        const projectId = options.queryKey?.[3];
         return {
-          data: testState.projectCoordinatorSnapshot,
+          data:
+            testState.projectCoordinatorSnapshot ??
+            (typeof projectId === "string" ? buildMockProjectCoordinatorSnapshot(projectId) : null),
           isPending: false,
           isError: false,
           error: null,
@@ -199,8 +374,17 @@ vi.mock("@tanstack/react-query", async () => {
       }
 
       if (options.queryKey?.[1] === "epic-coordinator-snapshot") {
+        const projectId = options.queryKey?.[3];
+        const epicIssueId = options.queryKey?.[4];
         return {
-          data: testState.epicCoordinatorSnapshot,
+          data:
+            testState.epicCoordinatorSnapshot ??
+            (typeof projectId === "string" && typeof epicIssueId === "string"
+              ? {
+                  support: testState.swarmSupport,
+                  epic: buildMockEpicCoordinatorSnapshot(epicIssueId, projectId),
+                }
+              : null),
           isPending: false,
           isError: false,
           error: null,
@@ -390,6 +574,8 @@ describe("IssuesPanel refresh button", () => {
     testState.swarmSupport = null;
     testState.swarmValidation = null;
     testState.swarmStatus = null;
+    testState.projectCoordinatorSnapshot = null;
+    testState.epicCoordinatorSnapshot = null;
     testState.swarmRuns = [];
     testState.swarmTaskExecutions = [];
     testState.swarmValidationByEpicId = {};
@@ -449,7 +635,7 @@ describe("IssuesPanel refresh button", () => {
       <IssuesPanel
         activeThreadId={THREAD_ID}
         cwd={TEST_CWD}
-        projectId={null}
+        projectId={ProjectId.makeUnsafe("project-1")}
         projectDefaultModelSelection={null}
         onClose={() => {}}
       />,
@@ -768,6 +954,11 @@ describe("IssuesPanel refresh button", () => {
       expect(document.body.textContent).toContain("Error");
       expect(document.body.textContent).toContain("Retry swarm state");
       expect(document.body.textContent).not.toContain("No swarm yet");
+      expect(
+        [...document.querySelectorAll("button")].filter(
+          (button) => button.textContent?.trim() === "Retry swarm state",
+        ),
+      ).toHaveLength(1);
     } finally {
       screen.unmount();
     }

@@ -2193,6 +2193,7 @@ function IssueDetailDialog(props: {
   workflowActionsDisabled: boolean;
   workflowActionsBusy: boolean;
   activeWorkflow: CoordinatorWorkflowAction;
+  showEpicPrimaryAction: boolean;
   epicPrimaryActionLabel: string;
   epicPrimaryActionDisabled: boolean;
   epicPrimaryActionBusy: boolean;
@@ -2300,23 +2301,25 @@ function IssueDetailDialog(props: {
                     ? "Starting..."
                     : "Planned refine"}
                 </Button>
-                <Button
-                  type="button"
-                  disabled={
-                    props.workflowActionsDisabled ||
-                    props.epicPrimaryActionDisabled ||
-                    props.epicPrimaryActionBusy
-                  }
-                  onClick={props.onTriggerEpicPrimaryAction}
-                >
-                  {props.epicPrimaryActionBusy
-                    ? props.epicPrimaryActionBusyLabel
-                    : props.workflowActionsBusy &&
-                        (props.activeWorkflow === "solve" ||
-                          props.activeWorkflow === "plan_implementation")
-                      ? "Starting..."
-                      : props.epicPrimaryActionLabel}
-                </Button>
+                {props.showEpicPrimaryAction ? (
+                  <Button
+                    type="button"
+                    disabled={
+                      props.workflowActionsDisabled ||
+                      props.epicPrimaryActionDisabled ||
+                      props.epicPrimaryActionBusy
+                    }
+                    onClick={props.onTriggerEpicPrimaryAction}
+                  >
+                    {props.epicPrimaryActionBusy
+                      ? props.epicPrimaryActionBusyLabel
+                      : props.workflowActionsBusy &&
+                          (props.activeWorkflow === "solve" ||
+                            props.activeWorkflow === "plan_implementation")
+                        ? "Starting..."
+                        : props.epicPrimaryActionLabel}
+                  </Button>
+                ) : null}
               </>
             ) : showBasicWorkflowActions ? (
               <>
@@ -2602,15 +2605,16 @@ export function IssuesPanel({
     busyLabel: "Checking...",
     disabled: true,
   };
-  const epicPrimaryActionBusy =
+  const showEpicPrimaryAction =
     selectedIssueIsEpic &&
-    ((epicPrimaryAction.kind === "continue_swarm" && epicCoordinatorState.latestRun !== null
+    epicPrimaryAction.kind !== "checking" &&
+    epicPrimaryAction.kind !== "refresh_swarm_state" &&
+    epicPrimaryAction.kind !== "unsupported";
+  const epicPrimaryActionBusy =
+    showEpicPrimaryAction &&
+    (epicPrimaryAction.kind === "continue_swarm" && epicCoordinatorState.latestRun !== null
       ? swarmActionKey === `continue:${epicCoordinatorState.latestRun.runId}`
-      : false) ||
-      ((epicPrimaryAction.kind === "refresh_swarm_state" ||
-        epicPrimaryAction.kind === "checking") &&
-        selectedEpicIssueId !== null &&
-        swarmActionKey === `refresh:${selectedEpicIssueId}`));
+      : false);
   const openLinkedThread = async (threadId: ThreadId) => {
     closeSelectedIssue();
     await navigate({
@@ -2724,7 +2728,7 @@ export function IssuesPanel({
   };
 
   const refreshEpicSwarmStatus = async (epicIssueId: string) => {
-    if (!cwd) {
+    if (!cwd || !projectId) {
       return;
     }
 
@@ -2732,6 +2736,19 @@ export function IssuesPanel({
     setSwarmActionKey(actionKey);
     try {
       await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: beadsQueryKeys.epicCoordinatorSnapshot({
+            cwd,
+            projectId,
+            epicIssueId,
+          }),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: beadsQueryKeys.projectCoordinatorSnapshot({
+            cwd,
+            projectId,
+          }),
+        }),
         queryClient.invalidateQueries({
           queryKey: beadsQueryKeys.swarmSupport(cwd),
         }),
@@ -2753,7 +2770,7 @@ export function IssuesPanel({
       ]);
       toastManager.add({
         type: "success",
-        title: "Swarm status refreshed",
+        title: "Swarm state refreshed",
         description: `Reloaded tracker state for ${epicIssueId}.`,
       });
     } catch (error) {
@@ -3249,6 +3266,7 @@ export function IssuesPanel({
         workflowActionsDisabled={workflowActionsDisabled}
         workflowActionsBusy={workflowActionsDisabled}
         activeWorkflow={activeWorkflow}
+        showEpicPrimaryAction={showEpicPrimaryAction}
         epicPrimaryActionLabel={selectedIssueIsEpic ? epicPrimaryAction.label : "Implement"}
         epicPrimaryActionDisabled={selectedIssueIsEpic ? epicPrimaryAction.disabled : false}
         epicPrimaryActionBusy={epicPrimaryActionBusy}
