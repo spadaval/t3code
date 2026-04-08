@@ -1,0 +1,727 @@
+import type { BeadsIssueDetail } from "@t3tools/contracts";
+import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
+import {
+  BugIcon,
+  CheckSquare2Icon,
+  CircleDotIcon,
+  Clock3Icon,
+  LightbulbIcon,
+  MessageSquareTextIcon,
+  ScaleIcon,
+  WrenchIcon,
+  ZapIcon,
+} from "lucide-react";
+
+import { cn } from "~/lib/utils";
+import { formatShortTimestamp } from "~/timestampFormat";
+import { useSettings } from "~/hooks/useSettings";
+import { StatusIndicator } from "../shared/StatusIndicator";
+import { LabelGroup } from "../shared/LabelGroup";
+import { Button } from "../ui/button";
+
+export interface IssueDetailProps {
+  issue: BeadsIssueDetail;
+  className?: string;
+  onDependencyClick?: ((dependencyId: string) => void) | undefined;
+  onLabelClick?: ((label: string) => void) | undefined;
+  showCompactSections?: boolean;
+  // Enhanced interaction props
+  loading?: boolean;
+  sectionsLoading?: {
+    comments?: boolean;
+    history?: boolean;
+    dependencies?: boolean;
+  };
+  onClose?: () => void;
+  autoFocus?: boolean;
+}
+
+/**
+ * IssueDetail - Enhanced clean, focused issue detail display component
+ *
+ * Features:
+ * - Progressive loading of sections
+ * - Keyboard navigation and shortcuts
+ * - Focus management for accessibility
+ * - Loading states for different sections
+ * - Enhanced interactions and animations
+ *
+ * Replaces the monolithic badge-heavy IssueOverviewContent with a clean,
+ * hierarchical layout that implements progressive disclosure patterns.
+ * Reduces visual noise significantly while maintaining all functionality.
+ *
+ * Keyboard shortcuts:
+ * - Escape: Close detail view (if onClose provided)
+ * - C: Toggle comments section
+ * - H: Toggle history section
+ * - D: Toggle dependencies section
+ *
+ * @example
+ * <IssueDetail
+ *   issue={issueDetail}
+ *   onDependencyClick={handleDependencySelect}
+ *   onLabelClick={handleLabelFilter}
+ *   autoFocus
+ *   onClose={handleClose}
+ * />
+ */
+export function IssueDetail({
+  issue,
+  className,
+  onDependencyClick,
+  onLabelClick,
+  showCompactSections = false,
+  loading = false,
+  sectionsLoading = {},
+  onClose,
+  autoFocus = false,
+}: IssueDetailProps) {
+  const settings = useSettings();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [commentsExpanded, setCommentsExpanded] = useState(false);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [dependenciesExpanded, setDependenciesExpanded] = useState(false);
+
+  const statusVariant = getStatusVariant(issue.status);
+  const priorityComponent = issue.priority !== null ? getPriorityDisplay(issue.priority) : null;
+
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    if (!autoFocus) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Only handle shortcuts when this component has focus
+      if (!containerRef.current?.contains(document.activeElement)) return;
+
+      switch (event.key) {
+        case "Escape":
+          if (onClose) {
+            event.preventDefault();
+            onClose();
+          }
+          break;
+        case "c":
+        case "C":
+          if (issue.comments.length > 0 && !event.ctrlKey && !event.metaKey) {
+            event.preventDefault();
+            setCommentsExpanded((prev) => !prev);
+          }
+          break;
+        case "h":
+        case "H":
+          if (issue.history.length > 0 && !event.ctrlKey && !event.metaKey) {
+            event.preventDefault();
+            setHistoryExpanded((prev) => !prev);
+          }
+          break;
+        case "d":
+        case "D":
+          if (issue.dependencies.length > 0 && !event.ctrlKey && !event.metaKey) {
+            event.preventDefault();
+            setDependenciesExpanded((prev) => !prev);
+          }
+          break;
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [issue, onClose, autoFocus]);
+
+  // Auto focus on mount
+  useEffect(() => {
+    if (autoFocus && containerRef.current) {
+      // Small delay to ensure proper focus
+      setTimeout(() => {
+        containerRef.current?.focus();
+      }, 100);
+    }
+  }, [autoFocus]);
+
+  // Progressive disclosure limits
+  const PREVIEW_LIMIT = showCompactSections ? 2 : 3;
+  const visibleComments = commentsExpanded
+    ? issue.comments
+    : issue.comments.slice(0, PREVIEW_LIMIT);
+  const visibleHistory = historyExpanded ? issue.history : issue.history.slice(0, PREVIEW_LIMIT);
+  const visibleDependencies = dependenciesExpanded
+    ? issue.dependencies
+    : issue.dependencies.slice(0, PREVIEW_LIMIT);
+
+  const hasHiddenComments = issue.comments.length > PREVIEW_LIMIT;
+  const hasHiddenHistory = issue.history.length > PREVIEW_LIMIT;
+  const hasHiddenDependencies = issue.dependencies.length > PREVIEW_LIMIT;
+
+  const handleToggleComments = useCallback(() => {
+    setCommentsExpanded(!commentsExpanded);
+  }, [commentsExpanded]);
+
+  const handleToggleHistory = useCallback(() => {
+    setHistoryExpanded(!historyExpanded);
+  }, [historyExpanded]);
+
+  const handleToggleDependencies = useCallback(() => {
+    setDependenciesExpanded(!dependenciesExpanded);
+  }, [dependenciesExpanded]);
+
+  if (loading) {
+    return (
+      <div className={cn("space-y-6 animate-pulse", className)}>
+        {/* Header skeleton */}
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <div className="w-16 h-5 bg-muted rounded" />
+            <div className="w-12 h-5 bg-muted rounded" />
+            <div className="w-8 h-5 bg-muted rounded" />
+          </div>
+          <div className="w-3/4 h-6 bg-muted rounded" />
+          <div className="w-1/2 h-4 bg-muted rounded" />
+        </div>
+
+        {/* Content skeleton */}
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <div className="w-20 h-3 bg-muted rounded" />
+            <div className="space-y-1">
+              <div className="w-full h-3 bg-muted rounded" />
+              <div className="w-4/5 h-3 bg-muted rounded" />
+              <div className="w-3/5 h-3 bg-muted rounded" />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="w-16 h-3 bg-muted rounded" />
+            <div className="flex gap-1">
+              <div className="w-12 h-5 bg-muted rounded" />
+              <div className="w-16 h-5 bg-muted rounded" />
+              <div className="w-20 h-5 bg-muted rounded" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className={cn("space-y-6 focus-visible:outline-none", className)}
+      tabIndex={autoFocus ? 0 : undefined}
+      role="main"
+      aria-label={`Issue details for ${issue.title}`}
+    >
+      {/* Primary: Status and Metadata */}
+      <IssueDetailHeader
+        issue={issue}
+        statusVariant={statusVariant}
+        priorityComponent={priorityComponent}
+        timestampFormat={settings.timestampFormat}
+      />
+
+      {/* Secondary: Description and Notes */}
+      <IssueDetailContent issue={issue} />
+
+      {/* Secondary: Labels */}
+      {issue.labels.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Labels
+          </h3>
+          <LabelGroup
+            labels={issue.labels}
+            onLabelClick={onLabelClick}
+            maxVisible={6}
+            variant="default"
+            expandable
+          />
+        </div>
+      )}
+
+      {/* Tertiary: Progressive Disclosure Sections */}
+      <div className="space-y-6">
+        {/* Dependencies */}
+        {issue.dependencies.length > 0 && (
+          <ProgressiveSection
+            title={`Dependencies (${issue.dependencies.length})`}
+            expanded={dependenciesExpanded}
+            onToggle={handleToggleDependencies}
+            hasHidden={hasHiddenDependencies}
+            hiddenCount={issue.dependencies.length - PREVIEW_LIMIT}
+            compact={showCompactSections}
+            loading={sectionsLoading.dependencies ?? false}
+            shortcut="D"
+          >
+            {sectionsLoading.dependencies ? (
+              <div className="space-y-2">
+                {Array.from({ length: 2 }).map((_, i) => (
+                  <div key={i} className="h-20 bg-muted/50 rounded-lg border animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {visibleDependencies.map((dependency) => (
+                  <DependencyItem
+                    key={`${dependency.id}:${dependency.dependencyType}`}
+                    dependency={dependency}
+                    onClick={onDependencyClick ? () => onDependencyClick(dependency.id) : undefined}
+                    timestampFormat={settings.timestampFormat}
+                  />
+                ))}
+              </div>
+            )}
+          </ProgressiveSection>
+        )}
+
+        {/* Comments */}
+        {issue.comments.length > 0 && (
+          <ProgressiveSection
+            title={`Comments (${issue.comments.length})`}
+            expanded={commentsExpanded}
+            onToggle={handleToggleComments}
+            hasHidden={hasHiddenComments}
+            hiddenCount={issue.comments.length - PREVIEW_LIMIT}
+            compact={showCompactSections}
+            loading={sectionsLoading.comments ?? false}
+            shortcut="C"
+          >
+            {sectionsLoading.comments ? (
+              <div className="space-y-3">
+                {Array.from({ length: 2 }).map((_, i) => (
+                  <div key={i} className="animate-pulse">
+                    <div className="flex gap-2 mb-2">
+                      <div className="w-4 h-4 bg-muted rounded" />
+                      <div className="w-20 h-4 bg-muted rounded" />
+                      <div className="w-16 h-4 bg-muted rounded" />
+                    </div>
+                    <div className="space-y-1 pl-6">
+                      <div className="w-full h-3 bg-muted rounded" />
+                      <div className="w-3/4 h-3 bg-muted rounded" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="divide-y divide-border/30">
+                {visibleComments.map((comment) => (
+                  <CommentItem
+                    key={comment.id}
+                    comment={comment}
+                    timestampFormat={settings.timestampFormat}
+                    compact={showCompactSections}
+                  />
+                ))}
+              </div>
+            )}
+          </ProgressiveSection>
+        )}
+
+        {/* History */}
+        {issue.history.length > 0 && (
+          <ProgressiveSection
+            title={`History (${issue.history.length})`}
+            expanded={historyExpanded}
+            onToggle={handleToggleHistory}
+            hasHidden={hasHiddenHistory}
+            hiddenCount={issue.history.length - PREVIEW_LIMIT}
+            compact={showCompactSections}
+            loading={sectionsLoading.history ?? false}
+            shortcut="H"
+          >
+            {sectionsLoading.history ? (
+              <div className="space-y-2">
+                {Array.from({ length: 2 }).map((_, i) => (
+                  <div key={i} className="h-16 bg-muted/50 rounded border animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {visibleHistory.map((entry) => (
+                  <HistoryItem
+                    key={entry.commitHash}
+                    entry={entry}
+                    timestampFormat={settings.timestampFormat}
+                    compact={showCompactSections}
+                  />
+                ))}
+              </div>
+            )}
+          </ProgressiveSection>
+        )}
+      </div>
+
+      {/* Keyboard shortcuts help */}
+      {autoFocus && (
+        <div className="mt-8 p-3 bg-muted/30 rounded-lg border border-border/30">
+          <div className="text-xs text-muted-foreground space-y-1">
+            <p className="font-medium">Keyboard shortcuts:</p>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+              <span>
+                <kbd className="px-1 py-0.5 bg-muted rounded text-xs">Esc</kbd> Close
+              </span>
+              {issue.comments.length > 0 && (
+                <span>
+                  <kbd className="px-1 py-0.5 bg-muted rounded text-xs">C</kbd> Comments
+                </span>
+              )}
+              {issue.history.length > 0 && (
+                <span>
+                  <kbd className="px-1 py-0.5 bg-muted rounded text-xs">H</kbd> History
+                </span>
+              )}
+              {issue.dependencies.length > 0 && (
+                <span>
+                  <kbd className="px-1 py-0.5 bg-muted rounded text-xs">D</kbd> Dependencies
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Header component with primary information
+function IssueDetailHeader({
+  issue,
+  statusVariant,
+  priorityComponent,
+  timestampFormat,
+}: {
+  issue: BeadsIssueDetail;
+  statusVariant: "success" | "warning" | "info" | "error" | "secondary";
+  priorityComponent: ReactNode;
+  timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
+}) {
+  const metadataItems: string[] = [];
+
+  if (issue.owner) {
+    metadataItems.push(`Owner: ${issue.owner}`);
+  }
+  if (issue.assignee) {
+    metadataItems.push(`Assigned to: ${issue.assignee}`);
+  }
+  metadataItems.push(`Updated ${formatShortTimestamp(issue.updatedAt, timestampFormat)}`);
+
+  if (issue.createdAt !== issue.updatedAt) {
+    metadataItems.push(`Created ${formatShortTimestamp(issue.createdAt, timestampFormat)}`);
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Status and Priority Row */}
+      <div className="flex items-center gap-3">
+        <IssueTypeIcon issueType={issue.issueType} />
+        <StatusIndicator variant={statusVariant}>
+          {formatStatusDisplay(issue.status)}
+        </StatusIndicator>
+        {priorityComponent}
+        <span className="text-sm text-muted-foreground">#{issue.id}</span>
+      </div>
+
+      {/* Title */}
+      <h1 className="text-xl font-semibold text-foreground leading-tight">{issue.title}</h1>
+
+      {/* Metadata */}
+      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        {metadataItems.map((item) => (
+          <span key={item} className="flex items-center gap-2">
+            {metadataItems.indexOf(item) > 0 && <span className="opacity-40">·</span>}
+            {item}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Content sections (description and notes)
+function IssueDetailContent({ issue }: { issue: BeadsIssueDetail }) {
+  return (
+    <div className="space-y-4">
+      {/* Description */}
+      <div className="space-y-2">
+        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Description
+        </h3>
+        <div className="prose prose-sm max-w-none text-sm text-foreground">
+          {issue.description?.trim() ? (
+            <div className="whitespace-pre-wrap">{issue.description}</div>
+          ) : (
+            <span className="text-muted-foreground italic">No description provided.</span>
+          )}
+        </div>
+      </div>
+
+      {/* Notes */}
+      {issue.notes?.trim() && (
+        <div className="space-y-2">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Notes
+          </h3>
+          <div className="prose prose-sm max-w-none text-sm text-foreground">
+            <div className="whitespace-pre-wrap">{issue.notes}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Enhanced progressive disclosure wrapper component
+function ProgressiveSection({
+  title,
+  expanded,
+  onToggle,
+  hasHidden,
+  hiddenCount,
+  compact,
+  loading = false,
+  shortcut,
+  children,
+}: {
+  title: string;
+  expanded: boolean;
+  onToggle: () => void;
+  hasHidden: boolean;
+  hiddenCount: number;
+  compact?: boolean;
+  loading?: boolean;
+  shortcut?: string;
+  children: ReactNode;
+}) {
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onToggle();
+      }
+    },
+    [onToggle],
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {title}
+          </h3>
+          {loading && (
+            <span className="size-3 border border-current border-t-transparent rounded-full animate-spin opacity-50" />
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {shortcut && (
+            <kbd className="px-1 py-0.5 text-xs font-mono bg-muted/50 text-muted-foreground rounded">
+              {shortcut}
+            </kbd>
+          )}
+          {hasHidden && !expanded && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onToggle}
+              onKeyDown={handleKeyDown}
+              disabled={loading}
+              className="h-auto p-0 text-xs text-info-foreground hover:text-info hover:bg-transparent hover:underline focus-visible:ring-1 focus-visible:ring-ring"
+              aria-label={`Show ${hiddenCount} more ${title.toLowerCase()}`}
+            >
+              Show {hiddenCount} more
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className={cn("space-y-2", compact && "space-y-1")}>{children}</div>
+
+      {expanded && hasHidden && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onToggle}
+          onKeyDown={handleKeyDown}
+          disabled={loading}
+          className="h-auto p-0 text-xs text-muted-foreground hover:text-foreground hover:bg-transparent hover:underline focus-visible:ring-1 focus-visible:ring-ring"
+          aria-label={`Show less ${title.toLowerCase()}`}
+        >
+          Show less
+        </Button>
+      )}
+    </div>
+  );
+}
+
+// Individual item components
+function DependencyItem({
+  dependency,
+  onClick,
+}: {
+  dependency: BeadsIssueDetail["dependencies"][0];
+  onClick?: (() => void) | undefined;
+  timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
+}) {
+  const statusVariant = getStatusVariant(dependency.status);
+  const priorityComponent =
+    dependency.priority !== null ? getPriorityDisplay(dependency.priority) : null;
+
+  const content = (
+    <div className="flex items-start justify-between gap-3 p-3 rounded-lg border border-border/50 bg-muted/20">
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex items-center gap-2">
+          <IssueTypeIcon issueType={dependency.issueType} className="size-3.5" />
+          <span className="font-medium text-sm text-foreground truncate">{dependency.title}</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <StatusIndicator variant={statusVariant} size="sm">
+            {formatStatusDisplay(dependency.status)}
+          </StatusIndicator>
+          {priorityComponent && <span className="text-muted-foreground">{priorityComponent}</span>}
+          <span className="text-muted-foreground">#{dependency.id}</span>
+          <span className="text-muted-foreground opacity-60">·</span>
+          <span className="text-muted-foreground capitalize">{dependency.dependencyType}</span>
+        </div>
+        {dependency.description && (
+          <p className="text-xs text-muted-foreground line-clamp-2">{dependency.description}</p>
+        )}
+      </div>
+    </div>
+  );
+
+  if (!onClick) {
+    return content;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left transition-colors hover:bg-muted/40 rounded-lg"
+    >
+      {content}
+    </button>
+  );
+}
+
+function CommentItem({
+  comment,
+  timestampFormat,
+  compact,
+}: {
+  comment: BeadsIssueDetail["comments"][0];
+  timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
+  compact?: boolean;
+}) {
+  return (
+    <div className={cn("py-3 first:pt-0 last:pb-0", compact && "py-2")}>
+      <div className="flex items-center gap-2 mb-2">
+        <MessageSquareTextIcon className="size-3.5 text-muted-foreground" />
+        <span className="font-medium text-sm text-foreground">{comment.author || "Unknown"}</span>
+        <span className="text-xs text-muted-foreground opacity-60">·</span>
+        <span className="text-xs text-muted-foreground">
+          {formatShortTimestamp(comment.createdAt, timestampFormat)}
+        </span>
+      </div>
+      <div className="whitespace-pre-wrap text-sm text-foreground pl-5">{comment.text}</div>
+    </div>
+  );
+}
+
+function HistoryItem({
+  entry,
+  timestampFormat,
+  compact,
+}: {
+  entry: BeadsIssueDetail["history"][0];
+  timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-3 p-2 rounded border border-border/30 bg-muted/10",
+        compact && "p-1.5",
+      )}
+    >
+      <Clock3Icon className="size-3.5 text-muted-foreground mt-0.5 shrink-0" />
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <code className="font-mono bg-muted/50 px-1 rounded text-[10px]">
+            {entry.commitHash.slice(0, 8)}
+          </code>
+          <span>{entry.committer || "Unknown"}</span>
+          <span className="opacity-60">·</span>
+          <span>{formatShortTimestamp(entry.commitDate, timestampFormat)}</span>
+        </div>
+        <p className="text-sm text-foreground">{entry.title}</p>
+        {entry.status && (
+          <div className="flex items-center gap-1">
+            <StatusIndicator variant={getStatusVariant(entry.status)} size="sm">
+              {formatStatusDisplay(entry.status)}
+            </StatusIndicator>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Issue type icon component
+function IssueTypeIcon({ issueType, className }: { issueType: string; className?: string }) {
+  const config = ISSUE_TYPE_ICONS[issueType.toLowerCase()] || DEFAULT_ISSUE_TYPE_ICON;
+  const Icon = config.icon;
+
+  return <Icon className={cn("size-4 shrink-0", config.className, className)} />;
+}
+
+// Helper functions for semantic status mapping
+function getStatusVariant(status: string): "success" | "warning" | "info" | "error" | "secondary" {
+  switch (status) {
+    case "closed":
+      return "success";
+    case "in_progress":
+      return "warning";
+    case "open":
+      return "info";
+    case "blocked":
+      return "error";
+    case "deferred":
+      return "secondary";
+    default:
+      return "secondary";
+  }
+}
+
+function formatStatusDisplay(status: string): string {
+  return status.replace(/_/g, " ");
+}
+
+function getPriorityDisplay(priority: number): ReactNode {
+  const variant = priority <= 1 ? "error" : priority === 2 ? "warning" : "secondary";
+  return (
+    <StatusIndicator variant={variant} size="sm" showDot={false}>
+      P{priority}
+    </StatusIndicator>
+  );
+}
+
+// Configuration for issue type icons
+const ISSUE_TYPE_ICONS: Record<
+  string,
+  { icon: React.ComponentType<{ className?: string }>; className: string }
+> = {
+  bug: { icon: BugIcon, className: "text-red-500" },
+  feature: { icon: LightbulbIcon, className: "text-green-500" },
+  task: { icon: CheckSquare2Icon, className: "text-blue-500" },
+  epic: { icon: ZapIcon, className: "text-purple-500" },
+  chore: { icon: WrenchIcon, className: "text-muted-foreground" },
+  decision: { icon: ScaleIcon, className: "text-amber-500" },
+};
+
+const DEFAULT_ISSUE_TYPE_ICON = { icon: CircleDotIcon, className: "text-muted-foreground" };
+
+// Export specialized variants for different contexts
+export const CompactIssueDetail = (props: Omit<IssueDetailProps, "showCompactSections">) => (
+  <IssueDetail {...props} showCompactSections />
+);

@@ -4,6 +4,12 @@
 
 @theme inline {
   --animate-skeleton: skeleton 2s -1s infinite linear;
+  --animate-pulse-soft: pulse-soft 2s infinite;
+  --animate-slide-up: slide-up 0.3s ease-out;
+  --animate-slide-down: slide-down 0.3s ease-out;
+  --animate-fade-in: fade-in 0.2s ease-out;
+  --animate-scale-in: scale-in 0.15s ease-out;
+  --animate-shimmer: shimmer 2s infinite;
   --color-warning-foreground: var(--warning-foreground);
   --color-warning: var(--warning);
   --color-success-foreground: var(--success-foreground);
@@ -36,9 +42,83 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
+
+  /* Enhanced shadow system for depth and elevation */
+  --shadow-sm: 0 1px 2px 0 color-mix(in srgb, var(--foreground) 5%, transparent);
+  --shadow-md:
+    0 4px 6px -1px color-mix(in srgb, var(--foreground) 8%, transparent),
+    0 2px 4px -2px color-mix(in srgb, var(--foreground) 6%, transparent);
+  --shadow-lg:
+    0 10px 15px -3px color-mix(in srgb, var(--foreground) 10%, transparent),
+    0 4px 6px -4px color-mix(in srgb, var(--foreground) 8%, transparent);
+  --shadow-xl:
+    0 20px 25px -5px color-mix(in srgb, var(--foreground) 12%, transparent),
+    0 8px 10px -6px color-mix(in srgb, var(--foreground) 10%, transparent);
+
   @keyframes skeleton {
     to {
       background-position: -200% 0;
+    }
+  }
+
+  @keyframes pulse-soft {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.8;
+    }
+  }
+
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes slide-down {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes scale-in {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes shimmer {
+    from {
+      background-position: -200% 0;
+    }
+    to {
+      background-position: 200% 0;
     }
   }
 }
@@ -50,6 +130,96 @@
   body {
     @apply bg-background text-foreground relative;
   }
+
+  /* Enhanced focus styles for accessibility */
+  *:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Better text rendering */
+  body,
+  input,
+  textarea,
+  select,
+  button {
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Enhanced reduced motion support */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* High contrast mode support */
+  @media (prefers-contrast: high) {
+    :root {
+      --border: hsl(0 0% 0% / 0.3);
+      --ring: hsl(210 100% 50%);
+      --primary: hsl(210 100% 40%);
+      --muted: hsl(0 0% 90%);
+      --muted-foreground: hsl(0 0% 20%);
+    }
+
+    .dark {
+      --border: hsl(0 0% 100% / 0.4);
+      --ring: hsl(210 100% 60%);
+      --primary: hsl(210 100% 60%);
+      --muted: hsl(0 0% 10%);
+      --muted-foreground: hsl(0 0% 80%);
+    }
+
+    /* Enhanced contrast for interactive elements */
+    button,
+    [role="button"],
+    [role="tab"] {
+      border-width: 2px;
+      font-weight: 600;
+    }
+
+    /* High contrast focus indicators */
+    *:focus-visible {
+      outline: 3px solid var(--ring);
+      outline-offset: 2px;
+    }
+  }
+
+  /* Forced colors mode support (Windows High Contrast) */
+  @media (forced-colors: active) {
+    * {
+      forced-color-adjust: auto;
+    }
+
+    button,
+    [role="button"] {
+      border: 1px solid ButtonText;
+    }
+
+    [aria-selected="true"] {
+      background: Highlight;
+      color: HighlightText;
+    }
+  }
+}
+
+/* Utility classes */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }
 
 /* Suppress all transitions during theme changes */
@@ -59,6 +229,66 @@
 .no-transitions *::after {
   transition-duration: 0s !important;
   animation-duration: 0s !important;
+}
+
+/* Enhanced mobile touch target sizing */
+@media (pointer: coarse) {
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Larger touch targets for interactive elements */
+  button,
+  [role="button"],
+  [role="tab"],
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-height: 44px;
+  }
+
+  /* Enhanced tap targets for navigation */
+  .navigation-tab {
+    min-height: 48px;
+  }
+}
+
+/* Mobile-first responsive breakpoints */
+@media (max-width: 768px) {
+  .mobile-stack {
+    flex-direction: column;
+  }
+
+  .mobile-full {
+    width: 100%;
+  }
+
+  .mobile-compact {
+    padding: 0.75rem;
+  }
+
+  .mobile-text-sm {
+    font-size: 0.875rem;
+  }
+
+  /* Reduce motion for mobile performance */
+  .mobile-reduce-motion * {
+    animation-duration: 0.2s !important;
+    transition-duration: 0.2s !important;
+  }
+}
+
+/* Tablet responsiveness */
+@media (min-width: 768px) and (max-width: 1024px) {
+  .tablet-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+
+  .tablet-compact {
+    padding: 1rem;
+  }
 }
 
 :root {
