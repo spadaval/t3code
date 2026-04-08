@@ -5,6 +5,7 @@ import {
   NonNegativeInt,
   OrchestrationCheckpointFile,
   OrchestrationProposedPlanId,
+  OrchestrationProposedPlanFollowUpOutcome,
   OrchestrationPlanImplementationLaunchStatus,
   OrchestrationReadModel,
   OrchestrationSwarmRunBlockedKind,
@@ -72,7 +73,11 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
   }),
 );
-const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
+const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan.mapFields(
+  Struct.assign({
+    followUpOutcome: Schema.NullOr(Schema.fromJsonString(OrchestrationProposedPlanFollowUpOutcome)),
+  }),
+);
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
@@ -292,8 +297,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           turn_id AS "turnId",
           plan_markdown AS "planMarkdown",
           plan_intent AS "planIntent",
-          implemented_at AS "implementedAt",
-          implementation_thread_id AS "implementationThreadId",
+          follow_up_outcome_json AS "followUpOutcome",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_proposed_plans
@@ -762,8 +766,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               turnId: row.turnId,
               planMarkdown: row.planMarkdown,
               planIntent: row.planIntent,
-              implementedAt: row.implementedAt,
-              implementationThreadId: row.implementationThreadId,
+              followUpOutcome: row.followUpOutcome,
               createdAt: row.createdAt,
               updatedAt: row.updatedAt,
             });

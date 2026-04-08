@@ -921,7 +921,7 @@ describe("ProviderRuntimeIngestion", () => {
         thread.proposedPlans.some(
           (proposedPlan: ProviderRuntimeTestProposedPlan) =>
             proposedPlan.id === "plan:thread-plan:turn:turn-plan-source" &&
-            proposedPlan.implementedAt === null,
+            proposedPlan.followUpOutcome === null,
         ),
       2_000,
       sourceThreadId,
@@ -961,7 +961,7 @@ describe("ProviderRuntimeIngestion", () => {
       (thread) =>
         thread.proposedPlans.some(
           (proposedPlan: ProviderRuntimeTestProposedPlan) =>
-            proposedPlan.id === sourcePlan.id && proposedPlan.implementedAt === null,
+            proposedPlan.id === sourcePlan.id && proposedPlan.followUpOutcome === null,
         ),
       2_000,
       sourceThreadId,
@@ -969,8 +969,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(
       sourceThreadBeforeStart.proposedPlans.find((entry) => entry.id === sourcePlan.id),
     ).toMatchObject({
-      implementedAt: null,
-      implementationThreadId: null,
+      followUpOutcome: null,
     });
 
     harness.emit({
@@ -988,8 +987,8 @@ describe("ProviderRuntimeIngestion", () => {
         thread.proposedPlans.some(
           (proposedPlan: ProviderRuntimeTestProposedPlan) =>
             proposedPlan.id === sourcePlan.id &&
-            proposedPlan.implementedAt !== null &&
-            proposedPlan.implementationThreadId === targetThreadId,
+            proposedPlan.followUpOutcome?.kind === "implement-code" &&
+            proposedPlan.followUpOutcome.targetThreadId === targetThreadId,
         ),
       2_000,
       sourceThreadId,
@@ -997,7 +996,11 @@ describe("ProviderRuntimeIngestion", () => {
     expect(
       sourceThreadAfterStart.proposedPlans.find((entry) => entry.id === sourcePlan.id),
     ).toMatchObject({
-      implementationThreadId: "thread-implement",
+      followUpOutcome: {
+        kind: "implement-code",
+        completedAt: expect.any(String),
+        targetThreadId: "thread-implement",
+      },
     });
   });
 
@@ -1090,7 +1093,7 @@ describe("ProviderRuntimeIngestion", () => {
         thread.proposedPlans.some(
           (proposedPlan: ProviderRuntimeTestProposedPlan) =>
             proposedPlan.id === "plan:thread-plan:turn:turn-plan-source" &&
-            proposedPlan.implementedAt === null,
+            proposedPlan.followUpOutcome === null,
         ),
       2_000,
       sourceThreadId,
@@ -1143,8 +1146,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(
       sourceThreadAfterRejectedStart?.proposedPlans.find((entry) => entry.id === sourcePlan.id),
     ).toMatchObject({
-      implementedAt: null,
-      implementationThreadId: null,
+      followUpOutcome: null,
     });
 
     const targetThreadAfterRejectedStart = readModel.threads.find(
@@ -1252,7 +1254,7 @@ describe("ProviderRuntimeIngestion", () => {
         thread.proposedPlans.some(
           (proposedPlan: ProviderRuntimeTestProposedPlan) =>
             proposedPlan.id === "plan:thread-plan:turn:turn-plan-source" &&
-            proposedPlan.implementedAt === null,
+            proposedPlan.followUpOutcome === null,
         ),
       2_000,
       sourceThreadId,
@@ -1315,8 +1317,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(
       sourceThreadAfterUnrelatedStart?.proposedPlans.find((entry) => entry.id === sourcePlan.id),
     ).toMatchObject({
-      implementedAt: null,
-      implementationThreadId: null,
+      followUpOutcome: null,
     });
   });
 

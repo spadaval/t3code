@@ -1,4 +1,4 @@
-import { Option, Schema, SchemaIssue, Struct } from "effect";
+import { Option, Schema, SchemaGetter, SchemaIssue, Struct } from "effect";
 import {
   ClaudeModelOptions,
   CodexModelOptions,
@@ -191,6 +191,21 @@ export type OrchestrationProposedPlanIntent = typeof OrchestrationProposedPlanIn
 export const DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT: OrchestrationProposedPlanIntent =
   "code-implementation";
 
+export const OrchestrationProposedPlanFollowUpOutcomeKind = Schema.Literals([
+  "implement-code",
+  "convert-to-tracker",
+]);
+export type OrchestrationProposedPlanFollowUpOutcomeKind =
+  typeof OrchestrationProposedPlanFollowUpOutcomeKind.Type;
+
+export const OrchestrationProposedPlanFollowUpOutcome = Schema.Struct({
+  kind: OrchestrationProposedPlanFollowUpOutcomeKind,
+  completedAt: IsoDateTime,
+  targetThreadId: Schema.NullOr(ThreadId),
+});
+export type OrchestrationProposedPlanFollowUpOutcome =
+  typeof OrchestrationProposedPlanFollowUpOutcome.Type;
+
 export const OrchestrationPlanImplementationLaunchMode = Schema.Literals([
   "worktree",
   "tracker-only",
@@ -200,18 +215,56 @@ export type OrchestrationPlanImplementationLaunchMode =
 export const DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE: OrchestrationPlanImplementationLaunchMode =
   "worktree";
 
-export const OrchestrationProposedPlan = Schema.Struct({
+const OrchestrationProposedPlanShape = Schema.Struct({
   id: OrchestrationProposedPlanId,
   turnId: Schema.NullOr(TurnId),
   planMarkdown: TrimmedNonEmptyString,
   planIntent: OrchestrationProposedPlanIntent.pipe(
     Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT),
   ),
-  implementedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
-  implementationThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
+  followUpOutcome: Schema.NullOr(OrchestrationProposedPlanFollowUpOutcome).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
+
+const OrchestrationProposedPlanLegacyShape = Schema.Struct({
+  ...OrchestrationProposedPlanShape.fields,
+  implementedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  implementationThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
+});
+
+type OrchestrationProposedPlanLegacyCompatible =
+  | typeof OrchestrationProposedPlanShape.Type
+  | typeof OrchestrationProposedPlanLegacyShape.Type;
+
+export const OrchestrationProposedPlan = Schema.Union([
+  OrchestrationProposedPlanShape,
+  OrchestrationProposedPlanLegacyShape,
+])
+  .pipe(
+    Schema.decode({
+      decode: SchemaGetter.transform((input: OrchestrationProposedPlanLegacyCompatible) => ({
+        id: input.id,
+        turnId: input.turnId,
+        planMarkdown: input.planMarkdown,
+        planIntent: input.planIntent,
+        followUpOutcome:
+          input.followUpOutcome ??
+          ("implementedAt" in input && input.implementedAt
+            ? {
+                kind: "implement-code" as const,
+                completedAt: input.implementedAt,
+                targetThreadId: input.implementationThreadId,
+              }
+            : null),
+        createdAt: input.createdAt,
+        updatedAt: input.updatedAt,
+      })),
+      encode: SchemaGetter.transform((input: OrchestrationProposedPlanLegacyCompatible) => input),
+    }),
+  ) as typeof OrchestrationProposedPlanShape;
 export type OrchestrationProposedPlan = typeof OrchestrationProposedPlan.Type;
 
 const SourceProposedPlanReference = Schema.Struct({

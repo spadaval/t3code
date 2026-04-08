@@ -415,8 +415,11 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               turnId: asTurnId("turn-1"),
               planMarkdown: "# Ship it",
               planIntent: "code-implementation",
-              implementedAt: "2026-02-24T00:00:05.500Z",
-              implementationThreadId: ThreadId.makeUnsafe("thread-2"),
+              followUpOutcome: {
+                kind: "implement-code",
+                completedAt: "2026-02-24T00:00:05.500Z",
+                targetThreadId: ThreadId.makeUnsafe("thread-2"),
+              },
               createdAt: "2026-02-24T00:00:05.000Z",
               updatedAt: "2026-02-24T00:00:05.500Z",
             },

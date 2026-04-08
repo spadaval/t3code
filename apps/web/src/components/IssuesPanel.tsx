@@ -369,8 +369,11 @@ type LatestPlannedRefineSummary = {
   threadTitle: string;
   planId: string;
   planMarkdown: string;
-  implementedAt: string | null;
-  implementationThreadId: ThreadId | null;
+  followUpOutcome: {
+    kind: "implement-code" | "convert-to-tracker";
+    completedAt: string;
+    targetThreadId: ThreadId | null;
+  } | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -395,13 +398,15 @@ function LatestPlannedRefineSection(props: {
               Updated{" "}
               {formatShortTimestamp(props.latestPlannedRefine.updatedAt, props.timestampFormat)}
             </span>
-            {props.latestPlannedRefine.implementedAt ? (
+            {props.latestPlannedRefine.followUpOutcome ? (
               <Badge size="sm" variant="outline">
-                Applied
+                {props.latestPlannedRefine.followUpOutcome.kind === "convert-to-tracker"
+                  ? "Converted to tracker"
+                  : "Implementation started"}
               </Badge>
             ) : (
               <Badge size="sm" variant="success">
-                Ready for apply flow
+                Ready for follow-up
               </Badge>
             )}
           </div>
@@ -1333,8 +1338,11 @@ function IssueDetailDialog(props: {
     threadTitle: string;
     planId: string;
     planMarkdown: string;
-    implementedAt: string | null;
-    implementationThreadId: ThreadId | null;
+    followUpOutcome: {
+      kind: "implement-code" | "convert-to-tracker";
+      completedAt: string;
+      targetThreadId: ThreadId | null;
+    } | null;
     createdAt: string;
     updatedAt: string;
   } | null;

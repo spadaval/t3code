@@ -2,6 +2,7 @@ import type {
   ModelSelection,
   OrchestrationPlanImplementationLaunch,
   OrchestrationLatestTurn,
+  OrchestrationProposedPlanFollowUpOutcome,
   OrchestrationProposedPlanId,
   OrchestrationSessionStatus,
   OrchestrationSwarmRun,
@@ -63,8 +64,7 @@ export interface ProposedPlan {
   turnId: TurnId | null;
   planMarkdown: string;
   planIntent: "code-implementation" | "tracker-refinement";
-  implementedAt: string | null;
-  implementationThreadId: ThreadId | null;
+  followUpOutcome: OrchestrationProposedPlanFollowUpOutcome | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -82,8 +82,7 @@ export interface LatestProposedPlanState {
   turnId: TurnId | null;
   planMarkdown: string;
   planIntent: "code-implementation" | "tracker-refinement";
-  implementedAt: string | null;
-  implementationThreadId: ThreadId | null;
+  followUpOutcome: ProposedPlan["followUpOutcome"];
 }
 
 export type TimelineEntry =
@@ -453,9 +452,9 @@ export function findSidebarProposedPlan(input: {
 }
 
 export function hasActionableProposedPlan(
-  proposedPlan: LatestProposedPlanState | Pick<ProposedPlan, "implementedAt"> | null,
+  proposedPlan: LatestProposedPlanState | Pick<ProposedPlan, "followUpOutcome"> | null,
 ): boolean {
-  return proposedPlan !== null && proposedPlan.implementedAt === null;
+  return proposedPlan !== null && proposedPlan.followUpOutcome === null;
 }
 
 export function resolvePlanSidebarProposedPlan(input: {
@@ -682,8 +681,7 @@ function toLatestProposedPlanState(proposedPlan: ProposedPlan): LatestProposedPl
     turnId: proposedPlan.turnId,
     planMarkdown: proposedPlan.planMarkdown,
     planIntent: proposedPlan.planIntent,
-    implementedAt: proposedPlan.implementedAt,
-    implementationThreadId: proposedPlan.implementationThreadId,
+    followUpOutcome: proposedPlan.followUpOutcome,
   };
 }
 

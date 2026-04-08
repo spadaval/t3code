@@ -1,4 +1,5 @@
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema, Struct } from "effect";
+import { OrchestrationProposedPlanFollowUpOutcome } from "@t3tools/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
@@ -13,6 +14,13 @@ import {
 
 const makeProjectionThreadProposedPlanRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const ProjectionThreadProposedPlanDbRow = ProjectionThreadProposedPlan.mapFields(
+    Struct.assign({
+      followUpOutcome: Schema.NullOr(
+        Schema.fromJsonString(OrchestrationProposedPlanFollowUpOutcome),
+      ),
+    }),
+  );
 
   const upsertProjectionThreadProposedPlanRow = SqlSchema.void({
     Request: ProjectionThreadProposedPlan,
@@ -23,8 +31,7 @@ const makeProjectionThreadProposedPlanRepository = Effect.gen(function* () {
         turn_id,
         plan_markdown,
         plan_intent,
-        implemented_at,
-        implementation_thread_id,
+        follow_up_outcome_json,
         created_at,
         updated_at
       )
@@ -34,8 +41,7 @@ const makeProjectionThreadProposedPlanRepository = Effect.gen(function* () {
         ${row.turnId},
         ${row.planMarkdown},
         ${row.planIntent},
-        ${row.implementedAt},
-        ${row.implementationThreadId},
+        ${row.followUpOutcome === null ? null : JSON.stringify(row.followUpOutcome)},
         ${row.createdAt},
         ${row.updatedAt}
       )
@@ -45,8 +51,7 @@ const makeProjectionThreadProposedPlanRepository = Effect.gen(function* () {
         turn_id = excluded.turn_id,
         plan_markdown = excluded.plan_markdown,
         plan_intent = excluded.plan_intent,
-        implemented_at = excluded.implemented_at,
-        implementation_thread_id = excluded.implementation_thread_id,
+        follow_up_outcome_json = excluded.follow_up_outcome_json,
         created_at = excluded.created_at,
         updated_at = excluded.updated_at
     `,
@@ -54,7 +59,7 @@ const makeProjectionThreadProposedPlanRepository = Effect.gen(function* () {
 
   const listProjectionThreadProposedPlanRows = SqlSchema.findAll({
     Request: ListProjectionThreadProposedPlansInput,
-    Result: ProjectionThreadProposedPlan,
+    Result: ProjectionThreadProposedPlanDbRow,
     execute: ({ threadId }) => sql`
       SELECT
         plan_id AS "planId",
@@ -62,8 +67,7 @@ const makeProjectionThreadProposedPlanRepository = Effect.gen(function* () {
         turn_id AS "turnId",
         plan_markdown AS "planMarkdown",
         plan_intent AS "planIntent",
-        implemented_at AS "implementedAt",
-        implementation_thread_id AS "implementationThreadId",
+        follow_up_outcome_json AS "followUpOutcome",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM projection_thread_proposed_plans

@@ -129,8 +129,7 @@ function createPlan(input: {
     turnId: null,
     planMarkdown: input.planMarkdown,
     planIntent: "code-implementation",
-    implementedAt: null,
-    implementationThreadId: null,
+    followUpOutcome: null,
     createdAt: isoAt(input.offsetSeconds),
     updatedAt: isoAt(input.offsetSeconds + 1),
   };

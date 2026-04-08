@@ -1,6 +1,7 @@
 import {
   IsoDateTime,
   DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT,
+  OrchestrationProposedPlanFollowUpOutcome,
   OrchestrationProposedPlanIntent,
   OrchestrationProposedPlanId,
   ThreadId,
@@ -20,8 +21,7 @@ export const ProjectionThreadProposedPlan = Schema.Struct({
   planIntent: OrchestrationProposedPlanIntent.pipe(
     Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT),
   ),
-  implementedAt: Schema.NullOr(IsoDateTime),
-  implementationThreadId: Schema.NullOr(ThreadId),
+  followUpOutcome: Schema.NullOr(OrchestrationProposedPlanFollowUpOutcome),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

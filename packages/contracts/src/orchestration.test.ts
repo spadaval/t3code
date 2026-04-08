@@ -574,12 +574,11 @@ it.effect("defaults proposed plan implementation metadata for historical rows", 
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(parsed.planIntent, DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT);
-    assert.strictEqual(parsed.implementedAt, null);
-    assert.strictEqual(parsed.implementationThreadId, null);
+    assert.strictEqual(parsed.followUpOutcome, null);
   }),
 );
 
-it.effect("preserves proposed plan intent and implementation metadata when present", () =>
+it.effect("decodes legacy implementation metadata into a follow-up outcome", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeOrchestrationProposedPlan({
       id: "plan-2",
@@ -592,8 +591,35 @@ it.effect("preserves proposed plan intent and implementation metadata when prese
       updatedAt: "2026-01-02T00:00:00.000Z",
     });
     assert.strictEqual(parsed.planIntent, "tracker-refinement");
-    assert.strictEqual(parsed.implementedAt, "2026-01-02T00:00:00.000Z");
-    assert.strictEqual(parsed.implementationThreadId, "thread-2");
+    assert.deepStrictEqual(parsed.followUpOutcome, {
+      kind: "implement-code",
+      completedAt: "2026-01-02T00:00:00.000Z",
+      targetThreadId: "thread-2",
+    });
+  }),
+);
+
+it.effect("preserves explicit follow-up outcomes when present", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationProposedPlan({
+      id: "plan-3",
+      turnId: "turn-3",
+      planMarkdown: "# Plan",
+      planIntent: "tracker-refinement",
+      followUpOutcome: {
+        kind: "convert-to-tracker",
+        completedAt: "2026-01-03T00:00:00.000Z",
+        targetThreadId: null,
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-03T00:00:00.000Z",
+    });
+    assert.strictEqual(parsed.planIntent, "tracker-refinement");
+    assert.deepStrictEqual(parsed.followUpOutcome, {
+      kind: "convert-to-tracker",
+      completedAt: "2026-01-03T00:00:00.000Z",
+      targetThreadId: null,
+    });
   }),
 );
 

@@ -423,8 +423,11 @@ export interface TrackerRefinementPlanCandidate {
     readonly id: string;
     readonly planMarkdown: string;
     readonly planIntent: "code-implementation" | "tracker-refinement";
-    readonly implementedAt: string | null;
-    readonly implementationThreadId: ThreadId | null;
+    readonly followUpOutcome: {
+      readonly kind: "implement-code" | "convert-to-tracker";
+      readonly completedAt: string;
+      readonly targetThreadId: ThreadId | null;
+    } | null;
     readonly createdAt: string;
     readonly updatedAt: string;
   }>;
@@ -435,8 +438,11 @@ export interface LatestTrackerRefinementPlan {
   readonly threadTitle: string;
   readonly planId: string;
   readonly planMarkdown: string;
-  readonly implementedAt: string | null;
-  readonly implementationThreadId: ThreadId | null;
+  readonly followUpOutcome: {
+    readonly kind: "implement-code" | "convert-to-tracker";
+    readonly completedAt: string;
+    readonly targetThreadId: ThreadId | null;
+  } | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -462,8 +468,7 @@ export function findLatestTrackerRefinementPlan(input: {
         threadTitle: thread.title,
         planId: plan.id,
         planMarkdown: plan.planMarkdown,
-        implementedAt: plan.implementedAt,
-        implementationThreadId: plan.implementationThreadId,
+        followUpOutcome: plan.followUpOutcome,
         createdAt: plan.createdAt,
         updatedAt: plan.updatedAt,
         threadUpdatedAt: thread.updatedAt ?? thread.createdAt,
@@ -496,8 +501,7 @@ export function findLatestTrackerRefinementPlan(input: {
     threadTitle: latest.threadTitle,
     planId: latest.planId,
     planMarkdown: latest.planMarkdown,
-    implementedAt: latest.implementedAt,
-    implementationThreadId: latest.implementationThreadId,
+    followUpOutcome: latest.followUpOutcome,
     createdAt: latest.createdAt,
     updatedAt: latest.updatedAt,
   };

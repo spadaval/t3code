@@ -156,8 +156,7 @@ function mapProposedPlan(proposedPlan: OrchestrationProposedPlan): Thread["propo
     turnId: proposedPlan.turnId,
     planMarkdown: proposedPlan.planMarkdown,
     planIntent: proposedPlan.planIntent,
-    implementedAt: proposedPlan.implementedAt,
-    implementationThreadId: proposedPlan.implementationThreadId,
+    followUpOutcome: proposedPlan.followUpOutcome,
     createdAt: proposedPlan.createdAt,
     updatedAt: proposedPlan.updatedAt,
   };

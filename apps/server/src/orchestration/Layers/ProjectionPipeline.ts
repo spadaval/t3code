@@ -1110,8 +1110,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             turnId: event.payload.proposedPlan.turnId,
             planMarkdown: event.payload.proposedPlan.planMarkdown,
             planIntent: event.payload.proposedPlan.planIntent,
-            implementedAt: event.payload.proposedPlan.implementedAt,
-            implementationThreadId: event.payload.proposedPlan.implementationThreadId,
+            followUpOutcome: event.payload.proposedPlan.followUpOutcome,
             createdAt: event.payload.proposedPlan.createdAt,
             updatedAt: event.payload.proposedPlan.updatedAt,
           });
