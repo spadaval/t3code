@@ -63,8 +63,6 @@ function makeSwarmRun(overrides: Partial<OrchestrationSwarmRun> = {}): Orchestra
     providerOptions: null,
     assistantDeliveryMode: null,
     runtimeMode: "full-access",
-    activeTaskExecutionId: null,
-    latestTaskExecutionId: null,
     lastError: null,
     requestedAt: "2026-01-01T00:00:00.000Z",
     startedAt: "2026-01-01T00:01:00.000Z",

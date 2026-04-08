@@ -449,12 +449,6 @@ export const OrchestrationSwarmRun = Schema.Struct({
   providerOptions: Schema.NullOr(ProviderStartOptions),
   assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
-  activeTaskExecutionId: Schema.NullOr(SwarmTaskExecutionId).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
-  latestTaskExecutionId: Schema.NullOr(SwarmTaskExecutionId).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
   lastError: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
   requestedAt: IsoDateTime,
   startedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),

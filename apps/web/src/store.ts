@@ -1168,8 +1168,6 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         providerOptions: event.payload.providerOptions,
         assistantDeliveryMode: event.payload.assistantDeliveryMode,
         runtimeMode: event.payload.runtimeMode,
-        activeTaskExecutionId: null,
-        latestTaskExecutionId: null,
         lastError: null,
         requestedAt: event.payload.requestedAt,
         startedAt: null,
@@ -1214,7 +1212,6 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         swarmRuns: updateSwarmRun(state.swarmRuns, event.payload.runId, (run) => ({
           ...run,
           status: "idle",
-          activeTaskExecutionId: null,
           idledAt: event.payload.idledAt,
           lastError: null,
           blockedContext: null,
@@ -1228,7 +1225,6 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         swarmRuns: updateSwarmRun(state.swarmRuns, event.payload.runId, (run) => ({
           ...run,
           status: "paused",
-          activeTaskExecutionId: null,
           pausedAt: event.payload.pausedAt,
           lastError: null,
           blockedContext: null,
@@ -1254,7 +1250,6 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         swarmRuns: updateSwarmRun(state.swarmRuns, event.payload.runId, (run) => ({
           ...run,
           status: "blocked",
-          activeTaskExecutionId: null,
           lastError: event.payload.reason,
           blockedAt: event.payload.blockedAt,
           blockedContext: event.payload.blockedContext,
@@ -1268,7 +1263,6 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         swarmRuns: updateSwarmRun(state.swarmRuns, event.payload.runId, (run) => ({
           ...run,
           status: "failed",
-          activeTaskExecutionId: null,
           lastError: event.payload.reason,
           blockedContext: null,
           failedAt: event.payload.failedAt,
@@ -1282,7 +1276,6 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         swarmRuns: updateSwarmRun(state.swarmRuns, event.payload.runId, (run) => ({
           ...run,
           status: "cancelled",
-          activeTaskExecutionId: null,
           lastError: null,
           blockedContext: null,
           cancelledAt: event.payload.cancelledAt,
@@ -1296,7 +1289,6 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         swarmRuns: updateSwarmRun(state.swarmRuns, event.payload.runId, (run) => ({
           ...run,
           status: "completed",
-          activeTaskExecutionId: null,
           lastError: null,
           blockedContext: null,
           completedAt: event.payload.completedAt,
@@ -1323,8 +1315,6 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         ...state,
         swarmRuns: updateSwarmRun(state.swarmRuns, event.payload.runId, (run) => ({
           ...run,
-          activeTaskExecutionId: event.payload.executionId,
-          latestTaskExecutionId: event.payload.executionId,
           updatedAt: event.payload.updatedAt,
         })),
         swarmTaskExecutions: [
@@ -1346,8 +1336,6 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         ...state,
         swarmRuns: updateSwarmRun(state.swarmRuns, event.payload.runId, (run) => ({
           ...run,
-          activeTaskExecutionId: null,
-          latestTaskExecutionId: event.payload.executionId,
           updatedAt: event.payload.updatedAt,
         })),
         swarmTaskExecutions: updateSwarmTaskExecution(
@@ -1368,8 +1356,6 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         ...state,
         swarmRuns: updateSwarmRun(state.swarmRuns, event.payload.runId, (run) => ({
           ...run,
-          activeTaskExecutionId: null,
-          latestTaskExecutionId: event.payload.executionId,
           updatedAt: event.payload.updatedAt,
         })),
         swarmTaskExecutions: updateSwarmTaskExecution(
@@ -1390,8 +1376,6 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         ...state,
         swarmRuns: updateSwarmRun(state.swarmRuns, event.payload.runId, (run) => ({
           ...run,
-          activeTaskExecutionId: null,
-          latestTaskExecutionId: event.payload.executionId,
           updatedAt: event.payload.updatedAt,
         })),
         swarmTaskExecutions: updateSwarmTaskExecution(

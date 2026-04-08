@@ -335,8 +335,6 @@ describe("orchestration projector", () => {
         providerOptions: null,
         assistantDeliveryMode: "streaming",
         runtimeMode: "full-access",
-        activeTaskExecutionId: null,
-        latestTaskExecutionId: "execution-1",
         lastError: null,
         requestedAt,
         startedAt: null,

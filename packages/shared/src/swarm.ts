@@ -2,6 +2,8 @@ import type {
   BeadsIssueRelationSummary,
   BeadsSwarmStatus,
   BeadsSwarmValidation,
+  OrchestrationSwarmRun,
+  OrchestrationSwarmTaskExecution,
 } from "@t3tools/contracts";
 
 export function compareSwarmReadyIssues(
@@ -34,4 +36,55 @@ export function selectDeterministicReadyIssue(input: {
   }
 
   return selectDeterministicReadyIssueFromList(input.status?.ready ?? []);
+}
+
+export function compareSwarmTaskExecutions(
+  left: OrchestrationSwarmTaskExecution,
+  right: OrchestrationSwarmTaskExecution,
+): number {
+  return (
+    left.runId.localeCompare(right.runId) ||
+    left.sequenceNumber - right.sequenceNumber ||
+    left.executionId.localeCompare(right.executionId)
+  );
+}
+
+export function isNonTerminalSwarmTaskExecutionStatus(
+  status: OrchestrationSwarmTaskExecution["status"],
+): status is "requested" | "active" {
+  return status === "requested" || status === "active";
+}
+
+export function deriveSwarmRunExecutionState(input: {
+  readonly runId: OrchestrationSwarmRun["runId"];
+  readonly executions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
+}): {
+  readonly activeExecution: OrchestrationSwarmTaskExecution | null;
+  readonly latestExecution: OrchestrationSwarmTaskExecution | null;
+  readonly nonTerminalExecutions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
+} {
+  let latestExecution: OrchestrationSwarmTaskExecution | null = null;
+  const nonTerminalExecutions: OrchestrationSwarmTaskExecution[] = [];
+
+  for (const execution of input.executions) {
+    if (execution.runId !== input.runId) {
+      continue;
+    }
+
+    if (latestExecution === null || compareSwarmTaskExecutions(latestExecution, execution) < 0) {
+      latestExecution = execution;
+    }
+
+    if (isNonTerminalSwarmTaskExecutionStatus(execution.status)) {
+      nonTerminalExecutions.push(execution);
+    }
+  }
+
+  const orderedNonTerminalExecutions = nonTerminalExecutions.toSorted(compareSwarmTaskExecutions);
+
+  return {
+    activeExecution: orderedNonTerminalExecutions.at(-1) ?? null,
+    latestExecution,
+    nonTerminalExecutions: orderedNonTerminalExecutions,
+  };
 }

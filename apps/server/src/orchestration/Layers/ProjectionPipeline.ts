@@ -755,8 +755,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             providerOptions: event.payload.providerOptions,
             assistantDeliveryMode: event.payload.assistantDeliveryMode,
             runtimeMode: event.payload.runtimeMode,
-            activeTaskExecutionId: null,
-            latestTaskExecutionId: null,
             lastError: null,
             requestedAt: event.payload.requestedAt,
             startedAt: null,
@@ -802,7 +800,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
                 status: "idle",
-                activeTaskExecutionId: null,
                 idledAt: event.payload.idledAt,
                 lastError: null,
                 blockedContext: null,
@@ -814,7 +811,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
                 status: "paused",
-                activeTaskExecutionId: null,
                 pausedAt: event.payload.pausedAt,
                 lastError: null,
                 blockedContext: null,
@@ -836,7 +832,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
                 status: "blocked",
-                activeTaskExecutionId: null,
                 lastError: event.payload.reason,
                 blockedAt: event.payload.blockedAt,
                 blockedContext: event.payload.blockedContext,
@@ -848,7 +843,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
                 status: "failed",
-                activeTaskExecutionId: null,
                 lastError: event.payload.reason,
                 blockedContext: null,
                 failedAt: event.payload.failedAt,
@@ -860,7 +854,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
                 status: "cancelled",
-                activeTaskExecutionId: null,
                 lastError: null,
                 blockedContext: null,
                 cancelledAt: event.payload.cancelledAt,
@@ -872,7 +865,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
                 status: "completed",
-                activeTaskExecutionId: null,
                 lastError: null,
                 blockedContext: null,
                 completedAt: event.payload.completedAt,
@@ -893,27 +885,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             return;
           }
 
-          switch (event.type) {
-            case "swarm-task-execution.started":
-              yield* projectionSwarmRunRepository.upsert({
-                ...existingRow.value,
-                activeTaskExecutionId: event.payload.executionId,
-                latestTaskExecutionId: event.payload.executionId,
-                updatedAt: event.payload.updatedAt,
-              });
-              return;
-
-            case "swarm-task-execution.completed":
-            case "swarm-task-execution.failed":
-            case "swarm-task-execution.cancelled":
-              yield* projectionSwarmRunRepository.upsert({
-                ...existingRow.value,
-                activeTaskExecutionId: null,
-                latestTaskExecutionId: event.payload.executionId,
-                updatedAt: event.payload.updatedAt,
-              });
-              return;
-          }
+          yield* projectionSwarmRunRepository.upsert({
+            ...existingRow.value,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
         }
 
         default:

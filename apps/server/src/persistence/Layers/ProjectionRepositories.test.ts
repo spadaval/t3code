@@ -168,8 +168,6 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         },
         assistantDeliveryMode: "streaming",
         runtimeMode: "full-access",
-        activeTaskExecutionId: SwarmTaskExecutionId.makeUnsafe("execution-active"),
-        latestTaskExecutionId: SwarmTaskExecutionId.makeUnsafe("execution-active"),
         lastError: null,
         requestedAt: "2026-04-06T00:00:00.000Z",
         startedAt: "2026-04-06T00:00:01.000Z",
@@ -186,12 +184,10 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       const rows = yield* sql<{
         readonly modelOptions: string | null;
         readonly providerOptions: string | null;
-        readonly activeTaskExecutionId: string | null;
       }>`
         SELECT
           model_options_json AS "modelOptions",
-          provider_options_json AS "providerOptions",
-          active_task_execution_id AS "activeTaskExecutionId"
+          provider_options_json AS "providerOptions"
         FROM projection_swarm_runs
         WHERE run_id = 'run-json-options'
       `;
@@ -217,7 +213,6 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
           },
         }),
       );
-      assert.strictEqual(row.activeTaskExecutionId, "execution-active");
 
       const persisted = yield* swarmRuns.getById({
         runId: SwarmRunId.makeUnsafe("run-json-options"),

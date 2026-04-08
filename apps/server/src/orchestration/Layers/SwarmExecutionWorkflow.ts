@@ -15,7 +15,7 @@ import {
   type OrchestrationSwarmTaskExecution,
 } from "@t3tools/contracts";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
-import { selectDeterministicReadyIssue } from "@t3tools/shared/swarm";
+import { deriveSwarmRunExecutionState, selectDeterministicReadyIssue } from "@t3tools/shared/swarm";
 import { Cause, Duration, Effect, Fiber, Layer } from "effect";
 
 import { BeadsTrackerService } from "../../beads/Services/BeadsTrackerService.ts";
@@ -198,15 +198,8 @@ function canContinueRunFromTrackerState(input: {
   return input.nextReadyIssue !== null || (input.blockedCount === 0 && input.activeCount === 0);
 }
 
-function isNonTerminalExecutionStatus(
-  status: OrchestrationSwarmTaskExecution["status"],
-): status is "requested" | "active" {
-  return status === "requested" || status === "active";
-}
-
 function describeExecutionInvariantViolation(input: {
   readonly runId: SwarmRunId;
-  readonly activeTaskExecutionId: SwarmTaskExecutionId | null;
   readonly nonTerminalExecutions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
 }): string {
   const details = input.nonTerminalExecutions
@@ -225,11 +218,7 @@ function describeExecutionInvariantViolation(input: {
     return `Shared-workspace swarm run '${input.runId}' lost its non-terminal task execution state.`;
   }
 
-  if (input.activeTaskExecutionId === null) {
-    return `Shared-workspace swarm run '${input.runId}' has non-terminal task execution '${execution.executionId}' but no activeTaskExecutionId.`;
-  }
-
-  return `Shared-workspace swarm run '${input.runId}' has activeTaskExecutionId '${input.activeTaskExecutionId}' but the non-terminal execution state points to '${execution.executionId}'.`;
+  return `Shared-workspace swarm run '${input.runId}' has unexpected non-terminal task execution '${execution.executionId}' in its execution history.`;
 }
 
 const makeSwarmExecutionWorkflow = Effect.gen(function* () {
@@ -288,12 +277,13 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
       }),
     );
 
-  const listNonTerminalExecutionsForRun = (runId: SwarmRunId) =>
+  const getRunExecutionState = (runId: SwarmRunId) =>
     getReadModel().pipe(
       Effect.map((readModel) =>
-        readModel.swarmTaskExecutions.filter(
-          (entry) => entry.runId === runId && isNonTerminalExecutionStatus(entry.status),
-        ),
+        deriveSwarmRunExecutionState({
+          runId,
+          executions: readModel.swarmTaskExecutions,
+        }),
       ),
     );
 
@@ -306,25 +296,14 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         return { ok: true as const };
       }
 
-      const nonTerminalExecutions = yield* listNonTerminalExecutionsForRun(run.runId);
-      if (run.activeTaskExecutionId === null) {
-        if (nonTerminalExecutions.length === 0) {
-          return { ok: true as const };
-        }
-
-        const reason = describeExecutionInvariantViolation({
-          runId: run.runId,
-          activeTaskExecutionId: null,
-          nonTerminalExecutions,
-        });
-        yield* failRun(run.runId, reason);
-        return { ok: false as const, run: yield* getRunById(run.runId) };
+      const { nonTerminalExecutions } = yield* getRunExecutionState(run.runId);
+      if (nonTerminalExecutions.length === 0) {
+        return { ok: true as const };
       }
 
       if (nonTerminalExecutions.length !== 1) {
         const reason = describeExecutionInvariantViolation({
           runId: run.runId,
-          activeTaskExecutionId: run.activeTaskExecutionId,
           nonTerminalExecutions,
         });
         yield* failRun(run.runId, reason);
@@ -332,16 +311,6 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
       }
 
       const [execution] = nonTerminalExecutions;
-      if (!execution || execution.executionId !== run.activeTaskExecutionId) {
-        const reason = describeExecutionInvariantViolation({
-          runId: run.runId,
-          activeTaskExecutionId: run.activeTaskExecutionId,
-          nonTerminalExecutions,
-        });
-        yield* failRun(run.runId, reason);
-        return { ok: false as const, run: yield* getRunById(run.runId) };
-      }
-
       return { ok: true as const, execution };
     }).pipe(
       Effect.mapError((error) =>
@@ -859,7 +828,8 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
   const launchNextTaskExecution = (runId: SwarmRunId) =>
     Effect.gen(function* () {
       const run = yield* getRunById(runId);
-      if (isTerminalRunStatus(run.status) || run.activeTaskExecutionId !== null) {
+      const { activeExecution } = yield* getRunExecutionState(run.runId);
+      if (isTerminalRunStatus(run.status) || activeExecution !== null) {
         return run;
       }
 
@@ -1054,7 +1024,8 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
   const settleRunWithoutActiveExecution = (runId: SwarmRunId) =>
     Effect.gen(function* () {
       const run = yield* getRunById(runId);
-      if (isTerminalRunStatus(run.status) || run.activeTaskExecutionId !== null) {
+      const { activeExecution } = yield* getRunExecutionState(run.runId);
+      if (isTerminalRunStatus(run.status) || activeExecution !== null) {
         return run;
       }
 
@@ -1102,7 +1073,8 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
   const reconcileActiveTaskExecution = (runId: SwarmRunId) =>
     Effect.gen(function* () {
       const run = yield* getRunById(runId);
-      if (run.activeTaskExecutionId === null || isTerminalRunStatus(run.status)) {
+      const { activeExecution } = yield* getRunExecutionState(run.runId);
+      if (activeExecution === null || isTerminalRunStatus(run.status)) {
         return run;
       }
 
@@ -1182,7 +1154,8 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
   const reconcileRunnableRunWithoutActiveExecution = (runId: SwarmRunId) =>
     Effect.gen(function* () {
       let run = yield* getRunById(runId);
-      if (isTerminalRunStatus(run.status) || run.activeTaskExecutionId !== null) {
+      const initialExecutionState = yield* getRunExecutionState(run.runId);
+      if (isTerminalRunStatus(run.status) || initialExecutionState.activeExecution !== null) {
         return run;
       }
       if (run.status === "paused") {
@@ -1235,7 +1208,10 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         return yield* getRunById(run.runId);
       }
 
-      if (run.schedulerMode === "semi-automatic" && run.latestTaskExecutionId !== null) {
+      if (
+        run.schedulerMode === "semi-automatic" &&
+        initialExecutionState.latestExecution !== null
+      ) {
         if (run.status !== "idle") {
           yield* markRunIdle(run.runId);
         }
@@ -1259,7 +1235,8 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         return;
       }
 
-      if (run.activeTaskExecutionId !== null) {
+      const executionState = yield* getRunExecutionState(run.runId);
+      if (executionState.activeExecution !== null) {
         yield* reconcileActiveTaskExecution(run.runId);
         return;
       }
@@ -1401,7 +1378,8 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
       if (isTerminalRunStatus(run.status)) {
         return asControlResult(run);
       }
-      if (run.activeTaskExecutionId !== null) {
+      const executionState = yield* getRunExecutionState(run.runId);
+      if (executionState.activeExecution !== null) {
         return yield* workflowError(
           "continueSwarmRun",
           `Swarm run '${run.runId}' already has an active task execution.`,
@@ -1482,10 +1460,11 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
       if (isTerminalRunStatus(run.status) || run.status === "paused") {
         return asControlResult(run);
       }
-      if (run.activeTaskExecutionId !== null) {
+      const { activeExecution } = yield* getRunExecutionState(run.runId);
+      if (activeExecution !== null) {
         return yield* workflowError(
           "pauseSwarmRun",
-          `Swarm run '${run.runId}' cannot be paused while task execution '${run.activeTaskExecutionId}' is active.`,
+          `Swarm run '${run.runId}' cannot be paused while task execution '${activeExecution.executionId}' is active.`,
         );
       }
 
@@ -1506,10 +1485,11 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
           `Swarm run '${run.runId}' is not paused and cannot be resumed.`,
         );
       }
-      if (run.activeTaskExecutionId !== null) {
+      const executionState = yield* getRunExecutionState(run.runId);
+      if (executionState.activeExecution !== null) {
         return yield* workflowError(
           "resumeSwarmRun",
-          `Swarm run '${run.runId}' cannot be resumed while task execution '${run.activeTaskExecutionId}' is active.`,
+          `Swarm run '${run.runId}' cannot be resumed while task execution '${executionState.activeExecution.executionId}' is active.`,
         );
       }
       if (run.workspaceMode === "shared") {
@@ -1542,7 +1522,7 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         return asControlResult(yield* getRunById(run.runId));
       }
 
-      if (run.schedulerMode === "semi-automatic" && run.latestTaskExecutionId !== null) {
+      if (run.schedulerMode === "semi-automatic" && executionState.latestExecution !== null) {
         yield* markRunIdle(run.runId);
         return asControlResult(yield* getRunById(run.runId));
       }
@@ -1565,10 +1545,11 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
       }
 
       yield* interruptActiveRun(run.runId);
-      if (run.activeTaskExecutionId !== null) {
+      const { activeExecution } = yield* getRunExecutionState(run.runId);
+      if (activeExecution !== null) {
         const { project, execution } = yield* getWorkerExecutionContext(
           run.runId,
-          run.activeTaskExecutionId,
+          activeExecution.executionId,
         );
 
         if (execution.workerThreadId !== null) {
@@ -1599,10 +1580,11 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
       if (isTerminalRunStatus(run.status)) {
         return asControlResult(run);
       }
-      if (run.activeTaskExecutionId !== null) {
+      const { activeExecution } = yield* getRunExecutionState(run.runId);
+      if (activeExecution !== null) {
         return yield* workflowError(
           "startSwarmTaskExecution",
-          `Swarm run '${run.runId}' already has active task execution '${run.activeTaskExecutionId}'.`,
+          `Swarm run '${run.runId}' already has active task execution '${activeExecution.executionId}'.`,
         );
       }
       if (run.status !== "running") {
@@ -1632,7 +1614,8 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         input.runId,
         input.executionId,
       );
-      if (run.activeTaskExecutionId !== input.executionId) {
+      const executionState = yield* getRunExecutionState(run.runId);
+      if (executionState.activeExecution?.executionId !== input.executionId) {
         return yield* workflowError(
           "completeSwarmTaskExecution",
           `Swarm task execution '${input.executionId}' is not the active execution for run '${run.runId}'.`,
@@ -1666,8 +1649,12 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
       });
       yield* completeTaskExecutionCommand(input);
       const updatedRun = yield* getRunById(run.runId);
+      const updatedExecutionState = yield* getRunExecutionState(updatedRun.runId);
 
-      if (isTerminalRunStatus(updatedRun.status) || updatedRun.activeTaskExecutionId !== null) {
+      if (
+        isTerminalRunStatus(updatedRun.status) ||
+        updatedExecutionState.activeExecution !== null
+      ) {
         return asControlResult(updatedRun);
       }
 
@@ -1722,7 +1709,8 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         input.runId,
         input.executionId,
       );
-      if (run.activeTaskExecutionId !== input.executionId) {
+      const executionState = yield* getRunExecutionState(run.runId);
+      if (executionState.activeExecution?.executionId !== input.executionId) {
         return yield* workflowError(
           "failSwarmTaskExecution",
           `Swarm task execution '${input.executionId}' is not the active execution for run '${run.runId}'.`,
@@ -1757,7 +1745,8 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         input.runId,
         input.executionId,
       );
-      if (run.activeTaskExecutionId !== input.executionId) {
+      const executionState = yield* getRunExecutionState(run.runId);
+      if (executionState.activeExecution?.executionId !== input.executionId) {
         return yield* workflowError(
           "cancelSwarmTaskExecution",
           `Swarm task execution '${input.executionId}' is not the active execution for run '${run.runId}'.`,
@@ -1792,7 +1781,8 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         return;
       }
 
-      if (run.activeTaskExecutionId !== null) {
+      const { activeExecution } = yield* getRunExecutionState(run.runId);
+      if (activeExecution !== null) {
         yield* reconcileActiveTaskExecution(run.runId);
         return;
       }

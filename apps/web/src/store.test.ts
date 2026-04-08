@@ -276,8 +276,6 @@ describe("store read model sync", () => {
           providerOptions: null,
           assistantDeliveryMode: "streaming",
           runtimeMode: "full-access",
-          activeTaskExecutionId: "execution-1" as never,
-          latestTaskExecutionId: "execution-1" as never,
           lastError: null,
           requestedAt: "2026-04-06T00:00:00.000Z",
           startedAt: "2026-04-06T00:00:01.000Z",
@@ -310,7 +308,6 @@ describe("store read model sync", () => {
     });
 
     expect(next.swarmRuns).toHaveLength(1);
-    expect(next.swarmRuns[0]?.latestTaskExecutionId).toBe("execution-1");
     expect(next.swarmTaskExecutions[0]?.workerThreadId).toBe(ThreadId.makeUnsafe("thread-1"));
   });
 
@@ -650,8 +647,6 @@ describe("incremental orchestration updates", () => {
       expect.objectContaining({
         runId: "run-1",
         status: "failed",
-        activeTaskExecutionId: null,
-        latestTaskExecutionId: "execution-1",
         lastError: "worker exited",
       }),
     ]);

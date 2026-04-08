@@ -15,7 +15,7 @@ import type {
   OrchestrationSwarmTaskExecution,
   ProjectId,
 } from "@t3tools/contracts";
-import { selectDeterministicReadyIssue } from "@t3tools/shared/swarm";
+import { deriveSwarmRunExecutionState, selectDeterministicReadyIssue } from "@t3tools/shared/swarm";
 
 const NON_TERMINAL_SWARM_RUN_STATUSES = new Set<OrchestrationSwarmRun["status"]>([
   "requested",
@@ -467,15 +467,13 @@ export function buildCoordinatorEpicSnapshot(input: {
     swarmRuns: input.epicSwarmRuns,
     fetchLifecycle,
   });
-  const activeExecutionId =
-    coordinatorState.latestRun?.activeTaskExecutionId ??
-    coordinatorState.latestRun?.latestTaskExecutionId ??
-    null;
   const activeExecution =
-    activeExecutionId === null
+    coordinatorState.latestRun === null
       ? null
-      : (input.epicExecutions.find((execution) => execution.executionId === activeExecutionId) ??
-        null);
+      : deriveSwarmRunExecutionState({
+          runId: coordinatorState.latestRun.runId,
+          executions: input.epicExecutions,
+        }).activeExecution;
 
   return {
     epicId: input.issue?.id ?? input.fallbackEpicId,

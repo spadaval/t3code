@@ -284,19 +284,16 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       const runRows = yield* sql<{
         readonly runId: string;
         readonly status: string;
-        readonly latestTaskExecutionId: string | null;
       }>`
         SELECT
           run_id AS "runId",
-          status,
-          latest_task_execution_id AS "latestTaskExecutionId"
+          status
         FROM projection_swarm_runs
       `;
       assert.deepEqual(runRows, [
         {
           runId: "run-1",
           status: "requested",
-          latestTaskExecutionId: "execution-1",
         },
       ]);
 

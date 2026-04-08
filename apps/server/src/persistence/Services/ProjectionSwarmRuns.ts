@@ -13,7 +13,6 @@ import {
   ProjectId,
   RuntimeMode,
   SwarmRunId,
-  SwarmTaskExecutionId,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import { Option, Schema, ServiceMap } from "effect";
@@ -39,8 +38,6 @@ export const ProjectionSwarmRun = Schema.Struct({
   providerOptions: Schema.NullOr(ProviderStartOptions),
   assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
   runtimeMode: RuntimeMode,
-  activeTaskExecutionId: Schema.NullOr(SwarmTaskExecutionId),
-  latestTaskExecutionId: Schema.NullOr(SwarmTaskExecutionId),
   lastError: Schema.NullOr(TrimmedNonEmptyString),
   requestedAt: IsoDateTime,
   startedAt: Schema.NullOr(IsoDateTime),

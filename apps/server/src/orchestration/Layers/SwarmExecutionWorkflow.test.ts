@@ -367,8 +367,6 @@ function applyCommand(
             providerOptions: command.providerOptions ?? null,
             assistantDeliveryMode: command.assistantDeliveryMode ?? null,
             runtimeMode: command.runtimeMode,
-            activeTaskExecutionId: null,
-            latestTaskExecutionId: null,
             lastError: null,
             requestedAt: command.createdAt,
             startedAt: null,
@@ -413,7 +411,6 @@ function applyCommand(
         (run) => ({
           ...run,
           status: "idle",
-          activeTaskExecutionId: null,
           idledAt: command.createdAt,
           lastError: null,
           blockedContext: null,
@@ -432,7 +429,6 @@ function applyCommand(
         (run) => ({
           ...run,
           status: "paused",
-          activeTaskExecutionId: null,
           pausedAt: command.createdAt,
           lastError: null,
           blockedContext: null,
@@ -468,7 +464,6 @@ function applyCommand(
         (run) => ({
           ...run,
           status: "blocked",
-          activeTaskExecutionId: null,
           blockedAt: command.createdAt,
           lastError: command.reason,
           blockedContext: command.blockedContext,
@@ -487,7 +482,6 @@ function applyCommand(
         (run) => ({
           ...run,
           status: "failed",
-          activeTaskExecutionId: null,
           failedAt: command.createdAt,
           lastError: command.reason,
           blockedContext: null,
@@ -506,7 +500,6 @@ function applyCommand(
         (run) => ({
           ...run,
           status: "cancelled",
-          activeTaskExecutionId: null,
           cancelledAt: command.createdAt,
           lastError: null,
           blockedContext: null,
@@ -525,7 +518,6 @@ function applyCommand(
         (run) => ({
           ...run,
           status: "completed",
-          activeTaskExecutionId: null,
           completedAt: command.createdAt,
           lastError: null,
           blockedContext: null,
@@ -544,8 +536,6 @@ function applyCommand(
           command.runId,
           (run) => ({
             ...run,
-            activeTaskExecutionId: command.executionId,
-            latestTaskExecutionId: command.executionId,
             updatedAt: command.createdAt,
           }),
         ),
@@ -579,8 +569,6 @@ function applyCommand(
           command.runId,
           (run) => ({
             ...run,
-            activeTaskExecutionId: null,
-            latestTaskExecutionId: command.executionId,
             updatedAt: command.createdAt,
           }),
         ),
@@ -604,8 +592,6 @@ function applyCommand(
           command.runId,
           (run) => ({
             ...run,
-            activeTaskExecutionId: null,
-            latestTaskExecutionId: command.executionId,
             updatedAt: command.createdAt,
           }),
         ),
@@ -630,8 +616,6 @@ function applyCommand(
           command.runId,
           (run) => ({
             ...run,
-            activeTaskExecutionId: null,
-            latestTaskExecutionId: command.executionId,
             updatedAt: command.createdAt,
           }),
         ),
@@ -1807,7 +1791,6 @@ describe("SwarmExecutionWorkflow", () => {
 
     expect(continued.status).toBe("blocked");
     expect(run?.status).toBe("blocked");
-    expect(run?.activeTaskExecutionId).toBeNull();
     expect(run?.blockedContext).toEqual({
       kind: "worker_failure",
       issueId: "TASK-1",

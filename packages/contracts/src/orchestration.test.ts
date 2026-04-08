@@ -684,8 +684,6 @@ it.effect("decodes swarm run history rows with null defaults", () =>
       providerOptions: null,
       assistantDeliveryMode: null,
     });
-    assert.strictEqual(parsed.activeTaskExecutionId, null);
-    assert.strictEqual(parsed.latestTaskExecutionId, null);
     assert.strictEqual(parsed.lastError, null);
   }),
 );

@@ -858,8 +858,6 @@ export function projectEvent(
             providerOptions: payload.providerOptions,
             assistantDeliveryMode: payload.assistantDeliveryMode,
             runtimeMode: payload.runtimeMode,
-            activeTaskExecutionId: null,
-            latestTaskExecutionId: null,
             lastError: null,
             requestedAt: payload.requestedAt,
             startedAt: null,
@@ -907,7 +905,6 @@ export function projectEvent(
           ...nextBase,
           swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
             status: "idle",
-            activeTaskExecutionId: null,
             idledAt: payload.idledAt,
             lastError: null,
             blockedContext: null,
@@ -922,7 +919,6 @@ export function projectEvent(
           ...nextBase,
           swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
             status: "paused",
-            activeTaskExecutionId: null,
             pausedAt: payload.pausedAt,
             lastError: null,
             blockedContext: null,
@@ -950,7 +946,6 @@ export function projectEvent(
           ...nextBase,
           swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
             status: "blocked",
-            activeTaskExecutionId: null,
             lastError: payload.reason,
             blockedAt: payload.blockedAt,
             blockedContext: payload.blockedContext,
@@ -965,7 +960,6 @@ export function projectEvent(
           ...nextBase,
           swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
             status: "failed",
-            activeTaskExecutionId: null,
             lastError: payload.reason,
             blockedContext: null,
             failedAt: payload.failedAt,
@@ -980,7 +974,6 @@ export function projectEvent(
           ...nextBase,
           swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
             status: "cancelled",
-            activeTaskExecutionId: null,
             lastError: null,
             blockedContext: null,
             cancelledAt: payload.cancelledAt,
@@ -995,7 +988,6 @@ export function projectEvent(
           ...nextBase,
           swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
             status: "completed",
-            activeTaskExecutionId: null,
             lastError: null,
             blockedContext: null,
             completedAt: payload.completedAt,
@@ -1030,8 +1022,6 @@ export function projectEvent(
           return {
             ...nextBase,
             swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
-              activeTaskExecutionId: payload.executionId,
-              latestTaskExecutionId: payload.executionId,
               updatedAt: payload.updatedAt,
             }),
             swarmTaskExecutions: [
@@ -1059,8 +1049,6 @@ export function projectEvent(
         Effect.map((payload) => ({
           ...nextBase,
           swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
-            activeTaskExecutionId: null,
-            latestTaskExecutionId: payload.executionId,
             updatedAt: payload.updatedAt,
           }),
           swarmTaskExecutions: updateSwarmTaskExecution(
@@ -1086,8 +1074,6 @@ export function projectEvent(
         Effect.map((payload) => ({
           ...nextBase,
           swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
-            activeTaskExecutionId: null,
-            latestTaskExecutionId: payload.executionId,
             updatedAt: payload.updatedAt,
           }),
           swarmTaskExecutions: updateSwarmTaskExecution(
@@ -1113,8 +1099,6 @@ export function projectEvent(
         Effect.map((payload) => ({
           ...nextBase,
           swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
-            activeTaskExecutionId: null,
-            latestTaskExecutionId: payload.executionId,
             updatedAt: payload.updatedAt,
           }),
           swarmTaskExecutions: updateSwarmTaskExecution(

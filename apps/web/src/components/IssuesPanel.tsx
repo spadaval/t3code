@@ -1462,7 +1462,7 @@ function CoordinatorEpicCard(props: {
             {props.swarmActionKey === startActionKey ? "Starting..." : "Start swarm"}
           </Button>
         ) : null}
-        {latestRun?.status === "running" && latestRun.activeTaskExecutionId === null ? (
+        {latestRun?.status === "running" && props.card.activeExecution === null ? (
           <Button
             type="button"
             size="sm"
