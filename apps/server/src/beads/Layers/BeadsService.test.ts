@@ -1,6 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import { ProjectId, ThreadId } from "@t3tools/contracts";
-import { Cause, Effect, Layer, Stream } from "effect";
+import { Effect, Layer, Stream } from "effect";
 import { afterEach, expect, vi } from "vitest";
 
 vi.mock("../../processRunner", () => ({
@@ -72,16 +72,6 @@ function successJson(value: unknown) {
   } as const;
 }
 
-function successStdout(stdout: string) {
-  return {
-    stdout,
-    stderr: "",
-    code: 0,
-    signal: null,
-    timedOut: false,
-  } as const;
-}
-
 function commandKey(args: readonly string[]): string {
   return args.filter((arg) => arg !== "--json").join(" ");
 }
@@ -89,7 +79,20 @@ function commandKey(args: readonly string[]): string {
 function installBdJsonMock(outputs: Record<string, unknown>) {
   mockedRunProcess.mockImplementation(async (_command, args) => {
     const key = commandKey(args);
-    const output = outputs[key];
+    const output =
+      outputs[key] ??
+      (args[0] === "history" && args.includes("--limit")
+        ? outputs[
+            args
+              .filter((arg, index, allArgs) => {
+                if (arg === "--json") return false;
+                if (arg === "--limit") return false;
+                if (index > 0 && allArgs[index - 1] === "--limit") return false;
+                return true;
+              })
+              .join(" ")
+          ]
+        : undefined);
     if (output === undefined) {
       throw new Error(`Unexpected bd args: ${args.join(" ")}`);
     }
@@ -243,24 +246,22 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
-  it.effect("loads issue detail when history JSON exceeds the text truncation cap", () =>
+  it.effect("caps issue history fetches at the source", () =>
     Effect.gen(function* () {
-      const cwd = "/repo-large-history";
+      const cwd = "/repo-history-limit";
       const now = new Date().toISOString();
-      const largeHistory = Array.from({ length: 6_000 }, (_, index) => ({
+      const returnedHistory = Array.from({ length: 20 }, (_, index) => ({
         CommitHash: `commit-${index}`,
         Committer: "beads",
         CommitDate: now,
         Issue: {
           id: "ISS-1",
-          title: `Large history entry ${index}`,
+          title: `Recent history entry ${index}`,
           status: "open",
         },
       }));
-      const historyStdout = JSON.stringify(largeHistory);
-      expect(Buffer.byteLength(historyStdout)).toBeGreaterThan(512 * 1024);
 
-      mockedRunProcess.mockImplementation(async (_command, args, options) => {
+      mockedRunProcess.mockImplementation(async (_command, args) => {
         const key = commandKey(args);
         if (key === "context") {
           return successJson({
@@ -282,7 +283,7 @@ layer("BeadsServiceLive", (it) => {
           return successJson([
             {
               id: "ISS-1",
-              title: "Large issue history",
+              title: "Bounded issue history",
               description: "desc",
               notes: "notes",
               status: "open",
@@ -302,13 +303,8 @@ layer("BeadsServiceLive", (it) => {
           return successJson([]);
         }
 
-        if (key === "history ISS-1") {
-          if ((options?.maxBufferBytes ?? 0) < Buffer.byteLength(historyStdout)) {
-            throw new Error(
-              `bd ${args.join(" ")} exceeded stdout buffer limit (${options?.maxBufferBytes ?? 0} bytes).`,
-            );
-          }
-          return successStdout(historyStdout);
+        if (key === "history ISS-1 --limit 20") {
+          return successJson(returnedHistory);
         }
 
         throw new Error(`Unexpected bd args: ${args.join(" ")}`);
@@ -316,95 +312,16 @@ layer("BeadsServiceLive", (it) => {
 
       const beads = yield* BeadsService;
       const issue = yield* beads.getIssue({ cwd, issueId: "ISS-1" });
-      const historyCall = mockedRunProcess.mock.calls.find(
-        ([, args]) => commandKey(args) === "history ISS-1",
+      const historyCall = mockedRunProcess.mock.calls.find(([, args]) =>
+        commandKey(args).startsWith("history ISS-1"),
       );
 
       assert.equal(issue.id, "ISS-1");
-      assert.equal(issue.history.length, largeHistory.length);
+      assert.equal(issue.history.length, returnedHistory.length);
       expect(historyCall?.[2]).toMatchObject({
-        outputMode: "error",
-        maxBufferBytes: 4 * 1024 * 1024,
+        outputMode: "truncate",
+        maxBufferBytes: 512 * 1024,
       });
-    }),
-  );
-
-  it.effect("surfaces an explicit error when bd JSON output exceeds the capture limit", () =>
-    Effect.gen(function* () {
-      const cwd = "/repo-too-large-history";
-      const now = new Date().toISOString();
-      const oversizedHistoryStdout = JSON.stringify(
-        Array.from({ length: 60_000 }, (_, index) => ({
-          CommitHash: `commit-${index}`,
-          Committer: "beads",
-          CommitDate: now,
-          Issue: {
-            id: "ISS-1",
-            title: `Oversized history entry ${index}`,
-            status: "open",
-          },
-        })),
-      );
-      expect(Buffer.byteLength(oversizedHistoryStdout)).toBeGreaterThan(4 * 1024 * 1024);
-
-      mockedRunProcess.mockImplementation(async (_command, args, options) => {
-        const key = commandKey(args);
-        if (key === "context") {
-          return successJson({
-            beads_dir: "/repo/.beads",
-            repo_root: cwd,
-            cwd_repo_root: cwd,
-            is_redirected: false,
-            is_worktree: false,
-            backend: "dolt",
-            dolt_mode: "server",
-            database: "repo",
-            project_id: "project-1",
-            role: "contributor",
-            bd_version: "1.0.0",
-          });
-        }
-
-        if (key === "show ISS-1 --long") {
-          return successJson([
-            {
-              id: "ISS-1",
-              title: "Oversized issue history",
-              description: "desc",
-              notes: "notes",
-              status: "open",
-              priority: 1,
-              issue_type: "feature",
-              assignee: null,
-              owner: null,
-              created_at: now,
-              created_by: null,
-              updated_at: now,
-              labels: [],
-            },
-          ]);
-        }
-
-        if (key === "comments ISS-1") {
-          return successJson([]);
-        }
-
-        if (key === "history ISS-1") {
-          throw new Error(
-            `bd ${args.join(" ")} exceeded stdout buffer limit (${options?.maxBufferBytes ?? 0} bytes).`,
-          );
-        }
-
-        throw new Error(`Unexpected bd args: ${args.join(" ")}`);
-      });
-
-      const beads = yield* BeadsService;
-      const exit = yield* Effect.exit(beads.getIssue({ cwd, issueId: "ISS-1" }));
-      const squashed = exit._tag === "Failure" ? Cause.squash(exit.cause) : null;
-      const message = squashed instanceof Error ? squashed.message : String(squashed);
-
-      assert.equal(exit._tag, "Failure");
-      expect(message).toContain("Beads JSON output exceeded capture limit (4194304 bytes).");
     }),
   );
 
