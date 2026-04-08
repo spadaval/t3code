@@ -564,7 +564,7 @@ it.effect("decodes orchestration session runtime mode defaults", () =>
   }),
 );
 
-it.effect("defaults proposed plan implementation metadata for historical rows", () =>
+it.effect("defaults proposed plan follow-up outcome for historical rows", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeOrchestrationProposedPlan({
       id: "plan-1",
@@ -578,7 +578,7 @@ it.effect("defaults proposed plan implementation metadata for historical rows", 
   }),
 );
 
-it.effect("decodes legacy implementation metadata into a follow-up outcome", () =>
+it.effect("decodes legacy implementation metadata into an implement-code follow-up outcome", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeOrchestrationProposedPlan({
       id: "plan-2",

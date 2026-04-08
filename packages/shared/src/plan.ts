@@ -13,7 +13,7 @@ export function buildPlanToBeadsPrompt(planMarkdown: string): string {
 export function describeProposedPlanFollowUpOutcome(outcome: {
   kind: "implement-code" | "convert-to-tracker";
 }): string {
-  return outcome.kind === "convert-to-tracker" ? "Converted to tracker" : "Implementation started";
+  return outcome.kind === "convert-to-tracker" ? "Converted to tracker" : "Code follow-up started";
 }
 
 export function buildPlanImplementationThreadTitle(planMarkdown: string): string {

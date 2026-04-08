@@ -816,7 +816,7 @@ describe("ProviderRuntimeIngestion", () => {
     );
   });
 
-  it("marks the source proposed plan implemented only after the target turn starts", async () => {
+  it("marks the source proposed plan follow-up outcome only after the target turn starts", async () => {
     const harness = await createHarness();
     const sourceThreadId = asThreadId("thread-plan");
     const targetThreadId = asThreadId("thread-implement");
@@ -1198,7 +1198,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
-  it("does not mark the source proposed plan implemented for a rejected turn.started event", async () => {
+  it("does not mark the source proposed plan follow-up outcome for a rejected turn.started event", async () => {
     const harness = await createHarness();
     const sourceThreadId = asThreadId("thread-plan");
     const targetThreadId = asThreadId("thread-1");
@@ -1350,7 +1350,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(targetThreadAfterRejectedStart?.session?.activeTurnId).toBe(activeTurnId);
   });
 
-  it("does not mark the source proposed plan implemented for an unrelated turn.started when no thread active turn is tracked", async () => {
+  it("does not mark the source proposed plan follow-up outcome for an unrelated turn.started when no thread active turn is tracked", async () => {
     const harness = await createHarness();
     const sourceThreadId = asThreadId("thread-plan");
     const targetThreadId = asThreadId("thread-implement");

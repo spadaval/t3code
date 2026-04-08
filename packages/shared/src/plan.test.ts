@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import { describeProposedPlanFollowUpOutcome } from "./plan";
 
 describe("describeProposedPlanFollowUpOutcome", () => {
-  it("returns implementation-specific copy for code follow-up", () => {
+  it("returns code follow-up copy for code follow-up", () => {
     expect(describeProposedPlanFollowUpOutcome({ kind: "implement-code" })).toBe(
-      "Implementation started",
+      "Code follow-up started",
     );
   });
 

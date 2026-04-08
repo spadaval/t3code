@@ -240,8 +240,8 @@ type OrchestrationProposedPlanLegacyCompatible =
   | typeof OrchestrationProposedPlanLegacyShape.Type;
 
 export const OrchestrationProposedPlan = Schema.Union([
-  OrchestrationProposedPlanShape,
   OrchestrationProposedPlanLegacyShape,
+  OrchestrationProposedPlanShape,
 ]).pipe(
   Schema.decode({
     decode: SchemaGetter.transform((input: OrchestrationProposedPlanLegacyCompatible) => ({

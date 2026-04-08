@@ -136,8 +136,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           thread_id,
           turn_id,
           plan_markdown,
-          implemented_at,
-          implementation_thread_id,
+          plan_intent,
+          follow_up_outcome_json,
           created_at,
           updated_at
         )
@@ -146,8 +146,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'thread-1',
           'turn-1',
           '# Ship it',
-          '2026-02-24T00:00:05.500Z',
-          'thread-2',
+          'code-implementation',
+          '{"kind":"implement-code","completedAt":"2026-02-24T00:00:05.500Z","targetThreadId":"thread-2"}',
           '2026-02-24T00:00:05.000Z',
           '2026-02-24T00:00:05.500Z'
         )
