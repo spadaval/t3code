@@ -149,6 +149,10 @@ export function ProgressVisualization({
       const current = executionHistory[i];
       const next = executionHistory[i + 1];
 
+      if (!current || !next) {
+        continue;
+      }
+
       if (current.event.includes("started") && next.event.includes("completed")) {
         const duration = new Date(next.timestamp).getTime() - new Date(current.timestamp).getTime();
         totalDuration += duration;
@@ -414,7 +418,10 @@ export function ProgressVisualization({
                 <CardTitle className="text-base">Execution Timeline</CardTitle>
                 <div className="flex items-center gap-2">
                   <Filter className="h-4 w-4" />
-                  <Select value={timelineFilter} onValueChange={setTimelineFilter}>
+                  <Select
+                    value={timelineFilter}
+                    onValueChange={(value) => setTimelineFilter(value ?? "all")}
+                  >
                     <SelectTrigger className="w-32">
                       <SelectValue />
                     </SelectTrigger>

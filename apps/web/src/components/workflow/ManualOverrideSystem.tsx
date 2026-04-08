@@ -512,7 +512,7 @@ export function ManualOverrideSystem({
                 <h4 className="font-medium text-red-800">Direct State Modification</h4>
                 <div className="space-y-2">
                   <Label htmlFor="new-state">New State:</Label>
-                  <Select value={newState} onValueChange={setNewState}>
+                  <Select value={newState} onValueChange={(value) => setNewState(value ?? "")}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select new state" />
                     </SelectTrigger>

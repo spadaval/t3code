@@ -95,7 +95,7 @@ describe("issuePanelLogic", () => {
       const result = filterAndSortIssues(SAMPLE_ISSUES, options);
 
       expect(result.issues).toHaveLength(1);
-      expect(result.issues[0].status).toBe("closed");
+      expect(result.issues[0]!.status).toBe("closed");
       expect(result.filteredCount).toBe(1);
     });
 
@@ -117,7 +117,7 @@ describe("issuePanelLogic", () => {
       const result = filterAndSortIssues(SAMPLE_ISSUES, options);
 
       expect(result.issues).toHaveLength(1);
-      expect(result.issues[0].id).toBe("issue-2");
+      expect(result.issues[0]!.id).toBe("issue-2");
     });
 
     it("filters by selected labels", () => {
@@ -140,7 +140,7 @@ describe("issuePanelLogic", () => {
       const result = filterAndSortIssues(SAMPLE_ISSUES, options);
 
       expect(result.issues).toHaveLength(1);
-      expect(result.issues[0].id).toBe("issue-1");
+      expect(result.issues[0]!.id).toBe("issue-1");
     });
 
     describe("sorting", () => {
@@ -249,7 +249,7 @@ describe("issuePanelLogic", () => {
             id: "incomplete-1",
             title: "",
             labels: [],
-            epicId: null,
+            parent: null,
           }),
         ];
 
@@ -281,7 +281,7 @@ describe("issuePanelLogic", () => {
       const result = searchItems(items, "bug", ["title", "description"]);
 
       expect(result.items).toHaveLength(1);
-      expect(result.items[0].id).toBe("1");
+      expect(result.items[0]!.id).toBe("1");
       expect(result.query).toBe("bug");
     });
 

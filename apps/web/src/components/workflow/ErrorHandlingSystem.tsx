@@ -584,7 +584,7 @@ function ErrorCard({
       )}
     >
       <Collapsible open={isExpanded} onOpenChange={onToggleExpanded}>
-        <CollapsibleTrigger asChild>
+        <CollapsibleTrigger className="w-full text-left">
           <CardHeader className="cursor-pointer">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
@@ -788,7 +788,9 @@ function extractErrorsFromEntity(entity: WorkflowEntity): ErrorDetails[] {
       description: `The workflow has encountered an issue and is currently in ${entity.currentState} state.`,
       timestamp: entity.updatedAt,
       severity: entity.currentState.includes("fatal") ? "critical" : "high",
-      isRecoverable: entity.currentState.includes("recoverable") || entity.requiresIntervention,
+      isRecoverable: Boolean(
+        entity.currentState.includes("recoverable") || entity.requiresIntervention,
+      ),
       suggestedActions: [
         {
           id: "retry",
@@ -821,7 +823,7 @@ function extractErrorsFromEntity(entity: WorkflowEntity): ErrorDetails[] {
       context: {
         entityId: entity.id,
         currentState: entity.currentState,
-        lastTransition: entity.stateHistory[entity.stateHistory.length - 1],
+        lastTransition: entity.stateHistory?.at(-1) ?? null,
       },
     });
   }

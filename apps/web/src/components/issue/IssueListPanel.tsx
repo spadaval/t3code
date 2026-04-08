@@ -10,35 +10,37 @@ import { LoadingSkeleton } from "../shared/LoadingSpinner";
 import type { IssuePaneScope } from "~/issuePaneStore";
 
 export interface IssueListPanelProps {
-  className?: string;
+  className?: string | undefined;
   threadId: ThreadId;
   issues: readonly BeadsIssueSummary[];
-  selectedIssueId?: string | null;
-  searchValue?: string;
-  scopeFilter?: IssuePaneScope;
-  loading?: boolean;
-  error?: string | null;
+  selectedIssueId?: string | null | undefined;
+  searchValue?: string | undefined;
+  scopeFilter?: IssuePaneScope | undefined;
+  loading?: boolean | undefined;
+  error?: string | null | undefined;
 
   // Event handlers
-  onIssueSelect?: (issueId: string) => void;
-  onSearchChange?: (search: string) => void;
-  onScopeChange?: (scope: IssuePaneScope) => void;
-  onLabelClick?: (label: string) => void;
+  onIssueSelect?: ((issueId: string) => void) | undefined;
+  onSearchChange?: ((search: string) => void) | undefined;
+  onScopeChange?: ((scope: IssuePaneScope) => void) | undefined;
+  onLabelClick?: ((label: string) => void) | undefined;
 
   // Tab navigation
-  activeTab?: "issues" | "coordinator";
-  onTabChange?: (tab: "issues" | "coordinator") => void;
-  coordinatorActiveCount?: number;
+  activeTab?: "issues" | "coordinator" | undefined;
+  onTabChange?: ((tab: "issues" | "coordinator") => void) | undefined;
+  coordinatorActiveCount?: number | undefined;
 
   // Actions
-  actions?: ReactNode;
+  actions?: ReactNode | undefined;
 
   // Enhanced interaction props
-  tabsLoading?: {
-    issues?: boolean;
-    coordinator?: boolean;
-  };
-  retryError?: () => void;
+  tabsLoading?:
+    | {
+        issues?: boolean | undefined;
+        coordinator?: boolean | undefined;
+      }
+    | undefined;
+  retryError?: (() => void) | undefined;
 }
 
 /**
@@ -200,4 +202,4 @@ export const ThreadIssueListPanel = (
 
 export const StandaloneIssueListPanel = (
   props: Omit<IssueListPanelProps, "threadId" | "activeTab" | "onTabChange">,
-) => <IssueListPanel {...props} threadId="standalone" />;
+) => <IssueListPanel {...props} threadId={"standalone" as ThreadId} />;

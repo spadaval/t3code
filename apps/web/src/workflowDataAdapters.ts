@@ -15,6 +15,12 @@ import type {
   IssuePreparationState,
 } from "@t3tools/contracts/workflowState";
 
+type MutableWorkflowEntity = {
+  -readonly [K in keyof WorkflowEntity]: WorkflowEntity[K];
+};
+
+type WorkflowEntityUpdates = Partial<MutableWorkflowEntity>;
+
 /**
  * Workflow Data Adapters
  *
@@ -299,13 +305,12 @@ export function convertOrchestrationDataToWorkflowEntities(data: {
  * Establishes parent-child and related entity relationships
  */
 function establishEntityRelationships(entities: WorkflowEntity[]): void {
-  const entitiesById = new Map(entities.map((e) => [e.id, e]));
+  const mutableEntities = entities as MutableWorkflowEntity[];
 
-  entities.forEach((entity) => {
+  mutableEntities.forEach((entity) => {
     switch (entity.type) {
       case "swarm_run": {
-        // Find all task executions that belong to this swarm run
-        const taskExecutions = entities.filter(
+        const taskExecutions = mutableEntities.filter(
           (e) => e.type === "task_execution" && e.parentId === entity.id,
         );
         entity.relatedIds = taskExecutions.map((te) => te.id);
@@ -313,8 +318,7 @@ function establishEntityRelationships(entities: WorkflowEntity[]): void {
       }
 
       case "epic": {
-        // Find all swarm runs that belong to this epic
-        const swarmRuns = entities.filter(
+        const swarmRuns = mutableEntities.filter(
           (e) => e.type === "swarm_run" && e.parentId === entity.id,
         );
         entity.relatedIds = swarmRuns.map((sr) => sr.id);
@@ -370,7 +374,7 @@ export function updateEntityFromOrchestrationData(
   existingEntity: WorkflowEntity,
   newData: OrchestrationSwarmRun | OrchestrationSwarmTaskExecution | BeadsSwarmSummary,
 ): Partial<WorkflowEntity> {
-  const updates: Partial<WorkflowEntity> = {};
+  const updates: WorkflowEntityUpdates = {};
 
   if ("status" in newData) {
     if ("runId" in newData) {

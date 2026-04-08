@@ -10,6 +10,11 @@
   "module": "./dist/index.mjs",
   "types": "./src/index.ts",
   "exports": {
+    "./workflowState": {
+      "types": "./src/workflowState.ts",
+      "import": "./src/workflowState.ts",
+      "require": "./src/workflowState.ts"
+    },
     "./settings": {
       "types": "./src/settings.ts",
       "import": "./src/settings.ts",

@@ -20,6 +20,7 @@ export const WorkflowPhase = Schema.Literals([
   "task_execution", // Individual task execution by agents
   "completion_review", // Final review and cleanup
   "error_recovery", // Handling failures and recovery
+  "coordination", // Legacy alias used by older workflow modules
 ]);
 export type WorkflowPhase = typeof WorkflowPhase.Type;
 
@@ -48,6 +49,8 @@ export const SwarmCoordinationState = Schema.Literals([
   "cancelled", // Swarm cancelled by user
 ]);
 export type SwarmCoordinationState = typeof SwarmCoordinationState.Type;
+export const SwarmState = SwarmCoordinationState;
+export type SwarmState = SwarmCoordinationState;
 
 // ── Task Execution States ─────────────────────────────────────────────────────
 
@@ -62,6 +65,8 @@ export const TaskExecutionState = Schema.Literals([
   "cancelled", // Task cancelled by user or system
 ]);
 export type TaskExecutionState = typeof TaskExecutionState.Type;
+export const TaskState = TaskExecutionState;
+export type TaskState = TaskExecutionState;
 
 // ── Error Recovery States ─────────────────────────────────────────────────────
 
@@ -84,6 +89,12 @@ export const WorkflowTransitionReason = Schema.Literals([
   "error_occurred", // Error caused transition
   "timeout_reached", // Timeout caused transition
   "manual_override", // User manually overrode normal flow
+  "user_requested", // Legacy alias
+  "user_initiated", // Legacy alias
+  "orchestration_started", // Legacy alias
+  "orchestration_failed", // Legacy alias
+  "task_failed", // Legacy alias
+  "user_intervention", // Legacy alias
 ]);
 export type WorkflowTransitionReason = typeof WorkflowTransitionReason.Type;
 
@@ -129,6 +140,26 @@ export const WorkflowInterventionPoint = Schema.Struct({
 });
 export type WorkflowInterventionPoint = typeof WorkflowInterventionPoint.Type;
 
+export const InterventionRequestOption = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+  description: Schema.optional(TrimmedNonEmptyString),
+});
+export type InterventionRequestOption = typeof InterventionRequestOption.Type;
+
+export const InterventionRequest = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  entityId: TrimmedNonEmptyString,
+  type: TrimmedNonEmptyString,
+  title: TrimmedNonEmptyString,
+  description: TrimmedNonEmptyString,
+  context: Schema.Record(Schema.String, Schema.Unknown),
+  options: Schema.Array(InterventionRequestOption),
+  createdAt: IsoDateTime,
+  timeoutAt: IsoDateTime,
+});
+export type InterventionRequest = typeof InterventionRequest.Type;
+
 // ── Contextual Actions ────────────────────────────────────────────────────────
 
 export const ActionCategory = Schema.Literals([
@@ -157,11 +188,30 @@ export type ContextualAction = typeof ContextualAction.Type;
 export const WorkflowEntityType = Schema.Literals([
   "issue",
   "epic",
+  "swarm", // Legacy alias
   "swarm_run",
   "task_execution",
   "recovery_session",
 ]);
 export type WorkflowEntityType = typeof WorkflowEntityType.Type;
+
+export const WorkflowProgress = Schema.Struct({
+  completed: Schema.Number.pipe(Schema.withDecodingDefault(() => 0)),
+  total: Schema.Number.pipe(Schema.withDecodingDefault(() => 0)),
+  percentage: Schema.Number.pipe(Schema.withDecodingDefault(() => 0)),
+  estimatedCompletion: Schema.optional(IsoDateTime),
+  velocity: Schema.optional(Schema.Number),
+  errorRate: Schema.optional(Schema.Number),
+});
+export type WorkflowProgress = typeof WorkflowProgress.Type;
+
+export const WorkflowStateHistoryEntry = Schema.Struct({
+  state: Schema.String,
+  timestamp: IsoDateTime,
+  reason: Schema.String,
+  context: Schema.Record(Schema.String, Schema.Unknown),
+});
+export type WorkflowStateHistoryEntry = typeof WorkflowStateHistoryEntry.Type;
 
 export const WorkflowEntity = Schema.Struct({
   id: TrimmedNonEmptyString,
@@ -174,18 +224,24 @@ export const WorkflowEntity = Schema.Struct({
   // Entity relationships
   parentId: Schema.NullOr(TrimmedNonEmptyString), // e.g., epic for issue
   relatedIds: Schema.Array(TrimmedNonEmptyString), // dependencies, linked entities
+  childIds: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
 
   // Core metadata
   title: TrimmedNonEmptyString,
   description: Schema.NullOr(TrimmedNonEmptyString),
   assignee: Schema.NullOr(TrimmedNonEmptyString),
   priority: Schema.NullOr(Schema.Number),
+  tags: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
+  metadata: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
 
   // State transition history
   transitions: Schema.Array(WorkflowTransition),
+  stateHistory: Schema.optional(Schema.Array(WorkflowStateHistoryEntry)),
 
   // Active intervention points
   interventions: Schema.Array(WorkflowInterventionPoint),
+  interventionOptions: Schema.optional(Schema.Array(InterventionRequestOption)),
+  requiresIntervention: Schema.optional(Schema.Boolean),
 
   // Available contextual actions
   availableActions: Schema.Array(ContextualAction),
@@ -196,6 +252,7 @@ export const WorkflowEntity = Schema.Struct({
 
   // Progress tracking
   progressMetrics: Schema.Record(Schema.String, Schema.Number), // completion %, etc.
+  progress: Schema.optional(WorkflowProgress),
 
   // Timestamps
   createdAt: IsoDateTime,
@@ -221,6 +278,18 @@ export const StateTransitions: Record<WorkflowEntityType, Record<string, string[
     ready: ["blocked", "deferred"],
     blocked: ["ready", "deferred"],
     deferred: ["draft", "ready"],
+  },
+  swarm: {
+    pending: ["starting", "cancelled"],
+    starting: ["active", "blocked_recoverable", "blocked_fatal", "cancelled"],
+    active: ["paused", "idle", "blocked_recoverable", "blocked_fatal", "completing", "cancelled"],
+    paused: ["active", "cancelled"],
+    idle: ["active", "completing", "cancelled"],
+    blocked_recoverable: ["active", "paused", "blocked_fatal", "cancelled"],
+    blocked_fatal: ["pending", "cancelled"],
+    completing: ["completed", "blocked_recoverable"],
+    completed: [],
+    cancelled: [],
   },
   swarm_run: {
     pending: ["starting", "cancelled"],

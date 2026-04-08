@@ -266,6 +266,7 @@ const initialEntityCollections: WorkflowEntityCollections = {
   entitiesById: {},
   entitiesByType: {},
   entitiesByPhase: {
+    coordination: [],
     issue_preparation: [],
     swarm_coordination: [],
     task_execution: [],
@@ -618,7 +619,7 @@ export const useWorkflowStore = create<WorkflowStateStore>()(
       const currentState = get();
 
       // Process each new entity
-      newEntities.forEach((newEntity) => {
+      newEntities.forEach((newEntity: WorkflowEntity) => {
         const existingEntity = currentState.entities.entitiesById[newEntity.id];
 
         if (!existingEntity) {
@@ -649,7 +650,10 @@ export const useWorkflowStore = create<WorkflowStateStore>()(
       const threadEntities = state.entities.entitiesByThread[threadId] || [];
       return threadEntities
         .map((id) => state.entities.entitiesById[id])
-        .filter((entity) => entity && (entity.type === "issue" || entity.type === "epic"));
+        .filter(
+          (entity): entity is WorkflowEntity =>
+            entity !== undefined && (entity.type === "issue" || entity.type === "epic"),
+        );
     },
 
     getSwarmEntitiesForThread: (threadId: ThreadId) => {
@@ -657,22 +661,25 @@ export const useWorkflowStore = create<WorkflowStateStore>()(
       const threadEntities = state.entities.entitiesByThread[threadId] || [];
       return threadEntities
         .map((id) => state.entities.entitiesById[id])
-        .filter((entity) => entity && entity.type === "swarm_run");
+        .filter(
+          (entity): entity is WorkflowEntity =>
+            entity !== undefined && (entity.type === "swarm_run" || entity.type === "swarm"),
+        );
     },
 
     getEntity: (id) => get().entities.entitiesById[id] || null,
     getEntitiesByType: (type) =>
       (get().entities.entitiesByType[type] || [])
         .map((id) => get().entities.entitiesById[id])
-        .filter(Boolean),
+        .filter((entity): entity is WorkflowEntity => entity !== undefined),
     getEntitiesByPhase: (phase) =>
       (get().entities.entitiesByPhase[phase] || [])
         .map((id) => get().entities.entitiesById[id])
-        .filter(Boolean),
+        .filter((entity): entity is WorkflowEntity => entity !== undefined),
     getEntitiesByParent: (parentId) =>
       (get().entities.entitiesByParent[parentId] || [])
         .map((id) => get().entities.entitiesById[id])
-        .filter(Boolean),
+        .filter((entity): entity is WorkflowEntity => entity !== undefined),
     getEntitiesForThread: () => [], // TODO: Implement
 
     getFilteredEntities: () => {
@@ -773,6 +780,7 @@ export const useWorkflowStore = create<WorkflowStateStore>()(
     getWorkflowSummary: () => ({
       totalEntities: Object.keys(get().entities.entitiesById).length,
       entitiesByPhase: {
+        coordination: get().entities.entitiesByPhase.coordination.length,
         issue_preparation: get().entities.entitiesByPhase.issue_preparation.length,
         swarm_coordination: get().entities.entitiesByPhase.swarm_coordination.length,
         task_execution: get().entities.entitiesByPhase.task_execution.length,

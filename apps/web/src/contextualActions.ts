@@ -19,7 +19,7 @@ import type {
 /**
  * Base actions available for all entities
  */
-const BASE_ACTIONS: Record<string, ContextualAction> = {
+const BASE_ACTIONS = {
   view_details: {
     id: "view_details",
     label: "View Details",
@@ -63,12 +63,12 @@ const BASE_ACTIONS: Record<string, ContextualAction> = {
     requiresConfirmation: false,
     shortcut: "c",
   },
-};
+} satisfies Record<string, ContextualAction>;
 
 /**
  * Actions specific to issue entities
  */
-const ISSUE_ACTIONS: Record<string, ContextualAction> = {
+const ISSUE_ACTIONS = {
   edit_issue: {
     id: "edit_issue",
     label: "Edit Issue",
@@ -123,12 +123,12 @@ const ISSUE_ACTIONS: Record<string, ContextualAction> = {
     requiresConfirmation: true,
     shortcut: null,
   },
-};
+} satisfies Record<string, ContextualAction>;
 
 /**
  * Actions specific to swarm run entities
  */
-const SWARM_RUN_ACTIONS: Record<string, ContextualAction> = {
+const SWARM_RUN_ACTIONS = {
   start_swarm: {
     id: "start_swarm",
     label: "Start Swarm",
@@ -261,12 +261,12 @@ const SWARM_RUN_ACTIONS: Record<string, ContextualAction> = {
     requiresConfirmation: false,
     shortcut: null,
   },
-};
+} satisfies Record<string, ContextualAction>;
 
 /**
  * Actions specific to task execution entities
  */
-const TASK_EXECUTION_ACTIONS: Record<string, ContextualAction> = {
+const TASK_EXECUTION_ACTIONS = {
   assign_task: {
     id: "assign_task",
     label: "Assign Task",
@@ -343,7 +343,7 @@ const TASK_EXECUTION_ACTIONS: Record<string, ContextualAction> = {
     requiresConfirmation: false,
     shortcut: "d",
   },
-};
+} satisfies Record<string, ContextualAction>;
 
 // ── State-Based Action Selection ──────────────────────────────────────────────
 
@@ -670,7 +670,7 @@ export function getPrimaryAction(entity: WorkflowEntity): ContextualAction | nul
   }
 
   // Return the first primary action, which should be the most relevant
-  return primaryActions[0];
+  return primaryActions[0] ?? null;
 }
 
 /**
@@ -700,13 +700,13 @@ export function groupActionsByCategory(
 export interface ActionMenuItem {
   id: string;
   label: string;
-  description?: string;
-  icon?: string;
-  shortcut?: string;
+  description?: string | undefined;
+  icon?: string | undefined;
+  shortcut?: string | undefined;
   isEnabled: boolean;
   requiresConfirmation: boolean;
   category: ActionCategory;
-  separator?: boolean; // Add separator after this item
+  separator?: boolean | undefined; // Add separator after this item
 }
 
 export function createActionMenuItems(
@@ -747,8 +747,9 @@ export function createActionMenuItems(
         .slice(index + 1)
         .some((cat) => grouped[cat].length > 0);
 
-      if (hasMoreCategories && menuItems.length > 0) {
-        menuItems[menuItems.length - 1].separator = true;
+      const lastItem = menuItems.at(-1);
+      if (hasMoreCategories && lastItem) {
+        lastItem.separator = true;
       }
     }
   });

@@ -6,16 +6,16 @@ import { Button } from "../ui/button";
 import { Card, CardHeader, CardTitle, CardPanel } from "../ui/card";
 
 export interface ErrorDisplayProps {
-  className?: string;
+  className?: string | undefined;
   error: string | Error | null;
-  title?: string;
-  description?: string;
-  icon?: ReactNode;
-  actions?: ReactNode;
-  onRetry?: () => void;
-  retryLabel?: string;
-  variant?: "default" | "minimal" | "inline";
-  retrying?: boolean;
+  title?: string | undefined;
+  description?: string | undefined;
+  icon?: ReactNode | undefined;
+  actions?: ReactNode | undefined;
+  onRetry?: (() => void) | undefined;
+  retryLabel?: string | undefined;
+  variant?: "default" | "minimal" | "inline" | undefined;
+  retrying?: boolean | undefined;
 }
 
 /**

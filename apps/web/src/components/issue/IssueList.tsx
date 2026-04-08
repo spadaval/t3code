@@ -36,19 +36,19 @@ export interface EpicGroup {
 
 export interface IssueListProps {
   issues: readonly BeadsIssueSummary[];
-  className?: string;
-  selectedIssueId?: string | null;
-  searchValue?: string;
-  scopeFilter?: "active" | "all" | "closed";
-  onIssueSelect?: (issueId: string) => void;
-  onSearchChange?: (search: string) => void;
-  onScopeChange?: (scope: "active" | "all" | "closed") => void;
-  onLabelClick?: (label: string) => void;
-  loading?: boolean;
-  emptyMessage?: string;
-  actions?: ReactNode;
-  enableKeyboardNavigation?: boolean;
-  searchDebounceMs?: number;
+  className?: string | undefined;
+  selectedIssueId?: string | null | undefined;
+  searchValue?: string | undefined;
+  scopeFilter?: "active" | "all" | "closed" | undefined;
+  onIssueSelect?: ((issueId: string) => void) | undefined;
+  onSearchChange?: ((search: string) => void) | undefined;
+  onScopeChange?: ((scope: "active" | "all" | "closed") => void) | undefined;
+  onLabelClick?: ((label: string) => void) | undefined;
+  loading?: boolean | undefined;
+  emptyMessage?: string | undefined;
+  actions?: ReactNode | undefined;
+  enableKeyboardNavigation?: boolean | undefined;
+  searchDebounceMs?: number | undefined;
 }
 
 interface CollapsibleEpicSectionProps {
@@ -301,15 +301,15 @@ function IssueListHeader({
   loading = false,
   isSearching = false,
 }: {
-  searchValue?: string;
-  scopeFilter?: "active" | "all" | "closed";
-  onSearchChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onScopeChange?: (scope: "active" | "all" | "closed") => void;
-  actions?: ReactNode;
+  searchValue?: string | undefined;
+  scopeFilter?: "active" | "all" | "closed" | undefined;
+  onSearchChange?: ((e: React.ChangeEvent<HTMLInputElement>) => void) | undefined;
+  onScopeChange?: ((scope: "active" | "all" | "closed") => void) | undefined;
+  actions?: ReactNode | undefined;
   totalCount: number;
-  originalCount?: number;
-  loading?: boolean;
-  isSearching?: boolean;
+  originalCount?: number | undefined;
+  loading?: boolean | undefined;
+  isSearching?: boolean | undefined;
 }) {
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -393,7 +393,7 @@ function CollapsibleEpicSection({
   focusedIssueId,
   onIssueSelect,
   onLabelClick,
-}: CollapsibleEpicSectionProps & { focusedIssueId?: string }) {
+}: CollapsibleEpicSectionProps & { focusedIssueId?: string | undefined }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const handleToggleCollapsed = useCallback(() => {

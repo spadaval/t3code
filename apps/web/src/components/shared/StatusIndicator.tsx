@@ -1,5 +1,5 @@
 import { cva, type VariantProps } from "class-variance-authority";
-import { type ReactNode, type ComponentProps } from "react";
+import { type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 
@@ -71,17 +71,17 @@ const statusDotVariants = cva("rounded-full shrink-0 transition-all duration-200
 });
 
 export interface StatusIndicatorProps extends VariantProps<typeof statusIndicatorVariants> {
-  className?: string;
+  className?: string | undefined;
   children: ReactNode;
-  showDot?: boolean;
-  icon?: ReactNode;
-  loading?: boolean;
-  pulse?: boolean;
-  onClick?: () => void;
-  onKeyDown?: (event: React.KeyboardEvent) => void;
-  title?: string;
-  role?: string;
-  "aria-label"?: string;
+  showDot?: boolean | undefined;
+  icon?: ReactNode | undefined;
+  loading?: boolean | undefined;
+  pulse?: boolean | undefined;
+  onClick?: (() => void) | undefined;
+  onKeyDown?: ((event: React.KeyboardEvent) => void) | undefined;
+  title?: string | undefined;
+  role?: string | undefined;
+  "aria-label"?: string | undefined;
 }
 
 /**
@@ -145,29 +145,18 @@ export function StatusIndicator({
     onKeyDown?.(event);
   };
 
-  const Component = isInteractive ? "button" : "span";
-  const componentProps: ComponentProps<"button"> | ComponentProps<"span"> = {
-    className: cn(
-      statusIndicatorVariants({
-        variant,
-        size,
-        interactive: isInteractive,
-        loading: isLoading,
-      }),
-      className,
-    ),
-    title,
-    role: role || (isInteractive ? "button" : undefined),
-    "aria-label": ariaLabel,
-    ...(isInteractive && {
-      onClick,
-      onKeyDown: handleKeyDown,
-      tabIndex: 0,
+  const sharedClassName = cn(
+    statusIndicatorVariants({
+      variant,
+      size,
+      interactive: isInteractive,
+      loading: isLoading,
     }),
-  };
+    className,
+  );
 
-  return (
-    <Component {...componentProps}>
+  const content = (
+    <>
       {isLoading ? (
         <span className="size-3 border-2 border-current border-t-transparent rounded-full animate-spin opacity-80" />
       ) : icon ? (
@@ -185,7 +174,30 @@ export function StatusIndicator({
         />
       ) : null}
       <span className="transition-all duration-200 ease-out">{children}</span>
-    </Component>
+    </>
+  );
+
+  if (isInteractive) {
+    return (
+      <button
+        aria-label={ariaLabel}
+        className={sharedClassName}
+        onClick={onClick}
+        onKeyDown={handleKeyDown}
+        role={role ?? "button"}
+        tabIndex={0}
+        title={title}
+        type="button"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <span aria-label={ariaLabel} className={sharedClassName} role={role} title={title}>
+      {content}
+    </span>
   );
 }
 

@@ -316,10 +316,7 @@ function EntityList({
           groupKey = "Ungrouped";
       }
 
-      if (!groups[groupKey]) {
-        groups[groupKey] = [];
-      }
-      groups[groupKey].push(entity);
+      (groups[groupKey] ??= []).push(entity);
     });
 
     return groups;
@@ -475,6 +472,7 @@ export function WorkflowDashboard({
         <Select
           value={`${workflowStore.ui.sortEntitiesBy}-${workflowStore.ui.sortDirection}`}
           onValueChange={(value) => {
+            if (!value) return;
             const [sortBy, direction] = value.split("-") as [any, "asc" | "desc"];
             workflowStore.setSortBy(sortBy, direction);
           }}

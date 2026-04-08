@@ -35,12 +35,12 @@ export interface NavigationTabProps {
   className?: string;
   children: ReactNode;
   active?: boolean | undefined;
-  disabled?: boolean;
-  loading?: boolean;
+  disabled?: boolean | undefined;
+  loading?: boolean | undefined;
   onClick?: (() => void) | undefined;
   variant?: VariantProps<typeof navigationTabVariants>["variant"];
-  badge?: ReactNode;
-  "aria-label"?: string;
+  badge?: ReactNode | undefined;
+  "aria-label"?: string | undefined;
 }
 
 /**

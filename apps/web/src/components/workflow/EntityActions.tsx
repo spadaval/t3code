@@ -13,7 +13,7 @@ import {
   Play,
   Pause,
   Square,
-  Refresh,
+  RefreshCw,
   Eye,
   History,
   Copy,
@@ -23,13 +23,16 @@ import {
   Archive,
   Bug,
   FileText,
-  Tool,
+  Wrench,
   UserPlus,
   UserX,
   Code,
   ArrowRight,
   RotateCcw,
-  Block,
+  Blocks,
+  HelpCircle,
+  List,
+  Settings,
 } from "lucide-react";
 import { cn } from "~/lib/utils";
 import type { ActionMenuItem } from "~/contextualActions";
@@ -41,7 +44,7 @@ const iconMap = {
   play: Play,
   pause: Pause,
   square: Square,
-  refresh: Refresh,
+  refresh: RefreshCw,
   eye: Eye,
   history: History,
   copy: Copy,
@@ -51,17 +54,20 @@ const iconMap = {
   archive: Archive,
   bug: Bug,
   "file-text": FileText,
-  tool: Tool,
+  tool: Wrench,
   "user-plus": UserPlus,
   "user-x": UserX,
   code: Code,
   "arrow-right": ArrowRight,
   "rotate-ccw": RotateCcw,
-  block: Block,
+  block: Blocks,
+  "help-circle": HelpCircle,
+  list: List,
+  settings: Settings,
   x: Square,
 } as const;
 
-function getIcon(iconName: string | undefined) {
+function getIcon(iconName: string | null | undefined) {
   if (!iconName) return null;
   const IconComponent = iconMap[iconName as keyof typeof iconMap];
   return IconComponent ? <IconComponent className="size-4" /> : null;
@@ -99,7 +105,7 @@ export function PrimaryActionButton({
   return (
     <Button
       variant={primaryAction.category === "destructive" ? "destructive" : "default"}
-      size={size}
+      size={size === "md" ? "default" : size}
       onClick={handleClick}
       disabled={disabled || !primaryAction.isEnabled}
       className={cn("flex items-center gap-2", className)}
@@ -121,12 +127,12 @@ export function PrimaryActionButton({
 interface ActionMenuProps {
   entity: WorkflowEntity;
   onActionExecute: (actionId: string) => Promise<void>;
-  disabled?: boolean;
-  maxActions?: number;
-  hideDestructive?: boolean;
-  isReadOnly?: boolean;
-  triggerClassName?: string;
-  contentAlign?: "start" | "end" | "center";
+  disabled?: boolean | undefined;
+  maxActions?: number | undefined;
+  hideDestructive?: boolean | undefined;
+  isReadOnly?: boolean | undefined;
+  triggerClassName?: string | undefined;
+  contentAlign?: "start" | "end" | "center" | undefined;
 }
 
 export function ActionMenu({
@@ -140,11 +146,14 @@ export function ActionMenu({
   contentAlign = "end",
 }: ActionMenuProps) {
   const menuItems = useMemo(() => {
-    return createActionMenuItems(entity, {
-      maxActions,
+    const context: Parameters<typeof createActionMenuItems>[1] = {
       hideDestructive,
       isReadOnly,
-    });
+    };
+    if (maxActions !== undefined) {
+      context.maxActions = maxActions;
+    }
+    return createActionMenuItems(entity, context);
   }, [entity, maxActions, hideDestructive, isReadOnly]);
 
   const handleMenuItemClick = async (item: ActionMenuItem) => {
@@ -161,19 +170,21 @@ export function ActionMenu({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className={cn("h-8 w-8 p-0", triggerClassName)}
-          disabled={disabled}
-        >
-          <MoreHorizontal className="size-4" />
-          <span className="sr-only">Open action menu</span>
-        </Button>
-      </DropdownMenuTrigger>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn("h-8 w-8 p-0", triggerClassName)}
+            disabled={disabled}
+          >
+            <MoreHorizontal className="size-4" />
+            <span className="sr-only">Open action menu</span>
+          </Button>
+        }
+      />
       <DropdownMenuContent align={contentAlign} className="w-48">
-        {menuItems.map((item, index) => (
+        {menuItems.map((item) => (
           <React.Fragment key={item.id}>
             <DropdownMenuItem
               onClick={() => handleMenuItemClick(item)}
@@ -210,12 +221,12 @@ export function ActionMenu({
 interface ActionBarProps {
   entity: WorkflowEntity;
   onActionExecute: (actionId: string) => Promise<void>;
-  disabled?: boolean;
-  showPrimaryAction?: boolean;
-  maxMenuActions?: number;
-  hideDestructive?: boolean;
-  isReadOnly?: boolean;
-  className?: string;
+  disabled?: boolean | undefined;
+  showPrimaryAction?: boolean | undefined;
+  maxMenuActions?: number | undefined;
+  hideDestructive?: boolean | undefined;
+  isReadOnly?: boolean | undefined;
+  className?: string | undefined;
 }
 
 export function ActionBar({
