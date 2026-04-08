@@ -745,7 +745,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             runId: event.payload.runId,
             projectId: event.payload.projectId,
             epicIssueId: event.payload.epicIssueId,
-            swarmId: event.payload.swarmId,
             status: "requested",
             schedulerMode: event.payload.schedulerMode,
             workspaceMode: event.payload.workspaceMode,

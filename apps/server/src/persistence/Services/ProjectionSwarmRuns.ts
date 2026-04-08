@@ -1,4 +1,4 @@
-import { OrchestrationSwarmRun, SwarmRunId, TrimmedNonEmptyString } from "@t3tools/contracts";
+import { OrchestrationSwarmRun, SwarmRunId } from "@t3tools/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -6,7 +6,6 @@ import type { ProjectionRepositoryError } from "../Errors.ts";
 
 export const ProjectionSwarmRun = Schema.Struct({
   ...OrchestrationSwarmRun.fields,
-  swarmId: TrimmedNonEmptyString,
 });
 export type ProjectionSwarmRun = typeof ProjectionSwarmRun.Type;
 

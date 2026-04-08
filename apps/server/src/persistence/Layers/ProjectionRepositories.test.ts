@@ -149,7 +149,6 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         runId: SwarmRunId.makeUnsafe("run-json-options"),
         projectId: ProjectId.makeUnsafe("project-null-options"),
         epicIssueId: "EPIC-1",
-        swarmId: "SWARM-1",
         status: "running",
         schedulerMode: "automatic",
         workspaceMode: "shared",
