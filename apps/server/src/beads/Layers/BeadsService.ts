@@ -151,9 +151,14 @@ function asBoolean(value: unknown): boolean | null {
   return null;
 }
 
-function asNonNegativeInt(value: unknown, fallback = 0): number {
-  const parsed = asNumber(value);
-  return parsed !== null && parsed >= 0 ? Math.trunc(parsed) : fallback;
+function asFirstNonNegativeInt(values: ReadonlyArray<unknown>, fallback = 0): number {
+  for (const value of values) {
+    const parsed = asNumber(value);
+    if (parsed !== null && parsed >= 0) {
+      return Math.trunc(parsed);
+    }
+  }
+  return fallback;
 }
 
 function toBeadsError(message: string, cause?: unknown): BeadsError {
@@ -266,17 +271,48 @@ function mapBeadsContext(raw: Record<string, unknown>): BeadsContextType {
   });
 }
 
-function mapSwarmSummary(raw: Record<string, unknown>): BeadsSwarmSummaryType {
+function mapSwarmSummary(
+  raw: Record<string, unknown>,
+  fallback?: Partial<BeadsSwarmSummaryType>,
+): BeadsSwarmSummaryType {
   return decodeSwarmSummary({
-    swarmId: trimToNull(raw.swarm_id) ?? trimToNull(raw.id),
-    epicId: trimToNull(raw.epic_id),
-    epicTitle: trimToNull(raw.epic_title) ?? trimToNull(raw.title) ?? trimToNull(raw.epic_id),
-    totalIssueCount: asNonNegativeInt(raw.total_issue_count ?? raw.issue_count),
-    completedIssueCount: asNonNegativeInt(raw.completed_issue_count),
-    activeIssueCount: asNonNegativeInt(raw.active_issue_count),
-    readyIssueCount: asNonNegativeInt(raw.ready_issue_count),
-    blockedIssueCount: asNonNegativeInt(raw.blocked_issue_count),
-    activeWorkerCount: asNonNegativeInt(raw.active_worker_count ?? raw.active_workers),
+    swarmId: trimToNull(raw.swarm_id) ?? trimToNull(raw.id) ?? fallback?.swarmId,
+    epicId: trimToNull(raw.epic_id) ?? fallback?.epicId,
+    epicTitle:
+      trimToNull(raw.epic_title) ??
+      trimToNull(raw.title) ??
+      trimToNull(raw.epic_id) ??
+      fallback?.epicTitle ??
+      fallback?.epicId,
+    totalIssueCount: asFirstNonNegativeInt(
+      [raw.total_issue_count, raw.issue_count, raw.total_issues, fallback?.totalIssueCount],
+      0,
+    ),
+    completedIssueCount: asFirstNonNegativeInt(
+      [
+        raw.completed_issue_count,
+        raw.completed_issues,
+        raw.closed_issues,
+        fallback?.completedIssueCount,
+      ],
+      0,
+    ),
+    activeIssueCount: asFirstNonNegativeInt(
+      [raw.active_issue_count, raw.active_issues, raw.active_count, fallback?.activeIssueCount],
+      0,
+    ),
+    readyIssueCount: asFirstNonNegativeInt(
+      [raw.ready_issue_count, raw.ready_issues, raw.ready_count, fallback?.readyIssueCount],
+      0,
+    ),
+    blockedIssueCount: asFirstNonNegativeInt(
+      [raw.blocked_issue_count, raw.blocked_issues, raw.blocked_count, fallback?.blockedIssueCount],
+      0,
+    ),
+    activeWorkerCount: asFirstNonNegativeInt(
+      [raw.active_worker_count, raw.active_workers, fallback?.activeWorkerCount],
+      0,
+    ),
   });
 }
 
@@ -292,6 +328,27 @@ function mapReadyFronts(value: unknown): BeadsIssueRelationSummaryType[][] {
     const record = asRecord(front);
     if (!record) {
       return [];
+    }
+    if (Array.isArray(record.issues) && Array.isArray(record.titles)) {
+      const titles = asStringArray(record.titles);
+      return record.issues.flatMap((issueId, index) => {
+        const id = trimToNull(issueId);
+        const title = titles[index];
+        return id && title
+          ? [
+              decodeIssueRelationSummary({
+                id,
+                title,
+                status: "open",
+                priority: null,
+                issueType: "task",
+                assignee: null,
+                owner: null,
+                parent: null,
+              }),
+            ]
+          : [];
+      });
     }
     return mapIssueRelationArray(record.issues ?? record.ready ?? record.items);
   });
@@ -929,16 +986,25 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         ],
         { concurrency: "unbounded" },
       );
+      const validationSwarm =
+        swarm === null &&
+        trimToNull(rawValidation.swarm_id) === null &&
+        trimToNull(rawValidation.id) === null &&
+        trimToNull(rawValidation.epic_id) === null
+          ? null
+          : mapSwarmSummary(rawValidation, swarm ?? undefined);
 
       return decodeSwarmValidation({
         epicId: epic.id,
         epicTitle: epic.title,
-        swarm,
+        swarm: validationSwarm,
         valid: asBoolean(rawValidation.valid) ?? asStringArray(rawValidation.errors).length === 0,
         errors: asStringArray(rawValidation.errors),
         warnings: asStringArray(rawValidation.warnings),
         readyFronts: mapReadyFronts(rawValidation.ready_fronts),
-        estimatedWorkerSessions: asNumber(rawValidation.estimated_worker_sessions),
+        estimatedWorkerSessions:
+          asNumber(rawValidation.estimated_worker_sessions) ??
+          asNumber(rawValidation.estimated_sessions),
         maxParallelism: asNumber(rawValidation.max_parallelism),
       });
     });
@@ -981,11 +1047,41 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         ],
         { concurrency: "unbounded" },
       );
+      const rawStatusSwarm = asRecord(rawStatus.swarm);
+      const statusSwarm =
+        swarm === null &&
+        rawStatusSwarm === null &&
+        trimToNull(rawStatus.epic_id) === null &&
+        trimToNull(rawStatus.epic_title) === null
+          ? null
+          : mapSwarmSummary(
+              {
+                ...rawStatusSwarm,
+                epic_id: rawStatus.epic_id ?? rawStatusSwarm?.epic_id,
+                epic_title: rawStatus.epic_title ?? rawStatusSwarm?.epic_title,
+                total_issues: rawStatus.total_issues ?? rawStatusSwarm?.total_issues,
+                completed_issues:
+                  rawStatus.completed_issues ?? asRecordArray(rawStatus.completed).length,
+                active_issues:
+                  rawStatus.active_issues ??
+                  rawStatus.active_count ??
+                  asRecordArray(rawStatus.active).length,
+                ready_issues:
+                  rawStatus.ready_issues ??
+                  rawStatus.ready_count ??
+                  asRecordArray(rawStatus.ready).length,
+                blocked_issues:
+                  rawStatus.blocked_issues ??
+                  rawStatus.blocked_count ??
+                  asRecordArray(rawStatus.blocked).length,
+              },
+              swarm ?? undefined,
+            );
 
       return decodeSwarmStatus({
         epicId: epic.id,
         epicTitle: epic.title,
-        swarm,
+        swarm: statusSwarm,
         completed: mapIssueRelationArray(rawStatus.completed, childIssueRecordById),
         active: mapIssueRelationArray(rawStatus.active, childIssueRecordById),
         ready: mapIssueRelationArray(rawStatus.ready, childIssueRecordById),

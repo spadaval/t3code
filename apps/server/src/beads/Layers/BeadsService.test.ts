@@ -516,6 +516,153 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
+  it.effect("maps current bd swarm JSON field names without zeroing summary counts", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      installBdJsonMock({
+        context: {
+          beads_dir: "/repo/.beads",
+          repo_root: "/repo",
+          cwd_repo_root: "/repo",
+          is_redirected: false,
+          is_worktree: false,
+          backend: "dolt",
+          dolt_mode: "server",
+          database: "repo",
+          project_id: "project-1",
+          role: "maintainer",
+          bd_version: "1.0.0",
+        },
+        "show EPIC-1 --long": [
+          {
+            id: "EPIC-1",
+            title: "Epic coordination",
+            description: null,
+            notes: null,
+            status: "open",
+            priority: 2,
+            issue_type: "epic",
+            assignee: null,
+            owner: "alice",
+            created_at: now,
+            created_by: "alice",
+            updated_at: now,
+            labels: [],
+            dependencies: [],
+            dependents: [],
+          },
+        ],
+        "swarm list": {
+          swarms: [
+            {
+              id: "SWARM-1",
+              title: "Swarm: Epic coordination",
+              epic_id: "EPIC-1",
+              epic_title: "Epic coordination",
+              status: "open",
+              coordinator: "",
+              total_issues: 13,
+              completed_issues: 5,
+              active_issues: 0,
+              progress_percent: 38.46153846153847,
+            },
+          ],
+        },
+        "swarm validate EPIC-1": {
+          epic_id: "EPIC-1",
+          epic_title: "Epic coordination",
+          total_issues: 13,
+          closed_issues: 5,
+          ready_fronts: [
+            {
+              wave: 0,
+              issues: ["READY-1", "READY-2"],
+              titles: ["Ready child 1", "Ready child 2"],
+            },
+          ],
+          max_parallelism: 6,
+          estimated_sessions: 13,
+          warnings: null,
+          errors: null,
+          swarmable: true,
+        },
+        "swarm status EPIC-1": {
+          epic_id: "EPIC-1",
+          epic_title: "Epic coordination",
+          total_issues: 13,
+          completed: [
+            {
+              id: "DONE-1",
+              title: "Completed child",
+              status: "closed",
+              priority: 2,
+              issue_type: "task",
+              assignee: null,
+              owner: null,
+            },
+          ],
+          active: [],
+          ready: [
+            {
+              id: "READY-1",
+              title: "Ready child 1",
+              status: "open",
+              priority: 2,
+              issue_type: "task",
+              assignee: null,
+              owner: null,
+            },
+          ],
+          blocked: [
+            {
+              id: "BLOCKED-1",
+              title: "Blocked child",
+              status: "blocked",
+              priority: 2,
+              issue_type: "task",
+              assignee: null,
+              owner: null,
+            },
+          ],
+          active_count: 0,
+          ready_count: 1,
+          blocked_count: 1,
+        },
+      });
+
+      const beads = yield* BeadsService;
+      const swarms = yield* beads.listSwarms({ cwd: "/repo" });
+      const validation = yield* beads.validateEpicSwarm({ cwd: "/repo", epicIssueId: "EPIC-1" });
+      const status = yield* beads.getEpicSwarmStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
+
+      assert.deepStrictEqual(swarms.swarms, [
+        {
+          swarmId: "SWARM-1",
+          epicId: "EPIC-1",
+          epicTitle: "Epic coordination",
+          totalIssueCount: 13,
+          completedIssueCount: 5,
+          activeIssueCount: 0,
+          readyIssueCount: 0,
+          blockedIssueCount: 0,
+          activeWorkerCount: 0,
+        },
+      ]);
+      assert.equal(validation.swarm?.totalIssueCount, 13);
+      assert.equal(validation.swarm?.completedIssueCount, 5);
+      assert.equal(validation.maxParallelism, 6);
+      assert.equal(validation.estimatedWorkerSessions, 13);
+      assert.deepStrictEqual(
+        validation.readyFronts.map((front) => front.map((issue) => issue.id)),
+        [["READY-1", "READY-2"]],
+      );
+      assert.equal(status.swarm?.totalIssueCount, 13);
+      assert.equal(status.swarm?.completedIssueCount, 1);
+      assert.equal(status.swarm?.readyIssueCount, 1);
+      assert.equal(status.swarm?.blockedIssueCount, 1);
+    }),
+  );
+
   it.effect("hydrates sparse swarm status entries from epic child records", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
