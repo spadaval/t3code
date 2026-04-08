@@ -1,7 +1,6 @@
 import type {
   BeadsCoordinatorEpicSnapshot,
   BeadsCoordinatorFetchLifecycle,
-  BeadsCoordinatorPrimaryAction,
   BeadsCoordinatorProjectConflict,
   BeadsIssueDetail,
   BeadsIssueSummary,
@@ -18,9 +17,9 @@ import type {
 import {
   deriveSwarmRunExecutionState,
   describeSharedWorkspaceProjectConflict as describeSharedWorkspaceProjectConflictMessage,
+  deriveEpicSwarmCoordinatorState,
   findConflictingSharedWorkspaceRun as findConflictingSharedWorkspaceRunCore,
-  selectDeterministicReadyIssue,
-  selectLatestSwarmRun as selectLatestSwarmRunCore,
+  getEpicSwarmCoordinatorPrimaryAction,
 } from "@t3tools/shared/swarm";
 
 function isTimeoutErrorMessage(message: string): boolean {
@@ -90,304 +89,6 @@ function deriveFetchLifecycle(input: {
       timedOut,
     }),
   };
-}
-
-function deriveEpicCoordinatorState(input: {
-  readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
-  readonly status: Pick<BeadsSwarmStatus, "swarm"> | null;
-  readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm"> | null;
-  readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
-  readonly fetchLifecycle: BeadsCoordinatorFetchLifecycle;
-}) {
-  const latestRun = selectLatestSwarmRunCore(input.swarmRuns);
-
-  if (input.fetchLifecycle.kind === "loading") {
-    return {
-      kind: "checking" as const,
-      latestRun,
-      fetchLifecycle: input.fetchLifecycle,
-    };
-  }
-
-  if (input.fetchLifecycle.kind === "timeout") {
-    return {
-      kind: "timeout" as const,
-      latestRun,
-      fetchLifecycle: input.fetchLifecycle,
-    };
-  }
-
-  if (input.fetchLifecycle.kind === "stale") {
-    return {
-      kind: "stale" as const,
-      latestRun,
-      fetchLifecycle: input.fetchLifecycle,
-    };
-  }
-
-  if (input.fetchLifecycle.kind === "error") {
-    return {
-      kind: "error" as const,
-      latestRun,
-      fetchLifecycle: input.fetchLifecycle,
-    };
-  }
-
-  if (input.swarmSupport?.supported !== true) {
-    return {
-      kind: "unsupported" as const,
-      latestRun: null,
-      fetchLifecycle: input.fetchLifecycle,
-    };
-  }
-
-  if (latestRun !== null) {
-    return {
-      kind: (latestRun.status === "requested" ? "running" : latestRun.status) as
-        | "running"
-        | "idle"
-        | "paused"
-        | "blocked"
-        | "failed"
-        | "cancelled"
-        | "completed",
-      latestRun,
-      fetchLifecycle: input.fetchLifecycle,
-    };
-  }
-
-  const swarm = input.validation?.swarm ?? input.status?.swarm ?? null;
-  if (swarm === null) {
-    return {
-      kind: "no_swarm" as const,
-      latestRun: null,
-      fetchLifecycle: input.fetchLifecycle,
-    };
-  }
-
-  if (input.validation?.valid === false) {
-    return {
-      kind: "needs_repair" as const,
-      latestRun: null,
-      fetchLifecycle: input.fetchLifecycle,
-    };
-  }
-
-  if (input.validation?.valid === true) {
-    return {
-      kind: "ready" as const,
-      latestRun: null,
-      fetchLifecycle: input.fetchLifecycle,
-    };
-  }
-
-  return {
-    kind: "checking" as const,
-    latestRun: null,
-    fetchLifecycle: input.fetchLifecycle,
-  };
-}
-
-function getFailedSwarmRecoveryAction(input: {
-  readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
-  readonly status: Pick<BeadsSwarmStatus, "swarm"> | null;
-  readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm"> | null;
-  readonly projectConflict: BeadsCoordinatorProjectConflict | null;
-}): BeadsCoordinatorPrimaryAction {
-  if (input.swarmSupport?.supported !== true) {
-    return {
-      kind: "unsupported",
-      label: "Swarm unavailable",
-      busyLabel: "Swarm unavailable",
-      disabled: true,
-    };
-  }
-
-  if (input.projectConflict) {
-    return {
-      kind: "open_coordinator",
-      label: "View active swarm",
-      busyLabel: "Opening...",
-      disabled: false,
-    };
-  }
-
-  const swarm = input.validation?.swarm ?? input.status?.swarm ?? null;
-  if (swarm === null) {
-    return {
-      kind: "create_swarm",
-      label: "Create swarm",
-      busyLabel: "Starting...",
-      disabled: false,
-    };
-  }
-
-  if (input.validation?.valid === false) {
-    return {
-      kind: "repair_swarm",
-      label: "Repair swarm",
-      busyLabel: "Starting...",
-      disabled: false,
-    };
-  }
-
-  if (input.validation?.valid === true) {
-    return {
-      kind: "start_swarm",
-      label: "Retry swarm",
-      busyLabel: "Retrying...",
-      disabled: false,
-    };
-  }
-
-  return {
-    kind: "refresh_swarm_state",
-    label: "Refresh swarm status",
-    busyLabel: "Refreshing...",
-    disabled: false,
-  };
-}
-
-function getEpicCoordinatorPrimaryAction(input: {
-  readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
-  readonly status: Pick<BeadsSwarmStatus, "swarm" | "ready" | "active" | "blocked"> | null;
-  readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm" | "readyFronts"> | null;
-  readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
-  readonly projectConflict: BeadsCoordinatorProjectConflict | null;
-  readonly fetchLifecycle: BeadsCoordinatorFetchLifecycle;
-}): BeadsCoordinatorPrimaryAction {
-  const state = deriveEpicCoordinatorState(input);
-  const latestRun = state.latestRun;
-  const recoverableWorkerFailureRun =
-    latestRun?.status === "blocked" && latestRun.blockedContext?.kind === "worker_failure";
-  const canContinueRecoverableRun =
-    recoverableWorkerFailureRun &&
-    input.swarmSupport?.supported === true &&
-    input.validation?.valid === true &&
-    (() => {
-      const nextReadyIssue = selectDeterministicReadyIssue({
-        validation: input.validation,
-        status: input.status,
-      });
-      if (nextReadyIssue !== null) {
-        return true;
-      }
-
-      return (input.status?.active.length ?? 0) === 0 && (input.status?.blocked.length ?? 0) === 0;
-    })();
-
-  switch (state.kind) {
-    case "checking":
-      return {
-        kind: "checking",
-        label: "Checking swarm...",
-        busyLabel: "Checking...",
-        disabled: true,
-      };
-    case "timeout":
-      return {
-        kind: "refresh_swarm_state",
-        label: "Retry swarm status",
-        busyLabel: "Retrying...",
-        disabled: false,
-      };
-    case "stale":
-      return {
-        kind: "refresh_swarm_state",
-        label: "Refresh swarm status",
-        busyLabel: "Refreshing...",
-        disabled: false,
-      };
-    case "error":
-      return {
-        kind: "refresh_swarm_state",
-        label: "Retry swarm status",
-        busyLabel: "Retrying...",
-        disabled: false,
-      };
-    case "unsupported":
-      return {
-        kind: "unsupported",
-        label: "Swarm unavailable",
-        busyLabel: "Swarm unavailable",
-        disabled: true,
-      };
-    case "no_swarm":
-      return {
-        kind: "create_swarm",
-        label: "Create swarm",
-        busyLabel: "Starting...",
-        disabled: false,
-      };
-    case "needs_repair":
-      return {
-        kind: "repair_swarm",
-        label: "Repair swarm",
-        busyLabel: "Starting...",
-        disabled: false,
-      };
-    case "ready":
-      if (input.projectConflict) {
-        return {
-          kind: "open_coordinator",
-          label: "View active swarm",
-          busyLabel: "Opening...",
-          disabled: false,
-        };
-      }
-      return {
-        kind: "start_swarm",
-        label: "Start swarm",
-        busyLabel: "Starting...",
-        disabled: false,
-      };
-    case "running":
-    case "idle":
-    case "paused":
-      if (input.projectConflict) {
-        return {
-          kind: "open_coordinator",
-          label: "View active swarm",
-          busyLabel: "Opening...",
-          disabled: false,
-        };
-      }
-      return {
-        kind: "open_coordinator",
-        label: "Open coordinator",
-        busyLabel: "Opening...",
-        disabled: false,
-      };
-    case "blocked":
-      return recoverableWorkerFailureRun
-        ? {
-            kind: "continue_swarm",
-            label: "Continue swarm",
-            busyLabel: "Continuing...",
-            disabled: !canContinueRecoverableRun,
-          }
-        : {
-            kind: "open_coordinator",
-            label: "Open coordinator",
-            busyLabel: "Opening...",
-            disabled: false,
-          };
-    case "failed":
-      return getFailedSwarmRecoveryAction({
-        swarmSupport: input.swarmSupport,
-        status: input.status,
-        validation: input.validation,
-        projectConflict: input.projectConflict,
-      });
-    case "cancelled":
-    case "completed":
-      return {
-        kind: "open_coordinator",
-        label: "Open coordinator",
-        busyLabel: "Opening...",
-        disabled: false,
-      };
-  }
 }
 
 function toIssueSummary(issue: BeadsIssueDetail | BeadsIssueSummary): BeadsIssueSummary {
@@ -478,7 +179,7 @@ export function buildCoordinatorEpicSnapshot(input: {
     projectSwarmRuns: input.projectSwarmRuns,
     epicSwarmRuns: input.epicSwarmRuns,
   });
-  const coordinatorState = deriveEpicCoordinatorState({
+  const coordinatorState = deriveEpicSwarmCoordinatorState({
     swarmSupport: { supported: input.support.supported },
     status: input.status,
     validation: input.validation,
@@ -499,12 +200,12 @@ export function buildCoordinatorEpicSnapshot(input: {
     issue: input.issue,
     fetchLifecycle: coordinatorState.fetchLifecycle,
     stateKind: coordinatorState.kind,
-    primaryAction: getEpicCoordinatorPrimaryAction({
+    primaryAction: getEpicSwarmCoordinatorPrimaryAction({
       swarmSupport: { supported: input.support.supported },
       status: input.status,
       validation: input.validation,
       swarmRuns: input.epicSwarmRuns,
-      projectConflict,
+      hasProjectConflict: projectConflict !== null,
       fetchLifecycle,
     }),
     latestRun: coordinatorState.latestRun,

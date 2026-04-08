@@ -1,4 +1,7 @@
 import type {
+  BeadsSwarmStatus,
+  BeadsSwarmSupport,
+  BeadsSwarmValidation,
   BeadsIssueRelationSummary,
   OrchestrationEvent,
   OrchestrationSwarmRun,
@@ -11,8 +14,10 @@ import {
   compareSwarmReadyIssues,
   createEmptySwarmProjectionState,
   describeSharedWorkspaceProjectConflict,
+  deriveEpicSwarmCoordinatorState,
   deriveSwarmRunExecutionState,
   findConflictingSharedWorkspaceRun,
+  getEpicSwarmCoordinatorPrimaryAction,
   listSwarmRuns,
   listSwarmTaskExecutions,
   projectSwarmEvent,
@@ -88,6 +93,60 @@ function makeRun(
     cancelledAt: null,
     completedAt: null,
     updatedAt: "2026-04-06T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function makeSwarmStatus(
+  overrides: Partial<BeadsSwarmStatus> = {},
+): Pick<BeadsSwarmStatus, "swarm" | "ready" | "active" | "blocked"> {
+  return {
+    swarm: {
+      swarmId: "SWARM-1",
+      epicId: "EPIC-1",
+      epicTitle: "Epic 1",
+      totalIssueCount: 0,
+      completedIssueCount: 0,
+      activeIssueCount: 0,
+      activeWorkerCount: 0,
+      readyIssueCount: 0,
+      blockedIssueCount: 0,
+    },
+    ready: [],
+    active: [],
+    blocked: [],
+    ...overrides,
+  };
+}
+
+function makeSwarmValidation(
+  overrides: Partial<BeadsSwarmValidation> = {},
+): Pick<BeadsSwarmValidation, "valid" | "swarm" | "readyFronts"> {
+  return {
+    valid: true,
+    swarm: {
+      swarmId: "SWARM-1",
+      epicId: "EPIC-1",
+      epicTitle: "Epic 1",
+      totalIssueCount: 0,
+      completedIssueCount: 0,
+      activeIssueCount: 0,
+      activeWorkerCount: 0,
+      readyIssueCount: 0,
+      blockedIssueCount: 0,
+    },
+    readyFronts: [],
+    errors: [],
+    warnings: [],
+    ...overrides,
+  };
+}
+
+function makeSwarmSupport(
+  overrides: Partial<BeadsSwarmSupport> = {},
+): Pick<BeadsSwarmSupport, "supported"> {
+  return {
+    supported: true,
     ...overrides,
   };
 }
@@ -282,5 +341,74 @@ describe("swarm", () => {
         issueId: "unknown-task",
       }),
     ]);
+  });
+
+  it("derives coordinator state from shared swarm inputs", () => {
+    expect(
+      deriveEpicSwarmCoordinatorState({
+        swarmSupport: makeSwarmSupport(),
+        status: makeSwarmStatus(),
+        validation: makeSwarmValidation(),
+        swarmRuns: [
+          makeRun("run-requested", {
+            status: "requested",
+            updatedAt: "2026-04-06T00:00:03.000Z",
+          }),
+        ],
+        fetchLifecycle: { kind: "ready", detail: null },
+      }),
+    ).toEqual({
+      kind: "running",
+      latestRun: expect.objectContaining({ runId: "run-requested", status: "requested" }),
+      fetchLifecycle: { kind: "ready", detail: null },
+    });
+  });
+
+  it("keeps coordinator actions aligned for recoverable blocked runs", () => {
+    expect(
+      getEpicSwarmCoordinatorPrimaryAction({
+        swarmSupport: makeSwarmSupport(),
+        status: makeSwarmStatus(),
+        validation: makeSwarmValidation({
+          readyFronts: [[makeIssue("TASK-1", 1)]],
+        }),
+        swarmRuns: [
+          makeRun("run-blocked", {
+            status: "blocked",
+            blockedContext: {
+              kind: "worker_failure",
+              issueId: "TASK-1",
+              executionId: "execution-1" as never,
+              workerThreadId: null,
+            },
+          }),
+        ],
+        hasProjectConflict: false,
+        fetchLifecycle: { kind: "ready", detail: null },
+      }),
+    ).toEqual({
+      kind: "continue_swarm",
+      label: "Continue swarm",
+      busyLabel: "Continuing...",
+      disabled: false,
+    });
+  });
+
+  it("prefers opening the active swarm when ready state conflicts with another shared run", () => {
+    expect(
+      getEpicSwarmCoordinatorPrimaryAction({
+        swarmSupport: makeSwarmSupport(),
+        status: makeSwarmStatus(),
+        validation: makeSwarmValidation(),
+        swarmRuns: [],
+        hasProjectConflict: true,
+        fetchLifecycle: { kind: "ready", detail: null },
+      }),
+    ).toEqual({
+      kind: "open_coordinator",
+      label: "View active swarm",
+      busyLabel: "Opening...",
+      disabled: false,
+    });
   });
 });
