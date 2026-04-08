@@ -59,6 +59,7 @@ import {
 } from "../Services/BeadsTrackerService.ts";
 
 const MAX_BD_OUTPUT_BYTES = 512 * 1024;
+const MAX_BD_JSON_OUTPUT_BYTES = 4 * 1024 * 1024;
 const decodeIssueSummary = Schema.decodeUnknownSync(BeadsIssueSummary);
 const decodeIssueDetail = Schema.decodeUnknownSync(BeadsIssueDetail);
 const decodeBeadsContext = Schema.decodeUnknownSync(BeadsContext);
@@ -183,6 +184,20 @@ function toBeadsError(message: string, cause?: unknown): BeadsError {
     message,
     ...(cause !== undefined ? { cause } : {}),
   });
+}
+
+function isBdJsonCommand(args: ReadonlyArray<string>): boolean {
+  return args.includes("--json");
+}
+
+function formatBdOutputLimitError(args: ReadonlyArray<string>, maxBufferBytes: number): BeadsError {
+  return toBeadsError(
+    `${isBdJsonCommand(args) ? "Beads JSON output" : "Beads command output"} exceeded capture limit (${maxBufferBytes} bytes).`,
+  );
+}
+
+function isProcessBufferLimitError(cause: unknown): boolean {
+  return cause instanceof Error && cause.message.includes("buffer limit");
 }
 
 function parseBdErrorMessage(stdout: string): string | null {
@@ -844,17 +859,23 @@ const makeBeadsTrackerService = Effect.gen(function* () {
   const runBdProcess = (
     cwd: string,
     args: ReadonlyArray<string>,
-  ): Effect.Effect<Awaited<ReturnType<typeof runProcess>>, BeadsError> =>
-    Effect.tryPromise({
+  ): Effect.Effect<Awaited<ReturnType<typeof runProcess>>, BeadsError> => {
+    const maxBufferBytes = isBdJsonCommand(args) ? MAX_BD_JSON_OUTPUT_BYTES : MAX_BD_OUTPUT_BYTES;
+    const outputMode = isBdJsonCommand(args) ? "error" : "truncate";
+    return Effect.tryPromise({
       try: () =>
         runProcess("bd", args, {
           cwd,
           allowNonZeroExit: true,
-          outputMode: "truncate",
-          maxBufferBytes: MAX_BD_OUTPUT_BYTES,
+          outputMode,
+          maxBufferBytes,
         }),
-      catch: (cause) => toBeadsError("Failed to run bd.", cause),
+      catch: (cause) =>
+        isProcessBufferLimitError(cause)
+          ? formatBdOutputLimitError(args, maxBufferBytes)
+          : toBeadsError("Failed to run bd.", cause),
     });
+  };
 
   const decodeBdProcessResult = (
     result: Awaited<ReturnType<typeof runProcess>>,
