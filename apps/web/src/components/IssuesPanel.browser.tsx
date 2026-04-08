@@ -1155,6 +1155,116 @@ describe("IssuesPanel refresh button", () => {
     }
   });
 
+  it("surfaces project-level shared-workspace conflicts on ready coordinator cards", async () => {
+    const readySwarmSummary = {
+      swarmId: "swarm-ready",
+      epicId: "EPIC-READY",
+      epicTitle: "Ready epic",
+      totalIssueCount: 3,
+      completedIssueCount: 0,
+      activeIssueCount: 0,
+      readyIssueCount: 2,
+      blockedIssueCount: 0,
+      activeWorkerCount: 0,
+    };
+
+    testState.issueListIssues = [
+      makeIssue({
+        id: "EPIC-READY",
+        title: "Ready epic",
+        issueType: "epic",
+      }),
+      makeIssue({
+        id: "EPIC-BLOCKING",
+        title: "Blocking epic",
+        issueType: "epic",
+      }),
+    ];
+    testState.swarmSupport = { supported: true };
+    testState.swarmRuns = [
+      {
+        runId: "run-blocking",
+        projectId: "project-1",
+        epicIssueId: "EPIC-BLOCKING",
+        swarmId: "swarm-blocking",
+        status: "running",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        provider: "codex",
+        model: "gpt-5.4-mini",
+        modelOptions: null,
+        providerOptions: null,
+        assistantDeliveryMode: "buffered",
+        runtimeMode: "full-access",
+        activeTaskExecutionId: null,
+        latestTaskExecutionId: null,
+        lastError: null,
+        requestedAt: "2026-01-01T00:00:00.000Z",
+        startedAt: "2026-01-01T00:01:00.000Z",
+        idledAt: null,
+        pausedAt: null,
+        blockedAt: null,
+        blockedContext: null,
+        failedAt: null,
+        cancelledAt: null,
+        completedAt: null,
+        updatedAt: "2026-01-01T00:02:00.000Z",
+      },
+    ];
+    testState.swarmValidationByEpicId = {
+      "EPIC-READY": {
+        epicId: "EPIC-READY",
+        epicTitle: "Ready epic",
+        valid: true,
+        swarm: readySwarmSummary,
+        errors: [],
+        warnings: [],
+        readyFronts: [],
+        estimatedWorkerSessions: 1,
+        maxParallelism: 1,
+      },
+    };
+    testState.swarmStatusByEpicId = {
+      "EPIC-READY": {
+        epicId: "EPIC-READY",
+        epicTitle: "Ready epic",
+        swarm: readySwarmSummary,
+        completed: [],
+        active: [],
+        ready: [
+          makeIssue({
+            id: "TASK-READY",
+            title: "Ready task",
+          }),
+        ],
+        blocked: [],
+      },
+    };
+    useIssuePaneStore.getState().setActivePanelTab(THREAD_ID, "coordinator");
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <IssuesPanel
+        activeThreadId={THREAD_ID}
+        cwd={TEST_CWD}
+        projectId={ProjectId.makeUnsafe("project-1")}
+        projectDefaultModelSelection={null}
+        onClose={() => {}}
+      />,
+      { container: host },
+    );
+
+    try {
+      expect(document.body.textContent).toContain("Shared workspace busy");
+      expect(document.body.textContent).toContain("EPIC-BLOCKING");
+      expect(document.body.textContent).toContain("Open active swarm");
+      expect(document.body.textContent).not.toContain("Start swarm");
+    } finally {
+      screen.unmount();
+    }
+  });
+
   it("renders idle coordinator cards with ready previews and a continue CTA", async () => {
     const swarmSummary = {
       swarmId: "swarm-idle",

@@ -1,4 +1,4 @@
-import { Effect, Layer, ManagedRuntime, Stream } from "effect";
+import { Duration, Effect, Layer, ManagedRuntime, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -42,6 +42,7 @@ type TrackerState = {
 
 type HarnessOptions = {
   failUpdateIssueForIds?: ReadonlyArray<string>;
+  beforeGetIssue?: (issueId: string) => Effect.Effect<void>;
 };
 
 function beadsError(message: string) {
@@ -667,6 +668,7 @@ describe("SwarmExecutionWorkflow", () => {
   ) {
     let trackerState = initialTrackerState;
     let readModel = createEmptyReadModel();
+    let readModelCallCount = 0;
     let sequence = 0;
     const issues = new Map<string, BeadsIssueDetail>([
       [
@@ -690,11 +692,12 @@ describe("SwarmExecutionWorkflow", () => {
       queryIssues: () => Effect.fail(beadsError("unexpected queryIssues call")),
       getIssue: ({ issueId }) =>
         Effect.suspend(() => {
+          const beforeGetIssue = options.beforeGetIssue?.(issueId) ?? Effect.void;
           const issue = issues.get(issueId);
           if (!issue) {
             return Effect.fail(beadsError(`Unknown issue '${issueId}'.`));
           }
-          return Effect.succeed(issue);
+          return beforeGetIssue.pipe(Effect.flatMap(() => Effect.succeed(issue)));
         }),
       updateIssue: (input) =>
         Effect.suspend(() => {
@@ -752,7 +755,11 @@ describe("SwarmExecutionWorkflow", () => {
     };
 
     const engineService: OrchestrationEngineShape = {
-      getReadModel: () => Effect.succeed(readModel),
+      getReadModel: () =>
+        Effect.sync(() => {
+          readModelCallCount += 1;
+          return readModel;
+        }),
       readEvents: () => Stream.empty,
       streamDomainEvents: Stream.empty,
       dispatch: (command) =>
@@ -832,6 +839,7 @@ describe("SwarmExecutionWorkflow", () => {
       setTrackerState: (next: TrackerState) => {
         trackerState = next;
       },
+      getReadModelCallCount: () => readModelCallCount,
       patchReadModel: (transform: (current: OrchestrationReadModel) => OrchestrationReadModel) => {
         readModel = transform(readModel);
       },
@@ -982,6 +990,63 @@ describe("SwarmExecutionWorkflow", () => {
         }),
       ),
     ).rejects.toThrow("does not have a swarm");
+  });
+
+  it("coalesces repeated continue signals for the same running run", async () => {
+    const harness = await createHarness(undefined, {
+      beforeGetIssue: () => Effect.sleep(Duration.millis(100)),
+    });
+
+    harness.patchReadModel((current) =>
+      applyCommand(
+        current,
+        {
+          type: "swarm-run.request",
+          commandId: CommandId.makeUnsafe("cmd-run-requested"),
+          runId: SwarmRunId.makeUnsafe("run-storm"),
+          projectId: harness.projectId,
+          epicIssueId: "EPIC-1",
+          swarmId: "SWARM-1",
+          schedulerMode: "automatic",
+          workspaceMode: "shared",
+          provider: "codex",
+          model: "gpt-5-codex",
+          runtimeMode: "full-access",
+          createdAt: now,
+        },
+        1,
+      ),
+    );
+    harness.patchReadModel((current) =>
+      applyCommand(
+        current,
+        {
+          type: "swarm-run.mark-started",
+          commandId: CommandId.makeUnsafe("cmd-run-started"),
+          runId: SwarmRunId.makeUnsafe("run-storm"),
+          createdAt: now,
+        },
+        2,
+      ),
+    );
+
+    const runId = SwarmRunId.makeUnsafe("run-storm");
+    const attempts = Array.from({ length: 8 }, () =>
+      runtime!.runPromise(
+        harness.workflow.continueSwarmRun({
+          runId,
+        }),
+      ),
+    );
+
+    await Promise.all(attempts);
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    expect(snapshot.swarmTaskExecutions).toHaveLength(1);
+    expect(snapshot.swarmTaskExecutions[0]?.issueId).toBe("TASK-1");
+    expect(snapshot.threads).toHaveLength(1);
+    expect(harness.getReadModelCallCount()).toBeLessThan(60);
   });
 
   it("rejects starting a run when swarm validation fails", async () => {

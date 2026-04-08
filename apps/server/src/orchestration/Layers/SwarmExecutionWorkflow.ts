@@ -14,7 +14,7 @@ import {
   type OrchestrationSwarmRunStatus,
   type OrchestrationSwarmTaskExecution,
 } from "@t3tools/contracts";
-import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
 import { selectDeterministicReadyIssue } from "@t3tools/shared/swarm";
 import { Cause, Duration, Effect, Fiber, Layer } from "effect";
 
@@ -1286,29 +1286,38 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
       yield* failRun(runId, truncateDetail(toErrorMessage(Cause.squash(exit.cause))));
     });
 
-  const worker = yield* makeDrainableWorker((runId: SwarmRunId) =>
-    Effect.gen(function* () {
-      if (activeRunFibers.has(runId)) {
-        return;
-      }
+  const worker = yield* makeKeyedCoalescingWorker({
+    merge: () => null,
+    process: (runId: SwarmRunId) =>
+      Effect.gen(function* () {
+        if (activeRunFibers.has(runId)) {
+          return;
+        }
 
-      const fiber = yield* processRunSafely(runId).pipe(
-        Effect.catch((error) =>
-          Effect.logError("Swarm execution run processing failed", {
-            runId,
-            cause: error,
-          }),
-        ),
-        Effect.forkScoped,
-      );
+        const fiber = yield* processRunSafely(runId).pipe(
+          Effect.catch((error) =>
+            Effect.logError("Swarm execution run processing failed", {
+              runId,
+              cause: error,
+            }),
+          ),
+          Effect.forkScoped,
+        );
 
-      activeRunFibers.set(runId, fiber);
-      yield* Fiber.await(fiber);
-      activeRunFibers.delete(runId);
-    }),
-  );
+        activeRunFibers.set(runId, fiber);
+        yield* Fiber.await(fiber);
+        activeRunFibers.delete(runId);
+      }),
+  });
 
-  const enqueueRun = (runId: SwarmRunId) => worker.enqueue(runId);
+  const enqueueRun = (runId: SwarmRunId) => worker.enqueue(runId, null);
+  const drain = () =>
+    getReadModel().pipe(
+      Effect.flatMap((readModel) =>
+        Effect.forEach(readModel.swarmRuns, (run) => worker.drainKey(run.runId)),
+      ),
+      Effect.asVoid,
+    );
 
   const interruptActiveRun = (runId: SwarmRunId) =>
     Effect.gen(function* () {
@@ -1815,7 +1824,7 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
 
   return {
     start,
-    drain: worker.drain,
+    drain: drain(),
     startSwarmRun,
     continueSwarmRun,
     pauseSwarmRun,

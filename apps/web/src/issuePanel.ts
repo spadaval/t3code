@@ -34,6 +34,11 @@ export interface CoordinatorEpicStateSections<T> {
   readonly history: ReadonlyArray<T>;
 }
 
+export interface SharedWorkspaceProjectConflict {
+  readonly run: OrchestrationSwarmRun;
+  readonly message: string;
+}
+
 export type EpicCoordinatorStateKind =
   | "checking"
   | "unsupported"
@@ -103,6 +108,24 @@ function compareSwarmRunsByPriority(
   }
 
   return right.runId.localeCompare(left.runId);
+}
+
+function isNonTerminalSharedWorkspaceRun(run: OrchestrationSwarmRun): boolean {
+  return run.workspaceMode === "shared" && NON_TERMINAL_SWARM_RUN_STATUSES.has(run.status);
+}
+
+function formatSwarmRunStatusLabel(status: OrchestrationSwarmRun["status"]): string {
+  const value = status === "requested" ? "requested" : status.replace(/_/g, " ");
+  return value;
+}
+
+export function describeSharedWorkspaceProjectConflict(
+  run: OrchestrationSwarmRun,
+): SharedWorkspaceProjectConflict {
+  return {
+    run,
+    message: `Shared workspace is already busy with ${run.epicIssueId} (${formatSwarmRunStatusLabel(run.status)}). Finish, cancel, or resume that run before starting or resuming another shared-workspace swarm in this project.`,
+  };
 }
 
 export function isEpicIssueType(issueType: string | null | undefined): boolean {
@@ -198,6 +221,22 @@ export function selectLatestSwarmRun(
   return [...swarmRuns].toSorted(compareSwarmRunsByPriority)[0] ?? null;
 }
 
+export function findConflictingSharedWorkspaceRun(input: {
+  readonly projectSwarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
+  readonly epicSwarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
+}): SharedWorkspaceProjectConflict | null {
+  const epicRunIds = new Set(input.epicSwarmRuns.map((run) => run.runId));
+  const run =
+    input.projectSwarmRuns
+      .filter(
+        (candidate) =>
+          isNonTerminalSharedWorkspaceRun(candidate) && !epicRunIds.has(candidate.runId),
+      )
+      .toSorted(compareSwarmRunsByPriority)[0] ?? null;
+
+  return run ? describeSharedWorkspaceProjectConflict(run) : null;
+}
+
 export function deriveEpicCoordinatorState(input: {
   readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
   readonly status: Pick<BeadsSwarmStatus, "swarm"> | null;
@@ -261,6 +300,7 @@ export function getEpicCoordinatorPrimaryAction(input: {
   readonly status: Pick<BeadsSwarmStatus, "swarm" | "ready" | "active" | "blocked"> | null;
   readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm" | "readyFronts"> | null;
   readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
+  readonly projectConflict: SharedWorkspaceProjectConflict | null;
   readonly isSupportPending: boolean;
   readonly isValidationPending: boolean;
 }): EpicCoordinatorPrimaryAction {
@@ -310,6 +350,13 @@ export function getEpicCoordinatorPrimaryAction(input: {
         disabled: false,
       };
     case "ready":
+      if (input.projectConflict) {
+        return {
+          kind: "open_coordinator",
+          label: "View active swarm",
+          disabled: false,
+        };
+      }
       return {
         kind: "start_swarm",
         label: "Start swarm",
@@ -318,6 +365,18 @@ export function getEpicCoordinatorPrimaryAction(input: {
     case "running":
     case "idle":
     case "paused":
+      if (input.projectConflict) {
+        return {
+          kind: "open_coordinator",
+          label: "View active swarm",
+          disabled: false,
+        };
+      }
+      return {
+        kind: "open_coordinator",
+        label: "Open coordinator",
+        disabled: false,
+      };
     case "blocked":
       return recoverableWorkerFailureRun
         ? {

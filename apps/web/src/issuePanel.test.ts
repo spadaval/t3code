@@ -9,7 +9,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   collectCoordinatorEpics,
+  describeSharedWorkspaceProjectConflict,
   deriveEpicCoordinatorState,
+  findConflictingSharedWorkspaceRun,
   findLatestTrackerRefinementPlan,
   getEpicCoordinatorPrimaryAction,
   groupIssuesByEpic,
@@ -425,6 +427,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         status: null,
         validation: null,
         swarmRuns: [],
+        projectConflict: null,
         isSupportPending: true,
         isValidationPending: false,
       }),
@@ -442,6 +445,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         status: { swarm: null, ready: [], active: [], blocked: [] },
         validation: { valid: false, swarm: null, readyFronts: [] },
         swarmRuns: [],
+        projectConflict: null,
         isSupportPending: false,
         isValidationPending: false,
       }),
@@ -488,6 +492,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           readyFronts: [],
         },
         swarmRuns: [],
+        projectConflict: null,
         isSupportPending: false,
         isValidationPending: false,
       }),
@@ -519,6 +524,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           readyFronts: [],
         },
         swarmRuns: [],
+        projectConflict: null,
         isSupportPending: false,
         isValidationPending: false,
       }),
@@ -550,6 +556,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           readyFronts: [],
         },
         swarmRuns: [makeSwarmRun({ status: "completed" })],
+        projectConflict: null,
         isSupportPending: false,
         isValidationPending: false,
       }),
@@ -631,6 +638,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
             },
           }),
         ],
+        projectConflict: null,
         isSupportPending: false,
         isValidationPending: false,
       }),
@@ -699,6 +707,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
             },
           }),
         ],
+        projectConflict: null,
         isSupportPending: false,
         isValidationPending: false,
       }),
@@ -767,6 +776,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
             },
           }),
         ],
+        projectConflict: null,
         isSupportPending: false,
         isValidationPending: false,
       }),
@@ -775,6 +785,69 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       label: "Open coordinator",
       disabled: false,
     });
+  });
+
+  it("redirects ready epics to the active shared-workspace run for the project", () => {
+    expect(
+      getEpicCoordinatorPrimaryAction({
+        swarmSupport: { supported: true },
+        status: { swarm: null, ready: [], active: [], blocked: [] },
+        validation: {
+          valid: true,
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 1,
+            blockedIssueCount: 0,
+            activeWorkerCount: 0,
+          },
+          readyFronts: [],
+        },
+        swarmRuns: [],
+        projectConflict: describeSharedWorkspaceProjectConflict(
+          makeSwarmRun({
+            runId: SwarmRunId.makeUnsafe("run-blocking"),
+            epicIssueId: "EPIC-OTHER",
+            status: "running",
+          }),
+        ),
+        isSupportPending: false,
+        isValidationPending: false,
+      }),
+    ).toEqual({
+      kind: "open_coordinator",
+      label: "View active swarm",
+      disabled: false,
+    });
+  });
+});
+
+describe("findConflictingSharedWorkspaceRun", () => {
+  it("returns the latest conflicting shared-workspace run from the same project", () => {
+    const blockingRun = makeSwarmRun({
+      runId: SwarmRunId.makeUnsafe("run-blocking"),
+      epicIssueId: "EPIC-BLOCKING",
+      status: "running",
+      updatedAt: "2026-01-03T00:00:00.000Z",
+    });
+    const currentEpicRun = makeSwarmRun({
+      runId: SwarmRunId.makeUnsafe("run-current"),
+      epicIssueId: "EPIC-1",
+      status: "completed",
+      completedAt: "2026-01-04T00:00:00.000Z",
+      updatedAt: "2026-01-04T00:00:00.000Z",
+    });
+
+    expect(
+      findConflictingSharedWorkspaceRun({
+        projectSwarmRuns: [currentEpicRun, blockingRun],
+        epicSwarmRuns: [currentEpicRun],
+      }),
+    ).toEqual(describeSharedWorkspaceProjectConflict(blockingRun));
   });
 });
 

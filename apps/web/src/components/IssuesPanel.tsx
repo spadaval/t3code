@@ -45,12 +45,14 @@ import { useSettings } from "~/hooks/useSettings";
 import {
   collectCoordinatorEpics,
   deriveEpicCoordinatorState,
+  findConflictingSharedWorkspaceRun,
   findLatestTrackerRefinementPlan,
   getEpicCoordinatorPrimaryAction,
   groupIssuesByEpic,
   isEpicIssueType,
   listEpicChildIssues,
   partitionCoordinatorEpics,
+  type SharedWorkspaceProjectConflict,
 } from "~/issuePanel";
 import { listIssueLinkedThreads } from "~/issueThreads";
 import { getIssuePaneState, useIssuePaneStore, type IssuePaneScope } from "~/issuePaneStore";
@@ -493,6 +495,7 @@ type CoordinatorCardData = {
   epic: ReturnType<typeof collectCoordinatorEpics>[number];
   stateKind: ReturnType<typeof deriveEpicCoordinatorState>["kind"];
   latestRun: OrchestrationSwarmRun | null;
+  projectConflict: SharedWorkspaceProjectConflict | null;
   swarmSummary: BeadsSwarmSummary | null;
   validation: BeadsSwarmValidation | null;
   status: BeadsSwarmStatus | null;
@@ -633,6 +636,29 @@ function formatSwarmRunStatus(status: OrchestrationSwarmRun["status"]): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+function formatSharedWorkspaceProjectConflictMessage(
+  conflict: SharedWorkspaceProjectConflict,
+): string {
+  return conflict.message;
+}
+
+const SHARED_WORKSPACE_CONFLICT_ERROR_PATTERN =
+  /Shared-workspace swarm execution is blocked by run '([^']+)' for epic '([^']+)' with status '([^']+)' in project '([^']+)'\.?/;
+
+function describeSwarmActionError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "An error occurred.";
+  }
+
+  const match = SHARED_WORKSPACE_CONFLICT_ERROR_PATTERN.exec(error.message);
+  if (!match) {
+    return error.message;
+  }
+
+  const [, runId, epicIssueId, status] = match;
+  return `Shared workspace is already busy with ${epicIssueId} (${status}, ${runId}). Open the coordinator and pause, cancel, or finish that run before starting or resuming another shared-workspace run in this project.`;
+}
+
 function formatRuntimeMode(mode: RuntimeMode): string {
   return mode === "approval-required" ? "Supervised" : "Full access";
 }
@@ -729,6 +755,7 @@ function EpicSwarmStatusOverviewSection(props: {
   swarmValidation: BeadsSwarmValidation | null;
   swarmStatus: BeadsSwarmStatus | null;
   coordinatorState: ReturnType<typeof deriveEpicCoordinatorState>;
+  projectConflict: SharedWorkspaceProjectConflict | null;
   swarmSupportPending: boolean;
   swarmValidationPending: boolean;
   swarmStatusPending: boolean;
@@ -737,9 +764,11 @@ function EpicSwarmStatusOverviewSection(props: {
   swarmStatusError: Error | null;
   refreshPending: boolean;
   onRefreshSwarmStatus: () => void;
+  onOpenProjectConflict: (epicId: string) => void;
 }) {
   const swarmSummary = props.swarmValidation?.swarm ?? props.swarmStatus?.swarm ?? null;
   const state = describeCoordinatorState(props.coordinatorState.kind);
+  const projectConflictRun = props.projectConflict?.run ?? null;
 
   return (
     <section className="space-y-2">
@@ -789,6 +818,24 @@ function EpicSwarmStatusOverviewSection(props: {
               )}
             </div>
             <p className="text-sm text-foreground">{state.copy}</p>
+
+            {props.projectConflict && projectConflictRun ? (
+              <div className="rounded-lg border border-warning/30 bg-warning/5 p-3">
+                <p className="text-sm text-foreground">
+                  {formatSharedWorkspaceProjectConflictMessage(props.projectConflict)}
+                </p>
+                <div className="mt-3">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => props.onOpenProjectConflict(projectConflictRun.epicIssueId)}
+                  >
+                    Open active swarm
+                  </Button>
+                </div>
+              </div>
+            ) : null}
 
             {props.swarmValidationPending ? (
               <p className="text-sm text-muted-foreground">Validating epic swarm...</p>
@@ -1108,6 +1155,7 @@ function CoordinatorEpicCard(props: {
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const state = describeCoordinatorState(props.card.stateKind);
   const latestRun = props.card.latestRun;
+  const projectConflict = props.card.projectConflict;
   const swarmSummary = props.card.swarmSummary;
   const readyPreviews = props.card.status?.ready.slice(0, 3) ?? [];
   const latestFailure = latestRun?.lastError ?? props.card.activeExecution?.lastError ?? null;
@@ -1161,6 +1209,32 @@ function CoordinatorEpicCard(props: {
       </div>
 
       <p className="mt-3 text-sm text-foreground">{state.copy}</p>
+
+      {projectConflict ? (
+        <div className="mt-3 rounded-lg border border-warning/30 bg-warning/5 p-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="space-y-1">
+              <p className="font-medium text-sm text-foreground">Shared workspace busy</p>
+              <p className="text-sm text-muted-foreground">
+                {formatSharedWorkspaceProjectConflictMessage(projectConflict)}
+              </p>
+            </div>
+            <Badge size="sm" variant="outline">
+              {projectConflict.run.epicIssueId}
+            </Badge>
+          </div>
+          <div className="mt-3">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => props.onOpenEpic(projectConflict.run.epicIssueId)}
+            >
+              Open active swarm
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {swarmSummary ? (
         <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -1348,7 +1422,7 @@ function CoordinatorEpicCard(props: {
             {props.swarmActionKey === repairActionKey ? "Starting..." : "Repair swarm"}
           </Button>
         ) : null}
-        {props.card.stateKind === "ready" ? (
+        {props.card.stateKind === "ready" && !projectConflict ? (
           <Button
             type="button"
             size="sm"
@@ -1369,7 +1443,7 @@ function CoordinatorEpicCard(props: {
             {props.swarmActionKey === pauseActionKey ? "Pausing..." : "Pause"}
           </Button>
         ) : null}
-        {latestRun?.status === "paused" ? (
+        {latestRun?.status === "paused" && !projectConflict ? (
           <Button
             type="button"
             size="sm"
@@ -1713,6 +1787,7 @@ function IssueOverviewContent(props: {
   swarmValidation: BeadsSwarmValidation | null;
   swarmStatus: BeadsSwarmStatus | null;
   coordinatorState: ReturnType<typeof deriveEpicCoordinatorState>;
+  projectConflict: SharedWorkspaceProjectConflict | null;
   swarmSupportPending: boolean;
   swarmValidationPending: boolean;
   swarmStatusPending: boolean;
@@ -1721,6 +1796,7 @@ function IssueOverviewContent(props: {
   swarmStatusError: Error | null;
   swarmRefreshPending: boolean;
   onRefreshSwarmStatus: () => void;
+  onOpenProjectConflict: (epicId: string) => void;
 }) {
   const [commentsExpanded, setCommentsExpanded] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
@@ -1804,6 +1880,7 @@ function IssueOverviewContent(props: {
             swarmValidation={props.swarmValidation}
             swarmStatus={props.swarmStatus}
             coordinatorState={props.coordinatorState}
+            projectConflict={props.projectConflict}
             swarmSupportPending={props.swarmSupportPending}
             swarmValidationPending={props.swarmValidationPending}
             swarmStatusPending={props.swarmStatusPending}
@@ -1812,6 +1889,7 @@ function IssueOverviewContent(props: {
             swarmStatusError={props.swarmStatusError}
             refreshPending={props.swarmRefreshPending}
             onRefreshSwarmStatus={props.onRefreshSwarmStatus}
+            onOpenProjectConflict={props.onOpenProjectConflict}
           />
           <LatestPlannedRefineSection
             latestPlannedRefine={props.latestPlannedRefine}
@@ -1948,6 +2026,7 @@ function IssueDetailDialog(props: {
   swarmValidation: BeadsSwarmValidation | null;
   swarmStatus: BeadsSwarmStatus | null;
   coordinatorState: ReturnType<typeof deriveEpicCoordinatorState>;
+  projectConflict: SharedWorkspaceProjectConflict | null;
   swarmSupportPending: boolean;
   swarmValidationPending: boolean;
   swarmStatusPending: boolean;
@@ -1956,6 +2035,7 @@ function IssueDetailDialog(props: {
   swarmStatusError: Error | null;
   swarmRefreshPending: boolean;
   onRefreshSwarmStatus: () => void;
+  onOpenProjectConflict: (epicId: string) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
@@ -2045,6 +2125,7 @@ function IssueDetailDialog(props: {
               swarmValidation={props.swarmValidation}
               swarmStatus={props.swarmStatus}
               coordinatorState={props.coordinatorState}
+              projectConflict={props.projectConflict}
               swarmSupportPending={props.swarmSupportPending}
               swarmValidationPending={props.swarmValidationPending}
               swarmStatusPending={props.swarmStatusPending}
@@ -2053,6 +2134,7 @@ function IssueDetailDialog(props: {
               swarmStatusError={props.swarmStatusError}
               swarmRefreshPending={props.swarmRefreshPending}
               onRefreshSwarmStatus={props.onRefreshSwarmStatus}
+              onOpenProjectConflict={props.onOpenProjectConflict}
             />
           ) : (
             <p className="text-sm text-muted-foreground">Issue details are unavailable.</p>
@@ -2431,6 +2513,10 @@ export function IssuesPanel({
       const validationQuery = coordinatorValidationQueries[index];
       const statusQuery = coordinatorStatusQueries[index];
       const runs = projectSwarmRunsByEpicId.get(epic.epicId) ?? [];
+      const projectConflict = findConflictingSharedWorkspaceRun({
+        projectSwarmRuns,
+        epicSwarmRuns: runs,
+      });
       const executions = runs.flatMap((run) => projectSwarmExecutionsByRunId.get(run.runId) ?? []);
       const coordinatorState = deriveEpicCoordinatorState({
         swarmSupport: swarmSupportQuery.data
@@ -2459,6 +2545,7 @@ export function IssuesPanel({
         epic,
         stateKind: coordinatorState.kind,
         latestRun: coordinatorState.latestRun,
+        projectConflict,
         swarmSummary: validationQuery?.data?.swarm ?? statusQuery?.data?.swarm ?? null,
         validation: validationQuery?.data ?? null,
         status: statusQuery?.data ?? null,
@@ -2478,11 +2565,20 @@ export function IssuesPanel({
     coordinatorStatusQueries,
     coordinatorValidationQueries,
     projectSwarmExecutionsByRunId,
+    projectSwarmRuns,
     projectSwarmRunsByEpicId,
     swarmSupportQuery.data,
     swarmSupportQuery.isPending,
     threadTitlesById,
   ]);
+  const selectedEpicProjectConflict = useMemo(
+    () =>
+      findConflictingSharedWorkspaceRun({
+        projectSwarmRuns,
+        epicSwarmRuns: selectedEpicSwarmRuns,
+      }),
+    [projectSwarmRuns, selectedEpicSwarmRuns],
+  );
   const epicCoordinatorState = deriveEpicCoordinatorState({
     swarmSupport: selectedIssueIsEpic ? (swarmSupportQuery.data ?? null) : null,
     status: selectedIssueIsEpic ? (swarmStatusQuery.data ?? null) : null,
@@ -2496,6 +2592,7 @@ export function IssuesPanel({
     status: selectedIssueIsEpic ? (swarmStatusQuery.data ?? null) : null,
     validation: selectedIssueIsEpic ? (swarmValidationQuery.data ?? null) : null,
     swarmRuns: selectedEpicSwarmRuns,
+    projectConflict: selectedIssueIsEpic ? selectedEpicProjectConflict : null,
     isSupportPending: selectedIssueIsEpic ? swarmSupportQuery.isPending : false,
     isValidationPending: selectedIssueIsEpic ? swarmValidationQuery.isPending : false,
   });
@@ -2731,7 +2828,7 @@ export function IssuesPanel({
       toastManager.add({
         type: "error",
         title: "Swarm action failed",
-        description: error instanceof Error ? error.message : "An error occurred.",
+        description: describeSwarmActionError(error),
       });
       return false;
     } finally {
@@ -3037,6 +3134,7 @@ export function IssuesPanel({
         swarmValidation={selectedIssueIsEpic ? (swarmValidationQuery.data ?? null) : null}
         swarmStatus={selectedIssueIsEpic ? (swarmStatusQuery.data ?? null) : null}
         coordinatorState={epicCoordinatorState}
+        projectConflict={selectedIssueIsEpic ? selectedEpicProjectConflict : null}
         swarmSupportPending={selectedIssueIsEpic ? swarmSupportQuery.isPending : false}
         swarmValidationPending={selectedIssueIsEpic ? swarmValidationQuery.isPending : false}
         swarmStatusPending={selectedIssueIsEpic ? swarmStatusQuery.isPending : false}
@@ -3137,6 +3235,9 @@ export function IssuesPanel({
           if (selectedEpicIssueId !== null) {
             void refreshEpicSwarmStatus(selectedEpicIssueId);
           }
+        }}
+        onOpenProjectConflict={(epicId) => {
+          openCoordinatorIssue(epicId);
         }}
       />
 
