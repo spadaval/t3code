@@ -44,6 +44,7 @@ import { stripDiffSearchParams } from "~/diffRouteSearch";
 import { useSettings } from "~/hooks/useSettings";
 import {
   collectCoordinatorEpics,
+  deriveCoordinatorFetchLifecycle,
   deriveEpicCoordinatorState,
   findConflictingSharedWorkspaceRun,
   findLatestTrackerRefinementPlan,
@@ -494,6 +495,7 @@ function LinkedThreadsSection(props: {
 type CoordinatorCardData = {
   epic: ReturnType<typeof collectCoordinatorEpics>[number];
   stateKind: ReturnType<typeof deriveEpicCoordinatorState>["kind"];
+  fetchLifecycle: ReturnType<typeof deriveEpicCoordinatorState>["fetchLifecycle"];
   latestRun: OrchestrationSwarmRun | null;
   projectConflict: SharedWorkspaceProjectConflict | null;
   swarmSummary: BeadsSwarmSummary | null;
@@ -592,7 +594,37 @@ function describeCoordinatorState(kind: ReturnType<typeof deriveEpicCoordinatorS
         variant: "secondary",
         copy: "Checking swarm state...",
       };
+    case "timeout":
+      return {
+        label: "Timed out",
+        variant: "warning",
+        copy: "Swarm state request timed out. Retry the request or inspect the backend error.",
+      };
+    case "stale":
+      return {
+        label: "Stale",
+        variant: "warning",
+        copy: "Showing the last known swarm state until the latest refresh succeeds.",
+      };
+    case "error":
+      return {
+        label: "Error",
+        variant: "destructive",
+        copy: "Swarm state could not be loaded. Retry the request or inspect the backend error.",
+      };
   }
+}
+
+function toCoordinatorFetchQueryState(result: {
+  readonly isPending: boolean;
+  readonly data: unknown;
+  readonly error: unknown;
+}) {
+  return {
+    pending: result.isPending,
+    hasData: result.data !== undefined && result.data !== null,
+    error: result.error instanceof Error ? result.error.message : null,
+  } as const;
 }
 
 function isRecoverableWorkerFailureRun(run: OrchestrationSwarmRun | null): boolean {
@@ -683,30 +715,36 @@ function compareRunsNewestFirst(left: OrchestrationSwarmRun, right: Orchestratio
 
 function coordinatorCardStateRank(kind: CoordinatorCardData["stateKind"]): number {
   switch (kind) {
-    case "failed":
+    case "error":
       return 0;
-    case "blocked":
+    case "timeout":
       return 1;
-    case "paused":
+    case "stale":
       return 2;
-    case "idle":
+    case "failed":
       return 3;
-    case "needs_repair":
+    case "blocked":
       return 4;
-    case "no_swarm":
+    case "paused":
       return 5;
-    case "ready":
+    case "idle":
       return 6;
-    case "running":
+    case "needs_repair":
       return 7;
-    case "cancelled":
+    case "no_swarm":
       return 8;
-    case "completed":
+    case "ready":
       return 9;
-    case "unsupported":
+    case "running":
       return 10;
-    case "checking":
+    case "cancelled":
       return 11;
+    case "completed":
+      return 12;
+    case "unsupported":
+      return 13;
+    case "checking":
+      return 14;
   }
 }
 
@@ -818,6 +856,11 @@ function EpicSwarmStatusOverviewSection(props: {
               )}
             </div>
             <p className="text-sm text-foreground">{state.copy}</p>
+            {props.coordinatorState.fetchLifecycle.detail ? (
+              <p className="text-sm text-muted-foreground">
+                {props.coordinatorState.fetchLifecycle.detail}
+              </p>
+            ) : null}
 
             {props.projectConflict && projectConflictRun ? (
               <div className="rounded-lg border border-warning/30 bg-warning/5 p-3">
@@ -1209,6 +1252,9 @@ function CoordinatorEpicCard(props: {
       </div>
 
       <p className="mt-3 text-sm text-foreground">{state.copy}</p>
+      {props.card.fetchLifecycle.detail ? (
+        <p className="mt-1 text-sm text-muted-foreground">{props.card.fetchLifecycle.detail}</p>
+      ) : null}
 
       {projectConflict ? (
         <div className="mt-3 rounded-lg border border-warning/30 bg-warning/5 p-3">
@@ -1402,6 +1448,25 @@ function CoordinatorEpicCard(props: {
       ) : null}
 
       <div className="mt-3 flex flex-wrap gap-2">
+        {props.card.stateKind === "timeout" ||
+        props.card.stateKind === "stale" ||
+        props.card.stateKind === "error" ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={props.swarmActionKey === refreshActionKey}
+            onClick={() => props.onRefreshSwarmStatus(props.card.epic.epicId)}
+          >
+            {props.swarmActionKey === refreshActionKey
+              ? props.card.stateKind === "stale"
+                ? "Refreshing..."
+                : "Retrying..."
+              : props.card.stateKind === "stale"
+                ? "Refresh swarm status"
+                : "Retry swarm status"}
+          </Button>
+        ) : null}
         {props.card.stateKind === "no_swarm" ? (
           <Button
             type="button"
@@ -2061,6 +2126,7 @@ function IssueDetailDialog(props: {
   epicPrimaryActionLabel: string;
   epicPrimaryActionDisabled: boolean;
   epicPrimaryActionBusy: boolean;
+  epicPrimaryActionBusyLabel: string;
   latestPlannedRefine: {
     threadId: ThreadId;
     threadTitle: string;
@@ -2174,7 +2240,7 @@ function IssueDetailDialog(props: {
                   onClick={props.onTriggerEpicPrimaryAction}
                 >
                   {props.epicPrimaryActionBusy
-                    ? "Continuing..."
+                    ? props.epicPrimaryActionBusyLabel
                     : props.workflowActionsBusy &&
                         (props.activeWorkflow === "solve" ||
                           props.activeWorkflow === "plan_implementation")
@@ -2518,6 +2584,16 @@ export function IssuesPanel({
         epicSwarmRuns: runs,
       });
       const executions = runs.flatMap((run) => projectSwarmExecutionsByRunId.get(run.runId) ?? []);
+      const fetchLifecycle = deriveCoordinatorFetchLifecycle({
+        support: toCoordinatorFetchQueryState({
+          isPending: swarmSupportQuery.isPending,
+          data: swarmSupportQuery.data,
+          error: swarmSupportQuery.error,
+        }),
+        requireSwarmState: coordinatorShouldLoadEpicState,
+        validation: validationQuery ? toCoordinatorFetchQueryState(validationQuery) : null,
+        status: statusQuery ? toCoordinatorFetchQueryState(statusQuery) : null,
+      });
       const coordinatorState = deriveEpicCoordinatorState({
         swarmSupport: swarmSupportQuery.data
           ? { supported: swarmSupportQuery.data.supported }
@@ -2525,12 +2601,7 @@ export function IssuesPanel({
         status: statusQuery?.data ?? null,
         validation: validationQuery?.data ?? null,
         swarmRuns: runs,
-        isSupportPending: swarmSupportQuery.isPending,
-        isValidationPending:
-          Boolean(validationQuery?.isPending) ||
-          Boolean(statusQuery?.isPending) ||
-          Boolean(validationQuery?.error) ||
-          Boolean(statusQuery?.error),
+        fetchLifecycle,
       });
       const activeExecutionId =
         coordinatorState.latestRun?.activeTaskExecutionId ??
@@ -2544,6 +2615,7 @@ export function IssuesPanel({
       return {
         epic,
         stateKind: coordinatorState.kind,
+        fetchLifecycle: coordinatorState.fetchLifecycle,
         latestRun: coordinatorState.latestRun,
         projectConflict,
         swarmSummary: validationQuery?.data?.swarm ?? statusQuery?.data?.swarm ?? null,
@@ -2561,6 +2633,7 @@ export function IssuesPanel({
       };
     });
   }, [
+    coordinatorShouldLoadEpicState,
     coordinatorEpics,
     coordinatorStatusQueries,
     coordinatorValidationQueries,
@@ -2568,6 +2641,7 @@ export function IssuesPanel({
     projectSwarmRuns,
     projectSwarmRunsByEpicId,
     swarmSupportQuery.data,
+    swarmSupportQuery.error,
     swarmSupportQuery.isPending,
     threadTitlesById,
   ]);
@@ -2579,13 +2653,24 @@ export function IssuesPanel({
       }),
     [projectSwarmRuns, selectedEpicSwarmRuns],
   );
+  const selectedEpicFetchLifecycle = deriveCoordinatorFetchLifecycle({
+    support: toCoordinatorFetchQueryState({
+      isPending: swarmSupportQuery.isPending,
+      data: swarmSupportQuery.data,
+      error: swarmSupportQuery.error,
+    }),
+    requireSwarmState: shouldLoadEpicSwarmState,
+    validation: toCoordinatorFetchQueryState(swarmValidationQuery),
+    status: toCoordinatorFetchQueryState(swarmStatusQuery),
+  });
   const epicCoordinatorState = deriveEpicCoordinatorState({
     swarmSupport: selectedIssueIsEpic ? (swarmSupportQuery.data ?? null) : null,
     status: selectedIssueIsEpic ? (swarmStatusQuery.data ?? null) : null,
     validation: selectedIssueIsEpic ? (swarmValidationQuery.data ?? null) : null,
     swarmRuns: selectedEpicSwarmRuns,
-    isSupportPending: selectedIssueIsEpic ? swarmSupportQuery.isPending : false,
-    isValidationPending: selectedIssueIsEpic ? swarmValidationQuery.isPending : false,
+    fetchLifecycle: selectedIssueIsEpic
+      ? selectedEpicFetchLifecycle
+      : { kind: "ready", detail: null },
   });
   const epicPrimaryAction = getEpicCoordinatorPrimaryAction({
     swarmSupport: selectedIssueIsEpic ? (swarmSupportQuery.data ?? null) : null,
@@ -2593,15 +2678,19 @@ export function IssuesPanel({
     validation: selectedIssueIsEpic ? (swarmValidationQuery.data ?? null) : null,
     swarmRuns: selectedEpicSwarmRuns,
     projectConflict: selectedIssueIsEpic ? selectedEpicProjectConflict : null,
-    isSupportPending: selectedIssueIsEpic ? swarmSupportQuery.isPending : false,
-    isValidationPending: selectedIssueIsEpic ? swarmValidationQuery.isPending : false,
+    fetchLifecycle: selectedIssueIsEpic
+      ? selectedEpicFetchLifecycle
+      : { kind: "ready", detail: null },
   });
   const epicPrimaryActionBusy =
     selectedIssueIsEpic &&
-    epicPrimaryAction.kind === "continue_swarm" &&
-    epicCoordinatorState.latestRun !== null
+    ((epicPrimaryAction.kind === "continue_swarm" && epicCoordinatorState.latestRun !== null
       ? swarmActionKey === `continue:${epicCoordinatorState.latestRun.runId}`
-      : false;
+      : false) ||
+      ((epicPrimaryAction.kind === "refresh_swarm_state" ||
+        epicPrimaryAction.kind === "checking") &&
+        selectedEpicIssueId !== null &&
+        swarmActionKey === `refresh:${selectedEpicIssueId}`));
   const openLinkedThread = async (threadId: ThreadId) => {
     closeSelectedIssue();
     await navigate({
@@ -2716,6 +2805,9 @@ export function IssuesPanel({
     setSwarmActionKey(actionKey);
     try {
       await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: beadsQueryKeys.swarmSupport(cwd),
+        }),
         queryClient.invalidateQueries({
           queryKey: beadsQueryKeys.epicSwarmValidation(cwd, epicIssueId),
         }),
@@ -3203,6 +3295,11 @@ export function IssuesPanel({
             return;
           }
 
+          if (epicPrimaryAction.kind === "refresh_swarm_state" && selectedEpicIssueId !== null) {
+            void refreshEpicSwarmStatus(selectedEpicIssueId);
+            return;
+          }
+
           if (
             epicPrimaryAction.kind === "continue_swarm" &&
             epicCoordinatorState.latestRun !== null
@@ -3227,6 +3324,9 @@ export function IssuesPanel({
         epicPrimaryActionLabel={selectedIssueIsEpic ? epicPrimaryAction.label : "Implement"}
         epicPrimaryActionDisabled={selectedIssueIsEpic ? epicPrimaryAction.disabled : false}
         epicPrimaryActionBusy={epicPrimaryActionBusy}
+        epicPrimaryActionBusyLabel={
+          selectedIssueIsEpic ? epicPrimaryAction.busyLabel : "Implementing..."
+        }
         latestPlannedRefine={selectedIssueIsEpic ? latestPlannedRefine : null}
         swarmRefreshPending={
           selectedEpicIssueId !== null && swarmActionKey === `refresh:${selectedEpicIssueId}`

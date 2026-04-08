@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   collectCoordinatorEpics,
   describeSharedWorkspaceProjectConflict,
+  deriveCoordinatorFetchLifecycle,
   deriveEpicCoordinatorState,
   findConflictingSharedWorkspaceRun,
   findLatestTrackerRefinementPlan,
@@ -78,6 +79,73 @@ function makeSwarmRun(overrides: Partial<OrchestrationSwarmRun> = {}): Orchestra
     ...overrides,
   } satisfies OrchestrationSwarmRun;
 }
+
+const READY_FETCH_LIFECYCLE = {
+  kind: "ready",
+  detail: null,
+} as const;
+
+const STALE_FETCH_LIFECYCLE = {
+  kind: "stale",
+  detail: "Showing the last known swarm state while the latest refresh completes.",
+} as const;
+
+const TIMEOUT_FETCH_LIFECYCLE = {
+  kind: "timeout",
+  detail:
+    "Swarm validation and status request timed out. Retry the coordinator state request or inspect the backend error.",
+} as const;
+
+describe("deriveCoordinatorFetchLifecycle", () => {
+  it("returns loading while swarm support is still pending", () => {
+    expect(
+      deriveCoordinatorFetchLifecycle({
+        support: { pending: true, hasData: false, error: null },
+        requireSwarmState: false,
+      }),
+    ).toEqual({
+      kind: "loading",
+      detail: null,
+    });
+  });
+
+  it("returns timeout for validation/status timeout failures without cached data", () => {
+    expect(
+      deriveCoordinatorFetchLifecycle({
+        support: { pending: false, hasData: true, error: null },
+        requireSwarmState: true,
+        validation: { pending: false, hasData: false, error: "Beads command timed out." },
+        status: { pending: false, hasData: false, error: "Beads command timed out." },
+      }),
+    ).toEqual(TIMEOUT_FETCH_LIFECYCLE);
+  });
+
+  it("returns stale when a refresh fails but cached swarm data still exists", () => {
+    expect(
+      deriveCoordinatorFetchLifecycle({
+        support: { pending: false, hasData: true, error: null },
+        requireSwarmState: true,
+        validation: { pending: false, hasData: true, error: "backend exploded" },
+        status: { pending: false, hasData: true, error: null },
+      }),
+    ).toEqual({
+      kind: "stale",
+      detail:
+        "Showing the last known swarm validation because the latest refresh failed. Refresh the coordinator state or inspect the backend error.",
+    });
+  });
+
+  it("returns stale while a background refresh is pending over cached data", () => {
+    expect(
+      deriveCoordinatorFetchLifecycle({
+        support: { pending: false, hasData: true, error: null },
+        requireSwarmState: true,
+        validation: { pending: true, hasData: true, error: null },
+        status: { pending: false, hasData: true, error: null },
+      }),
+    ).toEqual(STALE_FETCH_LIFECYCLE);
+  });
+});
 
 describe("groupIssuesByEpic", () => {
   it("renders epic sections with the epic issue and keeps ungrouped issues flat", () => {
@@ -200,12 +268,49 @@ describe("deriveEpicCoordinatorState", () => {
         status: null,
         validation: null,
         swarmRuns: [],
-        isSupportPending: true,
-        isValidationPending: false,
+        fetchLifecycle: { kind: "loading", detail: null },
       }),
     ).toEqual({
       kind: "checking",
       latestRun: null,
+      fetchLifecycle: { kind: "loading", detail: null },
+    });
+  });
+
+  it("returns timeout when swarm validation/status timed out", () => {
+    expect(
+      deriveEpicCoordinatorState({
+        swarmSupport: { supported: true },
+        status: null,
+        validation: null,
+        swarmRuns: [],
+        fetchLifecycle: TIMEOUT_FETCH_LIFECYCLE,
+      }),
+    ).toEqual({
+      kind: "timeout",
+      latestRun: null,
+      fetchLifecycle: TIMEOUT_FETCH_LIFECYCLE,
+    });
+  });
+
+  it("returns stale when cached swarm state is being refreshed", () => {
+    const run = makeSwarmRun({
+      status: "running",
+      runId: SwarmRunId.makeUnsafe("run-stale"),
+    });
+
+    expect(
+      deriveEpicCoordinatorState({
+        swarmSupport: { supported: true },
+        status: null,
+        validation: null,
+        swarmRuns: [run],
+        fetchLifecycle: STALE_FETCH_LIFECYCLE,
+      }),
+    ).toEqual({
+      kind: "stale",
+      latestRun: run,
+      fetchLifecycle: STALE_FETCH_LIFECYCLE,
     });
   });
 
@@ -216,12 +321,12 @@ describe("deriveEpicCoordinatorState", () => {
         status: null,
         validation: null,
         swarmRuns: [],
-        isSupportPending: false,
-        isValidationPending: false,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
       kind: "unsupported",
       latestRun: null,
+      fetchLifecycle: READY_FETCH_LIFECYCLE,
     });
   });
 
@@ -232,12 +337,12 @@ describe("deriveEpicCoordinatorState", () => {
         status: { swarm: null },
         validation: { valid: false, swarm: null },
         swarmRuns: [],
-        isSupportPending: false,
-        isValidationPending: false,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
       kind: "no_swarm",
       latestRun: null,
+      fetchLifecycle: READY_FETCH_LIFECYCLE,
     });
   });
 
@@ -273,12 +378,12 @@ describe("deriveEpicCoordinatorState", () => {
           },
         },
         swarmRuns: [],
-        isSupportPending: false,
-        isValidationPending: false,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
       kind: "needs_repair",
       latestRun: null,
+      fetchLifecycle: READY_FETCH_LIFECYCLE,
     });
   });
 
@@ -302,12 +407,12 @@ describe("deriveEpicCoordinatorState", () => {
           },
         },
         swarmRuns: [],
-        isSupportPending: false,
-        isValidationPending: false,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
       kind: "ready",
       latestRun: null,
+      fetchLifecycle: READY_FETCH_LIFECYCLE,
     });
   });
 
@@ -343,12 +448,12 @@ describe("deriveEpicCoordinatorState", () => {
           },
         },
         swarmRuns: [completedRun, runningRun],
-        isSupportPending: false,
-        isValidationPending: false,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
       kind: "running",
       latestRun: runningRun,
+      fetchLifecycle: READY_FETCH_LIFECYCLE,
     });
   });
 
@@ -391,12 +496,12 @@ describe("deriveEpicCoordinatorState", () => {
           },
         },
         swarmRuns: [run],
-        isSupportPending: false,
-        isValidationPending: false,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
       kind: expectedKind,
       latestRun: run,
+      fetchLifecycle: READY_FETCH_LIFECYCLE,
     });
   });
 });
@@ -428,13 +533,31 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         validation: null,
         swarmRuns: [],
         projectConflict: null,
-        isSupportPending: true,
-        isValidationPending: false,
+        fetchLifecycle: { kind: "loading", detail: null },
       }),
     ).toEqual({
       kind: "checking",
       label: "Checking swarm...",
+      busyLabel: "Checking...",
       disabled: true,
+    });
+  });
+
+  it("returns Retry swarm status when fetches timed out", () => {
+    expect(
+      getEpicCoordinatorPrimaryAction({
+        swarmSupport: { supported: true },
+        status: null,
+        validation: null,
+        swarmRuns: [],
+        projectConflict: null,
+        fetchLifecycle: TIMEOUT_FETCH_LIFECYCLE,
+      }),
+    ).toEqual({
+      kind: "refresh_swarm_state",
+      label: "Retry swarm status",
+      busyLabel: "Retrying...",
+      disabled: false,
     });
   });
 
@@ -446,12 +569,12 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         validation: { valid: false, swarm: null, readyFronts: [] },
         swarmRuns: [],
         projectConflict: null,
-        isSupportPending: false,
-        isValidationPending: false,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
       kind: "create_swarm",
       label: "Create swarm",
+      busyLabel: "Starting...",
       disabled: false,
     });
   });
@@ -493,12 +616,12 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         swarmRuns: [],
         projectConflict: null,
-        isSupportPending: false,
-        isValidationPending: false,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
       kind: "repair_swarm",
       label: "Repair swarm",
+      busyLabel: "Starting...",
       disabled: false,
     });
   });
@@ -525,12 +648,12 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         swarmRuns: [],
         projectConflict: null,
-        isSupportPending: false,
-        isValidationPending: false,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
       kind: "start_swarm",
       label: "Start swarm",
+      busyLabel: "Starting...",
       disabled: false,
     });
   });
@@ -557,12 +680,12 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         swarmRuns: [makeSwarmRun({ status: "completed" })],
         projectConflict: null,
-        isSupportPending: false,
-        isValidationPending: false,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
       kind: "open_coordinator",
       label: "Open coordinator",
+      busyLabel: "Opening...",
       disabled: false,
     });
   });
@@ -639,12 +762,12 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           }),
         ],
         projectConflict: null,
-        isSupportPending: false,
-        isValidationPending: false,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
       kind: "continue_swarm",
       label: "Continue swarm",
+      busyLabel: "Continuing...",
       disabled: false,
     });
   });
@@ -708,12 +831,12 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           }),
         ],
         projectConflict: null,
-        isSupportPending: false,
-        isValidationPending: false,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
       kind: "continue_swarm",
       label: "Continue swarm",
+      busyLabel: "Continuing...",
       disabled: true,
     });
   });
@@ -777,12 +900,12 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           }),
         ],
         projectConflict: null,
-        isSupportPending: false,
-        isValidationPending: false,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
       kind: "open_coordinator",
       label: "Open coordinator",
+      busyLabel: "Opening...",
       disabled: false,
     });
   });
@@ -815,12 +938,12 @@ describe("getEpicCoordinatorPrimaryAction", () => {
             status: "running",
           }),
         ),
-        isSupportPending: false,
-        isValidationPending: false,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
       kind: "open_coordinator",
       label: "View active swarm",
+      busyLabel: "Opening...",
       disabled: false,
     });
   });

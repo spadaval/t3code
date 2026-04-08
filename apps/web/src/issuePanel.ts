@@ -39,8 +39,24 @@ export interface SharedWorkspaceProjectConflict {
   readonly message: string;
 }
 
+export type CoordinatorFetchLifecycleKind = "ready" | "loading" | "timeout" | "stale" | "error";
+
+export interface CoordinatorFetchLifecycle {
+  readonly kind: CoordinatorFetchLifecycleKind;
+  readonly detail: string | null;
+}
+
+export interface CoordinatorFetchQueryState {
+  readonly pending: boolean;
+  readonly hasData: boolean;
+  readonly error: string | null;
+}
+
 export type EpicCoordinatorStateKind =
   | "checking"
+  | "timeout"
+  | "stale"
+  | "error"
   | "unsupported"
   | "no_swarm"
   | "needs_repair"
@@ -56,6 +72,7 @@ export type EpicCoordinatorStateKind =
 export interface EpicCoordinatorState {
   readonly kind: EpicCoordinatorStateKind;
   readonly latestRun: OrchestrationSwarmRun | null;
+  readonly fetchLifecycle: CoordinatorFetchLifecycle;
 }
 
 export interface EpicCoordinatorPrimaryAction {
@@ -64,10 +81,12 @@ export interface EpicCoordinatorPrimaryAction {
     | "unsupported"
     | "create_swarm"
     | "repair_swarm"
+    | "refresh_swarm_state"
     | "start_swarm"
     | "continue_swarm"
     | "open_coordinator";
   readonly label: string;
+  readonly busyLabel: string;
   readonly disabled: boolean;
 }
 
@@ -117,6 +136,113 @@ function isNonTerminalSharedWorkspaceRun(run: OrchestrationSwarmRun): boolean {
 function formatSwarmRunStatusLabel(status: OrchestrationSwarmRun["status"]): string {
   const value = status === "requested" ? "requested" : status.replace(/_/g, " ");
   return value;
+}
+
+function isTimeoutErrorMessage(message: string): boolean {
+  return /\b(?:timed?\s*out|timeout)\b/i.test(message);
+}
+
+function formatFetchSources(sources: ReadonlyArray<"support" | "validation" | "status">): string {
+  if (sources.length === 0) {
+    return "swarm state";
+  }
+
+  if (sources.length === 1) {
+    return `swarm ${sources[0]}`;
+  }
+
+  if (sources.length === 2) {
+    return `swarm ${sources[0]} and ${sources[1]}`;
+  }
+
+  return "swarm support, validation, and status";
+}
+
+function describeCoordinatorFetchFailure(input: {
+  readonly sources: ReadonlyArray<"support" | "validation" | "status">;
+  readonly stale: boolean;
+  readonly timedOut: boolean;
+}): string {
+  const sourceLabel = formatFetchSources(input.sources);
+  if (input.stale) {
+    return input.timedOut
+      ? `Showing the last known ${sourceLabel} because the latest refresh timed out. Refresh the coordinator state or inspect the backend error.`
+      : `Showing the last known ${sourceLabel} because the latest refresh failed. Refresh the coordinator state or inspect the backend error.`;
+  }
+
+  return input.timedOut
+    ? `${sourceLabel.charAt(0).toUpperCase()}${sourceLabel.slice(1)} request timed out. Retry the coordinator state request or inspect the backend error.`
+    : `${sourceLabel.charAt(0).toUpperCase()}${sourceLabel.slice(1)} request failed. Retry the coordinator state request or inspect the backend error.`;
+}
+
+export function deriveCoordinatorFetchLifecycle(input: {
+  readonly support: CoordinatorFetchQueryState;
+  readonly requireSwarmState: boolean;
+  readonly validation?: CoordinatorFetchQueryState | null;
+  readonly status?: CoordinatorFetchQueryState | null;
+}): CoordinatorFetchLifecycle {
+  if (input.support.pending && !input.support.hasData) {
+    return {
+      kind: "loading",
+      detail: null,
+    };
+  }
+
+  if (input.support.error) {
+    const timedOut = isTimeoutErrorMessage(input.support.error);
+    return {
+      kind: input.support.hasData ? "stale" : timedOut ? "timeout" : "error",
+      detail: describeCoordinatorFetchFailure({
+        sources: ["support"],
+        stale: input.support.hasData,
+        timedOut,
+      }),
+    };
+  }
+
+  if (!input.requireSwarmState) {
+    return {
+      kind: "ready",
+      detail: null,
+    };
+  }
+
+  const validation = input.validation ?? { pending: false, hasData: false, error: null };
+  const status = input.status ?? { pending: false, hasData: false, error: null };
+  const hasSwarmData = validation.hasData || status.hasData;
+  const pending = validation.pending || status.pending;
+  const failedSources = [
+    validation.error ? ("validation" as const) : null,
+    status.error ? ("status" as const) : null,
+  ].filter((value): value is "validation" | "status" => value !== null);
+  const timedOut = [validation.error, status.error].some(
+    (error): error is string => error !== null && isTimeoutErrorMessage(error),
+  );
+
+  if (failedSources.length > 0) {
+    return {
+      kind: hasSwarmData ? "stale" : timedOut ? "timeout" : "error",
+      detail: describeCoordinatorFetchFailure({
+        sources: failedSources,
+        stale: hasSwarmData,
+        timedOut,
+      }),
+    };
+  }
+
+  if (pending) {
+    return {
+      kind: hasSwarmData ? "stale" : "loading",
+      detail: hasSwarmData
+        ? "Showing the last known swarm state while the latest refresh completes."
+        : null,
+    };
+  }
+
+  return {
+    kind: "ready",
+    detail: null,
+  };
 }
 
 export function describeSharedWorkspaceProjectConflict(
@@ -242,13 +368,39 @@ export function deriveEpicCoordinatorState(input: {
   readonly status: Pick<BeadsSwarmStatus, "swarm"> | null;
   readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm"> | null;
   readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
-  readonly isSupportPending: boolean;
-  readonly isValidationPending: boolean;
+  readonly fetchLifecycle: CoordinatorFetchLifecycle;
 }): EpicCoordinatorState {
-  if (input.isSupportPending || input.isValidationPending) {
+  const latestRun = selectLatestSwarmRun(input.swarmRuns);
+
+  if (input.fetchLifecycle.kind === "loading") {
     return {
       kind: "checking",
-      latestRun: null,
+      latestRun,
+      fetchLifecycle: input.fetchLifecycle,
+    };
+  }
+
+  if (input.fetchLifecycle.kind === "timeout") {
+    return {
+      kind: "timeout",
+      latestRun,
+      fetchLifecycle: input.fetchLifecycle,
+    };
+  }
+
+  if (input.fetchLifecycle.kind === "stale") {
+    return {
+      kind: "stale",
+      latestRun,
+      fetchLifecycle: input.fetchLifecycle,
+    };
+  }
+
+  if (input.fetchLifecycle.kind === "error") {
+    return {
+      kind: "error",
+      latestRun,
+      fetchLifecycle: input.fetchLifecycle,
     };
   }
 
@@ -256,14 +408,15 @@ export function deriveEpicCoordinatorState(input: {
     return {
       kind: "unsupported",
       latestRun: null,
+      fetchLifecycle: input.fetchLifecycle,
     };
   }
 
-  const latestRun = selectLatestSwarmRun(input.swarmRuns);
   if (latestRun !== null) {
     return {
       kind: latestRun.status === "requested" ? "running" : latestRun.status,
       latestRun,
+      fetchLifecycle: input.fetchLifecycle,
     };
   }
 
@@ -272,6 +425,7 @@ export function deriveEpicCoordinatorState(input: {
     return {
       kind: "no_swarm",
       latestRun: null,
+      fetchLifecycle: input.fetchLifecycle,
     };
   }
 
@@ -279,6 +433,7 @@ export function deriveEpicCoordinatorState(input: {
     return {
       kind: "needs_repair",
       latestRun: null,
+      fetchLifecycle: input.fetchLifecycle,
     };
   }
 
@@ -286,12 +441,14 @@ export function deriveEpicCoordinatorState(input: {
     return {
       kind: "ready",
       latestRun: null,
+      fetchLifecycle: input.fetchLifecycle,
     };
   }
 
   return {
     kind: "checking",
     latestRun: null,
+    fetchLifecycle: input.fetchLifecycle,
   };
 }
 
@@ -301,8 +458,7 @@ export function getEpicCoordinatorPrimaryAction(input: {
   readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm" | "readyFronts"> | null;
   readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
   readonly projectConflict: SharedWorkspaceProjectConflict | null;
-  readonly isSupportPending: boolean;
-  readonly isValidationPending: boolean;
+  readonly fetchLifecycle: CoordinatorFetchLifecycle;
 }): EpicCoordinatorPrimaryAction {
   const state = deriveEpicCoordinatorState(input);
   const latestRun = state.latestRun;
@@ -329,24 +485,49 @@ export function getEpicCoordinatorPrimaryAction(input: {
       return {
         kind: "checking",
         label: "Checking swarm...",
+        busyLabel: "Checking...",
         disabled: true,
+      };
+    case "timeout":
+      return {
+        kind: "refresh_swarm_state",
+        label: "Retry swarm status",
+        busyLabel: "Retrying...",
+        disabled: false,
+      };
+    case "stale":
+      return {
+        kind: "refresh_swarm_state",
+        label: "Refresh swarm status",
+        busyLabel: "Refreshing...",
+        disabled: false,
+      };
+    case "error":
+      return {
+        kind: "refresh_swarm_state",
+        label: "Retry swarm status",
+        busyLabel: "Retrying...",
+        disabled: false,
       };
     case "unsupported":
       return {
         kind: "unsupported",
         label: "Swarm unavailable",
+        busyLabel: "Swarm unavailable",
         disabled: true,
       };
     case "no_swarm":
       return {
         kind: "create_swarm",
         label: "Create swarm",
+        busyLabel: "Starting...",
         disabled: false,
       };
     case "needs_repair":
       return {
         kind: "repair_swarm",
         label: "Repair swarm",
+        busyLabel: "Starting...",
         disabled: false,
       };
     case "ready":
@@ -354,12 +535,14 @@ export function getEpicCoordinatorPrimaryAction(input: {
         return {
           kind: "open_coordinator",
           label: "View active swarm",
+          busyLabel: "Opening...",
           disabled: false,
         };
       }
       return {
         kind: "start_swarm",
         label: "Start swarm",
+        busyLabel: "Starting...",
         disabled: false,
       };
     case "running":
@@ -369,12 +552,14 @@ export function getEpicCoordinatorPrimaryAction(input: {
         return {
           kind: "open_coordinator",
           label: "View active swarm",
+          busyLabel: "Opening...",
           disabled: false,
         };
       }
       return {
         kind: "open_coordinator",
         label: "Open coordinator",
+        busyLabel: "Opening...",
         disabled: false,
       };
     case "blocked":
@@ -382,11 +567,13 @@ export function getEpicCoordinatorPrimaryAction(input: {
         ? {
             kind: "continue_swarm",
             label: "Continue swarm",
+            busyLabel: "Continuing...",
             disabled: !canContinueRecoverableRun,
           }
         : {
             kind: "open_coordinator",
             label: "Open coordinator",
+            busyLabel: "Opening...",
             disabled: false,
           };
     case "failed":
@@ -395,6 +582,7 @@ export function getEpicCoordinatorPrimaryAction(input: {
       return {
         kind: "open_coordinator",
         label: "Open coordinator",
+        busyLabel: "Opening...",
         disabled: false,
       };
   }
