@@ -1,11 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  ThreadId,
-  type BeadsIssueSummary,
-  type BeadsSwarmSummary,
-  type BeadsCoordinatorEpicSnapshot,
-  type OrchestrationSwarmRun,
-} from "@t3tools/contracts";
+import { ThreadId, type BeadsIssueSummary, type BeadsSwarmSummary } from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import React from "react";
 import { NewIssuesPanel, type NewIssuesPanelProps } from "../NewIssuesPanel";
@@ -79,37 +73,6 @@ const SAMPLE_SWARMS: readonly BeadsSwarmSummary[] = [
   },
 ];
 
-const SAMPLE_EPICS: readonly BeadsCoordinatorEpicSnapshot[] = [
-  {
-    epicId: "epic-1",
-    epicTitle: "Epic 1",
-    issue: SAMPLE_ISSUES[0] as BeadsIssueSummary,
-    fetchLifecycle: { kind: "ready", detail: null },
-    stateKind: "ready",
-    primaryAction: {
-      kind: "none",
-      label: "No action",
-      busyLabel: "Processing",
-      disabled: false,
-    },
-    latestRun: null,
-    projectConflict: null,
-    swarmSummary: SAMPLE_SWARMS[0] as BeadsSwarmSummary,
-    validation: null,
-    status: null,
-  },
-];
-
-const SAMPLE_RUNS: readonly OrchestrationSwarmRun[] = [
-  {
-    runId: "run-1" as any, // Use any to bypass strict typing for tests
-    epicIssueId: "epic-1",
-    status: "running",
-    createdAt: "2024-01-01T00:00:00Z",
-    completedAt: null,
-  },
-];
-
 // ── Helper Functions ────────────────────────────────────────────────────
 
 function createTestProps(overrides: Partial<NewIssuesPanelProps> = {}): NewIssuesPanelProps {
@@ -117,8 +80,6 @@ function createTestProps(overrides: Partial<NewIssuesPanelProps> = {}): NewIssue
     threadId: THREAD_ID,
     issues: SAMPLE_ISSUES,
     swarms: SAMPLE_SWARMS,
-    epics: SAMPLE_EPICS,
-    swarmRuns: SAMPLE_RUNS,
     activeTab: "issues",
     searchValue: "",
     scopeFilter: "active",
@@ -129,9 +90,6 @@ function createTestProps(overrides: Partial<NewIssuesPanelProps> = {}): NewIssue
     onSearchChange: vi.fn(),
     onScopeChange: vi.fn(),
     onLabelClick: vi.fn(),
-    onStartSwarm: vi.fn(),
-    onPauseSwarm: vi.fn(),
-    onRefreshCoordinator: vi.fn(),
     ...overrides,
   };
 }
@@ -168,8 +126,8 @@ describe("NewIssuesPanel", () => {
 
     const html = renderToString(<NewIssuesPanel {...props} />);
 
-    // Should contain coordinator components
-    expect(html).toContain("Epic 1");
+    // Should show coordinator placeholder
+    expect(html).toContain("Coordinator view");
   });
 
   it("filters issues based on search value", () => {
@@ -278,8 +236,6 @@ describe("NewIssuesPanel Props Integration", () => {
       issues: SAMPLE_ISSUES,
       selectedIssueId: "issue-1",
       swarms: SAMPLE_SWARMS,
-      epics: SAMPLE_EPICS,
-      swarmRuns: SAMPLE_RUNS,
       activeTab: "coordinator",
       searchValue: "Epic",
       scopeFilter: "active",
@@ -306,8 +262,6 @@ describe("NewIssuesPanel Props Integration", () => {
     const props = createTestProps({
       activeTab: "coordinator",
       swarms: SAMPLE_SWARMS,
-      epics: SAMPLE_EPICS,
-      swarmRuns: SAMPLE_RUNS,
     });
 
     const html = renderToString(<NewIssuesPanel {...props} />);
@@ -321,8 +275,6 @@ describe("NewIssuesPanel Edge Cases", () => {
     const props = createTestProps({
       issues: [],
       swarms: [],
-      epics: [],
-      swarmRuns: [],
     });
 
     expect(() => {
@@ -366,9 +318,6 @@ describe("NewIssuesPanel Event Handlers", () => {
       onSearchChange: vi.fn(),
       onScopeChange: vi.fn(),
       onLabelClick: vi.fn(),
-      onStartSwarm: vi.fn(),
-      onPauseSwarm: vi.fn(),
-      onRefreshCoordinator: vi.fn(),
     };
 
     const props = createTestProps(handlers);
@@ -383,9 +332,6 @@ describe("NewIssuesPanel Event Handlers", () => {
     expect(props.onSearchChange).toBe(handlers.onSearchChange);
     expect(props.onScopeChange).toBe(handlers.onScopeChange);
     expect(props.onLabelClick).toBe(handlers.onLabelClick);
-    expect(props.onStartSwarm).toBe(handlers.onStartSwarm);
-    expect(props.onPauseSwarm).toBe(handlers.onPauseSwarm);
-    expect(props.onRefreshCoordinator).toBe(handlers.onRefreshCoordinator);
   });
 
   it("handles optional event handlers", () => {

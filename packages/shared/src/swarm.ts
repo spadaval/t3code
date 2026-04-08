@@ -161,6 +161,139 @@ export function formatSwarmRunStatusLabel(status: OrchestrationSwarmRun["status"
   return status === "requested" ? "requested" : status.replace(/_/g, " ");
 }
 
+/**
+ * Visual category for coordinator state - groups the 15 state kinds into
+ * display-level categories to simplify the UI.
+ */
+export type CoordinatorStateCategory =
+  | "active"
+  | "ready"
+  | "blocked"
+  | "setup"
+  | "done"
+  | "loading";
+
+export interface CoordinatorStateDescription {
+  /** Short label for display (e.g. "Running", "Blocked") */
+  readonly label: string;
+  /** One-line human-readable explanation of the current situation */
+  readonly summary: string;
+  /** Visual category for color/icon decisions */
+  readonly category: CoordinatorStateCategory;
+}
+
+/**
+ * Maps every coordinator state kind + context into a clean, human-readable
+ * description suitable for direct display. No more "Swarm unknown" fallbacks.
+ */
+export function describeCoordinatorEpicState(input: {
+  readonly stateKind: EpicSwarmCoordinatorStateKind;
+  readonly lastError: string | null;
+  readonly fetchDetail: string | null;
+  readonly activeWorkerCount: number;
+  readonly completedIssueCount: number;
+  readonly totalIssueCount: number;
+}): CoordinatorStateDescription {
+  switch (input.stateKind) {
+    case "running":
+      return {
+        label: "Running",
+        summary:
+          input.activeWorkerCount > 0
+            ? `${input.activeWorkerCount} worker${input.activeWorkerCount !== 1 ? "s" : ""} active, ${input.completedIssueCount}/${input.totalIssueCount} issues done`
+            : `${input.completedIssueCount}/${input.totalIssueCount} issues done`,
+        category: "active",
+      };
+    case "idle":
+      return {
+        label: "Idle",
+        summary: "Waiting for the next issue to be dispatched.",
+        category: "active",
+      };
+    case "paused":
+      return {
+        label: "Paused",
+        summary: "Run paused. Resume to continue processing issues.",
+        category: "active",
+      };
+    case "blocked":
+      return {
+        label: "Blocked",
+        summary: input.lastError ?? "Needs manual intervention before it can continue.",
+        category: "blocked",
+      };
+    case "failed":
+      return {
+        label: "Failed",
+        summary: input.lastError ?? "The run failed. Retry or inspect the error.",
+        category: "blocked",
+      };
+    case "ready":
+      return {
+        label: "Ready",
+        summary: "Swarm is valid and ready to start.",
+        category: "ready",
+      };
+    case "no_swarm":
+      return {
+        label: "No swarm",
+        summary: "Create a swarm to begin coordinated implementation.",
+        category: "setup",
+      };
+    case "needs_repair":
+      return {
+        label: "Needs repair",
+        summary: "Swarm exists but is invalid. Repair before starting.",
+        category: "setup",
+      };
+    case "unsupported":
+      return {
+        label: "Unavailable",
+        summary: "This backend does not support swarm coordination.",
+        category: "done",
+      };
+    case "completed":
+      return {
+        label: "Completed",
+        summary:
+          input.totalIssueCount > 0
+            ? `All ${input.totalIssueCount} issues completed.`
+            : "Run completed.",
+        category: "done",
+      };
+    case "cancelled":
+      return {
+        label: "Cancelled",
+        summary: "The run was cancelled.",
+        category: "done",
+      };
+    case "checking":
+      return {
+        label: "Loading",
+        summary: input.fetchDetail ?? "Checking swarm state...",
+        category: "loading",
+      };
+    case "timeout":
+      return {
+        label: "Timed out",
+        summary: input.fetchDetail ?? "State request timed out. Retry to refresh.",
+        category: "blocked",
+      };
+    case "stale":
+      return {
+        label: "Stale",
+        summary: input.fetchDetail ?? "Showing last known state. Refresh to update.",
+        category: "blocked",
+      };
+    case "error":
+      return {
+        label: "Error",
+        summary: input.fetchDetail ?? "Could not load swarm state. Retry to refresh.",
+        category: "blocked",
+      };
+  }
+}
+
 export function describeSharedWorkspaceProjectConflict(run: OrchestrationSwarmRun): string {
   return `Shared workspace is already busy with ${run.epicIssueId} (${formatSwarmRunStatusLabel(run.status)}). Finish, cancel, or resume that run before starting or resuming another shared-workspace swarm in this project.`;
 }
