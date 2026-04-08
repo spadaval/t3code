@@ -594,6 +594,7 @@ describe("IssuesPanel refresh button", () => {
         idledAt: null,
         pausedAt: null,
         blockedAt: null,
+        blockedContext: null,
         failedAt: null,
         cancelledAt: null,
         completedAt: "2026-01-01T00:02:00.000Z",
@@ -618,6 +619,112 @@ describe("IssuesPanel refresh button", () => {
     try {
       expect(document.body.textContent).toContain("Open coordinator");
       expect(document.body.textContent).toContain("The latest swarm run completed.");
+    } finally {
+      screen.unmount();
+    }
+  });
+
+  it("shows recoverable worker-failure actions for an epic and refreshes swarm status manually", async () => {
+    const swarmSummary = {
+      swarmId: "swarm-recoverable",
+      epicId: "EPIC-RECOVER",
+      epicTitle: "Recoverable epic",
+      totalIssueCount: 3,
+      completedIssueCount: 1,
+      activeIssueCount: 0,
+      readyIssueCount: 0,
+      blockedIssueCount: 1,
+      activeWorkerCount: 0,
+    };
+
+    testState.issueListIssues = [
+      makeIssue({
+        id: "EPIC-RECOVER",
+        title: "Recoverable epic",
+        issueType: "epic",
+      }),
+    ];
+    testState.issueDetail = makeIssueDetail({
+      id: "EPIC-RECOVER",
+      title: "Recoverable epic",
+      issueType: "epic",
+    });
+    testState.swarmSupport = { supported: true };
+    testState.swarmValidation = {
+      epicId: "EPIC-RECOVER",
+      epicTitle: "Recoverable epic",
+      valid: true,
+      swarm: swarmSummary,
+      errors: [],
+      warnings: [],
+      readyFronts: [],
+      estimatedWorkerSessions: 1,
+      maxParallelism: 1,
+    };
+    testState.swarmStatus = {
+      epicId: "EPIC-RECOVER",
+      epicTitle: "Recoverable epic",
+      swarm: swarmSummary,
+      completed: [],
+      active: [],
+      ready: [],
+      blocked: [makeIssue({ id: "TASK-1", title: "Blocked task" })],
+    };
+    testState.swarmRuns = [
+      {
+        runId: "run-recoverable",
+        projectId: "project-1",
+        epicIssueId: "EPIC-RECOVER",
+        swarmId: "swarm-recoverable",
+        status: "blocked",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        provider: "codex",
+        model: "gpt-5.4-mini",
+        modelOptions: null,
+        providerOptions: null,
+        assistantDeliveryMode: null,
+        runtimeMode: "full-access",
+        activeTaskExecutionId: null,
+        latestTaskExecutionId: "execution-1",
+        lastError: "Worker crashed",
+        requestedAt: "2026-01-01T00:00:00.000Z",
+        startedAt: "2026-01-01T00:01:00.000Z",
+        idledAt: null,
+        pausedAt: null,
+        blockedAt: "2026-01-01T00:02:00.000Z",
+        blockedContext: {
+          kind: "worker_failure",
+          issueId: "TASK-1",
+          executionId: "execution-1",
+          workerThreadId: "thread-worker",
+        },
+        failedAt: null,
+        cancelledAt: null,
+        completedAt: null,
+        updatedAt: "2026-01-01T00:02:00.000Z",
+      },
+    ];
+    useIssuePaneStore.getState().setSelectedIssueId(THREAD_ID, "EPIC-RECOVER");
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <IssuesPanel
+        activeThreadId={THREAD_ID}
+        cwd={TEST_CWD}
+        projectId={ProjectId.makeUnsafe("project-1")}
+        projectDefaultModelSelection={null}
+        onClose={() => {}}
+      />,
+      { container: host },
+    );
+
+    try {
+      expect(document.body.textContent).toContain("Continue swarm");
+      expect(document.body.textContent).toContain("Refresh swarm status");
+      const continueButton = getButtonByText("Continue swarm");
+      expect(continueButton.disabled).toBe(true);
     } finally {
       screen.unmount();
     }
@@ -1092,6 +1199,7 @@ describe("IssuesPanel refresh button", () => {
         idledAt: "2026-01-01T00:02:00.000Z",
         pausedAt: null,
         blockedAt: null,
+        blockedContext: null,
         failedAt: null,
         cancelledAt: null,
         completedAt: null,
@@ -1157,6 +1265,115 @@ describe("IssuesPanel refresh button", () => {
     }
   });
 
+  it("renders a recoverable worker-failure coordinator card with manual recovery controls", async () => {
+    const swarmSummary = {
+      swarmId: "swarm-blocked",
+      epicId: "EPIC-BLOCKED",
+      epicTitle: "Blocked epic",
+      totalIssueCount: 4,
+      completedIssueCount: 1,
+      activeIssueCount: 0,
+      readyIssueCount: 0,
+      blockedIssueCount: 1,
+      activeWorkerCount: 0,
+    };
+
+    testState.issueListIssues = [
+      makeIssue({
+        id: "EPIC-BLOCKED",
+        title: "Blocked epic",
+        issueType: "epic",
+      }),
+    ];
+    testState.swarmSupport = { supported: true };
+    testState.swarmRuns = [
+      {
+        runId: "run-blocked",
+        projectId: "project-1",
+        epicIssueId: "EPIC-BLOCKED",
+        swarmId: "swarm-blocked",
+        status: "blocked",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        provider: "codex",
+        model: "gpt-5.4-mini",
+        modelOptions: null,
+        providerOptions: null,
+        assistantDeliveryMode: null,
+        runtimeMode: "full-access",
+        activeTaskExecutionId: null,
+        latestTaskExecutionId: "execution-1",
+        lastError: "Worker crashed",
+        requestedAt: "2026-01-01T00:00:00.000Z",
+        startedAt: "2026-01-01T00:01:00.000Z",
+        idledAt: null,
+        pausedAt: null,
+        blockedAt: "2026-01-01T00:02:00.000Z",
+        blockedContext: {
+          kind: "worker_failure",
+          issueId: "TASK-1",
+          executionId: "execution-1",
+          workerThreadId: "thread-worker",
+        },
+        failedAt: null,
+        cancelledAt: null,
+        completedAt: null,
+        updatedAt: "2026-01-01T00:02:00.000Z",
+      },
+    ];
+    testState.swarmValidationByEpicId = {
+      "EPIC-BLOCKED": {
+        epicId: "EPIC-BLOCKED",
+        epicTitle: "Blocked epic",
+        valid: true,
+        swarm: swarmSummary,
+        errors: [],
+        warnings: [],
+        readyFronts: [],
+        estimatedWorkerSessions: 1,
+        maxParallelism: 1,
+      },
+    };
+    testState.swarmStatusByEpicId = {
+      "EPIC-BLOCKED": {
+        epicId: "EPIC-BLOCKED",
+        epicTitle: "Blocked epic",
+        swarm: swarmSummary,
+        completed: [],
+        active: [],
+        ready: [],
+        blocked: [makeIssue({ id: "TASK-1", title: "Blocked task" })],
+      },
+    };
+    useIssuePaneStore.getState().setActivePanelTab(THREAD_ID, "coordinator");
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <IssuesPanel
+        activeThreadId={THREAD_ID}
+        cwd={TEST_CWD}
+        projectId={ProjectId.makeUnsafe("project-1")}
+        projectDefaultModelSelection={null}
+        onClose={() => {}}
+      />,
+      { container: host },
+    );
+
+    try {
+      expect(document.body.textContent).toContain("Recoverable worker failure");
+      expect(document.body.textContent).toContain(
+        "Resolve the tracker state, refresh, then continue the run.",
+      );
+      expect(document.body.textContent).toContain("Open failed worker");
+      expect(document.body.textContent).toContain("Refresh status");
+      const continueButton = getButtonByText("Continue");
+      expect(continueButton.disabled).toBe(true);
+    } finally {
+      screen.unmount();
+    }
+  });
+
   it("renders coordinator run history rows and worker execution details", async () => {
     const swarmSummary = {
       swarmId: "swarm-history",
@@ -1201,6 +1418,7 @@ describe("IssuesPanel refresh button", () => {
         idledAt: null,
         pausedAt: null,
         blockedAt: null,
+        blockedContext: null,
         failedAt: null,
         cancelledAt: null,
         completedAt: "2026-01-01T00:03:00.000Z",
@@ -1341,6 +1559,7 @@ describe("IssuesPanel refresh button", () => {
         idledAt: null,
         pausedAt: null,
         blockedAt: null,
+        blockedContext: null,
         failedAt: null,
         cancelledAt: null,
         completedAt: null,
@@ -1368,6 +1587,7 @@ describe("IssuesPanel refresh button", () => {
         idledAt: null,
         pausedAt: null,
         blockedAt: null,
+        blockedContext: null,
         failedAt: null,
         cancelledAt: null,
         completedAt: "2026-01-01T00:05:00.000Z",

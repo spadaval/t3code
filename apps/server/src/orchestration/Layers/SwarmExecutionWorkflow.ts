@@ -7,6 +7,7 @@ import {
   SwarmRunId,
   SwarmTaskExecutionId,
   ThreadId,
+  type OrchestrationSwarmRunBlockedContext,
   type OrchestrationProject,
   type OrchestrationSwarmRun,
   type OrchestrationSwarmRunControlResult,
@@ -14,6 +15,7 @@ import {
   type OrchestrationSwarmTaskExecution,
 } from "@t3tools/contracts";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { selectDeterministicReadyIssue } from "@t3tools/shared/swarm";
 import { Cause, Duration, Effect, Fiber, Layer } from "effect";
 
 import { BeadsTrackerService } from "../../beads/Services/BeadsTrackerService.ts";
@@ -27,7 +29,6 @@ import {
   type StartSwarmTaskExecutionInput,
   type SwarmExecutionWorkflowShape,
 } from "../Services/SwarmExecutionWorkflow.ts";
-import { selectDeterministicReadyIssue } from "../swarmScheduling.ts";
 import {
   buildSwarmExecutionComment,
   buildSwarmIssueLink,
@@ -47,6 +48,17 @@ function workflowError(
     detail,
     ...(cause !== undefined ? { cause } : {}),
   });
+}
+
+function isWorkflowExecutionError(error: unknown): error is SwarmExecutionWorkflowError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "operation" in error &&
+    "detail" in error &&
+    typeof error.operation === "string" &&
+    typeof error.detail === "string"
+  );
 }
 
 function serverCommandId(tag: string): CommandId {
@@ -100,6 +112,36 @@ function truncateDetail(value: string, max = 1_500): string {
   return `${trimmed.slice(0, max - 3)}...`;
 }
 
+function describeIncompleteWorkerExecution(input: {
+  readonly workerThreadId: ThreadId;
+  readonly sessionStatus: string | null | undefined;
+  readonly latestTurnState: string | null | undefined;
+}): string {
+  return [
+    `Worker thread '${input.workerThreadId}' stopped before completing the swarm task execution.`,
+    `Observed session status: ${input.sessionStatus ?? "unknown"}.`,
+    `Observed latest turn state: ${input.latestTurnState ?? "missing"}.`,
+    "The provider did not report a more specific error reason.",
+  ].join(" ");
+}
+
+function isClosedIssueStatus(status: string): boolean {
+  return status === "closed";
+}
+
+function describeIssueNotClosedForCompletedExecution(input: {
+  readonly issueId: string;
+  readonly currentStatus: string;
+  readonly workerThreadId: ThreadId | null;
+}): string {
+  const workerDescriptor =
+    input.workerThreadId === null ? "Worker thread" : `Worker thread '${input.workerThreadId}'`;
+  return [
+    `${workerDescriptor} completed, but issue '${input.issueId}' is still '${input.currentStatus}'.`,
+    "Swarm workers must close their assigned Beads issue before task completion is recorded.",
+  ].join(" ");
+}
+
 function asControlResult(run: OrchestrationSwarmRun): OrchestrationSwarmRunControlResult {
   return {
     runId: run.runId,
@@ -118,6 +160,76 @@ function describeBlockedReason(input: {
     return `Swarm has ${input.activeCount} externally active issue${input.activeCount === 1 ? "" : "s"} and no ready issue is available.`;
   }
   return "Swarm has no ready issue available.";
+}
+
+function trackerWaitingBlockedContext(): OrchestrationSwarmRunBlockedContext {
+  return {
+    kind: "tracker_waiting",
+    issueId: null,
+    executionId: null,
+    workerThreadId: null,
+  };
+}
+
+function workerFailureBlockedContext(input: {
+  readonly issueId: string;
+  readonly executionId?: SwarmTaskExecutionId;
+  readonly workerThreadId?: ThreadId;
+}): OrchestrationSwarmRunBlockedContext {
+  return {
+    kind: "worker_failure",
+    issueId: input.issueId,
+    executionId: input.executionId ?? null,
+    workerThreadId: input.workerThreadId ?? null,
+  };
+}
+
+function describeWorkerFailureRecoveryReason(input: { readonly issueId: string | null }): string {
+  return input.issueId
+    ? `Worker execution for issue '${input.issueId}' failed. Resolve the tracker state for this issue, refresh swarm status, then continue the run.`
+    : "A swarm worker failed. Resolve the tracker state, refresh swarm status, then continue the run.";
+}
+
+function canContinueRunFromTrackerState(input: {
+  readonly nextReadyIssue: ReturnType<typeof selectDeterministicReadyIssue>;
+  readonly blockedCount: number;
+  readonly activeCount: number;
+}): boolean {
+  return input.nextReadyIssue !== null || (input.blockedCount === 0 && input.activeCount === 0);
+}
+
+function isNonTerminalExecutionStatus(
+  status: OrchestrationSwarmTaskExecution["status"],
+): status is "requested" | "active" {
+  return status === "requested" || status === "active";
+}
+
+function describeExecutionInvariantViolation(input: {
+  readonly runId: SwarmRunId;
+  readonly activeTaskExecutionId: SwarmTaskExecutionId | null;
+  readonly nonTerminalExecutions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
+}): string {
+  const details = input.nonTerminalExecutions
+    .map(
+      (execution) =>
+        `${execution.executionId} [status=${execution.status}, issue=${execution.issueId}, worker=${execution.workerThreadId ?? "none"}]`,
+    )
+    .join("; ");
+
+  if (input.nonTerminalExecutions.length > 1) {
+    return `Shared-workspace swarm run '${input.runId}' has multiple non-terminal task executions. Expected at most one active worker execution, found: ${details}.`;
+  }
+
+  const [execution] = input.nonTerminalExecutions;
+  if (!execution) {
+    return `Shared-workspace swarm run '${input.runId}' lost its non-terminal task execution state.`;
+  }
+
+  if (input.activeTaskExecutionId === null) {
+    return `Shared-workspace swarm run '${input.runId}' has non-terminal task execution '${execution.executionId}' but no activeTaskExecutionId.`;
+  }
+
+  return `Shared-workspace swarm run '${input.runId}' has activeTaskExecutionId '${input.activeTaskExecutionId}' but the non-terminal execution state points to '${execution.executionId}'.`;
 }
 
 const makeSwarmExecutionWorkflow = Effect.gen(function* () {
@@ -174,6 +286,69 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
               ),
             );
       }),
+    );
+
+  const listNonTerminalExecutionsForRun = (runId: SwarmRunId) =>
+    getReadModel().pipe(
+      Effect.map((readModel) =>
+        readModel.swarmTaskExecutions.filter(
+          (entry) => entry.runId === runId && isNonTerminalExecutionStatus(entry.status),
+        ),
+      ),
+    );
+
+  const enforceSharedWorkspaceExecutionInvariant = (
+    operation: string,
+    run: OrchestrationSwarmRun,
+  ) =>
+    Effect.gen(function* () {
+      if (run.workspaceMode !== "shared") {
+        return { ok: true as const };
+      }
+
+      const nonTerminalExecutions = yield* listNonTerminalExecutionsForRun(run.runId);
+      if (run.activeTaskExecutionId === null) {
+        if (nonTerminalExecutions.length === 0) {
+          return { ok: true as const };
+        }
+
+        const reason = describeExecutionInvariantViolation({
+          runId: run.runId,
+          activeTaskExecutionId: null,
+          nonTerminalExecutions,
+        });
+        yield* failRun(run.runId, reason);
+        return { ok: false as const, run: yield* getRunById(run.runId) };
+      }
+
+      if (nonTerminalExecutions.length !== 1) {
+        const reason = describeExecutionInvariantViolation({
+          runId: run.runId,
+          activeTaskExecutionId: run.activeTaskExecutionId,
+          nonTerminalExecutions,
+        });
+        yield* failRun(run.runId, reason);
+        return { ok: false as const, run: yield* getRunById(run.runId) };
+      }
+
+      const [execution] = nonTerminalExecutions;
+      if (!execution || execution.executionId !== run.activeTaskExecutionId) {
+        const reason = describeExecutionInvariantViolation({
+          runId: run.runId,
+          activeTaskExecutionId: run.activeTaskExecutionId,
+          nonTerminalExecutions,
+        });
+        yield* failRun(run.runId, reason);
+        return { ok: false as const, run: yield* getRunById(run.runId) };
+      }
+
+      return { ok: true as const, execution };
+    }).pipe(
+      Effect.mapError((error) =>
+        isWorkflowExecutionError(error)
+          ? error
+          : workflowError(operation, truncateDetail(toErrorMessage(error)), error),
+      ),
     );
 
   const getThreadById = (threadId: ThreadId) =>
@@ -286,6 +461,22 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
       } as const;
     });
 
+  const getIssueById = (input: {
+    readonly operation: string;
+    readonly cwd: string;
+    readonly issueId: string;
+  }) =>
+    beadsTracker
+      .getIssue({
+        cwd: input.cwd,
+        issueId: input.issueId,
+      })
+      .pipe(
+        Effect.mapError((error) =>
+          workflowError(input.operation, truncateDetail(toErrorMessage(error)), error),
+        ),
+      );
+
   const getWorkerExecutionContext = (runId: SwarmRunId, executionId: SwarmTaskExecutionId) =>
     Effect.gen(function* () {
       const run = yield* getRunById(runId);
@@ -375,38 +566,33 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
     readonly reason?: string;
   }) =>
     Effect.gen(function* () {
-      const issue = yield* beadsTracker
-        .getIssue({
-          cwd: input.cwd,
-          issueId: input.execution.issueId,
-        })
-        .pipe(
-          Effect.mapError((error) =>
-            workflowError(
-              "syncIssueForExecutionSettlement:getIssue",
-              truncateDetail(toErrorMessage(error)),
-              error,
-            ),
-          ),
-        );
+      const issue = yield* getIssueById({
+        operation: "syncIssueForExecutionSettlement:getIssue",
+        cwd: input.cwd,
+        issueId: input.execution.issueId,
+      });
 
       const restoredAssignee = issue.owner ?? null;
-      yield* beadsTracker
-        .updateIssue({
-          cwd: input.cwd,
-          issueId: input.execution.issueId,
-          status: input.phase === "completed" ? "closed" : "open",
-          assignee: restoredAssignee,
-        })
-        .pipe(
-          Effect.mapError((error) =>
-            workflowError(
-              "syncIssueForExecutionSettlement:updateIssue",
-              truncateDetail(toErrorMessage(error)),
-              error,
+      const nextStatus =
+        input.phase === "completed" || isClosedIssueStatus(issue.status) ? issue.status : "open";
+      if (issue.assignee !== restoredAssignee || nextStatus !== issue.status) {
+        yield* beadsTracker
+          .updateIssue({
+            cwd: input.cwd,
+            issueId: input.execution.issueId,
+            ...(nextStatus !== issue.status ? { status: nextStatus } : {}),
+            assignee: restoredAssignee,
+          })
+          .pipe(
+            Effect.mapError((error) =>
+              workflowError(
+                "syncIssueForExecutionSettlement:updateIssue",
+                truncateDetail(toErrorMessage(error)),
+                error,
+              ),
             ),
-          ),
-        );
+          );
+      }
 
       if (input.execution.workerThreadId !== null) {
         yield* beadsTracker
@@ -502,12 +688,17 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
       createdAt: nowIso(),
     }).pipe(Effect.asVoid);
 
-  const blockRun = (runId: SwarmRunId, reason: string) =>
+  const blockRun = (
+    runId: SwarmRunId,
+    reason: string,
+    blockedContext: OrchestrationSwarmRunBlockedContext = trackerWaitingBlockedContext(),
+  ) =>
     dispatchOrFail("blockRun", {
       type: "swarm-run.block",
       commandId: serverCommandId("swarm-run-block"),
       runId,
       reason: truncateDetail(reason, 500),
+      blockedContext,
       createdAt: nowIso(),
     }).pipe(Effect.asVoid);
 
@@ -677,6 +868,14 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         return yield* getRunById(run.runId);
       }
 
+      const invariant = yield* enforceSharedWorkspaceExecutionInvariant(
+        "launchNextTaskExecution",
+        run,
+      );
+      if (!invariant.ok) {
+        return invariant.run;
+      }
+
       const trackerState = yield* getTrackerState({
         projectId: run.projectId,
         epicIssueId: run.epicIssueId,
@@ -704,6 +903,7 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
               blockedCount: trackerState.status.blocked.length,
               activeCount: trackerState.status.active.length,
             }),
+            trackerWaitingBlockedContext(),
           );
           return yield* getRunById(run.runId);
         }
@@ -798,13 +998,15 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
       return yield* launchAttempt.pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
+            const reason = truncateDetail(error.detail ?? toErrorMessage(error), 500);
             if (executionStarted) {
-              yield* cancelTaskExecutionCommand({
+              yield* failTaskExecutionCommand({
                 runId: run.runId,
                 executionId,
+                reason,
               }).pipe(Effect.catch(() => Effect.void));
             }
-            if (threadCreated) {
+            if (threadCreated && !executionStarted) {
               yield* deleteWorkerThread(workerThreadId).pipe(Effect.catch(() => Effect.void));
             }
 
@@ -829,12 +1031,20 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
                   workerThreadId,
                   schedulerMode: run.schedulerMode,
                   workspaceMode: run.workspaceMode,
-                  reason: truncateDetail(error.detail ?? toErrorMessage(error), 500),
+                  reason,
                 }),
               })
               .pipe(Effect.catch(() => Effect.void));
 
-            yield* failRun(run.runId, error.detail ?? toErrorMessage(error));
+            yield* blockRun(
+              run.runId,
+              reason,
+              workerFailureBlockedContext({
+                issueId,
+                ...(executionStarted ? { executionId } : {}),
+                ...(executionStarted ? { workerThreadId } : {}),
+              }),
+            );
             return yield* getRunById(run.runId);
           }),
         ),
@@ -879,6 +1089,7 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
               blockedCount: trackerState.status.blocked.length,
               activeCount: trackerState.status.active.length,
             }),
+            trackerWaitingBlockedContext(),
           );
         }
         return yield* getRunById(run.runId);
@@ -895,7 +1106,21 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         return run;
       }
 
-      const execution = yield* getExecutionById(run.activeTaskExecutionId);
+      const invariant = yield* enforceSharedWorkspaceExecutionInvariant(
+        "reconcileActiveTaskExecution",
+        run,
+      );
+      if (!invariant.ok) {
+        return invariant.run;
+      }
+
+      const execution = invariant.execution;
+      if (!execution) {
+        return yield* workflowError(
+          "reconcileActiveTaskExecution",
+          `Swarm run '${run.runId}' passed execution invariant checks without an active execution.`,
+        );
+      }
       if (execution.workerThreadId === null) {
         yield* failSwarmTaskExecution({
           runId: run.runId,
@@ -943,7 +1168,11 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
           executionId: execution.executionId,
           reason:
             thread.value.session?.lastError ??
-            "Worker thread stopped before completing the swarm task execution.",
+            describeIncompleteWorkerExecution({
+              workerThreadId: execution.workerThreadId,
+              sessionStatus: thread.value.session?.status,
+              latestTurnState: thread.value.latestTurn?.state,
+            }),
         });
       }
 
@@ -958,6 +1187,14 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
       }
       if (run.status === "paused") {
         return run;
+      }
+
+      const invariant = yield* enforceSharedWorkspaceExecutionInvariant(
+        "reconcileRunnableRunWithoutActiveExecution",
+        run,
+      );
+      if (!invariant.ok) {
+        return invariant.run;
       }
 
       const trackerState = yield* getTrackerState({
@@ -988,6 +1225,7 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
                 blockedCount: trackerState.status.blocked.length,
                 activeCount: trackerState.status.active.length,
               }),
+              trackerWaitingBlockedContext(),
             );
           }
           return yield* getRunById(run.runId);
@@ -1167,6 +1405,57 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         );
       }
 
+      const invariant = yield* enforceSharedWorkspaceExecutionInvariant("continueSwarmRun", run);
+      if (!invariant.ok) {
+        return asControlResult(invariant.run);
+      }
+
+      const trackerState = yield* getTrackerState({
+        projectId: run.projectId,
+        epicIssueId: run.epicIssueId,
+      });
+
+      if (
+        !trackerState.support.supported ||
+        !trackerState.validation.swarm ||
+        !trackerState.validation.valid
+      ) {
+        const reason = !trackerState.support.supported
+          ? (trackerState.support.reason ?? "Swarm execution is not supported.")
+          : !trackerState.validation.swarm
+            ? `Swarm '${run.epicIssueId}' is no longer available.`
+            : trackerState.validation.errors.join("; ") || "Swarm validation failed.";
+        yield* failRun(run.runId, reason);
+        return asControlResult(yield* getRunById(run.runId));
+      }
+
+      if (
+        !canContinueRunFromTrackerState({
+          nextReadyIssue: trackerState.nextReadyIssue,
+          blockedCount: trackerState.status.blocked.length,
+          activeCount: trackerState.status.active.length,
+        })
+      ) {
+        const blockedContext =
+          run.blockedContext?.kind === "worker_failure"
+            ? run.blockedContext
+            : trackerWaitingBlockedContext();
+        const reason =
+          blockedContext.kind === "worker_failure"
+            ? describeWorkerFailureRecoveryReason({ issueId: blockedContext.issueId })
+            : describeBlockedReason({
+                blockedCount: trackerState.status.blocked.length,
+                activeCount: trackerState.status.active.length,
+              });
+        yield* blockRun(run.runId, reason, blockedContext);
+        return asControlResult(yield* getRunById(run.runId));
+      }
+
+      if (trackerState.nextReadyIssue === null) {
+        yield* completeRun(run.runId);
+        return asControlResult(yield* getRunById(run.runId));
+      }
+
       if (run.status === "requested") {
         yield* markRunStarted(run.runId);
       } else if (run.status === "idle" || run.status === "blocked") {
@@ -1235,6 +1524,7 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
               blockedCount: trackerState.status.blocked.length,
               activeCount: trackerState.status.active.length,
             }),
+            trackerWaitingBlockedContext(),
           );
           return asControlResult(yield* getRunById(run.runId));
         }
@@ -1258,6 +1548,11 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
       const run = yield* getRunById(input.runId);
       if (isTerminalRunStatus(run.status)) {
         return asControlResult(run);
+      }
+
+      const invariant = yield* enforceSharedWorkspaceExecutionInvariant("cancelSwarmRun", run);
+      if (!invariant.ok) {
+        return asControlResult(invariant.run);
       }
 
       yield* interruptActiveRun(run.runId);
@@ -1308,6 +1603,14 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         );
       }
 
+      const invariant = yield* enforceSharedWorkspaceExecutionInvariant(
+        "startSwarmTaskExecution",
+        run,
+      );
+      if (!invariant.ok) {
+        return asControlResult(invariant.run);
+      }
+
       yield* startTaskExecutionCommand(input);
       return asControlResult(yield* getRunById(run.runId));
     });
@@ -1325,6 +1628,25 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
           "completeSwarmTaskExecution",
           `Swarm task execution '${input.executionId}' is not the active execution for run '${run.runId}'.`,
         );
+      }
+
+      const issue = yield* getIssueById({
+        operation: "completeSwarmTaskExecution:getIssue",
+        cwd: project.workspaceRoot,
+        issueId: execution.issueId,
+      });
+      if (!isClosedIssueStatus(issue.status)) {
+        const reason = describeIssueNotClosedForCompletedExecution({
+          issueId: execution.issueId,
+          currentStatus: issue.status,
+          workerThreadId: execution.workerThreadId,
+        });
+        yield* failSwarmTaskExecution({
+          runId: run.runId,
+          executionId: execution.executionId,
+          reason,
+        });
+        return asControlResult(yield* getRunById(run.runId));
       }
 
       yield* syncIssueForExecutionSettlement({
@@ -1376,6 +1698,7 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
             blockedCount: trackerState.status.blocked.length,
             activeCount: trackerState.status.active.length,
           }),
+          trackerWaitingBlockedContext(),
         );
         return asControlResult(yield* getRunById(updatedRun.runId));
       }
@@ -1405,7 +1728,15 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         reason: input.reason,
       });
       yield* failTaskExecutionCommand(input);
-      yield* failRun(run.runId, input.reason);
+      yield* blockRun(
+        run.runId,
+        input.reason,
+        workerFailureBlockedContext({
+          issueId: execution.issueId,
+          executionId: execution.executionId,
+          ...(execution.workerThreadId ? { workerThreadId: execution.workerThreadId } : {}),
+        }),
+      );
       return asControlResult(yield* getRunById(run.runId));
     });
 

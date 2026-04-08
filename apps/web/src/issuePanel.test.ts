@@ -68,6 +68,7 @@ function makeSwarmRun(overrides: Partial<OrchestrationSwarmRun> = {}): Orchestra
     idledAt: null,
     pausedAt: null,
     blockedAt: null,
+    blockedContext: null,
     failedAt: null,
     cancelledAt: null,
     completedAt: null,
@@ -438,8 +439,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
-        status: { swarm: null },
-        validation: { valid: false, swarm: null },
+        status: { swarm: null, ready: [], active: [], blocked: [] },
+        validation: { valid: false, swarm: null, readyFronts: [] },
         swarmRuns: [],
         isSupportPending: false,
         isValidationPending: false,
@@ -467,6 +468,9 @@ describe("getEpicCoordinatorPrimaryAction", () => {
             blockedIssueCount: 1,
             activeWorkerCount: 0,
           },
+          ready: [],
+          active: [],
+          blocked: [],
         },
         validation: {
           valid: false,
@@ -481,6 +485,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
             blockedIssueCount: 1,
             activeWorkerCount: 0,
           },
+          readyFronts: [],
         },
         swarmRuns: [],
         isSupportPending: false,
@@ -497,7 +502,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
-        status: null,
+        status: { swarm: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
           swarm: {
@@ -511,6 +516,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
             blockedIssueCount: 0,
             activeWorkerCount: 0,
           },
+          readyFronts: [],
         },
         swarmRuns: [],
         isSupportPending: false,
@@ -527,7 +533,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
-        status: null,
+        status: { swarm: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
           swarm: {
@@ -541,8 +547,226 @@ describe("getEpicCoordinatorPrimaryAction", () => {
             blockedIssueCount: 0,
             activeWorkerCount: 0,
           },
+          readyFronts: [],
         },
         swarmRuns: [makeSwarmRun({ status: "completed" })],
+        isSupportPending: false,
+        isValidationPending: false,
+      }),
+    ).toEqual({
+      kind: "open_coordinator",
+      label: "Open coordinator",
+      disabled: false,
+    });
+  });
+
+  it("returns Continue swarm for recoverable blocked worker failures when tracker state can advance", () => {
+    expect(
+      getEpicCoordinatorPrimaryAction({
+        swarmSupport: { supported: true },
+        status: {
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 1,
+            blockedIssueCount: 0,
+            activeWorkerCount: 0,
+          },
+          ready: [
+            {
+              id: "TASK-2",
+              title: "Task 2",
+              status: "open",
+              priority: 2,
+              issueType: "task",
+              assignee: null,
+              owner: null,
+              parent: null,
+            },
+          ],
+          active: [],
+          blocked: [],
+        },
+        validation: {
+          valid: true,
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 1,
+            blockedIssueCount: 0,
+            activeWorkerCount: 0,
+          },
+          readyFronts: [
+            [
+              {
+                id: "TASK-2",
+                title: "Task 2",
+                status: "open",
+                priority: 2,
+                issueType: "task",
+                assignee: null,
+                owner: null,
+                parent: null,
+              },
+            ],
+          ],
+        },
+        swarmRuns: [
+          makeSwarmRun({
+            status: "blocked",
+            blockedAt: "2026-01-01T00:02:00.000Z",
+            blockedContext: {
+              kind: "worker_failure",
+              issueId: "TASK-1",
+              executionId: "execution-1" as never,
+              workerThreadId: ThreadId.makeUnsafe("thread-worker"),
+            },
+          }),
+        ],
+        isSupportPending: false,
+        isValidationPending: false,
+      }),
+    ).toEqual({
+      kind: "continue_swarm",
+      label: "Continue swarm",
+      disabled: false,
+    });
+  });
+
+  it("disables Continue swarm while tracker state is still blocked after a worker failure", () => {
+    expect(
+      getEpicCoordinatorPrimaryAction({
+        swarmSupport: { supported: true },
+        status: {
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 0,
+            blockedIssueCount: 1,
+            activeWorkerCount: 0,
+          },
+          ready: [],
+          active: [],
+          blocked: [
+            {
+              id: "TASK-1",
+              title: "Task 1",
+              status: "open",
+              priority: 1,
+              issueType: "task",
+              assignee: null,
+              owner: null,
+              parent: null,
+            },
+          ],
+        },
+        validation: {
+          valid: true,
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 0,
+            blockedIssueCount: 1,
+            activeWorkerCount: 0,
+          },
+          readyFronts: [],
+        },
+        swarmRuns: [
+          makeSwarmRun({
+            status: "blocked",
+            blockedAt: "2026-01-01T00:02:00.000Z",
+            blockedContext: {
+              kind: "worker_failure",
+              issueId: "TASK-1",
+              executionId: "execution-1" as never,
+              workerThreadId: ThreadId.makeUnsafe("thread-worker"),
+            },
+          }),
+        ],
+        isSupportPending: false,
+        isValidationPending: false,
+      }),
+    ).toEqual({
+      kind: "continue_swarm",
+      label: "Continue swarm",
+      disabled: true,
+    });
+  });
+
+  it("keeps Open coordinator for generic tracker-blocked runs", () => {
+    expect(
+      getEpicCoordinatorPrimaryAction({
+        swarmSupport: { supported: true },
+        status: {
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 0,
+            blockedIssueCount: 1,
+            activeWorkerCount: 0,
+          },
+          ready: [],
+          active: [],
+          blocked: [
+            {
+              id: "TASK-9",
+              title: "Task 9",
+              status: "open",
+              priority: 9,
+              issueType: "task",
+              assignee: null,
+              owner: null,
+              parent: null,
+            },
+          ],
+        },
+        validation: {
+          valid: true,
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 0,
+            blockedIssueCount: 1,
+            activeWorkerCount: 0,
+          },
+          readyFronts: [],
+        },
+        swarmRuns: [
+          makeSwarmRun({
+            status: "blocked",
+            blockedAt: "2026-01-01T00:02:00.000Z",
+            blockedContext: {
+              kind: "tracker_waiting",
+              issueId: null,
+              executionId: null,
+              workerThreadId: null,
+            },
+          }),
+        ],
         isSupportPending: false,
         isValidationPending: false,
       }),

@@ -664,8 +664,8 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
 
       const { manager } = yield* makeManager({
         ghScenario: {
-          prListSequence: [
-            JSON.stringify([
+          prListByHeadSelector: {
+            "feature/status-open-pr": JSON.stringify([
               {
                 number: 13,
                 title: "Existing PR",
@@ -674,7 +674,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
                 headRefName: "feature/status-open-pr",
               },
             ]),
-          ],
+          },
         },
       });
 
@@ -709,9 +709,11 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         isDefaultBranch: false,
         branch: null,
         hasWorkingTreeChanges: false,
+        workingTree: { files: [], insertions: 0, deletions: 0 },
         hasUpstream: false,
         aheadCount: 0,
         behindCount: 0,
+        pr: null,
       });
     }),
   );

@@ -2,6 +2,7 @@ import type {
   AssistantDeliveryMode,
   BeadsIssueDetail,
   BeadsIssueSummary,
+  BeadsIssueRelationSummary,
   BeadsSwarmStatus,
   BeadsSwarmSummary,
   BeadsSwarmSupport,
@@ -16,6 +17,7 @@ import type {
   ServerProvider,
   ThreadId,
 } from "@t3tools/contracts";
+import { selectDeterministicReadyIssue } from "@t3tools/shared/swarm";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate } from "@tanstack/react-router";
@@ -555,13 +557,13 @@ function describeCoordinatorState(kind: ReturnType<typeof deriveEpicCoordinatorS
       return {
         label: "Blocked",
         variant: "destructive",
-        copy: "The current swarm run is blocked and needs attention.",
+        copy: "The current swarm run is blocked and needs attention before it can continue.",
       };
     case "failed":
       return {
         label: "Failed",
         variant: "destructive",
-        copy: "The latest swarm run failed. Review the error and history before retrying.",
+        copy: "The latest swarm run failed due to a fatal coordinator or configuration problem.",
       };
     case "cancelled":
       return {
@@ -588,6 +590,38 @@ function describeCoordinatorState(kind: ReturnType<typeof deriveEpicCoordinatorS
         copy: "Checking swarm state...",
       };
   }
+}
+
+function isRecoverableWorkerFailureRun(run: OrchestrationSwarmRun | null): boolean {
+  return run?.status === "blocked" && run.blockedContext?.kind === "worker_failure";
+}
+
+function selectRecoverableNextReadyIssue(input: {
+  validation: BeadsSwarmValidation | null;
+  status: BeadsSwarmStatus | null;
+}): BeadsIssueRelationSummary | null {
+  return selectDeterministicReadyIssue({
+    validation: input.validation,
+    status: input.status,
+  });
+}
+
+function canRecoverableWorkerFailureRunContinue(input: {
+  run: OrchestrationSwarmRun | null;
+  validation: BeadsSwarmValidation | null;
+  status: BeadsSwarmStatus | null;
+}): boolean {
+  if (!isRecoverableWorkerFailureRun(input.run)) {
+    return false;
+  }
+
+  if (selectRecoverableNextReadyIssue(input) !== null) {
+    return true;
+  }
+
+  return (
+    input.status !== null && input.status.active.length === 0 && input.status.blocked.length === 0
+  );
 }
 
 function formatSwarmSchedulerMode(mode: OrchestrationSwarmRun["schedulerMode"]): string {
@@ -701,15 +735,28 @@ function EpicSwarmStatusOverviewSection(props: {
   swarmSupportError: Error | null;
   swarmValidationError: Error | null;
   swarmStatusError: Error | null;
+  refreshPending: boolean;
+  onRefreshSwarmStatus: () => void;
 }) {
   const swarmSummary = props.swarmValidation?.swarm ?? props.swarmStatus?.swarm ?? null;
   const state = describeCoordinatorState(props.coordinatorState.kind);
 
   return (
     <section className="space-y-2">
-      <h3 className="font-medium text-xs uppercase tracking-wide text-muted-foreground">
-        Swarm status
-      </h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="font-medium text-xs uppercase tracking-wide text-muted-foreground">
+          Swarm status
+        </h3>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={props.refreshPending}
+          onClick={props.onRefreshSwarmStatus}
+        >
+          {props.refreshPending ? "Refreshing..." : "Refresh swarm status"}
+        </Button>
+      </div>
       <div className="rounded-xl border border-border/60 bg-muted/10 p-4">
         {props.swarmSupportPending ? (
           <p className="text-sm text-muted-foreground">Loading swarm support...</p>
@@ -1053,6 +1100,7 @@ function CoordinatorEpicCard(props: {
   onRepairSwarm: (epicId: string) => void;
   onOpenStartSwarm: (card: CoordinatorCardData) => void;
   onContinueRun: (runId: OrchestrationSwarmRun["runId"]) => void;
+  onRefreshSwarmStatus: (epicId: string) => void;
   onPauseRun: (runId: OrchestrationSwarmRun["runId"]) => void;
   onResumeRun: (runId: OrchestrationSwarmRun["runId"]) => void;
   onCancelRun: (runId: OrchestrationSwarmRun["runId"]) => void;
@@ -1064,9 +1112,18 @@ function CoordinatorEpicCard(props: {
   const readyPreviews = props.card.status?.ready.slice(0, 3) ?? [];
   const latestFailure = latestRun?.lastError ?? props.card.activeExecution?.lastError ?? null;
   const activeWorkerThreadId = props.card.activeExecution?.workerThreadId ?? null;
+  const recoverableWorkerFailure = isRecoverableWorkerFailureRun(latestRun);
+  const recoverableContinueEnabled = canRecoverableWorkerFailureRunContinue({
+    run: latestRun,
+    validation: props.card.validation,
+    status: props.card.status,
+  });
+  const recoverableWorkerThreadId = latestRun?.blockedContext?.workerThreadId ?? null;
+  const recoverableIssueId = latestRun?.blockedContext?.issueId ?? null;
   const startActionKey = `start:${props.card.epic.epicId}`;
   const createActionKey = `create:${props.card.epic.epicId}`;
   const repairActionKey = `repair:${props.card.epic.epicId}`;
+  const refreshActionKey = `refresh:${props.card.epic.epicId}`;
   const continueActionKey = latestRun ? `continue:${latestRun.runId}` : null;
   const pauseActionKey = latestRun ? `pause:${latestRun.runId}` : null;
   const resumeActionKey = latestRun ? `resume:${latestRun.runId}` : null;
@@ -1212,6 +1269,60 @@ function CoordinatorEpicCard(props: {
                 />
               ))}
             </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {recoverableWorkerFailure && latestRun ? (
+        <div className="mt-3 rounded-lg border border-warning/30 bg-warning/5 p-3">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="space-y-1">
+              <p className="font-medium text-sm text-foreground">Recoverable worker failure</p>
+              <p className="text-sm text-muted-foreground">
+                A worker stopped before the swarm could finish this issue. Resolve the tracker
+                state, refresh, then continue the run.
+              </p>
+            </div>
+            {recoverableIssueId ? (
+              <Badge size="sm" variant="outline">
+                {recoverableIssueId}
+              </Badge>
+            ) : null}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={props.swarmActionKey === refreshActionKey}
+              onClick={() => props.onRefreshSwarmStatus(props.card.epic.epicId)}
+            >
+              {props.swarmActionKey === refreshActionKey ? "Refreshing..." : "Refresh status"}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={props.swarmActionKey === continueActionKey || !recoverableContinueEnabled}
+              onClick={() => props.onContinueRun(latestRun.runId)}
+            >
+              {props.swarmActionKey === continueActionKey ? "Continuing..." : "Continue"}
+            </Button>
+            {recoverableWorkerThreadId ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => props.onOpenWorkerThread(recoverableWorkerThreadId)}
+              >
+                Open failed worker
+              </Button>
+            ) : null}
+          </div>
+          {!recoverableContinueEnabled ? (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Close or otherwise unblock the failed issue in Beads, then refresh swarm status to
+              continue.
+            </p>
           ) : null}
         </div>
       ) : null}
@@ -1446,6 +1557,7 @@ function ProjectCoordinatorContent(props: {
   onRepairSwarm: (epicId: string) => void;
   onOpenStartSwarm: (card: CoordinatorCardData) => void;
   onContinueRun: (runId: OrchestrationSwarmRun["runId"]) => void;
+  onRefreshSwarmStatus: (epicId: string) => void;
   onPauseRun: (runId: OrchestrationSwarmRun["runId"]) => void;
   onResumeRun: (runId: OrchestrationSwarmRun["runId"]) => void;
   onCancelRun: (runId: OrchestrationSwarmRun["runId"]) => void;
@@ -1507,6 +1619,7 @@ function ProjectCoordinatorContent(props: {
                     onRepairSwarm={props.onRepairSwarm}
                     onOpenStartSwarm={props.onOpenStartSwarm}
                     onContinueRun={props.onContinueRun}
+                    onRefreshSwarmStatus={props.onRefreshSwarmStatus}
                     onPauseRun={props.onPauseRun}
                     onResumeRun={props.onResumeRun}
                     onCancelRun={props.onCancelRun}
@@ -1537,6 +1650,7 @@ function ProjectCoordinatorContent(props: {
                     onRepairSwarm={props.onRepairSwarm}
                     onOpenStartSwarm={props.onOpenStartSwarm}
                     onContinueRun={props.onContinueRun}
+                    onRefreshSwarmStatus={props.onRefreshSwarmStatus}
                     onPauseRun={props.onPauseRun}
                     onResumeRun={props.onResumeRun}
                     onCancelRun={props.onCancelRun}
@@ -1567,6 +1681,7 @@ function ProjectCoordinatorContent(props: {
                     onRepairSwarm={props.onRepairSwarm}
                     onOpenStartSwarm={props.onOpenStartSwarm}
                     onContinueRun={props.onContinueRun}
+                    onRefreshSwarmStatus={props.onRefreshSwarmStatus}
                     onPauseRun={props.onPauseRun}
                     onResumeRun={props.onResumeRun}
                     onCancelRun={props.onCancelRun}
@@ -1604,6 +1719,8 @@ function IssueOverviewContent(props: {
   swarmSupportError: Error | null;
   swarmValidationError: Error | null;
   swarmStatusError: Error | null;
+  swarmRefreshPending: boolean;
+  onRefreshSwarmStatus: () => void;
 }) {
   const [commentsExpanded, setCommentsExpanded] = useState(false);
   const [historyExpanded, setHistoryExpanded] = useState(false);
@@ -1693,6 +1810,8 @@ function IssueOverviewContent(props: {
             swarmSupportError={props.swarmSupportError}
             swarmValidationError={props.swarmValidationError}
             swarmStatusError={props.swarmStatusError}
+            refreshPending={props.swarmRefreshPending}
+            onRefreshSwarmStatus={props.onRefreshSwarmStatus}
           />
           <LatestPlannedRefineSection
             latestPlannedRefine={props.latestPlannedRefine}
@@ -1835,6 +1954,8 @@ function IssueDetailDialog(props: {
   swarmSupportError: Error | null;
   swarmValidationError: Error | null;
   swarmStatusError: Error | null;
+  swarmRefreshPending: boolean;
+  onRefreshSwarmStatus: () => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
@@ -1859,6 +1980,7 @@ function IssueDetailDialog(props: {
   activeWorkflow: CoordinatorWorkflowAction;
   epicPrimaryActionLabel: string;
   epicPrimaryActionDisabled: boolean;
+  epicPrimaryActionBusy: boolean;
   latestPlannedRefine: {
     threadId: ThreadId;
     threadTitle: string;
@@ -1929,6 +2051,8 @@ function IssueDetailDialog(props: {
               swarmSupportError={props.swarmSupportError}
               swarmValidationError={props.swarmValidationError}
               swarmStatusError={props.swarmStatusError}
+              swarmRefreshPending={props.swarmRefreshPending}
+              onRefreshSwarmStatus={props.onRefreshSwarmStatus}
             />
           ) : (
             <p className="text-sm text-muted-foreground">Issue details are unavailable.</p>
@@ -1960,14 +2084,20 @@ function IssueDetailDialog(props: {
                 </Button>
                 <Button
                   type="button"
-                  disabled={props.workflowActionsDisabled || props.epicPrimaryActionDisabled}
+                  disabled={
+                    props.workflowActionsDisabled ||
+                    props.epicPrimaryActionDisabled ||
+                    props.epicPrimaryActionBusy
+                  }
                   onClick={props.onTriggerEpicPrimaryAction}
                 >
-                  {props.workflowActionsBusy &&
-                  (props.activeWorkflow === "solve" ||
-                    props.activeWorkflow === "plan_implementation")
-                    ? "Starting..."
-                    : props.epicPrimaryActionLabel}
+                  {props.epicPrimaryActionBusy
+                    ? "Continuing..."
+                    : props.workflowActionsBusy &&
+                        (props.activeWorkflow === "solve" ||
+                          props.activeWorkflow === "plan_implementation")
+                      ? "Starting..."
+                      : props.epicPrimaryActionLabel}
                 </Button>
               </>
             ) : showBasicWorkflowActions ? (
@@ -2369,6 +2499,12 @@ export function IssuesPanel({
     isSupportPending: selectedIssueIsEpic ? swarmSupportQuery.isPending : false,
     isValidationPending: selectedIssueIsEpic ? swarmValidationQuery.isPending : false,
   });
+  const epicPrimaryActionBusy =
+    selectedIssueIsEpic &&
+    epicPrimaryAction.kind === "continue_swarm" &&
+    epicCoordinatorState.latestRun !== null
+      ? swarmActionKey === `continue:${epicCoordinatorState.latestRun.runId}`
+      : false;
   const openLinkedThread = async (threadId: ThreadId) => {
     closeSelectedIssue();
     await navigate({
@@ -2472,6 +2608,47 @@ export function IssuesPanel({
 
   const invalidateCoordinatorQueries = async () => {
     await queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
+  };
+
+  const refreshEpicSwarmStatus = async (epicIssueId: string) => {
+    if (!cwd) {
+      return;
+    }
+
+    const actionKey = `refresh:${epicIssueId}`;
+    setSwarmActionKey(actionKey);
+    try {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: beadsQueryKeys.epicSwarmValidation(cwd, epicIssueId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: beadsQueryKeys.epicSwarmStatus(cwd, epicIssueId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: beadsQueryKeys.issue(cwd, epicIssueId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["beads", "issues", cwd],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: beadsQueryKeys.swarms({ cwd }),
+        }),
+      ]);
+      toastManager.add({
+        type: "success",
+        title: "Swarm status refreshed",
+        description: `Reloaded tracker state for ${epicIssueId}.`,
+      });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Refresh failed",
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+    } finally {
+      setSwarmActionKey((current) => (current === actionKey ? null : current));
+    }
   };
 
   const openStartSwarmDialog = (input: {
@@ -2833,6 +3010,9 @@ export function IssuesPanel({
             onContinueRun={(runId) => {
               void continueSwarmRun(runId);
             }}
+            onRefreshSwarmStatus={(epicId) => {
+              void refreshEpicSwarmStatus(epicId);
+            }}
             onPauseRun={(runId) => {
               void pauseSwarmRun(runId);
             }}
@@ -2925,6 +3105,14 @@ export function IssuesPanel({
             return;
           }
 
+          if (
+            epicPrimaryAction.kind === "continue_swarm" &&
+            epicCoordinatorState.latestRun !== null
+          ) {
+            void continueSwarmRun(epicCoordinatorState.latestRun.runId);
+            return;
+          }
+
           if (epicPrimaryAction.kind === "open_coordinator") {
             openCoordinator();
           }
@@ -2940,7 +3128,16 @@ export function IssuesPanel({
         activeWorkflow={activeWorkflow}
         epicPrimaryActionLabel={selectedIssueIsEpic ? epicPrimaryAction.label : "Implement"}
         epicPrimaryActionDisabled={selectedIssueIsEpic ? epicPrimaryAction.disabled : false}
+        epicPrimaryActionBusy={epicPrimaryActionBusy}
         latestPlannedRefine={selectedIssueIsEpic ? latestPlannedRefine : null}
+        swarmRefreshPending={
+          selectedEpicIssueId !== null && swarmActionKey === `refresh:${selectedEpicIssueId}`
+        }
+        onRefreshSwarmStatus={() => {
+          if (selectedEpicIssueId !== null) {
+            void refreshEpicSwarmStatus(selectedEpicIssueId);
+          }
+        }}
       />
 
       <StartSwarmRunDialog

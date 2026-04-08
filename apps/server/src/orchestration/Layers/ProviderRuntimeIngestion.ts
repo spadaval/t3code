@@ -150,6 +150,42 @@ function orchestrationSessionStatusFromRuntimeState(
   }
 }
 
+function lastErrorFromSessionLifecycleEvent(input: {
+  readonly event: ProviderRuntimeEvent;
+  readonly activeTurnId: TurnId | null;
+  readonly previousLastError: string | null;
+}): string | null {
+  const { event, activeTurnId, previousLastError } = input;
+
+  if (event.type === "turn.completed") {
+    return normalizeRuntimeTurnState(event.payload.state) === "failed"
+      ? (event.payload.errorMessage ?? previousLastError ?? "Turn failed")
+      : null;
+  }
+
+  if (event.type === "session.state.changed") {
+    if (event.payload.state === "ready") {
+      return null;
+    }
+
+    if (event.payload.state === "error") {
+      return event.payload.reason ?? previousLastError ?? "Provider session error";
+    }
+
+    if (event.payload.state === "stopped" && activeTurnId !== null) {
+      return event.payload.reason ?? previousLastError ?? null;
+    }
+
+    return previousLastError ?? null;
+  }
+
+  if (event.type === "session.exited") {
+    return activeTurnId !== null ? (event.payload.reason ?? previousLastError ?? null) : null;
+  }
+
+  return previousLastError ?? null;
+}
+
 function requestKindFromCanonicalRequestType(
   requestType: string | undefined,
 ): "command" | "file-read" | "file-change" | undefined {
@@ -968,15 +1004,11 @@ const make = Effect.fn("make")(function* () {
             return activeTurnId !== null ? "running" : "ready";
         }
       })();
-      const lastError =
-        event.type === "session.state.changed" && event.payload.state === "error"
-          ? (event.payload.reason ?? thread.session?.lastError ?? "Provider session error")
-          : event.type === "turn.completed" &&
-              normalizeRuntimeTurnState(event.payload.state) === "failed"
-            ? (event.payload.errorMessage ?? thread.session?.lastError ?? "Turn failed")
-            : status === "ready"
-              ? null
-              : (thread.session?.lastError ?? null);
+      const lastError = lastErrorFromSessionLifecycleEvent({
+        event,
+        activeTurnId,
+        previousLastError: thread.session?.lastError ?? null,
+      });
 
       if (shouldApplyThreadLifecycle) {
         if (event.type === "turn.started" && acceptedTurnStartedSourcePlan !== null) {

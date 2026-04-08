@@ -7,6 +7,7 @@ import type {
   OrchestrationSwarmRun,
   ThreadId,
 } from "@t3tools/contracts";
+import { selectDeterministicReadyIssue } from "@t3tools/shared/swarm";
 
 export interface EpicGroup {
   readonly key: string;
@@ -59,6 +60,7 @@ export interface EpicCoordinatorPrimaryAction {
     | "create_swarm"
     | "repair_swarm"
     | "start_swarm"
+    | "continue_swarm"
     | "open_coordinator";
   readonly label: string;
   readonly disabled: boolean;
@@ -256,13 +258,31 @@ export function deriveEpicCoordinatorState(input: {
 
 export function getEpicCoordinatorPrimaryAction(input: {
   readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
-  readonly status: Pick<BeadsSwarmStatus, "swarm"> | null;
-  readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm"> | null;
+  readonly status: Pick<BeadsSwarmStatus, "swarm" | "ready" | "active" | "blocked"> | null;
+  readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm" | "readyFronts"> | null;
   readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
   readonly isSupportPending: boolean;
   readonly isValidationPending: boolean;
 }): EpicCoordinatorPrimaryAction {
   const state = deriveEpicCoordinatorState(input);
+  const latestRun = state.latestRun;
+  const recoverableWorkerFailureRun =
+    latestRun?.status === "blocked" && latestRun.blockedContext?.kind === "worker_failure";
+  const canContinueRecoverableRun =
+    recoverableWorkerFailureRun &&
+    input.swarmSupport?.supported === true &&
+    input.validation?.valid === true &&
+    (() => {
+      const nextReadyIssue = selectDeterministicReadyIssue({
+        validation: input.validation,
+        status: input.status,
+      });
+      if (nextReadyIssue !== null) {
+        return true;
+      }
+
+      return (input.status?.active.length ?? 0) === 0 && (input.status?.blocked.length ?? 0) === 0;
+    })();
 
   switch (state.kind) {
     case "checking":
@@ -299,6 +319,17 @@ export function getEpicCoordinatorPrimaryAction(input: {
     case "idle":
     case "paused":
     case "blocked":
+      return recoverableWorkerFailureRun
+        ? {
+            kind: "continue_swarm",
+            label: "Continue swarm",
+            disabled: !canContinueRecoverableRun,
+          }
+        : {
+            kind: "open_coordinator",
+            label: "Open coordinator",
+            disabled: false,
+          };
     case "failed":
     case "cancelled":
     case "completed":

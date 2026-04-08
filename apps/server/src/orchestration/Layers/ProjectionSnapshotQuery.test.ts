@@ -486,6 +486,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           idledAt: null,
           pausedAt: null,
           blockedAt: null,
+          blockedContext: null,
           failedAt: null,
           cancelledAt: null,
           completedAt: null,

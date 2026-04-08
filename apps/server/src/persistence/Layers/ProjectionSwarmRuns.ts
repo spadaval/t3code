@@ -1,9 +1,13 @@
 import {
   AssistantDeliveryMode,
+  OrchestrationSwarmRunBlockedKind,
   ProviderModelOptions,
   ProviderStartOptions,
+  SwarmTaskExecutionId,
+  ThreadId,
+  TrimmedNonEmptyString,
 } from "@t3tools/contracts";
-import { Effect, Layer, Schema, Struct } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
@@ -15,13 +19,83 @@ import {
   type ProjectionSwarmRunRepositoryShape,
 } from "../Services/ProjectionSwarmRuns.ts";
 
-const ProjectionSwarmRunDbRowSchema = ProjectionSwarmRun.mapFields(
-  Struct.assign({
-    modelOptions: Schema.NullOr(Schema.fromJsonString(ProviderModelOptions)),
-    providerOptions: Schema.NullOr(Schema.fromJsonString(ProviderStartOptions)),
-    assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
-  }),
-);
+const ProjectionSwarmRunDbRowSchema = Schema.Struct({
+  runId: ProjectionSwarmRun.fields.runId,
+  projectId: ProjectionSwarmRun.fields.projectId,
+  epicIssueId: ProjectionSwarmRun.fields.epicIssueId,
+  swarmId: ProjectionSwarmRun.fields.swarmId,
+  status: ProjectionSwarmRun.fields.status,
+  schedulerMode: ProjectionSwarmRun.fields.schedulerMode,
+  workspaceMode: ProjectionSwarmRun.fields.workspaceMode,
+  provider: ProjectionSwarmRun.fields.provider,
+  model: ProjectionSwarmRun.fields.model,
+  modelOptions: Schema.NullOr(Schema.fromJsonString(ProviderModelOptions)),
+  providerOptions: Schema.NullOr(Schema.fromJsonString(ProviderStartOptions)),
+  assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
+  runtimeMode: ProjectionSwarmRun.fields.runtimeMode,
+  activeTaskExecutionId: ProjectionSwarmRun.fields.activeTaskExecutionId,
+  latestTaskExecutionId: ProjectionSwarmRun.fields.latestTaskExecutionId,
+  lastError: ProjectionSwarmRun.fields.lastError,
+  requestedAt: ProjectionSwarmRun.fields.requestedAt,
+  startedAt: ProjectionSwarmRun.fields.startedAt,
+  idledAt: ProjectionSwarmRun.fields.idledAt,
+  pausedAt: ProjectionSwarmRun.fields.pausedAt,
+  blockedAt: ProjectionSwarmRun.fields.blockedAt,
+  blockedKind: Schema.NullOr(OrchestrationSwarmRunBlockedKind),
+  blockedExecutionId: Schema.NullOr(SwarmTaskExecutionId),
+  blockedIssueId: Schema.NullOr(TrimmedNonEmptyString),
+  blockedWorkerThreadId: Schema.NullOr(ThreadId),
+  failedAt: ProjectionSwarmRun.fields.failedAt,
+  cancelledAt: ProjectionSwarmRun.fields.cancelledAt,
+  completedAt: ProjectionSwarmRun.fields.completedAt,
+  updatedAt: ProjectionSwarmRun.fields.updatedAt,
+});
+
+type ProjectionSwarmRunDbRow = typeof ProjectionSwarmRunDbRowSchema.Type;
+
+function toBlockedContext(row: ProjectionSwarmRunDbRow): ProjectionSwarmRun["blockedContext"] {
+  if (row.blockedKind === null) {
+    return null;
+  }
+
+  return {
+    kind: row.blockedKind,
+    issueId: row.blockedIssueId,
+    executionId: row.blockedExecutionId,
+    workerThreadId: row.blockedWorkerThreadId,
+  };
+}
+
+function toProjectionSwarmRun(row: ProjectionSwarmRunDbRow): ProjectionSwarmRun {
+  return {
+    runId: row.runId,
+    projectId: row.projectId,
+    epicIssueId: row.epicIssueId,
+    swarmId: row.swarmId,
+    status: row.status,
+    schedulerMode: row.schedulerMode,
+    workspaceMode: row.workspaceMode,
+    provider: row.provider,
+    model: row.model,
+    modelOptions: row.modelOptions,
+    providerOptions: row.providerOptions,
+    assistantDeliveryMode: row.assistantDeliveryMode,
+    runtimeMode: row.runtimeMode,
+    activeTaskExecutionId: row.activeTaskExecutionId,
+    latestTaskExecutionId: row.latestTaskExecutionId,
+    lastError: row.lastError,
+    requestedAt: row.requestedAt,
+    startedAt: row.startedAt,
+    idledAt: row.idledAt,
+    pausedAt: row.pausedAt,
+    blockedAt: row.blockedAt,
+    blockedContext: toBlockedContext(row),
+    failedAt: row.failedAt,
+    cancelledAt: row.cancelledAt,
+    completedAt: row.completedAt,
+    updatedAt: row.updatedAt,
+  };
+}
 
 const makeProjectionSwarmRunRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -52,6 +126,10 @@ const makeProjectionSwarmRunRepository = Effect.gen(function* () {
           idled_at,
           paused_at,
           blocked_at,
+          blocked_kind,
+          blocked_execution_id,
+          blocked_issue_id,
+          blocked_worker_thread_id,
           failed_at,
           cancelled_at,
           completed_at,
@@ -79,6 +157,10 @@ const makeProjectionSwarmRunRepository = Effect.gen(function* () {
           ${row.idledAt},
           ${row.pausedAt},
           ${row.blockedAt},
+          ${row.blockedContext?.kind ?? null},
+          ${row.blockedContext?.executionId ?? null},
+          ${row.blockedContext?.issueId ?? null},
+          ${row.blockedContext?.workerThreadId ?? null},
           ${row.failedAt},
           ${row.cancelledAt},
           ${row.completedAt},
@@ -106,6 +188,10 @@ const makeProjectionSwarmRunRepository = Effect.gen(function* () {
           idled_at = excluded.idled_at,
           paused_at = excluded.paused_at,
           blocked_at = excluded.blocked_at,
+          blocked_kind = excluded.blocked_kind,
+          blocked_execution_id = excluded.blocked_execution_id,
+          blocked_issue_id = excluded.blocked_issue_id,
+          blocked_worker_thread_id = excluded.blocked_worker_thread_id,
           failed_at = excluded.failed_at,
           cancelled_at = excluded.cancelled_at,
           completed_at = excluded.completed_at,
@@ -140,6 +226,10 @@ const makeProjectionSwarmRunRepository = Effect.gen(function* () {
           idled_at AS "idledAt",
           paused_at AS "pausedAt",
           blocked_at AS "blockedAt",
+          blocked_kind AS "blockedKind",
+          blocked_execution_id AS "blockedExecutionId",
+          blocked_issue_id AS "blockedIssueId",
+          blocked_worker_thread_id AS "blockedWorkerThreadId",
           failed_at AS "failedAt",
           cancelled_at AS "cancelledAt",
           completed_at AS "completedAt",
@@ -176,6 +266,10 @@ const makeProjectionSwarmRunRepository = Effect.gen(function* () {
           idled_at AS "idledAt",
           paused_at AS "pausedAt",
           blocked_at AS "blockedAt",
+          blocked_kind AS "blockedKind",
+          blocked_execution_id AS "blockedExecutionId",
+          blocked_issue_id AS "blockedIssueId",
+          blocked_worker_thread_id AS "blockedWorkerThreadId",
           failed_at AS "failedAt",
           cancelled_at AS "cancelledAt",
           completed_at AS "completedAt",
@@ -192,11 +286,13 @@ const makeProjectionSwarmRunRepository = Effect.gen(function* () {
 
   const getById: ProjectionSwarmRunRepositoryShape["getById"] = (input) =>
     getRow(input).pipe(
+      Effect.map(Option.map(toProjectionSwarmRun)),
       Effect.mapError(toPersistenceSqlError("ProjectionSwarmRunRepository.getById:query")),
     );
 
   const listAll: ProjectionSwarmRunRepositoryShape["listAll"] = () =>
     listRows(undefined).pipe(
+      Effect.map((rows) => rows.map(toProjectionSwarmRun)),
       Effect.mapError(toPersistenceSqlError("ProjectionSwarmRunRepository.listAll:query")),
     );
 

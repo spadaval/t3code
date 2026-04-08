@@ -1176,6 +1176,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         idledAt: null,
         pausedAt: null,
         blockedAt: null,
+        blockedContext: null,
         failedAt: null,
         cancelledAt: null,
         completedAt: null,
@@ -1202,6 +1203,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
           status: "running",
           startedAt: event.payload.startedAt,
           lastError: null,
+          blockedContext: null,
           updatedAt: event.payload.updatedAt,
         })),
       };
@@ -1215,6 +1217,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
           activeTaskExecutionId: null,
           idledAt: event.payload.idledAt,
           lastError: null,
+          blockedContext: null,
           updatedAt: event.payload.updatedAt,
         })),
       };
@@ -1228,6 +1231,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
           activeTaskExecutionId: null,
           pausedAt: event.payload.pausedAt,
           lastError: null,
+          blockedContext: null,
           updatedAt: event.payload.updatedAt,
         })),
       };
@@ -1239,6 +1243,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
           ...run,
           status: "running",
           lastError: null,
+          blockedContext: null,
           updatedAt: event.payload.updatedAt,
         })),
       };
@@ -1252,6 +1257,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
           activeTaskExecutionId: null,
           lastError: event.payload.reason,
           blockedAt: event.payload.blockedAt,
+          blockedContext: event.payload.blockedContext,
           updatedAt: event.payload.updatedAt,
         })),
       };
@@ -1264,6 +1270,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
           status: "failed",
           activeTaskExecutionId: null,
           lastError: event.payload.reason,
+          blockedContext: null,
           failedAt: event.payload.failedAt,
           updatedAt: event.payload.updatedAt,
         })),
@@ -1277,6 +1284,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
           status: "cancelled",
           activeTaskExecutionId: null,
           lastError: null,
+          blockedContext: null,
           cancelledAt: event.payload.cancelledAt,
           updatedAt: event.payload.updatedAt,
         })),
@@ -1290,6 +1298,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
           status: "completed",
           activeTaskExecutionId: null,
           lastError: null,
+          blockedContext: null,
           completedAt: event.payload.completedAt,
           updatedAt: event.payload.updatedAt,
         })),

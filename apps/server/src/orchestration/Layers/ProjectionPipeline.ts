@@ -763,6 +763,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             idledAt: null,
             pausedAt: null,
             blockedAt: null,
+            blockedContext: null,
             failedAt: null,
             cancelledAt: null,
             completedAt: null,
@@ -792,6 +793,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 status: "running",
                 startedAt: event.payload.startedAt,
                 lastError: null,
+                blockedContext: null,
                 updatedAt: event.payload.updatedAt,
               });
               return;
@@ -803,6 +805,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 activeTaskExecutionId: null,
                 idledAt: event.payload.idledAt,
                 lastError: null,
+                blockedContext: null,
                 updatedAt: event.payload.updatedAt,
               });
               return;
@@ -814,6 +817,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 activeTaskExecutionId: null,
                 pausedAt: event.payload.pausedAt,
                 lastError: null,
+                blockedContext: null,
                 updatedAt: event.payload.updatedAt,
               });
               return;
@@ -823,6 +827,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 ...existingRow.value,
                 status: "running",
                 lastError: null,
+                blockedContext: null,
                 updatedAt: event.payload.updatedAt,
               });
               return;
@@ -834,6 +839,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 activeTaskExecutionId: null,
                 lastError: event.payload.reason,
                 blockedAt: event.payload.blockedAt,
+                blockedContext: event.payload.blockedContext,
                 updatedAt: event.payload.updatedAt,
               });
               return;
@@ -844,6 +850,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 status: "failed",
                 activeTaskExecutionId: null,
                 lastError: event.payload.reason,
+                blockedContext: null,
                 failedAt: event.payload.failedAt,
                 updatedAt: event.payload.updatedAt,
               });
@@ -855,6 +862,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 status: "cancelled",
                 activeTaskExecutionId: null,
                 lastError: null,
+                blockedContext: null,
                 cancelledAt: event.payload.cancelledAt,
                 updatedAt: event.payload.updatedAt,
               });
@@ -866,6 +874,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 status: "completed",
                 activeTaskExecutionId: null,
                 lastError: null,
+                blockedContext: null,
                 completedAt: event.payload.completedAt,
                 updatedAt: event.payload.updatedAt,
               });

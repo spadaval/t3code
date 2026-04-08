@@ -971,6 +971,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           runId: command.runId,
           reason: command.reason,
           blockedAt: command.createdAt,
+          blockedContext: command.blockedContext,
           updatedAt: command.createdAt,
         },
       };

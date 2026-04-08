@@ -417,6 +417,20 @@ export const OrchestrationSwarmTaskExecutionStatus = Schema.Literals([
 export type OrchestrationSwarmTaskExecutionStatus =
   typeof OrchestrationSwarmTaskExecutionStatus.Type;
 
+export const OrchestrationSwarmRunBlockedKind = Schema.Literals([
+  "tracker_waiting",
+  "worker_failure",
+]);
+export type OrchestrationSwarmRunBlockedKind = typeof OrchestrationSwarmRunBlockedKind.Type;
+
+export const OrchestrationSwarmRunBlockedContext = Schema.Struct({
+  kind: OrchestrationSwarmRunBlockedKind,
+  issueId: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  executionId: Schema.NullOr(SwarmTaskExecutionId).pipe(Schema.withDecodingDefault(() => null)),
+  workerThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
+});
+export type OrchestrationSwarmRunBlockedContext = typeof OrchestrationSwarmRunBlockedContext.Type;
+
 export const OrchestrationSwarmRun = Schema.Struct({
   runId: SwarmRunId,
   projectId: ProjectId,
@@ -447,6 +461,9 @@ export const OrchestrationSwarmRun = Schema.Struct({
   idledAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
   pausedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
   blockedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  blockedContext: Schema.NullOr(OrchestrationSwarmRunBlockedContext).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   failedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
   cancelledAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
   completedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
@@ -899,6 +916,9 @@ const SwarmRunBlockCommand = Schema.Struct({
   commandId: CommandId,
   runId: SwarmRunId,
   reason: TrimmedNonEmptyString,
+  blockedContext: Schema.NullOr(OrchestrationSwarmRunBlockedContext).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   createdAt: IsoDateTime,
 });
 
@@ -1321,6 +1341,9 @@ export const SwarmRunBlockedPayload = Schema.Struct({
   runId: SwarmRunId,
   reason: TrimmedNonEmptyString,
   blockedAt: IsoDateTime,
+  blockedContext: Schema.NullOr(OrchestrationSwarmRunBlockedContext).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   updatedAt: IsoDateTime,
 });
 

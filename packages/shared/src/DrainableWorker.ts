@@ -44,11 +44,10 @@ export const makeDrainableWorker = <A, E, R>(
     );
     const outstanding = yield* Effect.tx(TxRef.make(0));
 
-    yield* TxQueue.take(queue).pipe(
-      Effect.tap((a) =>
-        Effect.ensuring(process(a), Effect.tx(TxRef.update(outstanding, (n) => n - 1))),
+    yield* Effect.tx(TxQueue.take(queue)).pipe(
+      Effect.flatMap((item) =>
+        Effect.ensuring(process(item), Effect.tx(TxRef.update(outstanding, (n) => n - 1))),
       ),
-      Effect.tx,
       Effect.forever,
       Effect.forkScoped,
     );

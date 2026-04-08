@@ -284,6 +284,7 @@ describe("store read model sync", () => {
           idledAt: null,
           pausedAt: null,
           blockedAt: null,
+          blockedContext: null,
           failedAt: null,
           cancelledAt: null,
           completedAt: null,
@@ -659,6 +660,72 @@ describe("incremental orchestration updates", () => {
         executionId: "execution-1",
         status: "failed",
         lastError: "worker exited",
+      }),
+    ]);
+  });
+
+  it("stores blocked worker-failure context and clears it when the run resumes", () => {
+    const state = makeState(makeThread());
+
+    const blocked = applyOrchestrationEvents(state, [
+      makeEvent("swarm-run.requested", {
+        runId: "run-1" as never,
+        projectId: ProjectId.makeUnsafe("project-1"),
+        epicIssueId: "EPIC-1",
+        swarmId: "SWARM-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        provider: "codex",
+        model: "gpt-5.4",
+        modelOptions: null,
+        providerOptions: null,
+        assistantDeliveryMode: null,
+        runtimeMode: "full-access",
+        requestedAt: "2026-04-06T00:00:00.000Z",
+        updatedAt: "2026-04-06T00:00:00.000Z",
+      }),
+      makeEvent("swarm-run.blocked", {
+        runId: "run-1" as never,
+        reason: "worker exited",
+        blockedContext: {
+          kind: "worker_failure",
+          issueId: "TASK-1",
+          executionId: "execution-1" as never,
+          workerThreadId: ThreadId.makeUnsafe("thread-1"),
+        },
+        blockedAt: "2026-04-06T00:00:01.000Z",
+        updatedAt: "2026-04-06T00:00:01.000Z",
+      }),
+    ]);
+
+    expect(blocked.swarmRuns).toEqual([
+      expect.objectContaining({
+        runId: "run-1",
+        status: "blocked",
+        lastError: "worker exited",
+        blockedContext: {
+          kind: "worker_failure",
+          issueId: "TASK-1",
+          executionId: "execution-1",
+          workerThreadId: ThreadId.makeUnsafe("thread-1"),
+        },
+      }),
+    ]);
+
+    const resumed = applyOrchestrationEvent(
+      blocked,
+      makeEvent("swarm-run.resumed", {
+        runId: "run-1" as never,
+        resumedAt: "2026-04-06T00:00:02.000Z",
+        updatedAt: "2026-04-06T00:00:02.000Z",
+      }),
+    );
+
+    expect(resumed.swarmRuns).toEqual([
+      expect.objectContaining({
+        runId: "run-1",
+        status: "running",
+        blockedContext: null,
       }),
     ]);
   });

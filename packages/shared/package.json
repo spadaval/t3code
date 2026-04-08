@@ -16,6 +16,10 @@
       "types": "./src/plan.ts",
       "import": "./src/plan.ts"
     },
+    "./swarm": {
+      "types": "./src/swarm.ts",
+      "import": "./src/swarm.ts"
+    },
     "./projectScripts": {
       "types": "./src/projectScripts.ts",
       "import": "./src/projectScripts.ts"

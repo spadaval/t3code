@@ -77,6 +77,7 @@ export function buildSwarmWorkerPrompt(input: {
     formatDependencies(input.issue.dependencies),
     "",
     "Implement this issue in the shared workspace.",
+    "When the issue is fully complete, close the Beads issue yourself to signal completion.",
     "Do not create a branch or worktree for this swarm worker.",
     "Keep Beads tracking aligned with the code work and summarize any follow-up items that should be recorded back into the tracker.",
   ];

@@ -7,9 +7,12 @@ import {
   OrchestrationProposedPlanId,
   OrchestrationPlanImplementationLaunchStatus,
   OrchestrationReadModel,
+  OrchestrationSwarmRunBlockedKind,
   ProviderModelOptions,
   ProviderStartOptions,
   ProjectScript,
+  SwarmTaskExecutionId,
+  TrimmedNonEmptyString,
   TurnId,
   type OrchestrationCheckpointSummary,
   type OrchestrationLatestTurn,
@@ -95,12 +98,37 @@ const ProjectionCheckpointDbRowSchema = ProjectionCheckpoint.mapFields(
     files: Schema.fromJsonString(Schema.Array(OrchestrationCheckpointFile)),
   }),
 );
-const ProjectionSwarmRunDbRowSchema = ProjectionSwarmRun.mapFields(
-  Struct.assign({
-    modelOptions: Schema.NullOr(Schema.fromJsonString(ProviderModelOptions)),
-    providerOptions: Schema.NullOr(Schema.fromJsonString(ProviderStartOptions)),
-  }),
-);
+const ProjectionSwarmRunDbRowSchema = Schema.Struct({
+  runId: ProjectionSwarmRun.fields.runId,
+  projectId: ProjectionSwarmRun.fields.projectId,
+  epicIssueId: ProjectionSwarmRun.fields.epicIssueId,
+  swarmId: ProjectionSwarmRun.fields.swarmId,
+  status: ProjectionSwarmRun.fields.status,
+  schedulerMode: ProjectionSwarmRun.fields.schedulerMode,
+  workspaceMode: ProjectionSwarmRun.fields.workspaceMode,
+  provider: ProjectionSwarmRun.fields.provider,
+  model: ProjectionSwarmRun.fields.model,
+  modelOptions: Schema.NullOr(Schema.fromJsonString(ProviderModelOptions)),
+  providerOptions: Schema.NullOr(Schema.fromJsonString(ProviderStartOptions)),
+  assistantDeliveryMode: ProjectionSwarmRun.fields.assistantDeliveryMode,
+  runtimeMode: ProjectionSwarmRun.fields.runtimeMode,
+  activeTaskExecutionId: ProjectionSwarmRun.fields.activeTaskExecutionId,
+  latestTaskExecutionId: ProjectionSwarmRun.fields.latestTaskExecutionId,
+  lastError: ProjectionSwarmRun.fields.lastError,
+  requestedAt: ProjectionSwarmRun.fields.requestedAt,
+  startedAt: ProjectionSwarmRun.fields.startedAt,
+  idledAt: ProjectionSwarmRun.fields.idledAt,
+  pausedAt: ProjectionSwarmRun.fields.pausedAt,
+  blockedAt: ProjectionSwarmRun.fields.blockedAt,
+  blockedKind: Schema.NullOr(OrchestrationSwarmRunBlockedKind),
+  blockedExecutionId: Schema.NullOr(SwarmTaskExecutionId),
+  blockedIssueId: Schema.NullOr(TrimmedNonEmptyString),
+  blockedWorkerThreadId: Schema.NullOr(ThreadId),
+  failedAt: ProjectionSwarmRun.fields.failedAt,
+  cancelledAt: ProjectionSwarmRun.fields.cancelledAt,
+  completedAt: ProjectionSwarmRun.fields.completedAt,
+  updatedAt: ProjectionSwarmRun.fields.updatedAt,
+});
 const ProjectionSwarmTaskExecutionDbRowSchema = ProjectionSwarmTaskExecution;
 const ProjectionLatestTurnDbRowSchema = Schema.Struct({
   threadId: ProjectionThread.fields.threadId,
@@ -407,6 +435,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           idled_at AS "idledAt",
           paused_at AS "pausedAt",
           blocked_at AS "blockedAt",
+          blocked_kind AS "blockedKind",
+          blocked_execution_id AS "blockedExecutionId",
+          blocked_issue_id AS "blockedIssueId",
+          blocked_worker_thread_id AS "blockedWorkerThreadId",
           failed_at AS "failedAt",
           cancelled_at AS "cancelledAt",
           completed_at AS "completedAt",
@@ -904,6 +936,15 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             idledAt: row.idledAt,
             pausedAt: row.pausedAt,
             blockedAt: row.blockedAt,
+            blockedContext:
+              row.blockedKind === null
+                ? null
+                : {
+                    kind: row.blockedKind,
+                    issueId: row.blockedIssueId,
+                    executionId: row.blockedExecutionId,
+                    workerThreadId: row.blockedWorkerThreadId,
+                  },
             failedAt: row.failedAt,
             cancelledAt: row.cancelledAt,
             completedAt: row.completedAt,
