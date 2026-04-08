@@ -862,6 +862,36 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
           { "rpc.aggregate": "beads" },
         ),
+      [BEADS_WS_METHODS.getProjectCoordinatorSnapshot]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.getProjectCoordinatorSnapshot,
+          beads.getProjectCoordinatorSnapshot(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to load project coordinator snapshot",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
+      [BEADS_WS_METHODS.getEpicCoordinatorSnapshot]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.getEpicCoordinatorSnapshot,
+          beads.getEpicCoordinatorSnapshot(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to load epic coordinator snapshot",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
       [BEADS_WS_METHODS.getSessionActivity]: (input) =>
         observeRpcEffect(
           BEADS_WS_METHODS.getSessionActivity,

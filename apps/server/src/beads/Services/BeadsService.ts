@@ -1,6 +1,8 @@
 import type {
   BeadsContext,
   BeadsCommentIssueInput,
+  BeadsEpicCoordinatorSnapshot,
+  BeadsEpicCoordinatorSnapshotInput,
   BeadsEpicIssueInput,
   BeadsGetContextInput,
   BeadsGetIssueInput,
@@ -11,6 +13,8 @@ import type {
   BeadsIssueGraph,
   BeadsListSwarmsInput,
   BeadsListSwarmsResult,
+  BeadsProjectCoordinatorSnapshot,
+  BeadsProjectCoordinatorSnapshotInput,
   BeadsQueryIssuesInput,
   BeadsQueryIssuesResult,
   BeadsStartEpicPlannedRefineInput,
@@ -60,6 +64,12 @@ export interface BeadsServiceShape {
   readonly listSwarms: (
     input: BeadsListSwarmsInput,
   ) => Effect.Effect<BeadsListSwarmsResult, BeadsError>;
+  readonly getProjectCoordinatorSnapshot: (
+    input: BeadsProjectCoordinatorSnapshotInput,
+  ) => Effect.Effect<BeadsProjectCoordinatorSnapshot, BeadsError>;
+  readonly getEpicCoordinatorSnapshot: (
+    input: BeadsEpicCoordinatorSnapshotInput,
+  ) => Effect.Effect<BeadsEpicCoordinatorSnapshot, BeadsError>;
   readonly getSessionActivity: (
     input: BeadsGetSessionActivityInput,
   ) => Effect.Effect<BeadsGetSessionActivityResult, BeadsError>;

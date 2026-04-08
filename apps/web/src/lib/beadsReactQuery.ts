@@ -1,10 +1,14 @@
 import type {
   BeadsContext,
+  BeadsEpicCoordinatorSnapshot,
+  BeadsEpicCoordinatorSnapshotInput,
   BeadsEpicIssueInput,
   BeadsGetIssueInput,
   BeadsGetContextInput,
   BeadsIssueSummary,
   BeadsGetSessionActivityInput,
+  BeadsProjectCoordinatorSnapshot,
+  BeadsProjectCoordinatorSnapshotInput,
   BeadsQueryIssuesInput,
   BeadsQueryIssuesResult,
   BeadsUpdateIssueInput,
@@ -46,6 +50,21 @@ export const beadsQueryKeys = {
   epicSwarmStatus: (cwd: string | null, epicIssueId: string | null) =>
     ["beads", "epic-swarm-status", cwd, epicIssueId] as const,
   swarms: (input: BeadsListSwarmsInput) => ["beads", "swarms", input.cwd] as const,
+  projectCoordinatorSnapshot: (input: BeadsProjectCoordinatorSnapshotInput | null) =>
+    [
+      "beads",
+      "project-coordinator-snapshot",
+      input?.cwd ?? null,
+      input?.projectId ?? null,
+    ] as const,
+  epicCoordinatorSnapshot: (input: BeadsEpicCoordinatorSnapshotInput | null) =>
+    [
+      "beads",
+      "epic-coordinator-snapshot",
+      input?.cwd ?? null,
+      input?.projectId ?? null,
+      input?.epicIssueId ?? null,
+    ] as const,
   sessionActivity: (input: BeadsGetSessionActivityInput) =>
     ["beads", "session-activity", input.cwd] as const,
 };
@@ -169,6 +188,38 @@ export function beadsListSwarmsOptions(input: BeadsListSwarmsInput & { enabled?:
     queryKey: beadsQueryKeys.swarms(input),
     queryFn: async () => ensureNativeApi().beads.listSwarms(input),
     enabled: (input.enabled ?? true) && input.cwd.length > 0,
+    staleTime: 5_000,
+  });
+}
+
+export function beadsProjectCoordinatorSnapshotOptions(
+  input: (BeadsProjectCoordinatorSnapshotInput & { enabled?: boolean }) | null,
+) {
+  return queryOptions({
+    queryKey: beadsQueryKeys.projectCoordinatorSnapshot(input),
+    queryFn: async (): Promise<BeadsProjectCoordinatorSnapshot> => {
+      if (!input) {
+        throw new Error("Project coordinator snapshot is unavailable.");
+      }
+      return ensureNativeApi().beads.getProjectCoordinatorSnapshot(input);
+    },
+    enabled: input !== null && (input.enabled ?? true),
+    staleTime: 5_000,
+  });
+}
+
+export function beadsEpicCoordinatorSnapshotOptions(
+  input: (BeadsEpicCoordinatorSnapshotInput & { enabled?: boolean }) | null,
+) {
+  return queryOptions({
+    queryKey: beadsQueryKeys.epicCoordinatorSnapshot(input),
+    queryFn: async (): Promise<BeadsEpicCoordinatorSnapshot> => {
+      if (!input) {
+        throw new Error("Epic coordinator snapshot is unavailable.");
+      }
+      return ensureNativeApi().beads.getEpicCoordinatorSnapshot(input);
+    },
+    enabled: input !== null && (input.enabled ?? true),
     staleTime: 5_000,
   });
 }

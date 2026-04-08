@@ -1,6 +1,8 @@
 import type {
   BeadsContext,
   BeadsCommentIssueInput,
+  BeadsEpicCoordinatorSnapshot,
+  BeadsEpicCoordinatorSnapshotInput,
   BeadsEpicIssueInput,
   BeadsGetContextInput,
   BeadsGetIssueInput,
@@ -12,6 +14,8 @@ import type {
   BeadsIssueSummary,
   BeadsListSwarmsInput,
   BeadsListSwarmsResult,
+  BeadsProjectCoordinatorSnapshot,
+  BeadsProjectCoordinatorSnapshotInput,
   BeadsQueryIssuesInput,
   BeadsQueryIssuesResult,
   BeadsStartEpicPlannedRefineInput,
@@ -276,6 +280,12 @@ export interface NativeApi {
     validateEpicSwarm: (input: BeadsEpicIssueInput) => Promise<BeadsSwarmValidation>;
     getEpicSwarmStatus: (input: BeadsEpicIssueInput) => Promise<BeadsSwarmStatus>;
     listSwarms: (input: BeadsListSwarmsInput) => Promise<BeadsListSwarmsResult>;
+    getProjectCoordinatorSnapshot: (
+      input: BeadsProjectCoordinatorSnapshotInput,
+    ) => Promise<BeadsProjectCoordinatorSnapshot>;
+    getEpicCoordinatorSnapshot: (
+      input: BeadsEpicCoordinatorSnapshotInput,
+    ) => Promise<BeadsEpicCoordinatorSnapshot>;
     getSessionActivity: (
       input: BeadsGetSessionActivityInput,
     ) => Promise<BeadsGetSessionActivityResult>;

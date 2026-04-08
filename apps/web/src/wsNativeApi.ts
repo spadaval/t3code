@@ -112,6 +112,8 @@ export function createWsNativeApi(): NativeApi {
       validateEpicSwarm: rpcClient.beads.validateEpicSwarm,
       getEpicSwarmStatus: rpcClient.beads.getEpicSwarmStatus,
       listSwarms: rpcClient.beads.listSwarms,
+      getProjectCoordinatorSnapshot: rpcClient.beads.getProjectCoordinatorSnapshot,
+      getEpicCoordinatorSnapshot: rpcClient.beads.getEpicCoordinatorSnapshot,
       getSessionActivity: rpcClient.beads.getSessionActivity,
       startWorkflow: rpcClient.beads.startWorkflow,
       startEpicQuickRefine: rpcClient.beads.startEpicQuickRefine,

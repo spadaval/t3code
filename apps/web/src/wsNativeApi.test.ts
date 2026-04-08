@@ -93,6 +93,8 @@ const rpcClientMock = {
     validateEpicSwarm: vi.fn(),
     getEpicSwarmStatus: vi.fn(),
     listSwarms: vi.fn(),
+    getProjectCoordinatorSnapshot: vi.fn(),
+    getEpicCoordinatorSnapshot: vi.fn(),
     getSessionActivity: vi.fn(),
     startWorkflow: vi.fn(),
     startEpicQuickRefine: vi.fn(),

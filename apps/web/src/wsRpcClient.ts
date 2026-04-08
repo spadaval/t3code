@@ -114,6 +114,12 @@ export interface WsRpcClient {
     readonly validateEpicSwarm: RpcUnaryMethod<typeof BEADS_WS_METHODS.validateEpicSwarm>;
     readonly getEpicSwarmStatus: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicSwarmStatus>;
     readonly listSwarms: RpcUnaryMethod<typeof BEADS_WS_METHODS.listSwarms>;
+    readonly getProjectCoordinatorSnapshot: RpcUnaryMethod<
+      typeof BEADS_WS_METHODS.getProjectCoordinatorSnapshot
+    >;
+    readonly getEpicCoordinatorSnapshot: RpcUnaryMethod<
+      typeof BEADS_WS_METHODS.getEpicCoordinatorSnapshot
+    >;
     readonly getSessionActivity: RpcUnaryMethod<typeof BEADS_WS_METHODS.getSessionActivity>;
     readonly startWorkflow: RpcUnaryMethod<typeof BEADS_WS_METHODS.startWorkflow>;
     readonly startEpicQuickRefine: RpcUnaryMethod<typeof BEADS_WS_METHODS.startEpicQuickRefine>;
@@ -289,6 +295,12 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport.request((client) => client[BEADS_WS_METHODS.getEpicSwarmStatus](input)),
       listSwarms: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.listSwarms](input)),
+      getProjectCoordinatorSnapshot: (input) =>
+        transport.request((client) =>
+          client[BEADS_WS_METHODS.getProjectCoordinatorSnapshot](input),
+        ),
+      getEpicCoordinatorSnapshot: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getEpicCoordinatorSnapshot](input)),
       getSessionActivity: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.getSessionActivity](input)),
       startWorkflow: (input) =>

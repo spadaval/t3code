@@ -1,16 +1,17 @@
 import type {
   AssistantDeliveryMode,
+  BeadsCoordinatorEpicSnapshot,
+  BeadsCoordinatorEpicStateKind,
+  BeadsCoordinatorProjectConflict,
   BeadsIssueDetail,
   BeadsIssueSummary,
   BeadsIssueRelationSummary,
   BeadsSwarmStatus,
-  BeadsSwarmSummary,
   BeadsSwarmSupport,
   BeadsSwarmValidation,
   ModelSelection,
   OrchestrationStartSwarmRunInput,
   OrchestrationSwarmRun,
-  OrchestrationSwarmTaskExecution,
   ProjectId,
   ProviderKind,
   RuntimeMode,
@@ -18,7 +19,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import { selectDeterministicReadyIssue } from "@t3tools/shared/swarm";
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
@@ -43,32 +44,24 @@ import { useComposerThreadDraft, useEffectiveComposerModelState } from "~/compos
 import { stripDiffSearchParams } from "~/diffRouteSearch";
 import { useSettings } from "~/hooks/useSettings";
 import {
-  collectCoordinatorEpics,
-  deriveCoordinatorFetchLifecycle,
-  deriveEpicCoordinatorState,
-  findConflictingSharedWorkspaceRun,
   findLatestTrackerRefinementPlan,
-  getEpicCoordinatorPrimaryAction,
   groupIssuesByEpic,
   isEpicIssueType,
   listEpicChildIssues,
   partitionCoordinatorEpics,
-  type SharedWorkspaceProjectConflict,
 } from "~/issuePanel";
 import { listIssueLinkedThreads } from "~/issueThreads";
 import { getIssuePaneState, useIssuePaneStore, type IssuePaneScope } from "~/issuePaneStore";
 import {
+  beadsEpicCoordinatorSnapshotOptions,
   beadsQueryKeys,
-  beadsListSwarmsOptions,
-  beadsEpicSwarmStatusOptions,
-  beadsEpicSwarmValidationOptions,
   beadsIssueDetailOptions,
+  beadsProjectCoordinatorSnapshotOptions,
   beadsQueryIssuesOptions,
   beadsStartEpicPlannedRefineMutationOptions,
   beadsStartEpicPlanImplementationMutationOptions,
   beadsStartEpicQuickRefineMutationOptions,
   beadsStartWorkflowMutationOptions,
-  beadsSwarmSupportOptions,
 } from "~/lib/beadsReactQuery";
 import { readNativeApi } from "~/nativeApi";
 import { useStore } from "~/store";
@@ -492,21 +485,14 @@ function LinkedThreadsSection(props: {
   );
 }
 
-type CoordinatorCardData = {
-  epic: ReturnType<typeof collectCoordinatorEpics>[number];
-  stateKind: ReturnType<typeof deriveEpicCoordinatorState>["kind"];
-  fetchLifecycle: ReturnType<typeof deriveEpicCoordinatorState>["fetchLifecycle"];
-  latestRun: OrchestrationSwarmRun | null;
-  projectConflict: SharedWorkspaceProjectConflict | null;
-  swarmSummary: BeadsSwarmSummary | null;
-  validation: BeadsSwarmValidation | null;
-  status: BeadsSwarmStatus | null;
-  validationError: Error | null;
-  statusError: Error | null;
-  runs: ReadonlyArray<OrchestrationSwarmRun>;
-  executions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
-  activeExecution: OrchestrationSwarmTaskExecution | null;
+type CoordinatorCardData = BeadsCoordinatorEpicSnapshot & {
   activeWorkerThreadTitle: string | null;
+};
+
+type CoordinatorStateView = {
+  kind: BeadsCoordinatorEpicStateKind;
+  latestRun: OrchestrationSwarmRun | null;
+  fetchLifecycle: BeadsCoordinatorEpicSnapshot["fetchLifecycle"];
 };
 
 type StartSwarmDialogState = {
@@ -516,7 +502,7 @@ type StartSwarmDialogState = {
   status: BeadsSwarmStatus | null;
 };
 
-function describeCoordinatorState(kind: ReturnType<typeof deriveEpicCoordinatorState>["kind"]): {
+function describeCoordinatorState(kind: BeadsCoordinatorEpicStateKind): {
   label: string;
   variant: "outline" | "warning" | "success" | "info" | "destructive" | "secondary";
   copy: string;
@@ -615,18 +601,6 @@ function describeCoordinatorState(kind: ReturnType<typeof deriveEpicCoordinatorS
   }
 }
 
-function toCoordinatorFetchQueryState(result: {
-  readonly isPending: boolean;
-  readonly data: unknown;
-  readonly error: unknown;
-}) {
-  return {
-    pending: result.isPending,
-    hasData: result.data !== undefined && result.data !== null,
-    error: result.error instanceof Error ? result.error.message : null,
-  } as const;
-}
-
 function isRecoverableWorkerFailureRun(run: OrchestrationSwarmRun | null): boolean {
   return run?.status === "blocked" && run.blockedContext?.kind === "worker_failure";
 }
@@ -669,7 +643,7 @@ function formatSwarmRunStatus(status: OrchestrationSwarmRun["status"]): string {
 }
 
 function formatSharedWorkspaceProjectConflictMessage(
-  conflict: SharedWorkspaceProjectConflict,
+  conflict: BeadsCoordinatorProjectConflict,
 ): string {
   return conflict.message;
 }
@@ -755,14 +729,14 @@ function compareCoordinatorCards(left: CoordinatorCardData, right: CoordinatorCa
     return rankDelta;
   }
 
-  const leftTimestamp = left.latestRun?.updatedAt ?? left.epic.issue?.updatedAt ?? "";
-  const rightTimestamp = right.latestRun?.updatedAt ?? right.epic.issue?.updatedAt ?? "";
+  const leftTimestamp = left.latestRun?.updatedAt ?? left.issue?.updatedAt ?? "";
+  const rightTimestamp = right.latestRun?.updatedAt ?? right.issue?.updatedAt ?? "";
   const timestampDelta = rightTimestamp.localeCompare(leftTimestamp);
   if (timestampDelta !== 0) {
     return timestampDelta;
   }
 
-  return left.epic.epicTitle.localeCompare(right.epic.epicTitle);
+  return left.epicTitle.localeCompare(right.epicTitle);
 }
 
 function buildCoordinatorRunTimeline(run: OrchestrationSwarmRun): ReadonlyArray<{
@@ -792,8 +766,8 @@ function EpicSwarmStatusOverviewSection(props: {
   swarmSupport: BeadsSwarmSupport | null;
   swarmValidation: BeadsSwarmValidation | null;
   swarmStatus: BeadsSwarmStatus | null;
-  coordinatorState: ReturnType<typeof deriveEpicCoordinatorState>;
-  projectConflict: SharedWorkspaceProjectConflict | null;
+  coordinatorState: CoordinatorStateView;
+  projectConflict: BeadsCoordinatorProjectConflict | null;
   swarmSupportPending: boolean;
   swarmValidationPending: boolean;
   swarmStatusPending: boolean;
@@ -1211,10 +1185,10 @@ function CoordinatorEpicCard(props: {
   });
   const recoverableWorkerThreadId = latestRun?.blockedContext?.workerThreadId ?? null;
   const recoverableIssueId = latestRun?.blockedContext?.issueId ?? null;
-  const startActionKey = `start:${props.card.epic.epicId}`;
-  const createActionKey = `create:${props.card.epic.epicId}`;
-  const repairActionKey = `repair:${props.card.epic.epicId}`;
-  const refreshActionKey = `refresh:${props.card.epic.epicId}`;
+  const startActionKey = `start:${props.card.epicId}`;
+  const createActionKey = `create:${props.card.epicId}`;
+  const repairActionKey = `repair:${props.card.epicId}`;
+  const refreshActionKey = `refresh:${props.card.epicId}`;
   const continueActionKey = latestRun ? `continue:${latestRun.runId}` : null;
   const pauseActionKey = latestRun ? `pause:${latestRun.runId}` : null;
   const resumeActionKey = latestRun ? `resume:${latestRun.runId}` : null;
@@ -1224,11 +1198,9 @@ function CoordinatorEpicCard(props: {
     <div className="rounded-xl border border-border/60 bg-muted/10 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
-          <p className="truncate font-medium text-sm text-foreground">
-            {props.card.epic.epicTitle}
-          </p>
+          <p className="truncate font-medium text-sm text-foreground">{props.card.epicTitle}</p>
           <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>{props.card.epic.epicId}</span>
+            <span>{props.card.epicId}</span>
             <span className="opacity-40">·</span>
             <span>{swarmSummary?.swarmId ?? "No swarm"}</span>
             {latestRun ? (
@@ -1300,13 +1272,6 @@ function CoordinatorEpicCard(props: {
             {swarmSummary.activeWorkerCount} workers
           </Badge>
         </div>
-      ) : null}
-
-      {props.card.validationError ? (
-        <p className="mt-3 text-sm text-destructive">{props.card.validationError.message}</p>
-      ) : null}
-      {props.card.statusError ? (
-        <p className="mt-1 text-sm text-destructive">{props.card.statusError.message}</p>
       ) : null}
 
       {latestFailure ? (
@@ -1415,7 +1380,7 @@ function CoordinatorEpicCard(props: {
               size="sm"
               variant="outline"
               disabled={props.swarmActionKey === refreshActionKey}
-              onClick={() => props.onRefreshSwarmStatus(props.card.epic.epicId)}
+              onClick={() => props.onRefreshSwarmStatus(props.card.epicId)}
             >
               {props.swarmActionKey === refreshActionKey ? "Refreshing..." : "Refresh status"}
             </Button>
@@ -1456,7 +1421,7 @@ function CoordinatorEpicCard(props: {
             size="sm"
             variant="outline"
             disabled={props.swarmActionKey === refreshActionKey}
-            onClick={() => props.onRefreshSwarmStatus(props.card.epic.epicId)}
+            onClick={() => props.onRefreshSwarmStatus(props.card.epicId)}
           >
             {props.swarmActionKey === refreshActionKey
               ? props.card.stateKind === "stale"
@@ -1472,7 +1437,7 @@ function CoordinatorEpicCard(props: {
             type="button"
             size="sm"
             disabled={props.swarmActionKey === createActionKey}
-            onClick={() => props.onCreateSwarm(props.card.epic.epicId)}
+            onClick={() => props.onCreateSwarm(props.card.epicId)}
           >
             {props.swarmActionKey === createActionKey ? "Starting..." : "Create swarm"}
           </Button>
@@ -1482,7 +1447,7 @@ function CoordinatorEpicCard(props: {
             type="button"
             size="sm"
             disabled={props.swarmActionKey === repairActionKey}
-            onClick={() => props.onRepairSwarm(props.card.epic.epicId)}
+            onClick={() => props.onRepairSwarm(props.card.epicId)}
           >
             {props.swarmActionKey === repairActionKey ? "Starting..." : "Repair swarm"}
           </Button>
@@ -1537,7 +1502,7 @@ function CoordinatorEpicCard(props: {
           type="button"
           size="sm"
           variant="outline"
-          onClick={() => props.onOpenEpic(props.card.epic.epicId)}
+          onClick={() => props.onOpenEpic(props.card.epicId)}
         >
           Open epic
         </Button>
@@ -1747,7 +1712,7 @@ function ProjectCoordinatorContent(props: {
               <div className="space-y-3">
                 {sections.needsAttention.map((card) => (
                   <CoordinatorEpicCard
-                    key={card.epic.epicId}
+                    key={card.epicId}
                     card={card}
                     timestampFormat={props.timestampFormat}
                     swarmActionKey={props.swarmActionKey}
@@ -1778,7 +1743,7 @@ function ProjectCoordinatorContent(props: {
               <div className="space-y-3">
                 {sections.active.map((card) => (
                   <CoordinatorEpicCard
-                    key={card.epic.epicId}
+                    key={card.epicId}
                     card={card}
                     timestampFormat={props.timestampFormat}
                     swarmActionKey={props.swarmActionKey}
@@ -1809,7 +1774,7 @@ function ProjectCoordinatorContent(props: {
               <div className="space-y-3">
                 {sections.history.map((card) => (
                   <CoordinatorEpicCard
-                    key={card.epic.epicId}
+                    key={card.epicId}
                     card={card}
                     timestampFormat={props.timestampFormat}
                     swarmActionKey={props.swarmActionKey}
@@ -1851,8 +1816,8 @@ function IssueOverviewContent(props: {
   swarmSupport: BeadsSwarmSupport | null;
   swarmValidation: BeadsSwarmValidation | null;
   swarmStatus: BeadsSwarmStatus | null;
-  coordinatorState: ReturnType<typeof deriveEpicCoordinatorState>;
-  projectConflict: SharedWorkspaceProjectConflict | null;
+  coordinatorState: CoordinatorStateView;
+  projectConflict: BeadsCoordinatorProjectConflict | null;
   swarmSupportPending: boolean;
   swarmValidationPending: boolean;
   swarmStatusPending: boolean;
@@ -2090,8 +2055,8 @@ function IssueDetailDialog(props: {
   swarmSupport: BeadsSwarmSupport | null;
   swarmValidation: BeadsSwarmValidation | null;
   swarmStatus: BeadsSwarmStatus | null;
-  coordinatorState: ReturnType<typeof deriveEpicCoordinatorState>;
-  projectConflict: SharedWorkspaceProjectConflict | null;
+  coordinatorState: CoordinatorStateView;
+  projectConflict: BeadsCoordinatorProjectConflict | null;
   swarmSupportPending: boolean;
   swarmValidationPending: boolean;
   swarmStatusPending: boolean;
@@ -2379,8 +2344,6 @@ export function IssuesPanel({
     ? "streaming"
     : "buffered";
   const threads = useStore((store) => store.threads);
-  const swarmRuns = useStore((store) => store.swarmRuns);
-  const swarmTaskExecutions = useStore((store) => store.swarmTaskExecutions);
   const selectedIssueDetailQuery = useQuery(
     cwd && state.selectedIssueId
       ? beadsIssueDetailOptions({
@@ -2454,234 +2417,59 @@ export function IssuesPanel({
       }),
     [projectId, selectedEpicIssueId, threads],
   );
-  const swarmSupportQuery = useQuery(
-    beadsSwarmSupportOptions({
-      cwd,
-      enabled: Boolean(cwd && (selectedEpicIssueId || state.activePanelTab === "coordinator")),
-    }),
-  );
-  const shouldLoadEpicSwarmState =
-    Boolean(cwd && selectedEpicIssueId) && swarmSupportQuery.data?.supported === true;
-  const swarmValidationQuery = useQuery(
-    shouldLoadEpicSwarmState && cwd && selectedEpicIssueId
-      ? beadsEpicSwarmValidationOptions({
+  const epicCoordinatorSnapshotQuery = useQuery(
+    selectedIssueIsEpic && cwd && projectId && selectedEpicIssueId
+      ? beadsEpicCoordinatorSnapshotOptions({
           cwd,
+          projectId,
           epicIssueId: selectedEpicIssueId,
         })
-      : beadsEpicSwarmValidationOptions(null),
+      : beadsEpicCoordinatorSnapshotOptions(null),
   );
-  const swarmStatusQuery = useQuery(
-    shouldLoadEpicSwarmState && cwd && selectedEpicIssueId
-      ? beadsEpicSwarmStatusOptions({
+  const projectCoordinatorSnapshotQuery = useQuery(
+    cwd && projectId && state.activePanelTab === "coordinator"
+      ? beadsProjectCoordinatorSnapshotOptions({
           cwd,
-          epicIssueId: selectedEpicIssueId,
+          projectId,
         })
-      : beadsEpicSwarmStatusOptions(null),
+      : beadsProjectCoordinatorSnapshotOptions(null),
   );
-  const coordinatorSwarmsQuery = useQuery(
-    beadsListSwarmsOptions({
-      cwd: cwd ?? "",
-      enabled: Boolean(cwd && state.activePanelTab === "coordinator"),
-    }),
-  );
-  const coordinatorEpicIssuesQuery = useQuery(
-    beadsQueryIssuesOptions({
-      cwd: cwd ?? "",
-      issueTypes: ["epic"],
-      sortBy: "updated",
-      enabled: Boolean(cwd && state.activePanelTab === "coordinator"),
-    }),
-  );
-  const projectSwarmRuns = useMemo(
-    () => (projectId === null ? [] : swarmRuns.filter((run) => run.projectId === projectId)),
-    [projectId, swarmRuns],
-  );
-  const projectSwarmTaskExecutions = useMemo(() => {
-    const runIds = new Set(projectSwarmRuns.map((run) => run.runId));
-    return swarmTaskExecutions.filter((execution) => runIds.has(execution.runId));
-  }, [projectSwarmRuns, swarmTaskExecutions]);
-  const projectSwarmRunsByEpicId = useMemo(() => {
-    const grouped = new Map<string, OrchestrationSwarmRun[]>();
-    for (const run of projectSwarmRuns) {
-      const existing = grouped.get(run.epicIssueId);
-      if (existing) {
-        existing.push(run);
-      } else {
-        grouped.set(run.epicIssueId, [run]);
-      }
-    }
-    return grouped;
-  }, [projectSwarmRuns]);
-  const projectSwarmExecutionsByRunId = useMemo(() => {
-    const grouped = new Map<OrchestrationSwarmRun["runId"], OrchestrationSwarmTaskExecution[]>();
-    for (const execution of projectSwarmTaskExecutions) {
-      const existing = grouped.get(execution.runId);
-      if (existing) {
-        existing.push(execution);
-      } else {
-        grouped.set(execution.runId, [execution]);
-      }
-    }
-    return grouped;
-  }, [projectSwarmTaskExecutions]);
   const threadTitlesById = useMemo(() => {
     return new Map(threads.map((thread) => [thread.id, thread.title] as const));
   }, [threads]);
-  const coordinatorEpics = useMemo(
-    () =>
-      collectCoordinatorEpics({
-        epicIssues: coordinatorEpicIssuesQuery.data?.issues ?? [],
-        swarms: coordinatorSwarmsQuery.data?.swarms ?? [],
-        swarmRuns: projectSwarmRuns,
-      }),
-    [
-      coordinatorEpicIssuesQuery.data?.issues,
-      coordinatorSwarmsQuery.data?.swarms,
-      projectSwarmRuns,
-    ],
-  );
-  const coordinatorShouldLoadEpicState =
-    Boolean(cwd && state.activePanelTab === "coordinator") &&
-    swarmSupportQuery.data?.supported === true;
-  const coordinatorValidationQueries = useQueries({
-    queries:
-      coordinatorShouldLoadEpicState && cwd
-        ? coordinatorEpics.map((epic) =>
-            beadsEpicSwarmValidationOptions({
-              cwd,
-              epicIssueId: epic.epicId,
-            }),
-          )
-        : [],
-  });
-  const coordinatorStatusQueries = useQueries({
-    queries:
-      coordinatorShouldLoadEpicState && cwd
-        ? coordinatorEpics.map((epic) =>
-            beadsEpicSwarmStatusOptions({
-              cwd,
-              epicIssueId: epic.epicId,
-            }),
-          )
-        : [],
-  });
-  const selectedEpicSwarmRuns = useMemo(
-    () =>
-      selectedEpicIssueId === null || projectId === null
-        ? []
-        : swarmRuns.filter(
-            (run) => run.projectId === projectId && run.epicIssueId === selectedEpicIssueId,
-          ),
-    [projectId, selectedEpicIssueId, swarmRuns],
-  );
   const coordinatorCards = useMemo<CoordinatorCardData[]>(() => {
-    return coordinatorEpics.map((epic, index) => {
-      const validationQuery = coordinatorValidationQueries[index];
-      const statusQuery = coordinatorStatusQueries[index];
-      const runs = projectSwarmRunsByEpicId.get(epic.epicId) ?? [];
-      const projectConflict = findConflictingSharedWorkspaceRun({
-        projectSwarmRuns,
-        epicSwarmRuns: runs,
-      });
-      const executions = runs.flatMap((run) => projectSwarmExecutionsByRunId.get(run.runId) ?? []);
-      const fetchLifecycle = deriveCoordinatorFetchLifecycle({
-        support: toCoordinatorFetchQueryState({
-          isPending: swarmSupportQuery.isPending,
-          data: swarmSupportQuery.data,
-          error: swarmSupportQuery.error,
-        }),
-        requireSwarmState: coordinatorShouldLoadEpicState,
-        validation: validationQuery ? toCoordinatorFetchQueryState(validationQuery) : null,
-        status: statusQuery ? toCoordinatorFetchQueryState(statusQuery) : null,
-      });
-      const coordinatorState = deriveEpicCoordinatorState({
-        swarmSupport: swarmSupportQuery.data
-          ? { supported: swarmSupportQuery.data.supported }
-          : null,
-        status: statusQuery?.data ?? null,
-        validation: validationQuery?.data ?? null,
-        swarmRuns: runs,
-        fetchLifecycle,
-      });
-      const activeExecutionId =
-        coordinatorState.latestRun?.activeTaskExecutionId ??
-        coordinatorState.latestRun?.latestTaskExecutionId ??
-        null;
-      const activeExecution =
-        activeExecutionId === null
-          ? null
-          : (executions.find((execution) => execution.executionId === activeExecutionId) ?? null);
+    return (projectCoordinatorSnapshotQuery.data?.epics ?? []).map((card) => {
+      const activeWorkerThreadTitle =
+        card.activeExecution?.workerThreadId !== null &&
+        card.activeExecution?.workerThreadId !== undefined
+          ? (threadTitlesById.get(card.activeExecution.workerThreadId) ?? null)
+          : null;
 
-      return {
-        epic,
-        stateKind: coordinatorState.kind,
-        fetchLifecycle: coordinatorState.fetchLifecycle,
-        latestRun: coordinatorState.latestRun,
-        projectConflict,
-        swarmSummary: validationQuery?.data?.swarm ?? statusQuery?.data?.swarm ?? null,
-        validation: validationQuery?.data ?? null,
-        status: statusQuery?.data ?? null,
-        validationError: validationQuery?.error instanceof Error ? validationQuery.error : null,
-        statusError: statusQuery?.error instanceof Error ? statusQuery.error : null,
-        runs,
-        executions,
-        activeExecution,
-        activeWorkerThreadTitle:
-          activeExecution?.workerThreadId !== null && activeExecution?.workerThreadId !== undefined
-            ? (threadTitlesById.get(activeExecution.workerThreadId) ?? null)
-            : null,
-      };
+      return Object.assign({}, card, {
+        activeWorkerThreadTitle,
+      });
     });
-  }, [
-    coordinatorShouldLoadEpicState,
-    coordinatorEpics,
-    coordinatorStatusQueries,
-    coordinatorValidationQueries,
-    projectSwarmExecutionsByRunId,
-    projectSwarmRuns,
-    projectSwarmRunsByEpicId,
-    swarmSupportQuery.data,
-    swarmSupportQuery.error,
-    swarmSupportQuery.isPending,
-    threadTitlesById,
-  ]);
-  const selectedEpicProjectConflict = useMemo(
-    () =>
-      findConflictingSharedWorkspaceRun({
-        projectSwarmRuns,
-        epicSwarmRuns: selectedEpicSwarmRuns,
-      }),
-    [projectSwarmRuns, selectedEpicSwarmRuns],
-  );
-  const selectedEpicFetchLifecycle = deriveCoordinatorFetchLifecycle({
-    support: toCoordinatorFetchQueryState({
-      isPending: swarmSupportQuery.isPending,
-      data: swarmSupportQuery.data,
-      error: swarmSupportQuery.error,
-    }),
-    requireSwarmState: shouldLoadEpicSwarmState,
-    validation: toCoordinatorFetchQueryState(swarmValidationQuery),
-    status: toCoordinatorFetchQueryState(swarmStatusQuery),
-  });
-  const epicCoordinatorState = deriveEpicCoordinatorState({
-    swarmSupport: selectedIssueIsEpic ? (swarmSupportQuery.data ?? null) : null,
-    status: selectedIssueIsEpic ? (swarmStatusQuery.data ?? null) : null,
-    validation: selectedIssueIsEpic ? (swarmValidationQuery.data ?? null) : null,
-    swarmRuns: selectedEpicSwarmRuns,
-    fetchLifecycle: selectedIssueIsEpic
-      ? selectedEpicFetchLifecycle
-      : { kind: "ready", detail: null },
-  });
-  const epicPrimaryAction = getEpicCoordinatorPrimaryAction({
-    swarmSupport: selectedIssueIsEpic ? (swarmSupportQuery.data ?? null) : null,
-    status: selectedIssueIsEpic ? (swarmStatusQuery.data ?? null) : null,
-    validation: selectedIssueIsEpic ? (swarmValidationQuery.data ?? null) : null,
-    swarmRuns: selectedEpicSwarmRuns,
-    projectConflict: selectedIssueIsEpic ? selectedEpicProjectConflict : null,
-    fetchLifecycle: selectedIssueIsEpic
-      ? selectedEpicFetchLifecycle
-      : { kind: "ready", detail: null },
-  });
+  }, [projectCoordinatorSnapshotQuery.data?.epics, threadTitlesById]);
+  const selectedEpicCoordinatorSnapshot = selectedIssueIsEpic
+    ? (epicCoordinatorSnapshotQuery.data?.epic ?? null)
+    : null;
+  const epicCoordinatorState: CoordinatorStateView = selectedEpicCoordinatorSnapshot
+    ? {
+        kind: selectedEpicCoordinatorSnapshot.stateKind,
+        latestRun: selectedEpicCoordinatorSnapshot.latestRun,
+        fetchLifecycle: selectedEpicCoordinatorSnapshot.fetchLifecycle,
+      }
+    : {
+        kind: "checking",
+        latestRun: null,
+        fetchLifecycle: { kind: "loading", detail: null },
+      };
+  const epicPrimaryAction = selectedEpicCoordinatorSnapshot?.primaryAction ?? {
+    kind: "checking",
+    label: "Checking swarm...",
+    busyLabel: "Checking...",
+    disabled: true,
+  };
   const epicPrimaryActionBusy =
     selectedIssueIsEpic &&
     ((epicPrimaryAction.kind === "continue_swarm" && epicCoordinatorState.latestRun !== null
@@ -3161,19 +2949,19 @@ export function IssuesPanel({
           </>
         ) : (
           <ProjectCoordinatorContent
-            swarmSupport={swarmSupportQuery.data ?? null}
-            swarmSupportPending={swarmSupportQuery.isPending}
+            swarmSupport={projectCoordinatorSnapshotQuery.data?.support ?? null}
+            swarmSupportPending={projectCoordinatorSnapshotQuery.isPending}
             swarmSupportError={
-              swarmSupportQuery.error instanceof Error ? swarmSupportQuery.error : null
+              projectCoordinatorSnapshotQuery.error instanceof Error
+                ? projectCoordinatorSnapshotQuery.error
+                : null
             }
             cards={coordinatorCards}
-            cardsPending={coordinatorEpicIssuesQuery.isPending || coordinatorSwarmsQuery.isPending}
+            cardsPending={projectCoordinatorSnapshotQuery.isPending}
             cardsError={
-              coordinatorEpicIssuesQuery.error instanceof Error
-                ? coordinatorEpicIssuesQuery.error
-                : coordinatorSwarmsQuery.error instanceof Error
-                  ? coordinatorSwarmsQuery.error
-                  : null
+              projectCoordinatorSnapshotQuery.error instanceof Error
+                ? projectCoordinatorSnapshotQuery.error
+                : null
             }
             timestampFormat={settings.timestampFormat}
             swarmActionKey={swarmActionKey}
@@ -3190,8 +2978,8 @@ export function IssuesPanel({
             }}
             onOpenStartSwarm={(card) =>
               openStartSwarmDialog({
-                epicId: card.epic.epicId,
-                epicTitle: card.epic.epicTitle,
+                epicId: card.epicId,
+                epicTitle: card.epicTitle,
                 validation: card.validation,
                 status: card.status,
               })
@@ -3222,29 +3010,27 @@ export function IssuesPanel({
         error={
           selectedIssueDetailQuery.error instanceof Error ? selectedIssueDetailQuery.error : null
         }
-        swarmSupport={selectedIssueIsEpic ? (swarmSupportQuery.data ?? null) : null}
-        swarmValidation={selectedIssueIsEpic ? (swarmValidationQuery.data ?? null) : null}
-        swarmStatus={selectedIssueIsEpic ? (swarmStatusQuery.data ?? null) : null}
+        swarmSupport={
+          selectedIssueIsEpic ? (epicCoordinatorSnapshotQuery.data?.support ?? null) : null
+        }
+        swarmValidation={
+          selectedIssueIsEpic ? (selectedEpicCoordinatorSnapshot?.validation ?? null) : null
+        }
+        swarmStatus={selectedIssueIsEpic ? (selectedEpicCoordinatorSnapshot?.status ?? null) : null}
         coordinatorState={epicCoordinatorState}
-        projectConflict={selectedIssueIsEpic ? selectedEpicProjectConflict : null}
-        swarmSupportPending={selectedIssueIsEpic ? swarmSupportQuery.isPending : false}
-        swarmValidationPending={selectedIssueIsEpic ? swarmValidationQuery.isPending : false}
-        swarmStatusPending={selectedIssueIsEpic ? swarmStatusQuery.isPending : false}
+        projectConflict={
+          selectedIssueIsEpic ? (selectedEpicCoordinatorSnapshot?.projectConflict ?? null) : null
+        }
+        swarmSupportPending={selectedIssueIsEpic ? epicCoordinatorSnapshotQuery.isPending : false}
+        swarmValidationPending={false}
+        swarmStatusPending={false}
         swarmSupportError={
-          selectedIssueIsEpic && swarmSupportQuery.error instanceof Error
-            ? swarmSupportQuery.error
+          selectedIssueIsEpic && epicCoordinatorSnapshotQuery.error instanceof Error
+            ? epicCoordinatorSnapshotQuery.error
             : null
         }
-        swarmValidationError={
-          selectedIssueIsEpic && swarmValidationQuery.error instanceof Error
-            ? swarmValidationQuery.error
-            : null
-        }
-        swarmStatusError={
-          selectedIssueIsEpic && swarmStatusQuery.error instanceof Error
-            ? swarmStatusQuery.error
-            : null
-        }
+        swarmValidationError={null}
+        swarmStatusError={null}
         childIssues={childIssues}
         onSelectChildIssue={(issueId) => setSelectedIssueId(activeThreadId, issueId)}
         linkedThreads={linkedThreads}
@@ -3289,8 +3075,8 @@ export function IssuesPanel({
             openStartSwarmDialog({
               epicId: selectedIssueDetailQuery.data.id,
               epicTitle: selectedIssueDetailQuery.data.title,
-              validation: swarmValidationQuery.data ?? null,
-              status: swarmStatusQuery.data ?? null,
+              validation: selectedEpicCoordinatorSnapshot?.validation ?? null,
+              status: selectedEpicCoordinatorSnapshot?.status ?? null,
             });
             return;
           }

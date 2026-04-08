@@ -459,6 +459,20 @@ const buildAppUnderTest = (options?: {
                 message: "BeadsService.listSwarms was called without a test-specific mock.",
               }),
             ),
+          getProjectCoordinatorSnapshot: () =>
+            Effect.fail(
+              new BeadsError({
+                message:
+                  "BeadsService.getProjectCoordinatorSnapshot was called without a test-specific mock.",
+              }),
+            ),
+          getEpicCoordinatorSnapshot: () =>
+            Effect.fail(
+              new BeadsError({
+                message:
+                  "BeadsService.getEpicCoordinatorSnapshot was called without a test-specific mock.",
+              }),
+            ),
           getSessionActivity: () => Effect.succeed({ entries: [] }),
           startWorkflow: () =>
             Effect.fail(

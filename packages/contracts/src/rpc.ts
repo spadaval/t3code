@@ -6,6 +6,8 @@ import {
   BeadsContext,
   BeadsCommentIssueInput,
   BeadsError,
+  BeadsEpicCoordinatorSnapshot,
+  BeadsEpicCoordinatorSnapshotInput,
   BeadsEpicIssueInput,
   BeadsGetIssueInput,
   BeadsGetContextInput,
@@ -17,6 +19,8 @@ import {
   BeadsIssueSummary,
   BeadsListSwarmsInput,
   BeadsListSwarmsResult,
+  BeadsProjectCoordinatorSnapshot,
+  BeadsProjectCoordinatorSnapshotInput,
   BeadsQueryIssuesInput,
   BeadsQueryIssuesResult,
   BeadsStartWorkflowInput,
@@ -406,6 +410,24 @@ export const WsBeadsListSwarmsRpc = Rpc.make(BEADS_WS_METHODS.listSwarms, {
   error: BeadsError,
 });
 
+export const WsBeadsGetProjectCoordinatorSnapshotRpc = Rpc.make(
+  BEADS_WS_METHODS.getProjectCoordinatorSnapshot,
+  {
+    payload: BeadsProjectCoordinatorSnapshotInput,
+    success: BeadsProjectCoordinatorSnapshot,
+    error: BeadsError,
+  },
+);
+
+export const WsBeadsGetEpicCoordinatorSnapshotRpc = Rpc.make(
+  BEADS_WS_METHODS.getEpicCoordinatorSnapshot,
+  {
+    payload: BeadsEpicCoordinatorSnapshotInput,
+    success: BeadsEpicCoordinatorSnapshot,
+    error: BeadsError,
+  },
+);
+
 export const WsBeadsStartEpicQuickRefineRpc = Rpc.make(BEADS_WS_METHODS.startEpicQuickRefine, {
   payload: BeadsStartEpicQuickRefineInput,
   success: BeadsStartWorkflowResult,
@@ -593,6 +615,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsBeadsValidateEpicSwarmRpc,
   WsBeadsGetEpicSwarmStatusRpc,
   WsBeadsListSwarmsRpc,
+  WsBeadsGetProjectCoordinatorSnapshotRpc,
+  WsBeadsGetEpicCoordinatorSnapshotRpc,
   WsBeadsStartEpicQuickRefineRpc,
   WsBeadsStartEpicPlannedRefineRpc,
   WsBeadsStartEpicPlanImplementationRpc,

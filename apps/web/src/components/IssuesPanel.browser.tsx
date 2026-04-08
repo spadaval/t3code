@@ -18,6 +18,8 @@ const testState = vi.hoisted(() => ({
   swarmSupport: null as Record<string, unknown> | null,
   swarmValidation: null as Record<string, unknown> | null,
   swarmStatus: null as Record<string, unknown> | null,
+  projectCoordinatorSnapshot: null as Record<string, unknown> | null,
+  epicCoordinatorSnapshot: null as Record<string, unknown> | null,
   swarmRuns: [] as Record<string, unknown>[],
   swarmTaskExecutions: [] as Record<string, unknown>[],
   swarmValidationByEpicId: {} as Record<string, Record<string, unknown> | null>,
@@ -179,9 +181,9 @@ vi.mock("@tanstack/react-query", async () => {
         };
       }
 
-      if (options.queryKey?.[1] === "swarm-support") {
+      if (options.queryKey?.[1] === "project-coordinator-snapshot") {
         return {
-          data: testState.swarmSupport,
+          data: testState.projectCoordinatorSnapshot,
           isPending: false,
           isError: false,
           error: null,
@@ -190,26 +192,9 @@ vi.mock("@tanstack/react-query", async () => {
         };
       }
 
-      if (options.queryKey?.[1] === "epic-swarm-validation") {
-        const epicId = options.queryKey?.[2];
+      if (options.queryKey?.[1] === "epic-coordinator-snapshot") {
         return {
-          data:
-            (typeof epicId === "string" ? testState.swarmValidationByEpicId[epicId] : null) ??
-            testState.swarmValidation,
-          isPending: false,
-          isError: false,
-          error: null,
-          isFetching: false,
-          refetch: vi.fn(),
-        };
-      }
-
-      if (options.queryKey?.[1] === "epic-swarm-status") {
-        const epicId = options.queryKey?.[2];
-        return {
-          data:
-            (typeof epicId === "string" ? testState.swarmStatusByEpicId[epicId] : null) ??
-            testState.swarmStatus,
+          data: testState.epicCoordinatorSnapshot,
           isPending: false,
           isError: false,
           error: null,
@@ -272,14 +257,12 @@ vi.mock("~/lib/beadsReactQuery", () => ({
   beadsQueryIssuesOptions: vi.fn((input?: { issueTypes?: string[] }) => ({
     queryKey: ["beads", "issues", input?.issueTypes?.join(",") ?? ""],
   })),
-  beadsSwarmSupportOptions: vi.fn(() => ({ queryKey: ["beads", "swarm-support"] })),
-  beadsEpicSwarmValidationOptions: vi.fn((input?: { epicIssueId?: string | null } | null) => ({
-    queryKey: ["beads", "epic-swarm-validation", input?.epicIssueId ?? null],
+  beadsProjectCoordinatorSnapshotOptions: vi.fn(() => ({
+    queryKey: ["beads", "project-coordinator-snapshot"],
   })),
-  beadsEpicSwarmStatusOptions: vi.fn((input?: { epicIssueId?: string | null } | null) => ({
-    queryKey: ["beads", "epic-swarm-status", input?.epicIssueId ?? null],
+  beadsEpicCoordinatorSnapshotOptions: vi.fn(() => ({
+    queryKey: ["beads", "epic-coordinator-snapshot"],
   })),
-  beadsListSwarmsOptions: vi.fn(() => ({ queryKey: ["beads", "swarms"] })),
   beadsStartEpicPlannedRefineMutationOptions: vi.fn(() => ({
     __tag: "start-epic-planned-refine",
   })),

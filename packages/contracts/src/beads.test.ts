@@ -4,13 +4,19 @@ import { Effect, Schema } from "effect";
 
 import {
   BeadsContext,
+  BeadsEpicCoordinatorSnapshot,
   BeadsIssueGraph,
+  BeadsProjectCoordinatorSnapshot,
   BeadsSessionActivityEntry,
   BeadsSwarmValidation,
 } from "./beads";
 
 const decodeBeadsContext = Schema.decodeUnknownEffect(BeadsContext);
+const decodeBeadsEpicCoordinatorSnapshot = Schema.decodeUnknownEffect(BeadsEpicCoordinatorSnapshot);
 const decodeBeadsIssueGraph = Schema.decodeUnknownEffect(BeadsIssueGraph);
+const decodeBeadsProjectCoordinatorSnapshot = Schema.decodeUnknownEffect(
+  BeadsProjectCoordinatorSnapshot,
+);
 const decodeBeadsSessionActivityEntry = Schema.decodeUnknownEffect(BeadsSessionActivityEntry);
 const decodeBeadsSwarmValidation = Schema.decodeUnknownEffect(BeadsSwarmValidation);
 
@@ -109,5 +115,37 @@ it.effect("accepts plan-implementation workflow activity entries", () =>
     });
 
     assert.strictEqual(parsed.workflowKind, "plan-implementation");
+  }),
+);
+
+it.effect("defaults coordinator snapshot collections", () =>
+  Effect.gen(function* () {
+    const project = yield* decodeBeadsProjectCoordinatorSnapshot({
+      projectId: "project-1",
+      support: {
+        supported: true,
+        backend: {
+          kind: "dolt",
+        },
+      },
+    });
+    const epic = yield* decodeBeadsEpicCoordinatorSnapshot({
+      epicId: "epic-1",
+      epicTitle: "Epic",
+      fetchLifecycle: { kind: "ready" },
+      stateKind: "ready",
+      primaryAction: {
+        kind: "start_swarm",
+        label: "Start swarm",
+        busyLabel: "Starting...",
+        disabled: false,
+      },
+    });
+
+    assert.deepStrictEqual(project.epics, []);
+    assert.strictEqual(epic.epic.issue, null);
+    assert.deepStrictEqual(epic.epic.runs, []);
+    assert.deepStrictEqual(epic.epic.executions, []);
+    assert.strictEqual(epic.epic.activeExecution, null);
   }),
 );
