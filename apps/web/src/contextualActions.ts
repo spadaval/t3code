@@ -216,6 +216,51 @@ const SWARM_RUN_ACTIONS: Record<string, ContextualAction> = {
     requiresConfirmation: false,
     shortcut: null,
   },
+
+  // New simplified workflow actions
+  execute_next_task: {
+    id: "execute_next_task",
+    label: "Execute Next Task",
+    description: "Manually trigger execution of the next pending task",
+    category: "primary",
+    icon: "arrow-right",
+    isEnabled: true,
+    requiresConfirmation: false,
+    shortcut: "n",
+  },
+
+  request_intervention: {
+    id: "request_intervention",
+    label: "Request Intervention",
+    description: "Pause workflow and ask for manual guidance",
+    category: "secondary",
+    icon: "help-circle",
+    isEnabled: true,
+    requiresConfirmation: false,
+    shortcut: "h",
+  },
+
+  view_execution_history: {
+    id: "view_execution_history",
+    label: "View Execution History",
+    description: "Show detailed execution timeline and events",
+    category: "diagnostic",
+    icon: "list",
+    isEnabled: true,
+    requiresConfirmation: false,
+    shortcut: "h",
+  },
+
+  manual_task_control: {
+    id: "manual_task_control",
+    label: "Task Control",
+    description: "Manually mark tasks as completed, failed, or skipped",
+    category: "recovery",
+    icon: "settings",
+    isEnabled: true,
+    requiresConfirmation: false,
+    shortcut: null,
+  },
 };
 
 /**
@@ -362,33 +407,43 @@ function getSwarmRunActions(entity: WorkflowEntity): ContextualAction[] {
     case "active":
       actions.push(
         SWARM_RUN_ACTIONS.pause_swarm,
+        SWARM_RUN_ACTIONS.execute_next_task,
+        SWARM_RUN_ACTIONS.request_intervention,
         SWARM_RUN_ACTIONS.cancel_swarm,
         SWARM_RUN_ACTIONS.debug_swarm,
+        SWARM_RUN_ACTIONS.view_execution_history,
       );
       break;
 
     case "paused":
       actions.push(
         SWARM_RUN_ACTIONS.resume_swarm,
+        SWARM_RUN_ACTIONS.execute_next_task,
+        SWARM_RUN_ACTIONS.manual_task_control,
         SWARM_RUN_ACTIONS.cancel_swarm,
         SWARM_RUN_ACTIONS.debug_swarm,
+        SWARM_RUN_ACTIONS.view_execution_history,
       );
       break;
 
     case "idle":
       actions.push(
         SWARM_RUN_ACTIONS.resume_swarm,
+        SWARM_RUN_ACTIONS.execute_next_task,
         SWARM_RUN_ACTIONS.cancel_swarm,
         SWARM_RUN_ACTIONS.debug_swarm,
+        SWARM_RUN_ACTIONS.view_execution_history,
       );
       break;
 
     case "blocked_recoverable":
       actions.push(
         SWARM_RUN_ACTIONS.manual_recovery,
+        SWARM_RUN_ACTIONS.manual_task_control,
         SWARM_RUN_ACTIONS.restart_swarm,
         SWARM_RUN_ACTIONS.cancel_swarm,
         SWARM_RUN_ACTIONS.debug_swarm,
+        SWARM_RUN_ACTIONS.view_execution_history,
       );
       break;
 
