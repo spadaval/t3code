@@ -7,6 +7,7 @@ import {
   SwarmRunId,
   SwarmTaskExecutionId,
   ThreadId,
+  TurnId,
   type OrchestrationSwarmRunBlockedContext,
   type OrchestrationProject,
   type OrchestrationSwarmRun,
@@ -188,6 +189,13 @@ function describeWorkerFailureRecoveryReason(input: { readonly issueId: string |
   return input.issueId
     ? `Worker execution for issue '${input.issueId}' failed. Resolve the tracker state for this issue, refresh swarm status, then continue the run.`
     : "A swarm worker failed. Resolve the tracker state, refresh swarm status, then continue the run.";
+}
+
+function workerThreadStillHasActiveTurn(input: {
+  readonly latestTurnState: string | null | undefined;
+  readonly sessionActiveTurnId: TurnId | null | undefined;
+}): boolean {
+  return input.latestTurnState === "running" || input.sessionActiveTurnId != null;
 }
 
 function canContinueRunFromTrackerState(input: {
@@ -1129,11 +1137,17 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         return yield* getRunById(run.runId);
       }
 
+      const workerStillRunning = workerThreadStillHasActiveTurn({
+        latestTurnState: thread.value.latestTurn?.state,
+        sessionActiveTurnId: thread.value.session?.activeTurnId,
+      });
+
       if (
         thread.value.latestTurn?.state === "interrupted" ||
-        thread.value.session?.status === "interrupted" ||
-        thread.value.session?.status === "stopped" ||
-        thread.value.session?.status === "error"
+        (!workerStillRunning &&
+          (thread.value.session?.status === "interrupted" ||
+            thread.value.session?.status === "stopped" ||
+            thread.value.session?.status === "error"))
       ) {
         yield* failSwarmTaskExecution({
           runId: run.runId,

@@ -150,6 +150,17 @@ function makeCompletedLatestTurn(turnId: string): OrchestrationLatestTurn {
   };
 }
 
+function makeRunningLatestTurn(turnId: string): OrchestrationLatestTurn {
+  return {
+    turnId: TurnId.makeUnsafe(turnId),
+    state: "running",
+    requestedAt: now,
+    startedAt: now,
+    completedAt: null,
+    assistantMessageId: null,
+  };
+}
+
 function makeReadySession(threadId: ThreadId): OrchestrationSession {
   return {
     threadId,
@@ -184,13 +195,17 @@ function makeInterruptedLatestTurn(turnId: string): OrchestrationLatestTurn {
   };
 }
 
-function makeErroredSession(threadId: ThreadId, lastError: string): OrchestrationSession {
+function makeErroredSession(
+  threadId: ThreadId,
+  lastError: string,
+  activeTurnId = "turn-error",
+): OrchestrationSession {
   return {
     threadId,
     status: "error",
     providerName: "codex",
     runtimeMode: "full-access",
-    activeTurnId: TurnId.makeUnsafe("turn-error"),
+    activeTurnId: TurnId.makeUnsafe(activeTurnId),
     lastError,
     updatedAt: now,
   };
@@ -1465,6 +1480,54 @@ describe("SwarmExecutionWorkflow", () => {
     expect(issue?.assignee).toBe("issue-owner");
     expect(issue?.comments.at(-1)?.text).toContain("Swarm worker failed.");
     expect(issue?.comments.at(-1)?.text).toContain("Worker crashed");
+  });
+
+  it("keeps active swarm executions running when the worker turn is still active", async () => {
+    const harness = await createHarness();
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startSwarmRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const initialSnapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const execution = initialSnapshot.swarmTaskExecutions[0];
+    expect(execution?.workerThreadId).toBeTruthy();
+    if (!execution?.workerThreadId) {
+      return;
+    }
+
+    harness.patchThread(execution.workerThreadId, {
+      latestTurn: makeRunningLatestTurn("turn-worker-running"),
+      session: makeErroredSession(
+        execution.workerThreadId,
+        "Transient runtime error while retrying worker stream",
+        "turn-worker-running",
+      ),
+    });
+
+    await runtime!.runPromise(Effect.scoped(harness.workflow.start));
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const run = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
+    const activeExecution = snapshot.swarmTaskExecutions.find(
+      (entry) => entry.executionId === execution.executionId,
+    );
+    const issue = harness.getIssue("TASK-1");
+
+    expect(run?.status).toBe("running");
+    expect(run?.blockedContext).toBeNull();
+    expect(run?.lastError).toBeNull();
+    expect(activeExecution?.status).toBe("active");
+    expect(activeExecution?.lastError).toBeNull();
+    expect(issue?.comments).toHaveLength(1);
+    expect(issue?.comments.at(-1)?.text).toContain("Swarm worker started.");
   });
 
   it("includes observed worker state when a task stops without an upstream error reason", async () => {
