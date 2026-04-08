@@ -247,4 +247,43 @@ describe("PlanImplementationWorkflow", () => {
       ),
     ).rejects.toThrow("Only failed or cancelled launches can be retried.");
   });
+
+  it("rejects launching a plan that already has a terminal follow-up outcome", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await runtime!.runPromise(
+      harness.engine.dispatch({
+        type: "thread.proposed-plan.upsert",
+        commandId: CommandId.makeUnsafe("cmd-plan-closed"),
+        threadId: harness.threadId,
+        proposedPlan: {
+          id: "plan-1",
+          turnId: null,
+          planIntent: "code-implementation",
+          followUpOutcome: {
+            kind: "implement-code",
+            completedAt: now,
+            targetThreadId: ThreadId.makeUnsafe("thread-existing"),
+          },
+          planMarkdown: "# Auth flow\n\n1. Implement it",
+          createdAt: now,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await expect(
+      runtime!.runPromise(
+        harness.workflow.launchPlanImplementation({
+          sourceThreadId: harness.threadId,
+          planId: "plan-1",
+          runtimeMode: "full-access",
+          launchMode: "worktree",
+          runSetup: false,
+        }),
+      ),
+    ).rejects.toThrow("already has terminal follow-up");
+  });
 });

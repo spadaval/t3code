@@ -684,6 +684,12 @@ const makePlanImplementationWorkflow = Effect.gen(function* () {
       if (!sourcePlan) {
         return yield* workflowError("launchPlanImplementation", "Requested plan was not found.");
       }
+      if (sourcePlan.followUpOutcome !== null) {
+        return yield* workflowError(
+          "launchPlanImplementation",
+          `Requested plan already has terminal follow-up '${sourcePlan.followUpOutcome.kind}'.`,
+        );
+      }
 
       const project =
         readModel.projects.find(

@@ -144,6 +144,45 @@ export function requireThread(input: {
   );
 }
 
+export function requireActionableProposedPlan(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly threadId: ThreadId;
+  readonly planId: string;
+}): Effect.Effect<
+  OrchestrationThread["proposedPlans"][number],
+  OrchestrationCommandInvariantError
+> {
+  return requireThread({
+    readModel: input.readModel,
+    command: input.command,
+    threadId: input.threadId,
+  }).pipe(
+    Effect.flatMap((thread) => {
+      const proposedPlan = thread.proposedPlans.find((entry) => entry.id === input.planId);
+      if (!proposedPlan) {
+        return Effect.fail(
+          invariantError(
+            input.command.type,
+            `Proposed plan '${input.planId}' does not exist on thread '${input.threadId}'.`,
+          ),
+        );
+      }
+
+      if (proposedPlan.followUpOutcome !== null) {
+        return Effect.fail(
+          invariantError(
+            input.command.type,
+            `Proposed plan '${input.planId}' on thread '${input.threadId}' already has terminal follow-up '${proposedPlan.followUpOutcome.kind}'.`,
+          ),
+        );
+      }
+
+      return Effect.succeed(proposedPlan);
+    }),
+  );
+}
+
 export function requireThreadArchived(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;

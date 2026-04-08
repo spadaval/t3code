@@ -7,6 +7,7 @@ import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
+  requireActionableProposedPlan,
   requireCurrentSwarmTaskExecutionForRunInAllowedStatus,
   requirePlanImplementationLaunch,
   requirePlanImplementationLaunchAbsent,
@@ -333,14 +334,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             threadId: sourceProposedPlan.threadId,
           })
         : null;
-      const sourcePlan =
-        sourceProposedPlan && sourceThread
-          ? sourceThread.proposedPlans.find((entry) => entry.id === sourceProposedPlan.planId)
-          : null;
-      if (sourceProposedPlan && !sourcePlan) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Proposed plan '${sourceProposedPlan.planId}' does not exist on thread '${sourceProposedPlan.threadId}'.`,
+      if (sourceProposedPlan && sourceThread) {
+        yield* requireActionableProposedPlan({
+          readModel,
+          command,
+          threadId: sourceProposedPlan.threadId,
+          planId: sourceProposedPlan.planId,
         });
       }
       if (sourceThread && sourceThread.projectId !== targetThread.projectId) {
