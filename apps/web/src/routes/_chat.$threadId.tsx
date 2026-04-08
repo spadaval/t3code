@@ -19,7 +19,7 @@ import {
   type DiffPanelMode,
 } from "../components/DiffPanelShell";
 import { useComposerDraftStore } from "../composerDraftStore";
-import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
+import { parseDiffRouteSearch } from "../diffRouteSearch";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useStore } from "../store";
 import { IssuesPanel } from "../components/IssuesPanel";
@@ -195,7 +195,7 @@ function ChatThreadRouteView() {
     void navigate({
       to: "/$threadId",
       params: { threadId },
-      search: (previous) => stripDiffSearchParams(previous),
+      search: () => ({}),
     });
   }, [navigate, threadId]);
   useEffect(() => {

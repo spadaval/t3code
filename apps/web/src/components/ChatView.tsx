@@ -32,7 +32,7 @@ import { useGitStatus } from "~/lib/gitStatusState";
 import { gitBranchesQueryOptions } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { isElectron } from "../env";
-import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
+import { parseDiffRouteSearch } from "../diffRouteSearch";
 import {
   canCancelPlanImplementationLaunch,
   canRetryPlanImplementationLaunch,
@@ -1685,10 +1685,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       to: "/$threadId",
       params: { threadId },
       replace: true,
-      search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
-        return diffOpen ? rest : { ...rest, rightPane: "diff" };
-      },
+      search: () => (diffOpen ? {} : { rightPane: "diff" as const }),
     });
   }, [diffOpen, navigate, threadId]);
   const onToggleIssues = useCallback(() => {
@@ -1696,10 +1693,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       to: "/$threadId",
       params: { threadId },
       replace: true,
-      search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
-        return issuesOpen ? rest : { ...rest, rightPane: "issues" };
-      },
+      search: () => (issuesOpen ? {} : { rightPane: "issues" as const }),
     });
   }, [issuesOpen, navigate, threadId]);
 
@@ -4194,12 +4188,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
       void navigate({
         to: "/$threadId",
         params: { threadId },
-        search: (previous) => {
-          const rest = stripDiffSearchParams(previous);
-          return filePath
-            ? { ...rest, rightPane: "diff", diffTurnId: turnId, diffFilePath: filePath }
-            : { ...rest, rightPane: "diff", diffTurnId: turnId };
-        },
+        search: () =>
+          filePath
+            ? { rightPane: "diff" as const, diffTurnId: turnId, diffFilePath: filePath }
+            : { rightPane: "diff" as const, diffTurnId: turnId },
       });
     },
     [navigate, threadId],

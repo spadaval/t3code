@@ -39,7 +39,6 @@ import {
 } from "lucide-react";
 
 import { useComposerThreadDraft, useEffectiveComposerModelState } from "~/composerDraftStore";
-import { stripDiffSearchParams } from "~/diffRouteSearch";
 import { useSettings } from "~/hooks/useSettings";
 import {
   describeProposedPlanFollowUpOutcome,
@@ -1757,7 +1756,7 @@ export function IssuesPanel({
     await navigate({
       to: "/$threadId",
       params: { threadId },
-      search: (previous) => stripDiffSearchParams(previous),
+      search: () => ({}),
     });
   };
   const runIssueWorkflow = async (workflow: "refine" | "solve" | "plan-implementation") => {
@@ -1796,7 +1795,7 @@ export function IssuesPanel({
         await navigate({
           to: "/$threadId",
           params: { threadId: result.threadId },
-          search: (previous) => stripDiffSearchParams(previous),
+          search: () => ({}),
         });
       }
       if (!result.created) {
