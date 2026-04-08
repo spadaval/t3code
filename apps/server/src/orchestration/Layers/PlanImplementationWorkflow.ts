@@ -494,6 +494,10 @@ const makePlanImplementationWorkflow = Effect.gen(function* () {
           text: launch.promptText,
           attachments: [],
         },
+        sourceProposedPlan: {
+          threadId: launch.sourceThreadId,
+          planId: launch.sourcePlanId,
+        },
         ...(launch.provider ? { provider: launch.provider } : {}),
         ...(launch.model ? { model: launch.model } : {}),
         ...(launch.modelOptions ? { modelOptions: launch.modelOptions } : {}),

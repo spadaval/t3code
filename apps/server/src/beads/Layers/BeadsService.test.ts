@@ -88,8 +88,9 @@ function installBdJsonMock(outputs: Record<string, unknown>) {
 }
 
 layer("BeadsServiceLive", (it) => {
-  it.effect("serializes bd access per repository", () =>
+  it.effect("serializes read-only bd access per repository in embedded mode", () =>
     Effect.gen(function* () {
+      const cwd = "/repo-embedded";
       const now = new Date().toISOString();
       let activeCalls = 0;
       let maxActiveCalls = 0;
@@ -101,40 +102,169 @@ layer("BeadsServiceLive", (it) => {
         try {
           await new Promise((resolve) => setTimeout(resolve, 5));
           const action = args[0];
+          if (action === "context") {
+            return successJson({
+              beads_dir: "/repo/.beads",
+              repo_root: cwd,
+              cwd_repo_root: cwd,
+              is_redirected: false,
+              is_worktree: false,
+              backend: "dolt",
+              dolt_mode: "embedded",
+              database: "repo",
+              project_id: "project-1",
+              role: "contributor",
+              bd_version: "1.0.0",
+            });
+          }
+
           if (action === "show") {
-            return {
-              stdout: JSON.stringify([
-                {
-                  id: "ISS-1",
-                  title: "Serialize beads access",
-                  description: "desc",
-                  notes: "notes",
-                  status: "open",
-                  priority: 1,
-                  issue_type: "feature",
-                  assignee: null,
-                  owner: null,
-                  created_at: now,
-                  created_by: null,
-                  updated_at: now,
-                  labels: [],
-                },
-              ]),
-              stderr: "",
-              code: 0,
-              signal: null,
-              timedOut: false,
-            };
+            return successJson([
+              {
+                id: "ISS-1",
+                title: "Serialize beads access",
+                description: "desc",
+                notes: "notes",
+                status: "open",
+                priority: 1,
+                issue_type: "feature",
+                assignee: null,
+                owner: null,
+                created_at: now,
+                created_by: null,
+                updated_at: now,
+                labels: [],
+              },
+            ]);
           }
 
           if (action === "comments" || action === "history") {
-            return {
-              stdout: "[]",
-              stderr: "",
-              code: 0,
-              signal: null,
-              timedOut: false,
-            };
+            return successJson([]);
+          }
+
+          throw new Error(`Unexpected bd args: ${args.join(" ")}`);
+        } finally {
+          activeCalls -= 1;
+        }
+      });
+
+      const beads = yield* BeadsService;
+      const [left, right] = yield* Effect.all(
+        [beads.getIssue({ cwd, issueId: "ISS-1" }), beads.getIssue({ cwd, issueId: "ISS-1" })],
+        { concurrency: "unbounded" },
+      );
+
+      assert.equal(left.id, "ISS-1");
+      assert.equal(right.id, "ISS-1");
+      expect(mockedRunProcess).toHaveBeenCalledTimes(7);
+      expect(maxActiveCalls).toBe(1);
+    }),
+  );
+
+  it.effect("allows read-only bd access to run in parallel in server mode", () =>
+    Effect.gen(function* () {
+      const cwd = "/repo-server";
+      const now = new Date().toISOString();
+      let activeCalls = 0;
+      let maxActiveCalls = 0;
+
+      mockedRunProcess.mockImplementation(async (_command, args) => {
+        activeCalls += 1;
+        maxActiveCalls = Math.max(maxActiveCalls, activeCalls);
+
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          const action = args[0];
+          if (action === "context") {
+            return successJson({
+              beads_dir: "/repo/.beads",
+              repo_root: cwd,
+              cwd_repo_root: cwd,
+              is_redirected: false,
+              is_worktree: false,
+              backend: "dolt",
+              dolt_mode: "server",
+              database: "repo",
+              project_id: "project-1",
+              role: "contributor",
+              bd_version: "1.0.0",
+            });
+          }
+
+          if (action === "show") {
+            return successJson([
+              {
+                id: "ISS-1",
+                title: "Parallel beads access",
+                description: "desc",
+                notes: "notes",
+                status: "open",
+                priority: 1,
+                issue_type: "feature",
+                assignee: null,
+                owner: null,
+                created_at: now,
+                created_by: null,
+                updated_at: now,
+                labels: [],
+              },
+            ]);
+          }
+
+          if (action === "comments" || action === "history") {
+            return successJson([]);
+          }
+
+          throw new Error(`Unexpected bd args: ${args.join(" ")}`);
+        } finally {
+          activeCalls -= 1;
+        }
+      });
+
+      const beads = yield* BeadsService;
+      const [left, right] = yield* Effect.all(
+        [beads.getIssue({ cwd, issueId: "ISS-1" }), beads.getIssue({ cwd, issueId: "ISS-1" })],
+        { concurrency: "unbounded" },
+      );
+
+      assert.equal(left.id, "ISS-1");
+      assert.equal(right.id, "ISS-1");
+      expect(maxActiveCalls).toBeGreaterThan(1);
+    }),
+  );
+
+  it.effect("keeps write-capable bd commands serialized in server mode", () =>
+    Effect.gen(function* () {
+      const cwd = "/repo-server-write";
+      const now = new Date().toISOString();
+      let activeCalls = 0;
+      let maxActiveCalls = 0;
+
+      mockedRunProcess.mockImplementation(async (_command, args) => {
+        activeCalls += 1;
+        maxActiveCalls = Math.max(maxActiveCalls, activeCalls);
+
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          const action = args[0];
+          if (action === "update") {
+            return successJson([
+              {
+                id: "ISS-1",
+                title: args.at(-1) ?? "Updated issue",
+                description: "desc",
+                notes: "notes",
+                status: "open",
+                priority: 1,
+                issue_type: "feature",
+                assignee: null,
+                owner: null,
+                created_at: now,
+                created_by: null,
+                updated_at: now,
+                labels: [],
+              },
+            ]);
           }
 
           throw new Error(`Unexpected bd args: ${args.join(" ")}`);
@@ -146,15 +276,15 @@ layer("BeadsServiceLive", (it) => {
       const beads = yield* BeadsService;
       const [left, right] = yield* Effect.all(
         [
-          beads.getIssue({ cwd: "/repo", issueId: "ISS-1" }),
-          beads.getIssue({ cwd: "/repo", issueId: "ISS-1" }),
+          beads.updateIssue({ cwd, issueId: "ISS-1", title: "Left update" }),
+          beads.updateIssue({ cwd, issueId: "ISS-1", title: "Right update" }),
         ],
         { concurrency: "unbounded" },
       );
 
       assert.equal(left.id, "ISS-1");
       assert.equal(right.id, "ISS-1");
-      expect(mockedRunProcess).toHaveBeenCalledTimes(6);
+      expect(mockedRunProcess).toHaveBeenCalledTimes(2);
       expect(maxActiveCalls).toBe(1);
     }),
   );

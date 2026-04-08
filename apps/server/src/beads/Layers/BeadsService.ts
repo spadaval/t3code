@@ -34,7 +34,17 @@ import {
   type BeadsSwarmSummary as BeadsSwarmSummaryType,
   type BeadsSwarmSupport as BeadsSwarmSupportType,
 } from "@t3tools/contracts";
-import { Cause, Effect, Layer, Option, Ref, Schema, Semaphore, SynchronizedRef } from "effect";
+import {
+  Cause,
+  Deferred,
+  Effect,
+  Layer,
+  Option,
+  Ref,
+  Schema,
+  Semaphore,
+  SynchronizedRef,
+} from "effect";
 
 import { runProcess } from "../../processRunner.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
@@ -66,6 +76,13 @@ const decodeEpicCoordinatorSnapshot = Schema.decodeUnknownSync(BeadsEpicCoordina
 interface SessionActivityRecord {
   readonly cwd: string;
   readonly entry: BeadsSessionActivityEntry;
+}
+
+type BdExecutionStrategy = "parallel" | "serial";
+
+interface BdExecutionStrategyReservation {
+  readonly deferred: Deferred.Deferred<BdExecutionStrategy, BeadsError>;
+  readonly created: boolean;
 }
 
 function nowIso(): string {
@@ -372,6 +389,43 @@ function deriveSwarmSupport(context: BeadsContextType): BeadsSwarmSupportType {
     reason,
     backend: context.backend,
   });
+}
+
+function isReadOnlyBdCommand(args: ReadonlyArray<string>): boolean {
+  const action = args[0];
+  if (
+    action === "show" ||
+    action === "comments" ||
+    action === "history" ||
+    action === "list" ||
+    action === "context"
+  ) {
+    return true;
+  }
+
+  return (
+    action === "swarm" && (args[1] === "list" || args[1] === "status" || args[1] === "validate")
+  );
+}
+
+function isBdContextCommand(args: ReadonlyArray<string>): boolean {
+  return args[0] === "context";
+}
+
+function parseBdExecutionStrategyFromContextStdout(stdout: string): BdExecutionStrategy | null {
+  try {
+    const record = asRecord(JSON.parse(stdout));
+    if (!record) {
+      return null;
+    }
+
+    const context = mapBeadsContext(record);
+    return context.backend.kind === "dolt" && context.backend.doltMode === "server"
+      ? "parallel"
+      : "serial";
+  } catch {
+    return null;
+  }
 }
 
 function mapIssueSummary(
@@ -699,10 +753,16 @@ function buildEpicPlanImplementationPrompt(input: {
 
 const makeBeadsTrackerService = Effect.gen(function* () {
   const bdLocksRef = yield* SynchronizedRef.make(new Map<string, Semaphore.Semaphore>());
+  const bdExecutionStrategiesRef = yield* Ref.make(new Map<string, BdExecutionStrategy>());
+  const bdExecutionStrategyDeferredsRef = yield* SynchronizedRef.make(
+    new Map<string, Deferred.Deferred<BdExecutionStrategy, BeadsError>>(),
+  );
+
+  const getBdKey = (cwd: string) => path.resolve(cwd);
 
   const getBdSemaphore = (cwd: string): Effect.Effect<Semaphore.Semaphore> =>
     SynchronizedRef.modifyEffect(bdLocksRef, (current) => {
-      const key = path.resolve(cwd);
+      const key = getBdKey(cwd);
       const existing: Option.Option<Semaphore.Semaphore> = Option.fromNullishOr(current.get(key));
       return Option.match(existing, {
         onNone: () =>
@@ -717,42 +777,193 @@ const makeBeadsTrackerService = Effect.gen(function* () {
       });
     });
 
-  const runBdRaw = Effect.fn("BeadsService.runBdRaw")(function* (
-    cwd: string,
-    args: ReadonlyArray<string>,
-  ) {
-    const semaphore = yield* getBdSemaphore(cwd);
-    const result = yield* semaphore.withPermit(
-      Effect.tryPromise({
-        try: () =>
-          runProcess("bd", args, {
-            cwd,
-            allowNonZeroExit: true,
-            outputMode: "truncate",
-            maxBufferBytes: MAX_BD_OUTPUT_BYTES,
-          }),
-        catch: (cause) => toBeadsError("Failed to run bd.", cause),
-      }),
+  const withSerializedBdAccess = <A, E>(cwd: string, effect: Effect.Effect<A, E>) =>
+    Effect.flatMap(getBdSemaphore(cwd), (semaphore) => semaphore.withPermit(effect));
+
+  const getCachedBdExecutionStrategy = (cwd: string) =>
+    Ref.get(bdExecutionStrategiesRef).pipe(
+      Effect.map((current) => current.get(getBdKey(cwd)) ?? null),
     );
 
+  const setBdExecutionStrategy = (cwd: string, strategy: BdExecutionStrategy) =>
+    Ref.update(bdExecutionStrategiesRef, (current) => {
+      const next = new Map(current);
+      next.set(getBdKey(cwd), strategy);
+      return next;
+    });
+
+  const getOrCreateBdExecutionStrategyDeferred = (
+    cwd: string,
+  ): Effect.Effect<BdExecutionStrategyReservation> =>
+    SynchronizedRef.modifyEffect(
+      bdExecutionStrategyDeferredsRef,
+      (
+        current,
+      ): Effect.Effect<
+        readonly [
+          BdExecutionStrategyReservation,
+          Map<string, Deferred.Deferred<BdExecutionStrategy, BeadsError>>,
+        ]
+      > => {
+        const key = getBdKey(cwd);
+        const existing = current.get(key);
+        if (existing) {
+          return Effect.succeed([{ deferred: existing, created: false }, current] as const);
+        }
+
+        return Deferred.make<BdExecutionStrategy, BeadsError>().pipe(
+          Effect.map((deferred) => {
+            const next = new Map(current);
+            next.set(key, deferred);
+            return [{ deferred, created: true }, next] as const;
+          }),
+        );
+      },
+    );
+
+  const clearBdExecutionStrategyDeferred = (cwd: string) =>
+    SynchronizedRef.modify(bdExecutionStrategyDeferredsRef, (current) => {
+      const next = new Map(current);
+      next.delete(getBdKey(cwd));
+      return [undefined, next] as const;
+    });
+
+  const runBdProcess = (
+    cwd: string,
+    args: ReadonlyArray<string>,
+  ): Effect.Effect<Awaited<ReturnType<typeof runProcess>>, BeadsError> =>
+    Effect.tryPromise({
+      try: () =>
+        runProcess("bd", args, {
+          cwd,
+          allowNonZeroExit: true,
+          outputMode: "truncate",
+          maxBufferBytes: MAX_BD_OUTPUT_BYTES,
+        }),
+      catch: (cause) => toBeadsError("Failed to run bd.", cause),
+    });
+
+  const decodeBdProcessResult = (
+    result: Awaited<ReturnType<typeof runProcess>>,
+  ): Effect.Effect<string, BeadsError> => {
     if (result.timedOut) {
-      return yield* toBeadsError("Beads command timed out.");
+      return Effect.fail(toBeadsError("Beads command timed out."));
     }
 
     if (result.code !== 0) {
       const stdout = result.stdout.trim();
       const parsedMessage = parseBdErrorMessage(stdout);
       if (parsedMessage) {
-        return yield* toBeadsError(parsedMessage);
+        return Effect.fail(toBeadsError(parsedMessage));
       }
 
       const detail =
         trimToNull(result.stderr) ?? trimToNull(result.stdout) ?? "Beads command failed.";
-      return yield* toBeadsError(detail);
+      return Effect.fail(toBeadsError(detail));
     }
 
-    return result.stdout;
+    return Effect.succeed(result.stdout);
+  };
+
+  const runBdRawProcess = (
+    cwd: string,
+    args: ReadonlyArray<string>,
+  ): Effect.Effect<string, BeadsError> =>
+    runBdProcess(cwd, args).pipe(Effect.flatMap((result) => decodeBdProcessResult(result)));
+
+  const resolveBdExecutionStrategy: (
+    cwd: string,
+  ) => Effect.Effect<BdExecutionStrategy, BeadsError> = Effect.fn(
+    "BeadsService.resolveBdExecutionStrategy",
+  )(function* (cwd: string) {
+    const cached = yield* getCachedBdExecutionStrategy(cwd);
+    if (cached) {
+      return cached;
+    }
+
+    const { deferred, created } = yield* getOrCreateBdExecutionStrategyDeferred(cwd);
+    if (!created) {
+      return yield* Deferred.await(deferred);
+    }
+
+    const exit = yield* Effect.exit(
+      withSerializedBdAccess(cwd, runBdRawProcess(cwd, ["context", "--json"])).pipe(
+        Effect.flatMap((stdout) => {
+          const strategy = parseBdExecutionStrategyFromContextStdout(stdout) ?? "serial";
+          return setBdExecutionStrategy(cwd, strategy).pipe(Effect.as(strategy));
+        }),
+      ),
+    );
+
+    yield* clearBdExecutionStrategyDeferred(cwd);
+
+    if (exit._tag === "Success") {
+      yield* Deferred.succeed(deferred, exit.value).pipe(Effect.orDie);
+      return exit.value;
+    }
+
+    yield* Deferred.failCause(deferred, exit.cause).pipe(Effect.orDie);
+    return yield* Effect.failCause(exit.cause);
   });
+
+  const runBdRaw: (cwd: string, args: ReadonlyArray<string>) => Effect.Effect<string, BeadsError> =
+    Effect.fn("BeadsService.runBdRaw")(function* (cwd: string, args: ReadonlyArray<string>) {
+      // Writes stay serialized, and reads only bypass the repo lock when beads explicitly reports
+      // server mode. Embedded mode remains single-request because the backend is not concurrency-safe.
+      if (!isReadOnlyBdCommand(args)) {
+        return yield* withSerializedBdAccess(cwd, runBdRawProcess(cwd, args));
+      }
+
+      if (isBdContextCommand(args)) {
+        const cached = yield* getCachedBdExecutionStrategy(cwd);
+        if (cached) {
+          return yield* (
+            cached === "parallel"
+              ? runBdRawProcess(cwd, args)
+              : withSerializedBdAccess(cwd, runBdRawProcess(cwd, args))
+          ).pipe(
+            Effect.tap((stdout) => {
+              const strategy = parseBdExecutionStrategyFromContextStdout(stdout);
+              return strategy ? setBdExecutionStrategy(cwd, strategy) : Effect.void;
+            }),
+          );
+        }
+
+        const { deferred, created } = yield* getOrCreateBdExecutionStrategyDeferred(cwd);
+        if (!created) {
+          const strategy = yield* Deferred.await(deferred);
+          return yield* strategy === "parallel"
+            ? runBdRawProcess(cwd, args)
+            : withSerializedBdAccess(cwd, runBdRawProcess(cwd, args));
+        }
+
+        const exit = yield* Effect.exit(
+          withSerializedBdAccess(cwd, runBdRawProcess(cwd, args)).pipe(
+            Effect.flatMap((stdout) => {
+              const strategy = parseBdExecutionStrategyFromContextStdout(stdout) ?? "serial";
+              return setBdExecutionStrategy(cwd, strategy).pipe(
+                Effect.as({ stdout, strategy } as const),
+              );
+            }),
+          ),
+        );
+
+        yield* clearBdExecutionStrategyDeferred(cwd);
+
+        if (exit._tag === "Success") {
+          yield* Deferred.succeed(deferred, exit.value.strategy).pipe(Effect.orDie);
+          return exit.value.stdout;
+        }
+
+        yield* Deferred.failCause(deferred, exit.cause).pipe(Effect.orDie);
+        return yield* Effect.failCause(exit.cause);
+      }
+
+      const strategy = yield* resolveBdExecutionStrategy(cwd);
+      return yield* strategy === "parallel"
+        ? runBdRawProcess(cwd, args)
+        : withSerializedBdAccess(cwd, runBdRawProcess(cwd, args));
+    });
 
   const runBdJson = <T>(
     cwd: string,

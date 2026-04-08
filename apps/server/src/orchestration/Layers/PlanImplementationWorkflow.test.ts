@@ -1,5 +1,6 @@
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { CommandId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { type GitCoreShape, GitCore } from "../../git/Services/GitCore.ts";
@@ -20,10 +21,7 @@ const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const now = "2026-03-10T12:00:00.000Z";
 
 describe("PlanImplementationWorkflow", () => {
-  let runtime: ManagedRuntime.ManagedRuntime<
-    OrchestrationEngineService | PlanImplementationWorkflow,
-    unknown
-  > | null = null;
+  let runtime: ManagedRuntime.ManagedRuntime<any, unknown> | null = null;
 
   afterEach(async () => {
     if (runtime) {
@@ -194,12 +192,35 @@ describe("PlanImplementationWorkflow", () => {
       (entry) => entry.launchId === result.launchId,
     );
     const targetThread = snapshot.threads.find((thread) => thread.id === result.targetThreadId);
+    const pendingTurns = await runtime!.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        return yield* sql<{
+          readonly sourceProposedPlanThreadId: string | null;
+          readonly sourceProposedPlanId: string | null;
+        }>`
+          SELECT
+            source_proposed_plan_thread_id AS "sourceProposedPlanThreadId",
+            source_proposed_plan_id AS "sourceProposedPlanId"
+          FROM projection_turns
+          WHERE thread_id = ${result.targetThreadId}
+            AND turn_id IS NULL
+            AND state = 'pending'
+        `;
+      }),
+    );
 
     expect(launch?.status).toBe("started");
     expect(launch?.preparedAt).not.toBeNull();
     expect(launch?.startedAt).not.toBeNull();
     expect(targetThread?.branch).toMatch(/^t3code\/[0-9a-f]{8}$/);
     expect(targetThread?.worktreePath).toContain(targetThread?.branch ?? "");
+    expect(pendingTurns).toEqual([
+      {
+        sourceProposedPlanThreadId: harness.threadId,
+        sourceProposedPlanId: "plan-1",
+      },
+    ]);
     expect(targetThread?.messages.at(-1)?.text).toContain("PLEASE IMPLEMENT THIS PLAN");
     expect(harness.createWorktree).toHaveBeenCalled();
     expect(harness.listBranches).not.toHaveBeenCalled();
