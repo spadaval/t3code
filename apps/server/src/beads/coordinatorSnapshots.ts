@@ -15,47 +15,13 @@ import type {
   OrchestrationSwarmTaskExecution,
   ProjectId,
 } from "@t3tools/contracts";
-import { deriveSwarmRunExecutionState, selectDeterministicReadyIssue } from "@t3tools/shared/swarm";
-
-const NON_TERMINAL_SWARM_RUN_STATUSES = new Set<OrchestrationSwarmRun["status"]>([
-  "requested",
-  "running",
-  "idle",
-  "paused",
-  "blocked",
-]);
-
-function compareSwarmRunsByPriority(
-  left: OrchestrationSwarmRun,
-  right: OrchestrationSwarmRun,
-): number {
-  const nonTerminalDelta =
-    Number(NON_TERMINAL_SWARM_RUN_STATUSES.has(right.status)) -
-    Number(NON_TERMINAL_SWARM_RUN_STATUSES.has(left.status));
-  if (nonTerminalDelta !== 0) {
-    return nonTerminalDelta;
-  }
-
-  const updatedAtDelta = right.updatedAt.localeCompare(left.updatedAt);
-  if (updatedAtDelta !== 0) {
-    return updatedAtDelta;
-  }
-
-  const requestedAtDelta = right.requestedAt.localeCompare(left.requestedAt);
-  if (requestedAtDelta !== 0) {
-    return requestedAtDelta;
-  }
-
-  return right.runId.localeCompare(left.runId);
-}
-
-function isNonTerminalSharedWorkspaceRun(run: OrchestrationSwarmRun): boolean {
-  return run.workspaceMode === "shared" && NON_TERMINAL_SWARM_RUN_STATUSES.has(run.status);
-}
-
-function formatSwarmRunStatusLabel(status: OrchestrationSwarmRun["status"]): string {
-  return status === "requested" ? "requested" : status.replace(/_/g, " ");
-}
+import {
+  deriveSwarmRunExecutionState,
+  describeSharedWorkspaceProjectConflict as describeSharedWorkspaceProjectConflictMessage,
+  findConflictingSharedWorkspaceRun as findConflictingSharedWorkspaceRunCore,
+  selectDeterministicReadyIssue,
+  selectLatestSwarmRun as selectLatestSwarmRunCore,
+} from "@t3tools/shared/swarm";
 
 function isTimeoutErrorMessage(message: string): boolean {
   return /\b(?:timed?\s*out|timeout)\b/i.test(message);
@@ -83,18 +49,12 @@ function describeCoordinatorFetchFailure(input: {
     : `${sourceLabel.charAt(0).toUpperCase()}${sourceLabel.slice(1)} request failed. Retry the coordinator state request or inspect the backend error.`;
 }
 
-function selectLatestSwarmRun(
-  swarmRuns: ReadonlyArray<OrchestrationSwarmRun>,
-): OrchestrationSwarmRun | null {
-  return [...swarmRuns].toSorted(compareSwarmRunsByPriority)[0] ?? null;
-}
-
 function describeSharedWorkspaceProjectConflict(
   run: OrchestrationSwarmRun,
 ): BeadsCoordinatorProjectConflict {
   return {
     run,
-    message: `Shared workspace is already busy with ${run.epicIssueId} (${formatSwarmRunStatusLabel(run.status)}). Finish, cancel, or resume that run before starting or resuming another shared-workspace swarm in this project.`,
+    message: describeSharedWorkspaceProjectConflictMessage(run),
   };
 }
 
@@ -102,15 +62,7 @@ function findConflictingSharedWorkspaceRun(input: {
   readonly projectSwarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
   readonly epicSwarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
 }): BeadsCoordinatorProjectConflict | null {
-  const epicRunIds = new Set(input.epicSwarmRuns.map((run) => run.runId));
-  const run =
-    input.projectSwarmRuns
-      .filter(
-        (candidate) =>
-          isNonTerminalSharedWorkspaceRun(candidate) && !epicRunIds.has(candidate.runId),
-      )
-      .toSorted(compareSwarmRunsByPriority)[0] ?? null;
-
+  const run = findConflictingSharedWorkspaceRunCore(input);
   return run ? describeSharedWorkspaceProjectConflict(run) : null;
 }
 
@@ -147,7 +99,7 @@ function deriveEpicCoordinatorState(input: {
   readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
   readonly fetchLifecycle: BeadsCoordinatorFetchLifecycle;
 }) {
-  const latestRun = selectLatestSwarmRun(input.swarmRuns);
+  const latestRun = selectLatestSwarmRunCore(input.swarmRuns);
 
   if (input.fetchLifecycle.kind === "loading") {
     return {

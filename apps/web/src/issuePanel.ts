@@ -7,7 +7,12 @@ import type {
   OrchestrationSwarmRun,
   ThreadId,
 } from "@t3tools/contracts";
-import { selectDeterministicReadyIssue } from "@t3tools/shared/swarm";
+import {
+  describeSharedWorkspaceProjectConflict as describeSharedWorkspaceProjectConflictMessage,
+  findConflictingSharedWorkspaceRun as findConflictingSharedWorkspaceRunCore,
+  selectDeterministicReadyIssue,
+  selectLatestSwarmRun as selectLatestSwarmRunCore,
+} from "@t3tools/shared/swarm";
 
 export interface EpicGroup {
   readonly key: string;
@@ -150,53 +155,12 @@ function getFailedSwarmRecoveryAction(input: {
   };
 }
 
-const NON_TERMINAL_SWARM_RUN_STATUSES = new Set<OrchestrationSwarmRun["status"]>([
-  "requested",
-  "running",
-  "idle",
-  "paused",
-  "blocked",
-]);
-
 const ACTIVE_COORDINATOR_STATE_KINDS = new Set<EpicCoordinatorStateKind>(["running"]);
 
 const HISTORY_COORDINATOR_STATE_KINDS = new Set<EpicCoordinatorStateKind>([
   "cancelled",
   "completed",
 ]);
-
-function compareSwarmRunsByPriority(
-  left: OrchestrationSwarmRun,
-  right: OrchestrationSwarmRun,
-): number {
-  const nonTerminalDelta =
-    Number(NON_TERMINAL_SWARM_RUN_STATUSES.has(right.status)) -
-    Number(NON_TERMINAL_SWARM_RUN_STATUSES.has(left.status));
-  if (nonTerminalDelta !== 0) {
-    return nonTerminalDelta;
-  }
-
-  const updatedAtDelta = right.updatedAt.localeCompare(left.updatedAt);
-  if (updatedAtDelta !== 0) {
-    return updatedAtDelta;
-  }
-
-  const requestedAtDelta = right.requestedAt.localeCompare(left.requestedAt);
-  if (requestedAtDelta !== 0) {
-    return requestedAtDelta;
-  }
-
-  return right.runId.localeCompare(left.runId);
-}
-
-function isNonTerminalSharedWorkspaceRun(run: OrchestrationSwarmRun): boolean {
-  return run.workspaceMode === "shared" && NON_TERMINAL_SWARM_RUN_STATUSES.has(run.status);
-}
-
-function formatSwarmRunStatusLabel(status: OrchestrationSwarmRun["status"]): string {
-  const value = status === "requested" ? "requested" : status.replace(/_/g, " ");
-  return value;
-}
 
 function isTimeoutErrorMessage(message: string): boolean {
   return /\b(?:timed?\s*out|timeout)\b/i.test(message);
@@ -310,7 +274,7 @@ export function describeSharedWorkspaceProjectConflict(
 ): SharedWorkspaceProjectConflict {
   return {
     run,
-    message: `Shared workspace is already busy with ${run.epicIssueId} (${formatSwarmRunStatusLabel(run.status)}). Finish, cancel, or resume that run before starting or resuming another shared-workspace swarm in this project.`,
+    message: describeSharedWorkspaceProjectConflictMessage(run),
   };
 }
 
@@ -404,22 +368,14 @@ export function listEpicChildIssues(input: {
 export function selectLatestSwarmRun(
   swarmRuns: ReadonlyArray<OrchestrationSwarmRun>,
 ): OrchestrationSwarmRun | null {
-  return [...swarmRuns].toSorted(compareSwarmRunsByPriority)[0] ?? null;
+  return selectLatestSwarmRunCore(swarmRuns);
 }
 
 export function findConflictingSharedWorkspaceRun(input: {
   readonly projectSwarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
   readonly epicSwarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
 }): SharedWorkspaceProjectConflict | null {
-  const epicRunIds = new Set(input.epicSwarmRuns.map((run) => run.runId));
-  const run =
-    input.projectSwarmRuns
-      .filter(
-        (candidate) =>
-          isNonTerminalSharedWorkspaceRun(candidate) && !epicRunIds.has(candidate.runId),
-      )
-      .toSorted(compareSwarmRunsByPriority)[0] ?? null;
-
+  const run = findConflictingSharedWorkspaceRunCore(input);
   return run ? describeSharedWorkspaceProjectConflict(run) : null;
 }
 

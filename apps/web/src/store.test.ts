@@ -14,6 +14,8 @@ import { describe, expect, it } from "vitest";
 import {
   applyOrchestrationEvent,
   applyOrchestrationEvents,
+  selectSwarmRuns,
+  selectSwarmTaskExecutions,
   syncServerReadModel,
   type AppState,
 } from "./store";
@@ -69,8 +71,10 @@ function makeState(thread: Thread): AppState {
     threadIdsByProjectId,
     bootstrapComplete: true,
     planImplementationLaunches: [],
-    swarmRuns: [],
-    swarmTaskExecutions: [],
+    swarmProjection: {
+      swarmRunsById: {},
+      swarmTaskExecutionsById: {},
+    },
     threadsHydrated: true,
   };
 }
@@ -310,8 +314,10 @@ describe("store read model sync", () => {
       ],
     });
 
-    expect(next.swarmRuns).toHaveLength(1);
-    expect(next.swarmTaskExecutions[0]?.workerThreadId).toBe(ThreadId.makeUnsafe("thread-1"));
+    expect(selectSwarmRuns(next)).toHaveLength(1);
+    expect(selectSwarmTaskExecutions(next)[0]?.workerThreadId).toBe(
+      ThreadId.makeUnsafe("thread-1"),
+    );
   });
 
   it("replaces projects using snapshot order during recovery", () => {
@@ -346,8 +352,10 @@ describe("store read model sync", () => {
       threadIdsByProjectId: {},
       bootstrapComplete: true,
       planImplementationLaunches: [],
-      swarmRuns: [],
-      swarmTaskExecutions: [],
+      swarmProjection: {
+        swarmRunsById: {},
+        swarmTaskExecutionsById: {},
+      },
       threadsHydrated: true,
     };
     const readModel: OrchestrationReadModel = {
@@ -466,8 +474,10 @@ describe("incremental orchestration updates", () => {
       threadIdsByProjectId: {},
       bootstrapComplete: true,
       planImplementationLaunches: [],
-      swarmRuns: [],
-      swarmTaskExecutions: [],
+      swarmProjection: {
+        swarmRunsById: {},
+        swarmTaskExecutionsById: {},
+      },
       threadsHydrated: true,
     };
 
@@ -531,8 +541,10 @@ describe("incremental orchestration updates", () => {
       },
       bootstrapComplete: true,
       planImplementationLaunches: [],
-      swarmRuns: [],
-      swarmTaskExecutions: [],
+      swarmProjection: {
+        swarmRunsById: {},
+        swarmTaskExecutionsById: {},
+      },
       threadsHydrated: true,
     };
 
@@ -654,14 +666,14 @@ describe("incremental orchestration updates", () => {
       }),
     ]);
 
-    expect(next.swarmRuns).toEqual([
+    expect(selectSwarmRuns(next)).toEqual([
       expect.objectContaining({
         runId: "run-1",
         status: "failed",
         lastError: "worker exited",
       }),
     ]);
-    expect(next.swarmTaskExecutions).toEqual([
+    expect(selectSwarmTaskExecutions(next)).toEqual([
       expect.objectContaining({
         executionId: "execution-1",
         status: "failed",
@@ -704,7 +716,7 @@ describe("incremental orchestration updates", () => {
       }),
     ]);
 
-    expect(blocked.swarmRuns).toEqual([
+    expect(selectSwarmRuns(blocked)).toEqual([
       expect.objectContaining({
         runId: "run-1",
         status: "blocked",
@@ -727,7 +739,7 @@ describe("incremental orchestration updates", () => {
       }),
     );
 
-    expect(resumed.swarmRuns).toEqual([
+    expect(selectSwarmRuns(resumed)).toEqual([
       expect.objectContaining({
         runId: "run-1",
         status: "running",

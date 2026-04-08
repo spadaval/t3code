@@ -1,5 +1,7 @@
 import type {
   BeadsIssueRelationSummary,
+  OrchestrationEvent,
+  OrchestrationSwarmRun,
   OrchestrationSwarmTaskExecution,
   SwarmRunId,
 } from "@t3tools/contracts";
@@ -7,9 +9,16 @@ import { describe, expect, it } from "vitest";
 
 import {
   compareSwarmReadyIssues,
+  createEmptySwarmProjectionState,
+  describeSharedWorkspaceProjectConflict,
   deriveSwarmRunExecutionState,
+  findConflictingSharedWorkspaceRun,
+  listSwarmRuns,
+  listSwarmTaskExecutions,
+  projectSwarmEvent,
   selectDeterministicReadyIssue,
   selectDeterministicReadyIssueFromList,
+  selectLatestSwarmRun,
 } from "./swarm";
 
 function makeIssue(id: string, priority: number | null = null): BeadsIssueRelationSummary {
@@ -48,6 +57,58 @@ function makeExecution(
     cancelledAt: status === "cancelled" ? `2026-04-06T00:00:1${sequenceNumber}.000Z` : null,
     updatedAt: `2026-04-06T00:00:2${sequenceNumber}.000Z`,
   };
+}
+
+function makeRun(
+  runId: string,
+  overrides: Partial<OrchestrationSwarmRun> = {},
+): OrchestrationSwarmRun {
+  return {
+    runId: runId as SwarmRunId,
+    projectId: "project-1" as never,
+    epicIssueId: "EPIC-1",
+    swarmId: "SWARM-1",
+    status: "requested",
+    schedulerMode: "automatic",
+    workspaceMode: "shared",
+    provider: "codex",
+    model: "gpt-5.4",
+    modelOptions: null,
+    providerOptions: null,
+    assistantDeliveryMode: null,
+    runtimeMode: "full-access",
+    lastError: null,
+    requestedAt: "2026-04-06T00:00:00.000Z",
+    startedAt: null,
+    idledAt: null,
+    pausedAt: null,
+    blockedAt: null,
+    blockedContext: null,
+    failedAt: null,
+    cancelledAt: null,
+    completedAt: null,
+    updatedAt: "2026-04-06T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function makeEvent<T extends OrchestrationEvent["type"]>(
+  type: T,
+  payload: Extract<OrchestrationEvent, { type: T }>["payload"],
+): Extract<OrchestrationEvent, { type: T }> {
+  return {
+    sequence: 1,
+    eventId: "event-1" as never,
+    aggregateKind: "swarmRun",
+    aggregateId: "run-1" as never,
+    occurredAt: "2026-04-06T00:00:00.000Z",
+    commandId: null,
+    causationEventId: null,
+    correlationId: null,
+    metadata: {},
+    type,
+    payload,
+  } as unknown as Extract<OrchestrationEvent, { type: T }>;
 }
 
 describe("swarm", () => {
@@ -135,5 +196,91 @@ describe("swarm", () => {
         ],
       }).nonTerminalExecutions.map((execution) => execution.executionId),
     ).toEqual(["execution-1", "execution-2"]);
+  });
+
+  it("selects the most relevant run and identifies shared-workspace conflicts", () => {
+    const requested = makeRun("run-requested", {
+      status: "requested",
+      updatedAt: "2026-04-06T00:00:03.000Z",
+    });
+    const completed = makeRun("run-completed", {
+      status: "completed",
+      updatedAt: "2026-04-06T00:00:04.000Z",
+    });
+    const conflicting = makeRun("run-conflict", {
+      epicIssueId: "EPIC-OTHER",
+      status: "running",
+      updatedAt: "2026-04-06T00:00:05.000Z",
+    });
+
+    expect(selectLatestSwarmRun([completed, requested])).toEqual(requested);
+    expect(
+      findConflictingSharedWorkspaceRun({
+        projectSwarmRuns: [requested, conflicting],
+        epicSwarmRuns: [requested],
+      }),
+    ).toEqual(conflicting);
+    expect(describeSharedWorkspaceProjectConflict(conflicting)).toContain("EPIC-OTHER");
+  });
+
+  it("projects swarm lifecycle events into normalized state and derives ordered views", () => {
+    const requested = projectSwarmEvent(
+      createEmptySwarmProjectionState(),
+      makeEvent("swarm-run.requested", {
+        runId: "run-1" as never,
+        projectId: "project-1" as never,
+        epicIssueId: "EPIC-1",
+        swarmId: "SWARM-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        provider: "codex",
+        model: "gpt-5.4",
+        modelOptions: null,
+        providerOptions: null,
+        assistantDeliveryMode: null,
+        runtimeMode: "full-access",
+        requestedAt: "2026-04-06T00:00:00.000Z",
+        updatedAt: "2026-04-06T00:00:00.000Z",
+      }),
+    );
+    const started = projectSwarmEvent(
+      requested,
+      makeEvent("swarm-task-execution.started", {
+        executionId: "execution-1" as never,
+        runId: "run-1" as never,
+        startedAt: "2026-04-06T00:00:01.000Z",
+        updatedAt: "2026-04-06T00:00:01.000Z",
+      }),
+    );
+    const blocked = projectSwarmEvent(
+      started,
+      makeEvent("swarm-run.blocked", {
+        runId: "run-1" as never,
+        reason: "worker exited",
+        blockedContext: {
+          kind: "worker_failure",
+          issueId: "TASK-1",
+          executionId: "execution-1" as never,
+          workerThreadId: null,
+        },
+        blockedAt: "2026-04-06T00:00:02.000Z",
+        updatedAt: "2026-04-06T00:00:02.000Z",
+      }),
+    );
+
+    expect(listSwarmRuns(blocked)).toEqual([
+      expect.objectContaining({
+        runId: "run-1",
+        status: "blocked",
+        lastError: "worker exited",
+      }),
+    ]);
+    expect(listSwarmTaskExecutions(blocked)).toEqual([
+      expect.objectContaining({
+        executionId: "execution-1",
+        status: "active",
+        issueId: "unknown-task",
+      }),
+    ]);
   });
 });

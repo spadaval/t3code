@@ -12,6 +12,15 @@ import {
   OrchestrationSession,
   OrchestrationThread,
 } from "@t3tools/contracts";
+import {
+  applySwarmRunLifecycleEvent,
+  applySwarmTaskExecutionLifecycleEvent,
+  compareSwarmRunsByRequestedAt,
+  compareSwarmTaskExecutions,
+  createRequestedSwarmRun,
+  createRequestedSwarmTaskExecution,
+  materializeStartedSwarmTaskExecution,
+} from "@t3tools/shared/swarm";
 import { Effect, Schema } from "effect";
 
 import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
@@ -84,18 +93,30 @@ function updateLaunch(
 function updateSwarmRun(
   runs: ReadonlyArray<OrchestrationSwarmRun>,
   runId: OrchestrationSwarmRun["runId"],
-  patch: Partial<OrchestrationSwarmRun>,
+  updater: ((run: OrchestrationSwarmRun) => OrchestrationSwarmRun) | Partial<OrchestrationSwarmRun>,
 ): OrchestrationSwarmRun[] {
-  return runs.map((run) => (run.runId === runId ? { ...run, ...patch } : run));
+  return runs.map((run) =>
+    run.runId === runId
+      ? typeof updater === "function"
+        ? updater(run)
+        : { ...run, ...updater }
+      : run,
+  );
 }
 
 function updateSwarmTaskExecution(
   executions: ReadonlyArray<OrchestrationSwarmTaskExecution>,
   executionId: OrchestrationSwarmTaskExecution["executionId"],
-  patch: Partial<OrchestrationSwarmTaskExecution>,
+  updater:
+    | ((execution: OrchestrationSwarmTaskExecution) => OrchestrationSwarmTaskExecution)
+    | Partial<OrchestrationSwarmTaskExecution>,
 ): OrchestrationSwarmTaskExecution[] {
   return executions.map((execution) =>
-    execution.executionId === executionId ? { ...execution, ...patch } : execution,
+    execution.executionId === executionId
+      ? typeof updater === "function"
+        ? updater(execution)
+        : { ...execution, ...updater }
+      : execution,
   );
 }
 
@@ -845,43 +866,14 @@ export function projectEvent(
     case "swarm-run.requested":
       return decodeForEvent(SwarmRunRequestedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => {
-          const run: OrchestrationSwarmRun = {
-            runId: payload.runId,
-            projectId: payload.projectId,
-            epicIssueId: payload.epicIssueId,
-            swarmId: payload.swarmId,
-            status: "requested",
-            schedulerMode: payload.schedulerMode,
-            workspaceMode: payload.workspaceMode,
-            provider: payload.provider,
-            model: payload.model,
-            modelOptions: payload.modelOptions,
-            providerOptions: payload.providerOptions,
-            assistantDeliveryMode: payload.assistantDeliveryMode,
-            runtimeMode: payload.runtimeMode,
-            lastError: null,
-            requestedAt: payload.requestedAt,
-            startedAt: null,
-            idledAt: null,
-            pausedAt: null,
-            blockedAt: null,
-            blockedContext: null,
-            failedAt: null,
-            cancelledAt: null,
-            completedAt: null,
-            updatedAt: payload.updatedAt,
-          };
+          const run = createRequestedSwarmRun(payload);
 
           return {
             ...nextBase,
             swarmRuns: [
               ...nextBase.swarmRuns.filter((entry) => entry.runId !== payload.runId),
               run,
-            ].toSorted(
-              (left, right) =>
-                left.requestedAt.localeCompare(right.requestedAt) ||
-                left.runId.localeCompare(right.runId),
-            ),
+            ].toSorted(compareSwarmRunsByRequestedAt),
           };
         }),
       );
@@ -890,13 +882,9 @@ export function projectEvent(
       return decodeForEvent(SwarmRunStartedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
-            status: "running",
-            startedAt: payload.startedAt,
-            lastError: null,
-            blockedContext: null,
-            updatedAt: payload.updatedAt,
-          }),
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, (run) =>
+            applySwarmRunLifecycleEvent(run, { ...event, payload }),
+          ),
         })),
       );
 
@@ -904,13 +892,9 @@ export function projectEvent(
       return decodeForEvent(SwarmRunIdledPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
-            status: "idle",
-            idledAt: payload.idledAt,
-            lastError: null,
-            blockedContext: null,
-            updatedAt: payload.updatedAt,
-          }),
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, (run) =>
+            applySwarmRunLifecycleEvent(run, { ...event, payload }),
+          ),
         })),
       );
 
@@ -918,13 +902,9 @@ export function projectEvent(
       return decodeForEvent(SwarmRunPausedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
-            status: "paused",
-            pausedAt: payload.pausedAt,
-            lastError: null,
-            blockedContext: null,
-            updatedAt: payload.updatedAt,
-          }),
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, (run) =>
+            applySwarmRunLifecycleEvent(run, { ...event, payload }),
+          ),
         })),
       );
 
@@ -932,12 +912,9 @@ export function projectEvent(
       return decodeForEvent(SwarmRunResumedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
-            status: "running",
-            lastError: null,
-            blockedContext: null,
-            updatedAt: payload.updatedAt,
-          }),
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, (run) =>
+            applySwarmRunLifecycleEvent(run, { ...event, payload }),
+          ),
         })),
       );
 
@@ -945,13 +922,9 @@ export function projectEvent(
       return decodeForEvent(SwarmRunBlockedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
-            status: "blocked",
-            lastError: payload.reason,
-            blockedAt: payload.blockedAt,
-            blockedContext: payload.blockedContext,
-            updatedAt: payload.updatedAt,
-          }),
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, (run) =>
+            applySwarmRunLifecycleEvent(run, { ...event, payload }),
+          ),
         })),
       );
 
@@ -959,13 +932,9 @@ export function projectEvent(
       return decodeForEvent(SwarmRunFailedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
-            status: "failed",
-            lastError: payload.reason,
-            blockedContext: null,
-            failedAt: payload.failedAt,
-            updatedAt: payload.updatedAt,
-          }),
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, (run) =>
+            applySwarmRunLifecycleEvent(run, { ...event, payload }),
+          ),
         })),
       );
 
@@ -973,13 +942,9 @@ export function projectEvent(
       return decodeForEvent(SwarmRunCancelledPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
-            status: "cancelled",
-            lastError: null,
-            blockedContext: null,
-            cancelledAt: payload.cancelledAt,
-            updatedAt: payload.updatedAt,
-          }),
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, (run) =>
+            applySwarmRunLifecycleEvent(run, { ...event, payload }),
+          ),
         })),
       );
 
@@ -987,13 +952,9 @@ export function projectEvent(
       return decodeForEvent(SwarmRunCompletedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
-            status: "completed",
-            lastError: null,
-            blockedContext: null,
-            completedAt: payload.completedAt,
-            updatedAt: payload.updatedAt,
-          }),
+          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, (run) =>
+            applySwarmRunLifecycleEvent(run, { ...event, payload }),
+          ),
         })),
       );
 
@@ -1005,23 +966,7 @@ export function projectEvent(
         "payload",
       ).pipe(
         Effect.map((payload) => {
-          const execution: OrchestrationSwarmTaskExecution = {
-            executionId: payload.executionId,
-            runId: payload.runId,
-            issueId: payload.issueId,
-            workerThreadId: payload.workerThreadId,
-            sequenceNumber: payload.sequenceNumber,
-            status: "requested",
-            originalStatus: payload.originalStatus,
-            originalAssignee: payload.originalAssignee,
-            lastError: null,
-            requestedAt: payload.requestedAt,
-            startedAt: null,
-            completedAt: null,
-            failedAt: null,
-            cancelledAt: null,
-            updatedAt: payload.updatedAt,
-          };
+          const execution = createRequestedSwarmTaskExecution(payload);
 
           return {
             ...nextBase,
@@ -1033,12 +978,7 @@ export function projectEvent(
                 (entry) => entry.executionId !== payload.executionId,
               ),
               execution,
-            ].toSorted(
-              (left, right) =>
-                left.runId.localeCompare(right.runId) ||
-                left.sequenceNumber - right.sequenceNumber ||
-                left.executionId.localeCompare(right.executionId),
-            ),
+            ].toSorted(compareSwarmTaskExecutions),
           };
         }),
       );
@@ -1055,23 +995,10 @@ export function projectEvent(
             nextBase.swarmTaskExecutions.find(
               (entry) => entry.executionId === payload.executionId,
             ) ?? null;
-          const execution: OrchestrationSwarmTaskExecution = {
-            executionId: payload.executionId,
-            runId: payload.runId,
-            issueId: existingExecution?.issueId ?? "unknown-task",
-            workerThreadId: existingExecution?.workerThreadId ?? null,
-            sequenceNumber: existingExecution?.sequenceNumber ?? 0,
-            status: "active",
-            originalStatus: existingExecution?.originalStatus ?? "open",
-            originalAssignee: existingExecution?.originalAssignee ?? null,
-            lastError: null,
-            requestedAt: existingExecution?.requestedAt ?? payload.startedAt,
-            startedAt: payload.startedAt,
-            completedAt: existingExecution?.completedAt ?? null,
-            failedAt: existingExecution?.failedAt ?? null,
-            cancelledAt: existingExecution?.cancelledAt ?? null,
-            updatedAt: payload.updatedAt,
-          };
+          const execution = materializeStartedSwarmTaskExecution({
+            event: { ...event, payload },
+            existingExecution,
+          });
 
           return {
             ...nextBase,
@@ -1083,12 +1010,7 @@ export function projectEvent(
                 (entry) => entry.executionId !== payload.executionId,
               ),
               execution,
-            ].toSorted(
-              (left, right) =>
-                left.runId.localeCompare(right.runId) ||
-                left.sequenceNumber - right.sequenceNumber ||
-                left.executionId.localeCompare(right.executionId),
-            ),
+            ].toSorted(compareSwarmTaskExecutions),
           };
         }),
       );
@@ -1108,12 +1030,7 @@ export function projectEvent(
           swarmTaskExecutions: updateSwarmTaskExecution(
             nextBase.swarmTaskExecutions,
             payload.executionId,
-            {
-              status: "completed",
-              lastError: null,
-              completedAt: payload.completedAt,
-              updatedAt: payload.updatedAt,
-            },
+            (execution) => applySwarmTaskExecutionLifecycleEvent(execution, { ...event, payload }),
           ),
         })),
       );
@@ -1133,12 +1050,7 @@ export function projectEvent(
           swarmTaskExecutions: updateSwarmTaskExecution(
             nextBase.swarmTaskExecutions,
             payload.executionId,
-            {
-              status: "failed",
-              lastError: payload.reason,
-              failedAt: payload.failedAt,
-              updatedAt: payload.updatedAt,
-            },
+            (execution) => applySwarmTaskExecutionLifecycleEvent(execution, { ...event, payload }),
           ),
         })),
       );
@@ -1158,12 +1070,7 @@ export function projectEvent(
           swarmTaskExecutions: updateSwarmTaskExecution(
             nextBase.swarmTaskExecutions,
             payload.executionId,
-            {
-              status: "cancelled",
-              lastError: null,
-              cancelledAt: payload.cancelledAt,
-              updatedAt: payload.updatedAt,
-            },
+            (execution) => applySwarmTaskExecutionLifecycleEvent(execution, { ...event, payload }),
           ),
         })),
       );
