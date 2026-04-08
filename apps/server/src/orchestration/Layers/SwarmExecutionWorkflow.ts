@@ -14,6 +14,7 @@ import {
   type OrchestrationSwarmRunControlResult,
   type OrchestrationSwarmRunStatus,
   type OrchestrationSwarmTaskExecution,
+  type OrchestrationThread,
 } from "@t3tools/contracts";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
 import { deriveSwarmRunExecutionState, selectDeterministicReadyIssue } from "@t3tools/shared/swarm";
@@ -221,6 +222,10 @@ function workerThreadLaunchWasObserved(input: {
   readonly sessionActiveTurnId: TurnId | null | undefined;
 }): boolean {
   return input.latestTurnState != null || input.sessionActiveTurnId != null;
+}
+
+function workerThreadTurnWasRequested(thread: OrchestrationThread): boolean {
+  return thread.messages.some((message) => message.role === "user");
 }
 
 function workerTurnStopped(input: {
@@ -439,6 +444,49 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
 
     return poll();
   };
+
+  const confirmWorkerExecutionStopped = (input: {
+    readonly operation: string;
+    readonly runId: SwarmRunId;
+    readonly executionId: SwarmTaskExecutionId;
+    readonly workerThreadId: ThreadId | null;
+  }) =>
+    Effect.gen(function* () {
+      if (input.workerThreadId === null) {
+        return;
+      }
+
+      yield* interruptWorkerThread(input.workerThreadId).pipe(Effect.catch(() => Effect.void));
+
+      const stoppedAfterInterrupt = yield* Effect.exit(
+        awaitWorkerStopConfirmation({
+          threadId: input.workerThreadId,
+          timeout: WORKER_INTERRUPT_CONFIRM_TIMEOUT,
+        }),
+      );
+
+      if (stoppedAfterInterrupt._tag === "Success") {
+        return;
+      }
+
+      yield* stopWorkerThreadSession(input.workerThreadId).pipe(Effect.catch(() => Effect.void));
+
+      const stoppedAfterSessionStop = yield* Effect.exit(
+        awaitWorkerStopConfirmation({
+          threadId: input.workerThreadId,
+          timeout: WORKER_SESSION_STOP_CONFIRM_TIMEOUT,
+        }),
+      );
+
+      if (stoppedAfterSessionStop._tag === "Success") {
+        return;
+      }
+
+      return yield* workflowError(
+        input.operation,
+        `Swarm run '${input.runId}' could not confirm that worker thread '${input.workerThreadId}' for execution '${input.executionId}' stopped after interrupt and session-stop escalation.`,
+      );
+    });
 
   const getExistingRunForEpic = (input: {
     projectId: OrchestrationProject["id"];
@@ -729,15 +777,11 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         }).pipe(Effect.catch(() => Effect.void));
 
         if (input.workerThreadId !== null) {
-          yield* deleteWorkerThreadIfIdle(input.workerThreadId).pipe(
-            Effect.catch(() => Effect.void),
-          );
+          yield* deleteWorkerThreadIfIdle(input.workerThreadId);
         }
       } else {
         if (input.workerThreadId !== null) {
-          yield* deleteWorkerThreadIfIdle(input.workerThreadId).pipe(
-            Effect.catch(() => Effect.void),
-          );
+          yield* deleteWorkerThreadIfIdle(input.workerThreadId);
         }
       }
 
@@ -895,6 +939,38 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
       runId: input.runId,
       createdAt: nowIso(),
     }).pipe(Effect.asVoid);
+
+  const promoteRequestedExecutionIfWorkerObserved = (input: {
+    readonly runId: SwarmRunId;
+    readonly executionId: SwarmTaskExecutionId;
+    readonly issueId: string;
+    readonly workerThreadId: ThreadId;
+    readonly sequenceNumber: number;
+  }) =>
+    getThreadByIdOption(input.workerThreadId).pipe(
+      Effect.flatMap((thread) => {
+        if (thread._tag === "None") {
+          return Effect.void;
+        }
+
+        if (
+          !workerThreadStillHasActiveTurn({
+            latestTurnState: thread.value.latestTurn?.state,
+            sessionActiveTurnId: thread.value.session?.activeTurnId,
+          })
+        ) {
+          return Effect.void;
+        }
+
+        return startTaskExecutionCommand({
+          runId: input.runId,
+          executionId: input.executionId,
+          issueId: input.issueId,
+          workerThreadId: input.workerThreadId,
+          sequenceNumber: input.sequenceNumber,
+        });
+      }),
+    );
 
   const completeTaskExecutionCommand = (input: CompleteSwarmTaskExecutionInput) =>
     dispatchOrFail("completeTaskExecutionCommand", {
@@ -1145,7 +1221,7 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         });
         turnStartDispatched = true;
 
-        yield* startTaskExecutionCommand({
+        yield* promoteRequestedExecutionIfWorkerObserved({
           runId: run.runId,
           executionId,
           issueId,
@@ -1182,7 +1258,7 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
             }
 
             if (!executionRequested && threadCreated) {
-              yield* deleteWorkerThreadIfIdle(workerThreadId).pipe(Effect.catch(() => Effect.void));
+              yield* deleteWorkerThreadIfIdle(workerThreadId);
             }
 
             yield* blockRun(
@@ -1295,19 +1371,31 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         });
       }
 
-      const workerStillRunning = workerThreadStillHasActiveTurn({
-        latestTurnState: thread.value.latestTurn?.state,
-        sessionActiveTurnId: thread.value.session?.activeTurnId,
-      });
-      if (workerStillRunning) {
-        yield* startTaskExecutionCommand({
-          runId: input.run.runId,
+      const launchWasRequested = workerThreadTurnWasRequested(thread.value);
+      if (
+        !launchWasRequested &&
+        !workerThreadLaunchWasObserved({
+          latestTurnState: thread.value.latestTurn?.state,
+          sessionActiveTurnId: thread.value.session?.activeTurnId,
+        })
+      ) {
+        return yield* cleanupFailedRequestedExecutionLaunch({
+          run: input.run,
+          project,
           executionId: input.execution.executionId,
           issueId: input.execution.issueId,
           workerThreadId: input.execution.workerThreadId,
-          sequenceNumber: input.execution.sequenceNumber,
+          reason: truncateDetail(
+            describeRequestedExecutionLaunchFailure({
+              executionId: input.execution.executionId,
+              issueId: input.execution.issueId,
+              workerThreadId: input.execution.workerThreadId,
+              reason:
+                "Worker thread never received the swarm turn-start request before reconciliation.",
+            }),
+            500,
+          ),
         });
-        return yield* getRunById(input.run.runId);
       }
 
       if (thread.value.latestTurn?.state === "completed") {
@@ -1323,6 +1411,21 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
           runId: input.run.runId,
           executionId: input.execution.executionId,
           reason: thread.value.session?.lastError ?? "Worker thread completed with an error.",
+        });
+        return yield* getRunById(input.run.runId);
+      }
+
+      const workerStillRunning = workerThreadStillHasActiveTurn({
+        latestTurnState: thread.value.latestTurn?.state,
+        sessionActiveTurnId: thread.value.session?.activeTurnId,
+      });
+      if (workerStillRunning) {
+        yield* startTaskExecutionCommand({
+          runId: input.run.runId,
+          executionId: input.execution.executionId,
+          issueId: input.execution.issueId,
+          workerThreadId: input.execution.workerThreadId,
+          sequenceNumber: input.execution.sequenceNumber,
         });
         return yield* getRunById(input.run.runId);
       }
@@ -1344,11 +1447,10 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
 
       if (
         thread.value.latestTurn === null &&
-        (thread.value.session === null ||
-          thread.value.session.status === "ready" ||
-          thread.value.session.status === "stopped" ||
-          thread.value.session.status === "interrupted" ||
-          thread.value.session.status === "error")
+        (thread.value.session?.status === "ready" ||
+          thread.value.session?.status === "stopped" ||
+          thread.value.session?.status === "interrupted" ||
+          thread.value.session?.status === "error")
       ) {
         return yield* cleanupFailedRequestedExecutionLaunch({
           run: input.run,
@@ -1908,38 +2010,12 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
           currentExecution.executionId,
         );
 
-        if (execution.workerThreadId !== null) {
-          yield* interruptWorkerThread(execution.workerThreadId).pipe(
-            Effect.catch(() => Effect.void),
-          );
-
-          const stoppedAfterInterrupt = yield* Effect.exit(
-            awaitWorkerStopConfirmation({
-              threadId: execution.workerThreadId,
-              timeout: WORKER_INTERRUPT_CONFIRM_TIMEOUT,
-            }),
-          );
-
-          if (stoppedAfterInterrupt._tag === "Failure") {
-            yield* stopWorkerThreadSession(execution.workerThreadId).pipe(
-              Effect.catch(() => Effect.void),
-            );
-
-            const stoppedAfterSessionStop = yield* Effect.exit(
-              awaitWorkerStopConfirmation({
-                threadId: execution.workerThreadId,
-                timeout: WORKER_SESSION_STOP_CONFIRM_TIMEOUT,
-              }),
-            );
-
-            if (stoppedAfterSessionStop._tag === "Failure") {
-              return yield* workflowError(
-                "cancelSwarmRun",
-                `Swarm run '${run.runId}' could not confirm that worker thread '${execution.workerThreadId}' stopped after interrupt and session-stop escalation.`,
-              );
-            }
-          }
-        }
+        yield* confirmWorkerExecutionStopped({
+          operation: "cancelSwarmRun",
+          runId: run.runId,
+          executionId: execution.executionId,
+          workerThreadId: execution.workerThreadId,
+        });
 
         yield* settleExecutionForRunCancellation({
           run,
@@ -2144,9 +2220,12 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
       }
 
       if (execution.workerThreadId !== null) {
-        yield* interruptWorkerThread(execution.workerThreadId).pipe(
-          Effect.catch(() => Effect.void),
-        );
+        yield* confirmWorkerExecutionStopped({
+          operation: "cancelSwarmTaskExecution",
+          runId: run.runId,
+          executionId: execution.executionId,
+          workerThreadId: execution.workerThreadId,
+        });
       }
       yield* syncIssueForExecutionSettlement({
         phase: "cancelled",

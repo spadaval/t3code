@@ -13,6 +13,7 @@ import type {
   SwarmTaskExecutionId,
   ThreadId,
 } from "@t3tools/contracts";
+import { deriveSwarmRunExecutionState } from "@t3tools/shared/swarm";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
@@ -347,6 +348,38 @@ export function requireSwarmRunInAllowedStatus(input: {
   );
 }
 
+function getCurrentSwarmTaskExecutionForRun(
+  readModel: OrchestrationReadModel,
+  runId: SwarmRunId,
+): OrchestrationSwarmTaskExecution | null {
+  return deriveSwarmRunExecutionState({
+    runId,
+    executions: readModel.swarmTaskExecutions,
+  }).currentExecution;
+}
+
+export function requireSwarmRunWithoutCurrentExecution(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly runId: SwarmRunId;
+}): Effect.Effect<OrchestrationSwarmRun, OrchestrationCommandInvariantError> {
+  return requireSwarmRunInAllowedStatus(input).pipe(
+    Effect.flatMap((run) => {
+      const currentExecution = getCurrentSwarmTaskExecutionForRun(input.readModel, input.runId);
+      if (currentExecution === null) {
+        return Effect.succeed(run);
+      }
+
+      return Effect.fail(
+        invariantError(
+          input.command.type,
+          `Swarm run '${input.runId}' still has non-terminal task execution '${currentExecution.executionId}' in status '${currentExecution.status}'.`,
+        ),
+      );
+    }),
+  );
+}
+
 export function isAllowedSwarmTaskExecutionStatusTransition(input: {
   readonly commandType: OrchestrationCommand["type"];
   readonly status: OrchestrationSwarmTaskExecutionStatus;
@@ -392,6 +425,38 @@ export function requireSwarmTaskExecutionForRunInAllowedStatus(input: {
         invariantError(
           input.command.type,
           `Swarm task execution '${input.executionId}' in status '${execution.status}' cannot transition via '${input.command.type}'.`,
+        ),
+      );
+    }),
+  );
+}
+
+export function requireCurrentSwarmTaskExecutionForRunInAllowedStatus(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly executionId: SwarmTaskExecutionId;
+  readonly runId: SwarmRunId;
+}): Effect.Effect<OrchestrationSwarmTaskExecution, OrchestrationCommandInvariantError> {
+  return requireSwarmTaskExecutionForRunInAllowedStatus(input).pipe(
+    Effect.flatMap((execution) => {
+      const currentExecution = getCurrentSwarmTaskExecutionForRun(input.readModel, input.runId);
+      if (currentExecution === null) {
+        return Effect.fail(
+          invariantError(
+            input.command.type,
+            `Swarm run '${input.runId}' does not have a current non-terminal task execution for command '${input.command.type}'.`,
+          ),
+        );
+      }
+
+      if (currentExecution.executionId === execution.executionId) {
+        return Effect.succeed(execution);
+      }
+
+      return Effect.fail(
+        invariantError(
+          input.command.type,
+          `Swarm task execution '${execution.executionId}' is stale for run '${input.runId}'; current non-terminal execution is '${currentExecution.executionId}'.`,
         ),
       );
     }),

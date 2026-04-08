@@ -16,7 +16,9 @@ import {
   isAllowedSwarmTaskExecutionStatusTransition,
   listThreadsByProjectId,
   requireNonNegativeInteger,
+  requireCurrentSwarmTaskExecutionForRunInAllowedStatus,
   requireSwarmTaskExecutionForRunInAllowedStatus,
+  requireSwarmRunWithoutCurrentExecution,
   requireSwarmRunInAllowedStatus,
   requireThread,
   requireThreadAbsent,
@@ -403,5 +405,68 @@ describe("commandInvariants", () => {
         }),
       ),
     ).rejects.toThrow(/belongs to run|cannot transition/);
+  });
+
+  it("rejects run commands while a non-terminal swarm task execution still exists", async () => {
+    await expect(
+      Effect.runPromise(
+        requireSwarmRunWithoutCurrentExecution({
+          readModel,
+          command: {
+            type: "swarm-run.complete",
+            commandId: CommandId.makeUnsafe("cmd-run-complete-stale"),
+            runId: "run-1" as never,
+            createdAt: now,
+          },
+          runId: "run-1" as never,
+        }),
+      ),
+    ).rejects.toThrow("still has non-terminal task execution 'execution-1'");
+  });
+
+  it("rejects stale swarm task execution commands when another execution is current", async () => {
+    const readModelWithNewerExecution: OrchestrationReadModel = {
+      ...readModel,
+      swarmRuns: readModel.swarmRuns.map((run) =>
+        run.runId === ("run-1" as never) ? { ...run, status: "running" } : run,
+      ),
+      swarmTaskExecutions: [
+        ...readModel.swarmTaskExecutions,
+        {
+          executionId: "execution-3" as never,
+          runId: "run-1" as never,
+          issueId: "TASK-3",
+          workerThreadId: null,
+          sequenceNumber: 2,
+          status: "requested",
+          originalStatus: "open",
+          originalAssignee: null,
+          lastError: null,
+          requestedAt: now,
+          startedAt: null,
+          completedAt: null,
+          failedAt: null,
+          cancelledAt: null,
+          updatedAt: now,
+        },
+      ],
+    };
+
+    await expect(
+      Effect.runPromise(
+        requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
+          readModel: readModelWithNewerExecution,
+          command: {
+            type: "swarm-task-execution.start",
+            commandId: CommandId.makeUnsafe("cmd-execution-start-stale"),
+            executionId: "execution-1" as never,
+            runId: "run-1" as never,
+            createdAt: now,
+          },
+          executionId: "execution-1" as never,
+          runId: "run-1" as never,
+        }),
+      ),
+    ).rejects.toThrow("is stale for run 'run-1'; current non-terminal execution is 'execution-3'");
   });
 });

@@ -7,15 +7,15 @@ import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
+  requireCurrentSwarmTaskExecutionForRunInAllowedStatus,
   requirePlanImplementationLaunch,
   requirePlanImplementationLaunchAbsent,
   requireProject,
   requireProjectAbsent,
-  requireSwarmRun,
   requireSwarmRunInAllowedStatus,
   requireSwarmRunAbsent,
   requireSwarmTaskExecutionAbsent,
-  requireSwarmTaskExecutionForRunInAllowedStatus,
+  requireSwarmRunWithoutCurrentExecution,
   requireThread,
   requireThreadArchived,
   requireThreadAbsent,
@@ -889,7 +889,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-run.mark-idle": {
-      yield* requireSwarmRun({
+      yield* requireSwarmRunWithoutCurrentExecution({
         readModel,
         command,
         runId: command.runId,
@@ -911,7 +911,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-run.pause": {
-      yield* requireSwarmRun({
+      yield* requireSwarmRunWithoutCurrentExecution({
         readModel,
         command,
         runId: command.runId,
@@ -933,7 +933,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-run.resume": {
-      yield* requireSwarmRunInAllowedStatus({
+      yield* requireSwarmRunWithoutCurrentExecution({
         readModel,
         command,
         runId: command.runId,
@@ -955,7 +955,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-run.block": {
-      yield* requireSwarmRunInAllowedStatus({
+      yield* requireSwarmRunWithoutCurrentExecution({
         readModel,
         command,
         runId: command.runId,
@@ -1002,7 +1002,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-run.cancel": {
-      yield* requireSwarmRunInAllowedStatus({
+      yield* requireSwarmRunWithoutCurrentExecution({
         readModel,
         command,
         runId: command.runId,
@@ -1024,7 +1024,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-run.complete": {
-      yield* requireSwarmRunInAllowedStatus({
+      yield* requireSwarmRunWithoutCurrentExecution({
         readModel,
         command,
         runId: command.runId,
@@ -1046,7 +1046,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-task-execution.request": {
-      yield* requireSwarmRunInAllowedStatus({
+      yield* requireSwarmRunWithoutCurrentExecution({
         readModel,
         command,
         runId: command.runId,
@@ -1079,12 +1079,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-task-execution.start": {
-      yield* requireSwarmRunInAllowedStatus({
-        readModel,
-        command,
-        runId: command.runId,
-      });
-      yield* requireSwarmTaskExecutionForRunInAllowedStatus({
+      yield* requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
         readModel,
         command,
         executionId: command.executionId,
@@ -1108,12 +1103,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-task-execution.complete": {
-      yield* requireSwarmRunInAllowedStatus({
-        readModel,
-        command,
-        runId: command.runId,
-      });
-      yield* requireSwarmTaskExecutionForRunInAllowedStatus({
+      yield* requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
         readModel,
         command,
         executionId: command.executionId,
@@ -1137,12 +1127,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-task-execution.fail": {
-      yield* requireSwarmRunInAllowedStatus({
-        readModel,
-        command,
-        runId: command.runId,
-      });
-      yield* requireSwarmTaskExecutionForRunInAllowedStatus({
+      yield* requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
         readModel,
         command,
         executionId: command.executionId,
@@ -1167,12 +1152,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "swarm-task-execution.cancel": {
-      yield* requireSwarmRunInAllowedStatus({
-        readModel,
-        command,
-        runId: command.runId,
-      });
-      yield* requireSwarmTaskExecutionForRunInAllowedStatus({
+      yield* requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
         readModel,
         command,
         executionId: command.executionId,
