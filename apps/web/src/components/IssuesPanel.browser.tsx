@@ -24,6 +24,8 @@ const testState = vi.hoisted(() => ({
   swarmTaskExecutions: [] as Record<string, unknown>[],
   swarmValidationByEpicId: {} as Record<string, Record<string, unknown> | null>,
   swarmStatusByEpicId: {} as Record<string, Record<string, unknown> | null>,
+  swarmValidationErrorByEpicId: {} as Record<string, Error | null>,
+  swarmStatusErrorByEpicId: {} as Record<string, Error | null>,
   navigateSpy: vi.fn(() => Promise.resolve()),
   invalidateQueriesSpy: vi.fn(() => Promise.resolve()),
   startIssueWorkflowSpy: vi.fn(() =>
@@ -111,26 +113,30 @@ vi.mock("@tanstack/react-query", async () => {
         const epicId = query.queryKey?.[2];
 
         if (query.queryKey?.[1] === "epic-swarm-validation") {
+          const error =
+            typeof epicId === "string" ? testState.swarmValidationErrorByEpicId[epicId] : null;
           return {
             data:
               (typeof epicId === "string" ? testState.swarmValidationByEpicId[epicId] : null) ??
               testState.swarmValidation,
             isPending: false,
-            isError: false,
-            error: null,
+            isError: error instanceof Error,
+            error,
             isFetching: false,
             refetch: vi.fn(),
           };
         }
 
         if (query.queryKey?.[1] === "epic-swarm-status") {
+          const error =
+            typeof epicId === "string" ? testState.swarmStatusErrorByEpicId[epicId] : null;
           return {
             data:
               (typeof epicId === "string" ? testState.swarmStatusByEpicId[epicId] : null) ??
               testState.swarmStatus,
             isPending: false,
-            isError: false,
-            error: null,
+            isError: error instanceof Error,
+            error,
             isFetching: false,
             refetch: vi.fn(),
           };
@@ -388,6 +394,8 @@ describe("IssuesPanel refresh button", () => {
     testState.swarmTaskExecutions = [];
     testState.swarmValidationByEpicId = {};
     testState.swarmStatusByEpicId = {};
+    testState.swarmValidationErrorByEpicId = {};
+    testState.swarmStatusErrorByEpicId = {};
     testState.navigateSpy.mockClear();
     testState.invalidateQueriesSpy.mockClear();
     testState.startIssueWorkflowSpy.mockClear();
@@ -712,9 +720,54 @@ describe("IssuesPanel refresh button", () => {
 
     try {
       expect(document.body.textContent).toContain("Continue swarm");
-      expect(document.body.textContent).toContain("Refresh swarm status");
+      expect(document.body.textContent).toContain("Refresh swarm state");
       const continueButton = getButtonByText("Continue swarm");
       expect(continueButton.disabled).toBe(true);
+    } finally {
+      screen.unmount();
+    }
+  });
+
+  it("does not claim there is no swarm when swarm state failed to load", async () => {
+    testState.issueListIssues = [
+      makeIssue({
+        id: "EPIC-ERR",
+        title: "Error epic",
+        issueType: "epic",
+      }),
+    ];
+    testState.issueDetail = makeIssueDetail({
+      id: "EPIC-ERR",
+      title: "Error epic",
+      issueType: "epic",
+    });
+    testState.swarmSupport = { supported: true };
+    testState.swarmValidationErrorByEpicId = {
+      "EPIC-ERR": new Error("validation fetch failed"),
+    };
+    testState.swarmStatusErrorByEpicId = {
+      "EPIC-ERR": new Error("status fetch failed"),
+    };
+    useIssuePaneStore.getState().setSelectedIssueId(THREAD_ID, "EPIC-ERR");
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(
+      <IssuesPanel
+        activeThreadId={THREAD_ID}
+        cwd={TEST_CWD}
+        projectId={ProjectId.makeUnsafe("project-1")}
+        projectDefaultModelSelection={null}
+        onClose={() => {}}
+      />,
+      { container: host },
+    );
+
+    try {
+      expect(document.body.textContent).toContain("Swarm supported");
+      expect(document.body.textContent).toContain("Error");
+      expect(document.body.textContent).toContain("Retry swarm state");
+      expect(document.body.textContent).not.toContain("No swarm yet");
     } finally {
       screen.unmount();
     }

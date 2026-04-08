@@ -540,7 +540,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     });
   });
 
-  it("returns Retry swarm status when fetches timed out", () => {
+  it("returns Retry swarm state when fetches timed out", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -552,7 +552,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       }),
     ).toEqual({
       kind: "refresh_swarm_state",
-      label: "Retry swarm status",
+      label: "Retry swarm state",
       busyLabel: "Retrying...",
       disabled: false,
     });

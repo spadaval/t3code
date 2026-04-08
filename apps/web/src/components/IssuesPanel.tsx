@@ -602,6 +602,49 @@ function describeCoordinatorState(kind: BeadsCoordinatorEpicStateKind): {
   }
 }
 
+function describeSwarmIdentityBadge(input: {
+  swarmSummary: BeadsSwarmValidation["swarm"] | BeadsSwarmStatus["swarm"] | null;
+  coordinatorStateKind: BeadsCoordinatorEpicStateKind;
+}): {
+  label: string;
+  variant: "outline" | "secondary";
+} | null {
+  if (input.swarmSummary) {
+    return {
+      label: input.swarmSummary.swarmId,
+      variant: "secondary",
+    };
+  }
+
+  if (input.coordinatorStateKind === "no_swarm") {
+    return {
+      label: "No swarm yet",
+      variant: "outline",
+    };
+  }
+
+  return null;
+}
+
+function formatSwarmIdentityText(input: {
+  swarmSummary: BeadsSwarmValidation["swarm"] | BeadsSwarmStatus["swarm"] | null;
+  coordinatorStateKind: BeadsCoordinatorEpicStateKind;
+}): string {
+  if (input.swarmSummary) {
+    return input.swarmSummary.swarmId;
+  }
+
+  if (input.coordinatorStateKind === "no_swarm") {
+    return "No swarm";
+  }
+
+  if (input.coordinatorStateKind === "unsupported") {
+    return "Swarm unavailable";
+  }
+
+  return "Swarm unknown";
+}
+
 function isRecoverableWorkerFailureRun(run: OrchestrationSwarmRun | null): boolean {
   return run?.status === "blocked" && run.blockedContext?.kind === "worker_failure";
 }
@@ -781,6 +824,10 @@ function EpicSwarmStatusOverviewSection(props: {
 }) {
   const swarmSummary = props.swarmValidation?.swarm ?? props.swarmStatus?.swarm ?? null;
   const state = describeCoordinatorState(props.coordinatorState.kind);
+  const swarmIdentityBadge = describeSwarmIdentityBadge({
+    swarmSummary,
+    coordinatorStateKind: props.coordinatorState.kind,
+  });
   const projectConflictRun = props.projectConflict?.run ?? null;
 
   return (
@@ -796,7 +843,7 @@ function EpicSwarmStatusOverviewSection(props: {
           disabled={props.refreshPending}
           onClick={props.onRefreshSwarmStatus}
         >
-          {props.refreshPending ? "Refreshing..." : "Refresh swarm status"}
+          {props.refreshPending ? "Refreshing..." : "Refresh swarm state"}
         </Button>
       </div>
       <div className="rounded-xl border border-border/60 bg-muted/10 p-4">
@@ -820,15 +867,11 @@ function EpicSwarmStatusOverviewSection(props: {
               <Badge size="sm" variant={state.variant}>
                 {state.label}
               </Badge>
-              {swarmSummary ? (
-                <Badge size="sm" variant="secondary">
-                  {swarmSummary.swarmId}
+              {swarmIdentityBadge ? (
+                <Badge size="sm" variant={swarmIdentityBadge.variant}>
+                  {swarmIdentityBadge.label}
                 </Badge>
-              ) : (
-                <Badge size="sm" variant="outline">
-                  No swarm yet
-                </Badge>
-              )}
+              ) : null}
             </div>
             <p className="text-sm text-foreground">{state.copy}</p>
             {props.coordinatorState.fetchLifecycle.detail ? (
@@ -1175,6 +1218,10 @@ function CoordinatorEpicCard(props: {
   const latestRun = props.card.latestRun;
   const projectConflict = props.card.projectConflict;
   const swarmSummary = props.card.swarmSummary;
+  const swarmIdentityText = formatSwarmIdentityText({
+    swarmSummary,
+    coordinatorStateKind: props.card.stateKind,
+  });
   const readyPreviews = props.card.status?.ready.slice(0, 3) ?? [];
   const latestFailure = latestRun?.lastError ?? props.card.activeExecution?.lastError ?? null;
   const activeWorkerThreadId = props.card.activeExecution?.workerThreadId ?? null;
@@ -1204,7 +1251,7 @@ function CoordinatorEpicCard(props: {
           <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>{props.card.epicId}</span>
             <span className="opacity-40">·</span>
-            <span>{swarmSummary?.swarmId ?? "No swarm"}</span>
+            <span>{swarmIdentityText}</span>
             {latestRun ? (
               <>
                 <span className="opacity-40">·</span>
@@ -1410,7 +1457,7 @@ function CoordinatorEpicCard(props: {
           </div>
           {!recoverableContinueEnabled ? (
             <p className="mt-3 text-xs text-muted-foreground">
-              Close or otherwise unblock the failed issue in Beads, then refresh swarm status to
+              Close or otherwise unblock the failed issue in Beads, then refresh swarm state to
               continue.
             </p>
           ) : null}
@@ -1433,8 +1480,8 @@ function CoordinatorEpicCard(props: {
                 ? "Refreshing..."
                 : "Retrying..."
               : props.card.stateKind === "stale"
-                ? "Refresh swarm status"
-                : "Retry swarm status"}
+                ? "Refresh swarm state"
+                : "Retry swarm state"}
           </Button>
         ) : null}
         {props.card.stateKind === "no_swarm" ? (

@@ -269,7 +269,7 @@ function getFailedSwarmRecoveryAction(input: {
 
   return {
     kind: "refresh_swarm_state",
-    label: "Refresh swarm status",
+    label: "Refresh swarm state",
     busyLabel: "Refreshing...",
     disabled: false,
   };
@@ -403,21 +403,21 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
     case "timeout":
       return {
         kind: "refresh_swarm_state",
-        label: "Retry swarm status",
+        label: "Retry swarm state",
         busyLabel: "Retrying...",
         disabled: false,
       };
     case "stale":
       return {
         kind: "refresh_swarm_state",
-        label: "Refresh swarm status",
+        label: "Refresh swarm state",
         busyLabel: "Refreshing...",
         disabled: false,
       };
     case "error":
       return {
         kind: "refresh_swarm_state",
-        label: "Retry swarm status",
+        label: "Retry swarm state",
         busyLabel: "Retrying...",
         disabled: false,
       };
