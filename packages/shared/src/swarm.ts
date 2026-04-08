@@ -544,7 +544,6 @@ export function createRequestedSwarmRun(
     runId: payload.runId,
     projectId: payload.projectId,
     epicIssueId: payload.epicIssueId,
-    swarmId: payload.swarmId,
     status: "requested",
     schedulerMode: payload.schedulerMode,
     workspaceMode: payload.workspaceMode,

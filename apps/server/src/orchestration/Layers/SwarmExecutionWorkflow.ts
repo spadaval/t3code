@@ -646,7 +646,6 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
           text: buildSwarmExecutionComment({
             phase: "started",
             epicIssueId: input.run.epicIssueId,
-            swarmId: input.run.swarmId,
             runId: input.run.runId,
             executionId: input.executionId,
             workerThreadId: input.workerThreadId,
@@ -730,7 +729,6 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
             text: buildSwarmExecutionComment({
               phase: input.phase,
               epicIssueId: input.run.epicIssueId,
-              swarmId: input.run.swarmId,
               runId: input.run.runId,
               executionId: input.execution.executionId,
               workerThreadId: input.execution.workerThreadId,
@@ -1211,7 +1209,6 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
           promptText: buildSwarmWorkerPrompt({
             issue: originalIssue,
             epicIssueId: run.epicIssueId,
-            swarmId: run.swarmId,
             runId: run.runId,
             executionId,
             schedulerMode: run.schedulerMode,

@@ -435,7 +435,6 @@ export const OrchestrationSwarmRun = Schema.Struct({
   runId: SwarmRunId,
   projectId: ProjectId,
   epicIssueId: TrimmedNonEmptyString,
-  swarmId: TrimmedNonEmptyString,
   status: OrchestrationSwarmRunStatus,
   schedulerMode: OrchestrationSwarmSchedulerMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE),

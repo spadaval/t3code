@@ -33,7 +33,6 @@ function makeReadModel(): OrchestrationReadModel {
         runId: SwarmRunId.makeUnsafe("run-1"),
         projectId: ProjectId.makeUnsafe("project-1"),
         epicIssueId: "EPIC-1",
-        swarmId: "SWARM-1",
         status: "running",
         schedulerMode: "automatic",
         workspaceMode: "shared",

@@ -72,7 +72,6 @@ function makeRun(
     runId: runId as SwarmRunId,
     projectId: "project-1" as never,
     epicIssueId: "EPIC-1",
-    swarmId: "SWARM-1",
     status: "requested",
     schedulerMode: "automatic",
     workspaceMode: "shared",

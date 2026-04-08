@@ -21,7 +21,6 @@ function makeSwarmRun(overrides: Partial<OrchestrationSwarmRun> = {}): Orchestra
     runId: SwarmRunId.makeUnsafe("run-1"),
     projectId: ProjectId.makeUnsafe("project-1"),
     epicIssueId: "EPIC-1",
-    swarmId: "swarm-1",
     status: "running",
     schedulerMode: "automatic",
     workspaceMode: "shared",

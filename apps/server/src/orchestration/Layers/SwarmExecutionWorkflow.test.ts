@@ -412,7 +412,6 @@ function applyCommand(
             runId: command.runId,
             projectId: command.projectId,
             epicIssueId: command.epicIssueId,
-            swarmId: command.swarmId,
             status: "requested",
             schedulerMode: command.schedulerMode,
             workspaceMode: command.workspaceMode,

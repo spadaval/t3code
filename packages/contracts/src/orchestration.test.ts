@@ -684,7 +684,6 @@ it.effect("decodes swarm run history rows with null defaults", () =>
       runId: "run-1",
       projectId: "project-1",
       epicIssueId: "EPIC-1",
-      swarmId: "SWARM-1",
       status: "requested",
       requestedAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",

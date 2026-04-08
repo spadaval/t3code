@@ -270,7 +270,6 @@ describe("store read model sync", () => {
           runId: "run-1" as never,
           projectId: ProjectId.makeUnsafe("project-1"),
           epicIssueId: "EPIC-1",
-          swarmId: "SWARM-1",
           status: "running",
           schedulerMode: "automatic",
           workspaceMode: "shared",

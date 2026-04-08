@@ -43,7 +43,6 @@ export function buildSwarmWorkerThreadTitle(issue: BeadsIssueSummary): string {
 export function buildSwarmWorkerPrompt(input: {
   issue: BeadsIssueDetail;
   epicIssueId: string;
-  swarmId: string;
   runId: SwarmRunId;
   executionId: SwarmTaskExecutionId;
   schedulerMode: OrchestrationSwarmSchedulerMode;
@@ -52,7 +51,6 @@ export function buildSwarmWorkerPrompt(input: {
 }): string {
   const sections = [
     `Epic: ${input.epicIssueId}`,
-    `Swarm: ${input.swarmId}`,
     `Run: ${input.runId}`,
     `Execution: ${input.executionId}`,
     `Sequence: ${input.sequenceNumber}`,
@@ -88,7 +86,6 @@ export function buildSwarmWorkerPrompt(input: {
 export function buildSwarmExecutionComment(input: {
   phase: "started" | "completed" | "failed" | "cancelled";
   epicIssueId: string;
-  swarmId: string;
   runId: SwarmRunId;
   executionId: SwarmTaskExecutionId;
   workerThreadId: ThreadId;
@@ -108,7 +105,6 @@ export function buildSwarmExecutionComment(input: {
   const sections = [
     heading,
     `- epic: ${input.epicIssueId}`,
-    `- swarm: ${input.swarmId}`,
     `- run: ${input.runId}`,
     `- execution: ${input.executionId}`,
     `- workerThread: ${input.workerThreadId}`,

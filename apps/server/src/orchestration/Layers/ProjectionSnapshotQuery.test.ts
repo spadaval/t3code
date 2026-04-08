@@ -461,7 +461,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           runId: asSwarmRunId("run-1"),
           projectId: asProjectId("project-1"),
           epicIssueId: "EPIC-1",
-          swarmId: "SWARM-1",
           status: "running",
           schedulerMode: "automatic",
           workspaceMode: "shared",
