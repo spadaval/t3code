@@ -264,7 +264,7 @@ export const OrchestrationProposedPlan = Schema.Union([
       })),
       encode: SchemaGetter.transform((input: OrchestrationProposedPlanLegacyCompatible) => input),
     }),
-  ) as typeof OrchestrationProposedPlanShape;
+  ) as unknown as typeof OrchestrationProposedPlanShape;
 export type OrchestrationProposedPlan = typeof OrchestrationProposedPlan.Type;
 
 const SourceProposedPlanReference = Schema.Struct({
