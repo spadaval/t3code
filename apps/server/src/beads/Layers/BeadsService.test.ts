@@ -1,5 +1,10 @@
 import { assert, it } from "@effect/vitest";
-import { ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  ProjectId,
+  ThreadId,
+  type OrchestrationReadModel,
+  type OrchestrationThread,
+} from "@t3tools/contracts";
 import { Effect, Layer, Stream } from "effect";
 import { afterEach, expect, vi } from "vitest";
 
@@ -13,8 +18,8 @@ import { BeadsService } from "../Services/BeadsService.ts";
 import { BeadsServiceLive, BeadsTrackerServiceLive } from "./BeadsService.ts";
 
 const mockedRunProcess = vi.mocked(runProcess);
-const mockedGetReadModel = vi.fn(() =>
-  Effect.succeed({
+function makeEmptyReadModel(): OrchestrationReadModel {
+  return {
     snapshotSequence: 0,
     updatedAt: new Date().toISOString(),
     planImplementationLaunches: [],
@@ -22,8 +27,10 @@ const mockedGetReadModel = vi.fn(() =>
     swarmTaskExecutions: [],
     projects: [],
     threads: [],
-  }),
-);
+  };
+}
+
+const mockedGetReadModel = vi.fn(() => Effect.succeed(makeEmptyReadModel()));
 const mockedDispatch = vi.fn<(command: unknown) => Effect.Effect<{ sequence: number }, never>>(
   (_: unknown) => Effect.die("dispatch was not expected in this test"),
 );
@@ -46,17 +53,7 @@ afterEach(() => {
   mockedRunProcess.mockReset();
   mockedGetReadModel.mockReset();
   mockedDispatch.mockReset();
-  mockedGetReadModel.mockImplementation(() =>
-    Effect.succeed({
-      snapshotSequence: 0,
-      updatedAt: new Date().toISOString(),
-      planImplementationLaunches: [],
-      swarmRuns: [],
-      swarmTaskExecutions: [],
-      projects: [],
-      threads: [],
-    }),
-  );
+  mockedGetReadModel.mockImplementation(() => Effect.succeed(makeEmptyReadModel()));
   mockedDispatch.mockImplementation((_: unknown) =>
     Effect.die("dispatch was not expected in this test"),
   );
@@ -98,6 +95,47 @@ function installBdJsonMock(outputs: Record<string, unknown>) {
     }
     return successJson(output);
   });
+}
+
+function makeLinkedThreadFixture(input: {
+  id: string;
+  title: string;
+  issueId: string;
+  interactionMode: "default" | "plan";
+  now: string;
+  archivedAt?: string | null;
+}): OrchestrationThread {
+  return {
+    id: ThreadId.makeUnsafe(input.id),
+    projectId: ProjectId.makeUnsafe("project-1"),
+    title: input.title,
+    modelSelection: {
+      provider: "codex",
+      model: "gpt-5-codex",
+    },
+    interactionMode: input.interactionMode,
+    runtimeMode: "full-access" as const,
+    branch: null,
+    worktreePath: null,
+    issueLink: {
+      issueId: input.issueId,
+      title: "Implement settings persistence",
+      status: "open",
+      priority: 2,
+      repoRoot: "/repo",
+      linkedAt: input.now,
+    },
+    createdAt: input.now,
+    updatedAt: input.now,
+    archivedAt: input.archivedAt ?? null,
+    latestTurn: null,
+    messages: [],
+    session: null,
+    activities: [],
+    proposedPlans: [],
+    checkpoints: [],
+    deletedAt: null,
+  };
 }
 
 layer("BeadsServiceLive", (it) => {
@@ -1180,12 +1218,209 @@ layer("BeadsServiceLive", (it) => {
         threadId: (dispatchedCommands[0] as { threadId: ThreadId }).threadId,
         interactionMode: "plan",
         message: {
-          text: expect.stringContaining("Produce a concrete implementation plan for this issue."),
+          text: expect.stringContaining(
+            "Produce a concrete implementation plan for issue TASK-1: Implement settings persistence",
+          ),
         },
       });
       const messageText = (dispatchedCommands[1] as { message: { text: string } }).message.text;
-      expect(messageText).toContain("Do not implement code yet.");
+      expect(messageText).toContain("Do NOT implement code yet.");
       expect(messageText).toContain("acceptance criteria");
+      expect(messageText).toContain("Update beads with your plan");
+    }),
+  );
+
+  it.effect("reuses an existing active solve thread for repeated issue launches", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+
+      installBdJsonMock({
+        "show TASK-1 --long": [
+          {
+            id: "TASK-1",
+            title: "Implement settings persistence",
+            description: "Persist the selected settings values.",
+            notes: "Avoid regressions during reconnect.",
+            status: "open",
+            priority: 2,
+            issue_type: "task",
+            assignee: null,
+            owner: "alice",
+            created_at: now,
+            created_by: "alice",
+            updated_at: now,
+            labels: ["settings"],
+            dependencies: [],
+          },
+        ],
+        "comments TASK-1": [],
+        "history TASK-1": [],
+      });
+      mockedGetReadModel.mockImplementation(() =>
+        Effect.succeed({
+          snapshotSequence: 0,
+          updatedAt: now,
+          planImplementationLaunches: [],
+          swarmRuns: [],
+          swarmTaskExecutions: [],
+          projects: [],
+          threads: [
+            makeLinkedThreadFixture({
+              id: "thread-existing-solve",
+              title: "TASK-1: Implement settings persistence",
+              issueId: "TASK-1",
+              interactionMode: "default",
+              now,
+            }),
+          ],
+        }),
+      );
+
+      const beads = yield* BeadsService;
+      const result = yield* beads.startWorkflow({
+        cwd: "/repo",
+        projectId: ProjectId.makeUnsafe("project-1"),
+        issueId: "TASK-1",
+        workflow: "solve",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+      });
+
+      assert.equal(result.created, false);
+      assert.equal(result.threadId, ThreadId.makeUnsafe("thread-existing-solve"));
+      expect(mockedDispatch).not.toHaveBeenCalled();
+    }),
+  );
+
+  it.effect("reuses an existing matching planned implementation thread", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+
+      installBdJsonMock({
+        "show TASK-1 --long": [
+          {
+            id: "TASK-1",
+            title: "Implement settings persistence",
+            description: "Persist the selected settings values.",
+            notes: "Avoid regressions during reconnect.",
+            status: "open",
+            priority: 2,
+            issue_type: "task",
+            assignee: null,
+            owner: "alice",
+            created_at: now,
+            created_by: "alice",
+            updated_at: now,
+            labels: ["settings"],
+            dependencies: [],
+          },
+        ],
+        "comments TASK-1": [],
+        "history TASK-1": [],
+      });
+      mockedGetReadModel.mockImplementation(() =>
+        Effect.succeed({
+          snapshotSequence: 0,
+          updatedAt: now,
+          planImplementationLaunches: [],
+          swarmRuns: [],
+          swarmTaskExecutions: [],
+          projects: [],
+          threads: [
+            makeLinkedThreadFixture({
+              id: "thread-existing-plan",
+              title: "TASK-1: Implement settings persistence (Planned implementation)",
+              issueId: "TASK-1",
+              interactionMode: "plan",
+              now,
+            }),
+          ],
+        }),
+      );
+
+      const beads = yield* BeadsService;
+      const result = yield* beads.startWorkflow({
+        cwd: "/repo",
+        projectId: ProjectId.makeUnsafe("project-1"),
+        issueId: "TASK-1",
+        workflow: "plan-implementation",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+      });
+
+      assert.equal(result.created, false);
+      assert.equal(result.threadId, ThreadId.makeUnsafe("thread-existing-plan"));
+      expect(mockedDispatch).not.toHaveBeenCalled();
+    }),
+  );
+
+  it.effect("does not reuse a mismatched refine thread for planned implementation", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const dispatchedCommands: unknown[] = [];
+
+      installBdJsonMock({
+        "show TASK-1 --long": [
+          {
+            id: "TASK-1",
+            title: "Implement settings persistence",
+            description: "Persist the selected settings values.",
+            notes: "Avoid regressions during reconnect.",
+            status: "open",
+            priority: 2,
+            issue_type: "task",
+            assignee: null,
+            owner: "alice",
+            created_at: now,
+            created_by: "alice",
+            updated_at: now,
+            labels: ["settings"],
+            dependencies: [],
+          },
+        ],
+        "comments TASK-1": [],
+        "history TASK-1": [],
+      });
+      mockedGetReadModel.mockImplementation(() =>
+        Effect.succeed({
+          snapshotSequence: 0,
+          updatedAt: now,
+          planImplementationLaunches: [],
+          swarmRuns: [],
+          swarmTaskExecutions: [],
+          projects: [],
+          threads: [
+            makeLinkedThreadFixture({
+              id: "thread-existing-refine",
+              title: "TASK-1: Implement settings persistence",
+              issueId: "TASK-1",
+              interactionMode: "plan",
+              now,
+            }),
+          ],
+        }),
+      );
+      mockedDispatch.mockImplementation((command: unknown) => {
+        dispatchedCommands.push(command);
+        return Effect.succeed({ sequence: dispatchedCommands.length });
+      });
+
+      const beads = yield* BeadsService;
+      const result = yield* beads.startWorkflow({
+        cwd: "/repo",
+        projectId: ProjectId.makeUnsafe("project-1"),
+        issueId: "TASK-1",
+        workflow: "plan-implementation",
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+      });
+
+      assert.equal(result.created, true);
+      expect(dispatchedCommands).toHaveLength(2);
+      expect(dispatchedCommands[0]).toMatchObject({
+        type: "thread.create",
+        title: "TASK-1: Implement settings persistence (Planned implementation)",
+      });
     }),
   );
 
@@ -1292,18 +1527,17 @@ layer("BeadsServiceLive", (it) => {
         threadId: (dispatchedCommands[0] as { threadId: ThreadId }).threadId,
         interactionMode: "default",
         message: {
-          text: expect.stringContaining(
-            "Use bd to create the epic swarm required for implementation",
-          ),
+          text: expect.stringContaining("Create a swarm for epic EPIC-1: Epic coordination"),
         },
       });
       const messageText = (dispatchedCommands[1] as { message: { text: string } }).message.text;
       expect(messageText).toContain(
-        "Do not describe this as a repair task because no swarm exists yet.",
+        "Use `bd` to create the epic swarm and any required tracker metadata.",
       );
       expect(messageText).toContain(
-        "Do not implement application code, and do not create a worktree unless tracker-only recovery is impossible.",
+        "Do NOT describe this as a repair task -- no swarm exists yet.",
       );
+      expect(messageText).toContain("Do NOT implement application code. Do NOT create a worktree.");
     }),
   );
 
@@ -1440,10 +1674,13 @@ layer("BeadsServiceLive", (it) => {
       });
       const messageText = (dispatchedCommands[1] as { message: { text: string } }).message.text;
       expect(messageText).toContain(
-        "Use bd to repair the existing epic swarm required for implementation",
+        "Use `bd` to repair the existing epic swarm and correct any tracker metadata drift.",
       );
       expect(messageText).toContain(
         "Repair the current swarm instead of creating a replacement unless recovery is impossible.",
+      );
+      expect(messageText).toContain(
+        "Do NOT implement application code. Do NOT create a worktree unless tracker-only recovery is impossible.",
       );
     }),
   );

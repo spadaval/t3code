@@ -33,6 +33,8 @@ import {
   type BeadsStartWorkflowResult,
   type BeadsSwarmSummary as BeadsSwarmSummaryType,
   type BeadsSwarmSupport as BeadsSwarmSupportType,
+  type OrchestrationReadModel,
+  type OrchestrationThread,
 } from "@t3tools/contracts";
 import {
   Cause,
@@ -578,65 +580,130 @@ function buildWorkflowThreadTitle(
   return `${issue.id}: ${issue.title}`;
 }
 
-function formatDependencies(issue: BeadsIssueDetailType): string {
-  if (issue.dependencies.length === 0) {
-    return "None";
-  }
-  return issue.dependencies
-    .map((dependency) => `- ${dependency.id}: ${dependency.title} [${dependency.status}]`)
-    .join("\n");
-}
-
 function buildWorkflowPrompt(
-  issue: BeadsIssueDetailType,
+  issue: Pick<BeadsIssueDetailType, "id" | "title">,
   workflow: BeadsStartWorkflowInput["workflow"],
 ): string {
-  const sections = [
-    `Issue: ${issue.id}`,
-    `Title: ${issue.title}`,
-    `Status: ${issue.status}`,
-    `Priority: ${issue.priority === null ? "unset" : `P${issue.priority}`}`,
-    "",
-    "Description:",
-    issue.description?.trim().length ? issue.description : "None",
-    "",
-    "Notes:",
-    issue.notes?.trim().length ? issue.notes : "None",
-    "",
-    "Labels:",
-    issue.labels.length > 0 ? issue.labels.join(", ") : "None",
-    "",
-    "Dependencies:",
-    formatDependencies(issue),
-  ];
-
   if (workflow === "refine") {
-    sections.push(
+    return [
+      "## Assignment",
       "",
-      "Refine this issue into an implementation-ready plan.",
-      "Clarify scope, risks, assumptions, acceptance criteria, and propose a concrete implementation plan.",
-    );
-  } else if (workflow === "plan-implementation") {
-    sections.push(
+      `Refine issue ${issue.id}: ${issue.title}`,
       "",
-      "Produce a concrete implementation plan for this issue.",
-      "Do not implement code yet. Create an implementation-ready plan with scope, sequencing, risks, assumptions, acceptance criteria, and any tracker follow-up that should be recorded before coding starts.",
-    );
-  } else if (workflow === "solve") {
-    sections.push(
+      "## Getting started",
       "",
-      "Implement this issue.",
-      "Keep the issue context grounded throughout the work and summarize any follow-up work that should be recorded back into beads.",
-    );
-  } else {
-    sections.push(
+      `Run \`bd show ${issue.id}\` to read the full issue details, including description, notes, dependencies, and comments.`,
       "",
-      "Continue working on this issue in this dedicated thread.",
-      "Use the existing issue context, make forward progress, and call out follow-up work that should be tracked in beads.",
-    );
+      "## Instructions",
+      "",
+      "- Analyze the issue and refine it into an implementation-ready plan.",
+      "- Clarify scope, risks, assumptions, and acceptance criteria.",
+      "- Propose a concrete implementation approach with clear sequencing.",
+      "- Do NOT implement code. Your output is the plan itself.",
+      "- Update the issue in beads with your refined plan using `bd update`.",
+    ].join("\n");
   }
 
-  return sections.join("\n");
+  if (workflow === "plan-implementation") {
+    return [
+      "## Assignment",
+      "",
+      `Produce a concrete implementation plan for issue ${issue.id}: ${issue.title}`,
+      "",
+      "## Getting started",
+      "",
+      `Run \`bd show ${issue.id}\` to read the full issue details, including description, notes, dependencies, and comments.`,
+      "",
+      "## Instructions",
+      "",
+      "- Create an implementation-ready plan with scope, sequencing, risks, assumptions, and acceptance criteria.",
+      "- Do NOT implement code yet. Your output is the plan itself.",
+      "- Identify any tracker follow-up that should be recorded before coding starts.",
+      "- Update beads with your plan and any new issues using `bd`.",
+    ].join("\n");
+  }
+
+  if (workflow === "solve") {
+    return [
+      "## Assignment",
+      "",
+      `Implement issue ${issue.id}: ${issue.title}`,
+      "",
+      "## Getting started",
+      "",
+      `Run \`bd show ${issue.id}\` to read the full issue details, including description, notes, dependencies, and comments.`,
+      "Understand the requirements thoroughly before writing any code.",
+      "",
+      "## Rules",
+      "",
+      "- Stay focused on this issue. Do not work on unrelated changes.",
+      "- Follow the project's existing patterns, conventions, and quality standards.",
+      "- Commit your work with clear, descriptive commit messages.",
+      "- When done, push your commits: `git pull --rebase && git push`.",
+      "",
+      "## Completion",
+      "",
+      `- When finished, close the issue with \`bd close ${issue.id}\`.`,
+      "- If you discover follow-up work that is out of scope, file new issues with `bd` rather than expanding scope.",
+    ].join("\n");
+  }
+
+  // "continue" workflow
+  return [
+    "## Assignment",
+    "",
+    `Continue working on issue ${issue.id}: ${issue.title}`,
+    "",
+    "## Getting started",
+    "",
+    `Run \`bd show ${issue.id}\` to read the current issue state and any recent comments or updates.`,
+    "Review the existing thread context to understand what has already been done.",
+    "",
+    "## Rules",
+    "",
+    "- Make forward progress on the issue.",
+    "- Stay focused. Do not expand scope beyond what the issue requires.",
+    "- Commit and push your work when done.",
+    "- If you discover follow-up work, file new issues with `bd`.",
+  ].join("\n");
+}
+
+function compareLinkedIssueThreads(left: OrchestrationThread, right: OrchestrationThread): number {
+  const archivedDelta = Number(left.archivedAt !== null) - Number(right.archivedAt !== null);
+  if (archivedDelta !== 0) {
+    return archivedDelta;
+  }
+
+  const updatedAtDelta = right.updatedAt.localeCompare(left.updatedAt);
+  if (updatedAtDelta !== 0) {
+    return updatedAtDelta;
+  }
+
+  return left.id.localeCompare(right.id);
+}
+
+function findReusableLinkedIssueThread(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly projectId: BeadsStartWorkflowInput["projectId"];
+  readonly issueId: string;
+  readonly interactionMode?: "default" | "plan";
+  readonly threadTitle?: string;
+  readonly allowArchived: boolean;
+}): OrchestrationThread | null {
+  return (
+    input.readModel.threads
+      .filter(
+        (thread) =>
+          thread.projectId === input.projectId &&
+          thread.deletedAt === null &&
+          thread.issueLink?.issueId === input.issueId &&
+          (input.allowArchived || thread.archivedAt === null) &&
+          (input.interactionMode === undefined ||
+            thread.interactionMode === input.interactionMode) &&
+          (input.threadTitle === undefined || thread.title === input.threadTitle),
+      )
+      .toSorted(compareLinkedIssueThreads)[0] ?? null
+  );
 }
 
 function buildEpicQuickRefineThreadTitle(issue: BeadsIssueSummaryType): string {
@@ -662,41 +729,47 @@ function buildEpicPlanImplementationThreadTitle(
   return `${issue.id}: ${issue.title} (${intent === "create_swarm" ? "Create swarm" : "Repair swarm"})`;
 }
 
-function buildEpicRefinePrompt(issue: BeadsIssueDetailType, mode: "quick" | "planned"): string {
-  const sections = [
-    `Epic: ${issue.id}`,
-    `Title: ${issue.title}`,
-    `Status: ${issue.status}`,
-    `Priority: ${issue.priority === null ? "unset" : `P${issue.priority}`}`,
-    "",
-    "Description:",
-    issue.description?.trim().length ? issue.description : "None",
-    "",
-    "Notes:",
-    issue.notes?.trim().length ? issue.notes : "None",
-    "",
-    "Labels:",
-    issue.labels.length > 0 ? issue.labels.join(", ") : "None",
-    "",
-    "Dependencies:",
-    formatDependencies(issue),
-  ];
-
+function buildEpicRefinePrompt(
+  issue: Pick<BeadsIssueDetailType, "id" | "title">,
+  mode: "quick" | "planned",
+): string {
   if (mode === "quick") {
-    sections.push(
+    return [
+      "## Assignment",
       "",
-      "Refine this epic in a working thread.",
-      "Break it into concrete child issues, capture sequencing and blockers, and record any tracker follow-up that should be created or updated.",
-    );
-  } else {
-    sections.push(
+      `Refine epic ${issue.id}: ${issue.title}`,
       "",
-      "Produce a tracker refinement plan for this epic.",
-      "Do not implement code. Generate a concrete refinement plan that can be applied back into beads later, including proposed child issues, dependencies, sequencing, and any tracker updates.",
-    );
+      "## Getting started",
+      "",
+      `Run \`bd show ${issue.id}\` to read the full epic details, including description, child issues, dependencies, and comments.`,
+      "",
+      "## Instructions",
+      "",
+      "- Break the epic into concrete, well-scoped child issues using `bd`.",
+      "- Capture sequencing and dependency relationships between child issues.",
+      "- Identify blockers and risks.",
+      "- Record all tracker updates directly in beads -- do not just describe them, execute them.",
+      "- Do NOT implement code. This is tracker-only refinement work.",
+    ].join("\n");
   }
 
-  return sections.join("\n");
+  // "planned" mode
+  return [
+    "## Assignment",
+    "",
+    `Produce a tracker refinement plan for epic ${issue.id}: ${issue.title}`,
+    "",
+    "## Getting started",
+    "",
+    `Run \`bd show ${issue.id}\` to read the full epic details, including description, child issues, dependencies, and comments.`,
+    "",
+    "## Instructions",
+    "",
+    "- Generate a concrete refinement plan that can be applied back into beads later.",
+    "- Propose child issues, dependencies, sequencing, and any tracker updates.",
+    "- Do NOT implement code. Do NOT execute tracker changes yet -- produce the plan only.",
+    "- The plan should be detailed enough to apply mechanically.",
+  ].join("\n");
 }
 
 function formatIssueRelationList(issues: ReadonlyArray<BeadsIssueRelationSummaryType>): string {
@@ -708,61 +781,83 @@ function formatIssueRelationList(issues: ReadonlyArray<BeadsIssueRelationSummary
 }
 
 function buildEpicPlanImplementationPrompt(input: {
-  issue: BeadsIssueDetailType;
+  issue: Pick<BeadsIssueDetailType, "id" | "title">;
   validation: BeadsSwarmValidation;
   status: BeadsSwarmStatus;
   intent: EpicPlanImplementationIntent;
 }): string {
-  const sections = [
-    `Epic: ${input.issue.id}`,
-    `Title: ${input.issue.title}`,
-    `Status: ${input.issue.status}`,
-    `Priority: ${input.issue.priority === null ? "unset" : `P${input.issue.priority}`}`,
-    "",
-    "Description:",
-    input.issue.description?.trim().length ? input.issue.description : "None",
-    "",
-    "Notes:",
-    input.issue.notes?.trim().length ? input.issue.notes : "None",
-    "",
-    "Current swarm:",
-    input.validation.swarm
-      ? `${input.validation.swarm.swarmId} (${input.validation.valid ? "valid" : "needs work"})`
-      : "No swarm exists yet",
-    "",
-    "Validation errors:",
+  const swarmState = input.validation.swarm
+    ? `${input.validation.swarm.swarmId} (${input.validation.valid ? "valid" : "needs work"})`
+    : "No swarm exists yet";
+
+  const validationErrors =
     input.validation.errors.length > 0
       ? input.validation.errors.map((error) => `- ${error}`).join("\n")
-      : "None",
-    "",
-    "Validation warnings:",
+      : "None";
+
+  const validationWarnings =
     input.validation.warnings.length > 0
       ? input.validation.warnings.map((warning) => `- ${warning}`).join("\n")
-      : "None",
-    "",
-    "Ready issues:",
-    formatIssueRelationList(input.status.ready),
-    "",
-    "Active issues:",
-    formatIssueRelationList(input.status.active),
-    "",
-    "Blocked issues:",
-    formatIssueRelationList(input.status.blocked),
-    "",
-    input.intent === "create_swarm"
-      ? "Prepare swarm-backed implementation for this epic by creating the missing swarm."
-      : "Prepare swarm-backed implementation for this epic by repairing the existing swarm.",
-    input.intent === "create_swarm"
-      ? "This is tracker-only coordination work. Use bd to create the epic swarm required for implementation and any required tracker metadata."
-      : "This is tracker-only coordination work. Use bd to repair the existing epic swarm required for implementation and correct any tracker metadata drift.",
-    input.intent === "create_swarm"
-      ? "Do not describe this as a repair task because no swarm exists yet."
-      : "Repair the current swarm instead of creating a replacement unless recovery is impossible.",
-    "Do not implement application code, and do not create a worktree unless tracker-only recovery is impossible.",
-    "When you finish, summarize the resulting swarm state and any blockers that still prevent launching worker threads.",
-  ];
+      : "None";
 
-  return sections.join("\n");
+  const readyIssues = formatIssueRelationList(input.status.ready);
+  const activeIssues = formatIssueRelationList(input.status.active);
+  const blockedIssues = formatIssueRelationList(input.status.blocked);
+
+  if (input.intent === "create_swarm") {
+    return [
+      "## Assignment",
+      "",
+      `Create a swarm for epic ${input.issue.id}: ${input.issue.title}`,
+      "",
+      "## Getting started",
+      "",
+      `Run \`bd show ${input.issue.id}\` to read the full epic details, including description, child issues, and dependencies.`,
+      "",
+      "## Current swarm state",
+      "",
+      `Swarm: ${swarmState}`,
+      `Validation errors: ${validationErrors}`,
+      `Validation warnings: ${validationWarnings}`,
+      `Ready issues: ${readyIssues}`,
+      `Active issues: ${activeIssues}`,
+      `Blocked issues: ${blockedIssues}`,
+      "",
+      "## Instructions",
+      "",
+      "- This is tracker-only coordination work. Use `bd` to create the epic swarm and any required tracker metadata.",
+      "- Do NOT describe this as a repair task -- no swarm exists yet.",
+      "- Do NOT implement application code. Do NOT create a worktree.",
+      "- When finished, summarize the resulting swarm state and any blockers that still prevent launching worker threads.",
+    ].join("\n");
+  }
+
+  // repair_swarm intent
+  return [
+    "## Assignment",
+    "",
+    `Repair the swarm for epic ${input.issue.id}: ${input.issue.title}`,
+    "",
+    "## Getting started",
+    "",
+    `Run \`bd show ${input.issue.id}\` to read the full epic details, including description, child issues, and dependencies.`,
+    "",
+    "## Current swarm state",
+    "",
+    `Swarm: ${swarmState}`,
+    `Validation errors: ${validationErrors}`,
+    `Validation warnings: ${validationWarnings}`,
+    `Ready issues: ${readyIssues}`,
+    `Active issues: ${activeIssues}`,
+    `Blocked issues: ${blockedIssues}`,
+    "",
+    "## Instructions",
+    "",
+    "- This is tracker-only coordination work. Use `bd` to repair the existing epic swarm and correct any tracker metadata drift.",
+    "- Repair the current swarm instead of creating a replacement unless recovery is impossible.",
+    "- Do NOT implement application code. Do NOT create a worktree unless tracker-only recovery is impossible.",
+    "- When finished, summarize the resulting swarm state and any blockers that still prevent launching worker threads.",
+  ].join("\n");
 }
 
 const makeBeadsTrackerService = Effect.gen(function* () {
@@ -1337,6 +1432,23 @@ const makeBeadsService = Effect.gen(function* () {
   const appendSessionActivity = (record: SessionActivityRecord) =>
     Ref.update(sessionActivityRef, (records) => [record, ...records].slice(0, 200));
 
+  const appendWorkflowStartedSessionActivity = (input: {
+    readonly cwd: string;
+    readonly issue: BeadsIssueDetailType;
+    readonly workflowKind: BeadsStartWorkflowInput["workflow"] | "plan-implementation";
+    readonly threadId: ThreadId;
+  }) =>
+    appendSessionActivity({
+      cwd: input.cwd,
+      entry: {
+        kind: "workflow-started",
+        issue: input.issue,
+        createdAt: nowIso(),
+        workflowKind: input.workflowKind,
+        threadId: input.threadId,
+      },
+    });
+
   const startLinkedIssueThread = Effect.fn("BeadsService.startLinkedIssueThread")(
     function* (input: {
       cwd: string;
@@ -1351,6 +1463,34 @@ const makeBeadsService = Effect.gen(function* () {
       createThreadErrorMessage: string;
       startTurnErrorMessage: string;
     }) {
+      const readModel = yield* orchestrationEngine
+        .getReadModel()
+        .pipe(
+          Effect.mapError((cause) => toBeadsError("Failed to load orchestration state.", cause)),
+        );
+      const existingThread = findReusableLinkedIssueThread({
+        readModel,
+        projectId: input.projectId,
+        issueId: input.issue.id,
+        interactionMode: input.interactionMode,
+        threadTitle: input.threadTitle,
+        allowArchived: false,
+      });
+
+      if (existingThread) {
+        yield* appendWorkflowStartedSessionActivity({
+          cwd: input.cwd,
+          issue: input.issue,
+          workflowKind: input.workflowKind,
+          threadId: existingThread.id,
+        });
+
+        return {
+          threadId: existingThread.id,
+          created: false,
+        } satisfies BeadsStartWorkflowResult;
+      }
+
       const nextThreadId = threadId();
       const createdAt = nowIso();
 
@@ -1390,15 +1530,11 @@ const makeBeadsService = Effect.gen(function* () {
         })
         .pipe(Effect.mapError((cause) => toBeadsError(input.startTurnErrorMessage, cause)));
 
-      yield* appendSessionActivity({
+      yield* appendWorkflowStartedSessionActivity({
         cwd: input.cwd,
-        entry: {
-          kind: "workflow-started",
-          issue: input.issue,
-          createdAt,
-          workflowKind: input.workflowKind,
-          threadId: nextThreadId,
-        },
+        issue: input.issue,
+        workflowKind: input.workflowKind,
+        threadId: nextThreadId,
       });
 
       return {
@@ -1602,39 +1738,33 @@ const makeBeadsService = Effect.gen(function* () {
   const startWorkflow: BeadsServiceShape["startWorkflow"] = (input) =>
     Effect.gen(function* () {
       const issue = yield* beadsTracker.getIssue({ cwd: input.cwd, issueId: input.issueId });
-      const readModel = yield* orchestrationEngine
-        .getReadModel()
-        .pipe(
-          Effect.mapError((cause) => toBeadsError("Failed to load orchestration state.", cause)),
-        );
+
+      const nextInteractionMode =
+        input.workflow === "refine" || input.workflow === "plan-implementation"
+          ? "plan"
+          : "default";
+      const nextThreadTitle = buildWorkflowThreadTitle(issue, input.workflow);
+      const promptText = buildWorkflowPrompt(issue, input.workflow);
 
       if (input.workflow === "continue") {
-        const existingThread = readModel.threads
-          .filter(
-            (thread) =>
-              thread.projectId === input.projectId &&
-              thread.deletedAt === null &&
-              thread.issueLink?.issueId === input.issueId,
-          )
-          .toSorted((left, right) => {
-            const archivedDelta =
-              Number(left.archivedAt !== null) - Number(right.archivedAt !== null);
-            if (archivedDelta !== 0) {
-              return archivedDelta;
-            }
-            return right.updatedAt.localeCompare(left.updatedAt);
-          })[0];
+        const readModel = yield* orchestrationEngine
+          .getReadModel()
+          .pipe(
+            Effect.mapError((cause) => toBeadsError("Failed to load orchestration state.", cause)),
+          );
+        const existingThread = findReusableLinkedIssueThread({
+          readModel,
+          projectId: input.projectId,
+          issueId: input.issueId,
+          allowArchived: true,
+        });
 
         if (existingThread) {
-          yield* appendSessionActivity({
+          yield* appendWorkflowStartedSessionActivity({
             cwd: input.cwd,
-            entry: {
-              kind: "workflow-started",
-              issue,
-              createdAt: nowIso(),
-              workflowKind: input.workflow,
-              threadId: existingThread.id,
-            },
+            issue,
+            workflowKind: input.workflow,
+            threadId: existingThread.id,
           });
 
           return {
@@ -1643,13 +1773,6 @@ const makeBeadsService = Effect.gen(function* () {
           } satisfies BeadsStartWorkflowResult;
         }
       }
-
-      const nextInteractionMode =
-        input.workflow === "refine" || input.workflow === "plan-implementation"
-          ? "plan"
-          : "default";
-      const nextThreadTitle = buildWorkflowThreadTitle(issue, input.workflow);
-      const promptText = buildWorkflowPrompt(issue, input.workflow);
 
       return yield* startLinkedIssueThread({
         cwd: input.cwd,
