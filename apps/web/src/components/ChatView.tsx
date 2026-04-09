@@ -32,7 +32,7 @@ import { useGitStatus } from "~/lib/gitStatusState";
 import { gitBranchesQueryOptions } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { isElectron } from "../env";
-import { parseDiffRouteSearch } from "../diffRouteSearch";
+import { parseChatRouteSearch, stripRightPaneSearchParams } from "../chatRouteSearch";
 import {
   canCancelPlanImplementationLaunch,
   canRetryPlanImplementationLaunch,
@@ -78,6 +78,7 @@ import {
 import { useStore } from "../store";
 import { useProjectById, useThreadById } from "../storeSelectors";
 import { useUiStateStore } from "../uiStateStore";
+import { getIssuePaneState, useIssuePaneStore } from "../issuePaneStore";
 import { usePlanSidebarStore } from "../planSidebarStore";
 import {
   buildPlanImplementationThreadTitle,
@@ -625,7 +626,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const navigate = useNavigate();
   const rawSearch = useSearch({
     strict: false,
-    select: (params) => parseDiffRouteSearch(params),
+    select: (params) => parseChatRouteSearch(params),
   });
   const { resolvedTheme } = useTheme();
   const composerDraft = useComposerThreadDraft(threadId);
@@ -885,14 +886,36 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
-  const diffOpen = rawSearch.diff === "1";
-  const issuesOpen = false;
+  const diffOpen = rawSearch.rightPane === "diff";
+  const issuesOpen = rawSearch.rightPane === "issues";
+  const issuePaneState = useIssuePaneStore(
+    (store) => store.byThreadId[threadId as string] ?? getIssuePaneState(threadId),
+  );
+  const setIssuePaneSelectedIssueId = useIssuePaneStore((store) => store.setSelectedIssueId);
   const activeThreadId = activeThread?.id ?? null;
   const existingOpenTerminalThreadIds = useMemo(() => {
     const existingThreadIds = new Set<ThreadId>([...serverThreadIds, ...draftThreadIds]);
     return openTerminalThreadIds.filter((nextThreadId) => existingThreadIds.has(nextThreadId));
   }, [draftThreadIds, openTerminalThreadIds, serverThreadIds]);
   const activeLatestTurn = activeThread?.latestTurn ?? null;
+  useEffect(() => {
+    if (rawSearch.rightPane !== "issues") {
+      return;
+    }
+    if (!rawSearch.issueId) {
+      return;
+    }
+    if (issuePaneState.selectedIssueId === rawSearch.issueId) {
+      return;
+    }
+    setIssuePaneSelectedIssueId(threadId, rawSearch.issueId);
+  }, [
+    issuePaneState.selectedIssueId,
+    rawSearch.issueId,
+    rawSearch.rightPane,
+    setIssuePaneSelectedIssueId,
+    threadId,
+  ]);
   const activeContextWindow = useMemo(
     () => deriveLatestContextWindowSnapshot(activeThread?.activities ?? []),
     [activeThread?.activities],
@@ -1684,16 +1707,29 @@ export default function ChatView({ threadId }: ChatViewProps) {
       to: "/$threadId",
       params: { threadId },
       replace: true,
-      search: () => (diffOpen ? {} : { diff: "1" as const }),
+      search: diffOpen ? {} : { rightPane: "diff" as const },
     });
   }, [diffOpen, navigate, threadId]);
   const onToggleIssues = useCallback(() => {
+    const selectedIssueId = issuePaneState.selectedIssueId ?? activeThread?.issueLink?.issueId;
     void navigate({
-      to: "/issues",
+      to: "/$threadId",
+      params: { threadId },
       replace: true,
-      search: { tab: "issues" as const },
+      search: issuesOpen
+        ? {}
+        : {
+            rightPane: "issues" as const,
+            ...(selectedIssueId ? { issueId: selectedIssueId } : {}),
+          },
     });
-  }, [navigate]);
+  }, [
+    activeThread?.issueLink?.issueId,
+    issuePaneState.selectedIssueId,
+    issuesOpen,
+    navigate,
+    threadId,
+  ]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -4186,10 +4222,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
       void navigate({
         to: "/$threadId",
         params: { threadId },
-        search: () =>
-          filePath
-            ? { diff: "1" as const, diffTurnId: turnId, diffFilePath: filePath }
-            : { diff: "1" as const, diffTurnId: turnId },
+        search: (previous) => ({
+          ...stripRightPaneSearchParams(previous),
+          rightPane: "diff" as const,
+          diffTurnId: turnId,
+          ...(filePath ? { diffFilePath: filePath } : {}),
+        }),
       });
     },
     [navigate, threadId],

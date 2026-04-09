@@ -161,6 +161,99 @@ export function formatSwarmRunStatusLabel(status: OrchestrationSwarmRun["status"
   return status === "requested" ? "requested" : status.replace(/_/g, " ");
 }
 
+export type SwarmCoordinatorFetchSource = "support" | "validation" | "status";
+
+export interface SwarmCoordinatorFetchFailure {
+  readonly source: SwarmCoordinatorFetchSource;
+  readonly message: string;
+}
+
+export function isSwarmCoordinatorFetchTimeoutMessage(message: string): boolean {
+  return /\b(?:timed?\s*out|timeout)\b/i.test(message);
+}
+
+function formatSwarmCoordinatorFetchSource(source: SwarmCoordinatorFetchSource): string {
+  return `swarm ${source}`;
+}
+
+function formatSwarmCoordinatorFetchSources(
+  sources: ReadonlyArray<SwarmCoordinatorFetchSource>,
+): string {
+  const [first, second] = sources;
+
+  if (sources.length === 0) {
+    return "swarm state";
+  }
+
+  if (sources.length === 1) {
+    return formatSwarmCoordinatorFetchSource(first!);
+  }
+
+  if (sources.length === 2) {
+    return `${formatSwarmCoordinatorFetchSource(first!)} and ${second!}`;
+  }
+
+  return "swarm support, validation, and status";
+}
+
+function describeSingleSwarmCoordinatorFetchFailure(input: {
+  readonly failure: SwarmCoordinatorFetchFailure;
+  readonly stale: boolean;
+}): string {
+  const timedOut = isSwarmCoordinatorFetchTimeoutMessage(input.failure.message);
+  const sourceLabel = formatSwarmCoordinatorFetchSource(input.failure.source);
+  return input.stale
+    ? `Showing the last known ${sourceLabel} because the latest refresh ${timedOut ? "timed out" : "failed"}: ${input.failure.message}`
+    : `${sourceLabel.charAt(0).toUpperCase()}${sourceLabel.slice(1)} request ${timedOut ? "timed out" : "failed"}: ${input.failure.message}`;
+}
+
+export function describeSwarmCoordinatorFetchFailure(input: {
+  readonly failures: ReadonlyArray<SwarmCoordinatorFetchFailure>;
+  readonly stale: boolean;
+}): string {
+  const failures = input.failures.filter((failure) => failure.message.trim().length > 0);
+  const [firstFailure] = failures;
+
+  if (failures.length === 0) {
+    return input.stale
+      ? "Showing the last known swarm state because the latest refresh failed."
+      : "Swarm state request failed.";
+  }
+
+  if (failures.length === 1) {
+    return describeSingleSwarmCoordinatorFetchFailure({
+      failure: firstFailure!,
+      stale: input.stale,
+    });
+  }
+
+  const uniqueMessages = new Set(failures.map((failure) => failure.message));
+  if (uniqueMessages.size === 1) {
+    const message = firstFailure!.message;
+    const sourceLabel = formatSwarmCoordinatorFetchSources(
+      failures.map((failure) => failure.source),
+    );
+    const timedOut = failures.every((failure) =>
+      isSwarmCoordinatorFetchTimeoutMessage(failure.message),
+    );
+    return input.stale
+      ? `Showing the last known ${sourceLabel} because the latest refresh ${timedOut ? "timed out" : "failed"}: ${message}`
+      : `${sourceLabel.charAt(0).toUpperCase()}${sourceLabel.slice(1)} request ${timedOut ? "timed out" : "failed"}: ${message}`;
+  }
+
+  const detail = failures
+    .map((failure) =>
+      describeSingleSwarmCoordinatorFetchFailure({
+        failure,
+        stale: false,
+      }),
+    )
+    .join(" ");
+  return input.stale
+    ? `Showing the last known swarm state because the latest refresh failed. ${detail}`
+    : detail;
+}
+
 /**
  * Visual category for coordinator state - groups the 15 state kinds into
  * display-level categories to simplify the UI.

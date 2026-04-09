@@ -4,7 +4,7 @@ import type {
   OrchestrationSwarmRun,
   BeadsCoordinatorEpicSnapshot,
 } from "@t3tools/contracts";
-import type { IssuePaneScope, ThreadIssuesState } from "~/issuePaneStore";
+import type { IssuePaneScope } from "~/issuePaneStore";
 import {
   groupIssuesByEpic,
   partitionCoordinatorSwarms,
@@ -18,9 +18,9 @@ export interface IssueFilterOptions {
   searchQuery?: string;
   scopeFilter?: IssuePaneScope;
   selectedLabels?: readonly string[];
-  sortBy?: ThreadIssuesState["sortBy"];
-  sortDirection?: ThreadIssuesState["sortDirection"];
-  groupBy?: ThreadIssuesState["groupBy"];
+  sortBy?: "updated" | "created" | "title" | "status";
+  sortDirection?: "asc" | "desc";
+  groupBy?: "none" | "status" | "labels" | "epic" | "assignee";
 }
 
 export interface FilteredIssuesResult {
@@ -133,7 +133,7 @@ export function filterAndSortIssues(
  */
 function createIssueGroups(
   issues: readonly BeadsIssueSummary[],
-  groupBy: ThreadIssuesState["groupBy"],
+  groupBy: NonNullable<IssueFilterOptions["groupBy"]>,
 ): Map<string, readonly BeadsIssueSummary[]> {
   const groups = new Map<string, BeadsIssueSummary[]>();
 

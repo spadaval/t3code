@@ -8,10 +8,12 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import {
+  describeSwarmCoordinatorFetchFailure,
   describeSharedWorkspaceProjectConflict as describeSharedWorkspaceProjectConflictMessage,
   deriveEpicSwarmCoordinatorState,
   findConflictingSharedWorkspaceRun as findConflictingSharedWorkspaceRunCore,
   getEpicSwarmCoordinatorPrimaryAction,
+  isSwarmCoordinatorFetchTimeoutMessage,
   type EpicSwarmCoordinatorPrimaryAction,
   type EpicSwarmCoordinatorState,
   type EpicSwarmCoordinatorStateKind,
@@ -71,43 +73,6 @@ const HISTORY_COORDINATOR_STATE_KINDS = new Set<EpicCoordinatorStateKind>([
   "completed",
 ]);
 
-function isTimeoutErrorMessage(message: string): boolean {
-  return /\b(?:timed?\s*out|timeout)\b/i.test(message);
-}
-
-function formatFetchSources(sources: ReadonlyArray<"support" | "validation" | "status">): string {
-  if (sources.length === 0) {
-    return "swarm state";
-  }
-
-  if (sources.length === 1) {
-    return `swarm ${sources[0]}`;
-  }
-
-  if (sources.length === 2) {
-    return `swarm ${sources[0]} and ${sources[1]}`;
-  }
-
-  return "swarm support, validation, and status";
-}
-
-function describeCoordinatorFetchFailure(input: {
-  readonly sources: ReadonlyArray<"support" | "validation" | "status">;
-  readonly stale: boolean;
-  readonly timedOut: boolean;
-}): string {
-  const sourceLabel = formatFetchSources(input.sources);
-  if (input.stale) {
-    return input.timedOut
-      ? `Showing the last known ${sourceLabel} because the latest refresh timed out. Refresh the coordinator state or inspect the backend error.`
-      : `Showing the last known ${sourceLabel} because the latest refresh failed. Refresh the coordinator state or inspect the backend error.`;
-  }
-
-  return input.timedOut
-    ? `${sourceLabel.charAt(0).toUpperCase()}${sourceLabel.slice(1)} request timed out. Retry the coordinator state request or inspect the backend error.`
-    : `${sourceLabel.charAt(0).toUpperCase()}${sourceLabel.slice(1)} request failed. Retry the coordinator state request or inspect the backend error.`;
-}
-
 export function deriveCoordinatorFetchLifecycle(input: {
   readonly support: CoordinatorFetchQueryState;
   readonly requireSwarmState: boolean;
@@ -122,13 +87,17 @@ export function deriveCoordinatorFetchLifecycle(input: {
   }
 
   if (input.support.error) {
-    const timedOut = isTimeoutErrorMessage(input.support.error);
+    const timedOut = isSwarmCoordinatorFetchTimeoutMessage(input.support.error);
     return {
       kind: input.support.hasData ? "stale" : timedOut ? "timeout" : "error",
-      detail: describeCoordinatorFetchFailure({
-        sources: ["support"],
+      detail: describeSwarmCoordinatorFetchFailure({
+        failures: [
+          {
+            source: "support",
+            message: input.support.error,
+          },
+        ],
         stale: input.support.hasData,
-        timedOut,
       }),
     };
   }
@@ -144,21 +113,34 @@ export function deriveCoordinatorFetchLifecycle(input: {
   const status = input.status ?? { pending: false, hasData: false, error: null };
   const hasSwarmData = validation.hasData || status.hasData;
   const pending = validation.pending || status.pending;
-  const failedSources = [
-    validation.error ? ("validation" as const) : null,
-    status.error ? ("status" as const) : null,
-  ].filter((value): value is "validation" | "status" => value !== null);
-  const timedOut = [validation.error, status.error].some(
-    (error): error is string => error !== null && isTimeoutErrorMessage(error),
+  const failures = [
+    validation.error === null
+      ? null
+      : {
+          source: "validation" as const,
+          message: validation.error,
+        },
+    status.error === null
+      ? null
+      : {
+          source: "status" as const,
+          message: status.error,
+        },
+  ].filter(
+    (value): value is { readonly source: "validation" | "status"; readonly message: string } =>
+      value !== null,
   );
 
-  if (failedSources.length > 0) {
+  if (failures.length > 0) {
     return {
-      kind: hasSwarmData ? "stale" : timedOut ? "timeout" : "error",
-      detail: describeCoordinatorFetchFailure({
-        sources: failedSources,
+      kind: hasSwarmData
+        ? "stale"
+        : failures.some((failure) => isSwarmCoordinatorFetchTimeoutMessage(failure.message))
+          ? "timeout"
+          : "error",
+      detail: describeSwarmCoordinatorFetchFailure({
+        failures,
         stale: hasSwarmData,
-        timedOut,
       }),
     };
   }

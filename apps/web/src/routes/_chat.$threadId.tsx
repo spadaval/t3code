@@ -18,8 +18,9 @@ import {
   DiffPanelShell,
   type DiffPanelMode,
 } from "../components/DiffPanelShell";
+import { IssueSidebar } from "../components/IssueSidebar";
 import { useComposerDraftStore } from "../composerDraftStore";
-import { parseDiffRouteSearch } from "../diffRouteSearch";
+import { parseChatRouteSearch } from "../chatRouteSearch";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useStore } from "../store";
 import { Sheet, SheetPopup } from "../components/ui/sheet";
@@ -169,11 +170,12 @@ function ChatThreadRouteView() {
     Object.hasOwn(store.draftThreadsByThreadId, threadId),
   );
   const routeThreadExists = threadExists || draftThreadExists;
-  const diffOpen = search.diff === "1";
+  const diffOpen = search.rightPane === "diff";
+  const issuesOpen = search.rightPane === "issues";
   const shouldUseDiffSheet = useMediaQuery(DIFF_INLINE_LAYOUT_MEDIA_QUERY);
-  // TanStack Router keeps active route components mounted across param-only navigations
-  // unless remountDeps are configured, so this stays warm across thread switches.
-  const [hasOpenedDiff, setHasOpenedDiff] = useState(diffOpen);
+  const [lastRightPane, setLastRightPane] = useState<"diff" | "issues" | null>(
+    search.rightPane ?? null,
+  );
   const closeRightPane = useCallback(() => {
     void navigate({
       to: "/$threadId",
@@ -182,10 +184,10 @@ function ChatThreadRouteView() {
     });
   }, [navigate, threadId]);
   useEffect(() => {
-    if (diffOpen) {
-      setHasOpenedDiff(true);
+    if (search.rightPane) {
+      setLastRightPane(search.rightPane);
     }
-  }, [diffOpen]);
+  }, [search.rightPane]);
 
   useEffect(() => {
     if (!bootstrapComplete) {
@@ -202,10 +204,12 @@ function ChatThreadRouteView() {
     return null;
   }
 
-  const shouldRenderDiffContent = diffOpen || hasOpenedDiff;
-  const rightPaneContent = shouldRenderDiffContent ? (
-    <LazyDiffPanel mode={shouldUseDiffSheet ? "sheet" : "sidebar"} />
-  ) : null;
+  const rightPaneContent =
+    lastRightPane === "diff" ? (
+      <LazyDiffPanel mode={shouldUseDiffSheet ? "sheet" : "sidebar"} />
+    ) : lastRightPane === "issues" ? (
+      <IssueSidebar threadId={threadId} onClose={closeRightPane} />
+    ) : null;
 
   if (!shouldUseDiffSheet) {
     return (
@@ -213,7 +217,7 @@ function ChatThreadRouteView() {
         <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
           <ChatView threadId={threadId} />
         </SidebarInset>
-        <RightPaneInlineSidebar open={diffOpen} onClose={closeRightPane}>
+        <RightPaneInlineSidebar open={diffOpen || issuesOpen} onClose={closeRightPane}>
           {rightPaneContent}
         </RightPaneInlineSidebar>
       </>
@@ -225,7 +229,7 @@ function ChatThreadRouteView() {
       <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
         <ChatView threadId={threadId} />
       </SidebarInset>
-      <RightPaneSheet open={diffOpen} onClose={closeRightPane}>
+      <RightPaneSheet open={diffOpen || issuesOpen} onClose={closeRightPane}>
         {rightPaneContent}
       </RightPaneSheet>
     </>
@@ -233,6 +237,6 @@ function ChatThreadRouteView() {
 }
 
 export const Route = createFileRoute("/_chat/$threadId")({
-  validateSearch: (search) => parseDiffRouteSearch(search),
+  validateSearch: (search) => parseChatRouteSearch(search),
   component: ChatThreadRouteView,
 });

@@ -15,38 +15,14 @@ import type {
   ProjectId,
 } from "@t3tools/contracts";
 import {
+  describeSwarmCoordinatorFetchFailure,
   deriveSwarmRunExecutionState,
-  describeSharedWorkspaceProjectConflict as describeSharedWorkspaceProjectConflictMessage,
   deriveEpicSwarmCoordinatorState,
+  describeSharedWorkspaceProjectConflict as describeSharedWorkspaceProjectConflictMessage,
   findConflictingSharedWorkspaceRun as findConflictingSharedWorkspaceRunCore,
   getEpicSwarmCoordinatorPrimaryAction,
+  isSwarmCoordinatorFetchTimeoutMessage,
 } from "@t3tools/shared/swarm";
-
-function isTimeoutErrorMessage(message: string): boolean {
-  return /\b(?:timed?\s*out|timeout)\b/i.test(message);
-}
-
-function formatFetchSources(sources: ReadonlyArray<"validation" | "status">): string {
-  if (sources.length === 1) {
-    return `swarm ${sources[0]}`;
-  }
-
-  if (sources.length === 2) {
-    return `swarm ${sources[0]} and ${sources[1]}`;
-  }
-
-  return "swarm state";
-}
-
-function describeCoordinatorFetchFailure(input: {
-  readonly sources: ReadonlyArray<"validation" | "status">;
-  readonly timedOut: boolean;
-}): string {
-  const sourceLabel = formatFetchSources(input.sources);
-  return input.timedOut
-    ? `${sourceLabel.charAt(0).toUpperCase()}${sourceLabel.slice(1)} request timed out. Retry the coordinator state request or inspect the backend error.`
-    : `${sourceLabel.charAt(0).toUpperCase()}${sourceLabel.slice(1)} request failed. Retry the coordinator state request or inspect the backend error.`;
-}
 
 function describeSharedWorkspaceProjectConflict(
   run: OrchestrationSwarmRun,
@@ -69,24 +45,35 @@ function deriveFetchLifecycle(input: {
   readonly validationError: string | null;
   readonly statusError: string | null;
 }): BeadsCoordinatorFetchLifecycle {
-  const failedSources = [
-    input.validationError ? ("validation" as const) : null,
-    input.statusError ? ("status" as const) : null,
-  ].filter((value): value is "validation" | "status" => value !== null);
+  const failures = [
+    input.validationError === null
+      ? null
+      : {
+          source: "validation" as const,
+          message: input.validationError,
+        },
+    input.statusError === null
+      ? null
+      : {
+          source: "status" as const,
+          message: input.statusError,
+        },
+  ].filter(
+    (value): value is { readonly source: "validation" | "status"; readonly message: string } =>
+      value !== null,
+  );
 
-  if (failedSources.length === 0) {
+  if (failures.length === 0) {
     return { kind: "ready", detail: null };
   }
 
-  const timedOut = [input.validationError, input.statusError].some(
-    (error): error is string => error !== null && isTimeoutErrorMessage(error),
-  );
-
   return {
-    kind: timedOut ? "timeout" : "error",
-    detail: describeCoordinatorFetchFailure({
-      sources: failedSources,
-      timedOut,
+    kind: failures.some((failure) => isSwarmCoordinatorFetchTimeoutMessage(failure.message))
+      ? "timeout"
+      : "error",
+    detail: describeSwarmCoordinatorFetchFailure({
+      failures,
+      stale: false,
     }),
   };
 }

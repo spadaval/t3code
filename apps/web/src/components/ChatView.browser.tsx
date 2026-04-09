@@ -3001,7 +3001,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("navigates to the issues page from the top bar", async () => {
+  it("opens the issue sidebar from the top bar", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -3016,9 +3016,12 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await waitForURL(
         mounted.router,
-        (path) => path === "/issues" && mounted.router.state.location.search.tab === "issues",
-        "Navigation should open the issues page.",
+        (path) =>
+          path === `/${THREAD_ID}` && mounted.router.state.location.search.rightPane === "issues",
+        "Route should stay on the thread while opening the issue sidebar.",
       );
+      await expect.element(await waitForIssuesToggle("Hide issues")).toBeInTheDocument();
+      await expect.element(page.getByText("Issues")).toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }

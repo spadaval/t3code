@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   compareSwarmReadyIssues,
   createEmptySwarmProjectionState,
+  describeSwarmCoordinatorFetchFailure,
   describeSharedWorkspaceProjectConflict,
   deriveEpicSwarmCoordinatorState,
   deriveSwarmRunExecutionState,
@@ -181,6 +182,44 @@ describe("swarm", () => {
         .toSorted(compareSwarmReadyIssues)
         .map((issue) => issue.id),
     ).toEqual(["TASK-1", "TASK-2", "TASK-3", "TASK-4"]);
+  });
+
+  it("preserves a shared backend error across validation and status failures", () => {
+    expect(
+      describeSwarmCoordinatorFetchFailure({
+        failures: [
+          {
+            source: "validation",
+            message: "Issue 'EPIC-404' was not found.",
+          },
+          {
+            source: "status",
+            message: "Issue 'EPIC-404' was not found.",
+          },
+        ],
+        stale: false,
+      }),
+    ).toBe("Swarm validation and status request failed: Issue 'EPIC-404' was not found.");
+  });
+
+  it("keeps source-specific backend details when validation and status fail differently", () => {
+    expect(
+      describeSwarmCoordinatorFetchFailure({
+        failures: [
+          {
+            source: "validation",
+            message: "Issue 'EPIC-404' was not found.",
+          },
+          {
+            source: "status",
+            message: "Swarm 'swarm-404' was not found.",
+          },
+        ],
+        stale: true,
+      }),
+    ).toBe(
+      "Showing the last known swarm state because the latest refresh failed. Swarm validation request failed: Issue 'EPIC-404' was not found. Swarm status request failed: Swarm 'swarm-404' was not found.",
+    );
   });
 
   it("selects the first non-empty validation front", () => {

@@ -1,118 +1,57 @@
-import { Outlet, createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { SidebarInset, SidebarTrigger } from "~/components/ui/sidebar";
-import { isElectron } from "~/env";
-import { Button } from "~/components/ui/button";
-import { ArrowLeftIcon } from "lucide-react";
+import { parseIssuesRouteSearch } from "~/issuesRouteSearch";
+import { useStore } from "~/store";
+import { useUiStateStore } from "~/uiStateStore";
 
-// ---------------------------------------------------------------------------
-// Search param types
-// ---------------------------------------------------------------------------
-
-export interface IssuesRouteSearch {
-  tab?: "coordinator" | "issues" | "activity";
-  epicId?: string;
-  issueId?: string;
-}
-
-function parseIssuesRouteSearch(search: Record<string, unknown>): IssuesRouteSearch {
-  const tab = parseTab(search.tab);
-  const epicId = typeof search.epicId === "string" ? search.epicId : undefined;
-  const issueId = typeof search.issueId === "string" ? search.issueId : undefined;
-  return {
-    ...(tab ? { tab } : {}),
-    ...(epicId ? { epicId } : {}),
-    ...(issueId ? { issueId } : {}),
-  };
-}
-
-function parseTab(value: unknown): IssuesRouteSearch["tab"] {
-  if (value === "coordinator" || value === "issues" || value === "activity") {
-    return value;
+function resolveLegacyIssuesProjectId(): string | null {
+  const { projects, threads } = useStore.getState();
+  if (projects.length === 0) {
+    return null;
   }
-  return undefined;
+
+  const { threadLastVisitedAtById } = useUiStateStore.getState();
+  let bestThreadProjectId: string | null = null;
+  let bestVisitedAt = "";
+
+  for (const thread of threads) {
+    const visitedAt = threadLastVisitedAtById[thread.id] ?? "";
+    if (visitedAt.length === 0 || visitedAt <= bestVisitedAt) {
+      continue;
+    }
+    bestVisitedAt = visitedAt;
+    bestThreadProjectId = thread.projectId;
+  }
+
+  return bestThreadProjectId ?? projects[0]?.id ?? null;
 }
 
-// ---------------------------------------------------------------------------
-// Layout
-// ---------------------------------------------------------------------------
-
-function IssuesRouteLayout() {
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        void navigate({ to: "/" });
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [navigate]);
-
+function LegacyIssuesRedirectFallback() {
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground isolate">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {!isElectron && (
-          <header className="border-b border-border px-3 py-2 sm:px-4">
-            <div className="flex items-center gap-2">
-              <SidebarTrigger className="size-7 shrink-0 md:hidden" />
-              <Button
-                size="xs"
-                variant="ghost"
-                onClick={() => void navigate({ to: "/" })}
-                className="gap-1.5 text-muted-foreground hover:text-foreground"
-              >
-                <ArrowLeftIcon className="size-3" />
-                Back
-              </Button>
-              <span className="text-sm font-medium text-foreground">Issues</span>
-            </div>
-          </header>
-        )}
-
-        {isElectron && (
-          <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border px-4">
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={() => void navigate({ to: "/" })}
-              className="no-drag gap-1.5 text-muted-foreground hover:text-foreground"
-            >
-              <ArrowLeftIcon className="size-3" />
-              Back
-            </Button>
-            <span className="ml-2 text-xs font-medium tracking-wide text-muted-foreground/70">
-              Issues
-            </span>
-          </div>
-        )}
-
-        <div className="min-h-0 flex flex-1 flex-col">
-          <Outlet />
-        </div>
-      </div>
-    </SidebarInset>
+    <div className="flex min-h-dvh items-center justify-center bg-background px-6 text-center text-sm text-muted-foreground">
+      No project is available for the tracker.
+    </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Route
-// ---------------------------------------------------------------------------
 
 export const Route = createFileRoute("/issues")({
   validateSearch: (search) => parseIssuesRouteSearch(search),
   beforeLoad: ({ search }) => {
-    // Default to coordinator tab if no tab specified
-    if (!search.tab) {
-      throw redirect({ to: "/issues", search: { ...search, tab: "coordinator" }, replace: true });
+    const projectId = resolveLegacyIssuesProjectId();
+    if (!projectId) {
+      return;
     }
+
+    throw redirect({
+      to: "/projects/$projectId/issues",
+      params: { projectId },
+      search: {
+        tab: search.tab ?? "coordinator",
+        ...(search.epicId ? { epicId: search.epicId } : {}),
+        ...(search.issueId ? { issueId: search.issueId } : {}),
+      },
+      replace: true,
+    });
   },
-  component: IssuesRouteLayout,
+  component: LegacyIssuesRedirectFallback,
 });

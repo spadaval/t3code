@@ -2,21 +2,20 @@ import type { ProjectId, ThreadId } from "@t3tools/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback } from "react";
-import { ActivityIcon, GitBranchIcon, LayoutListIcon } from "lucide-react";
+import { GitBranchIcon, LayoutListIcon } from "lucide-react";
 
-import { useStore } from "~/store";
 import {
   beadsContextOptions,
   beadsProjectCoordinatorSnapshotOptions,
   beadsQueryIssuesOptions,
-  beadsSessionActivityOptions,
   beadsSwarmSupportOptions,
 } from "~/lib/beadsReactQuery";
+import { parseIssuesRouteSearch } from "~/issuesRouteSearch";
 import { cn } from "~/lib/utils";
+import { useProjectById } from "~/storeSelectors";
 import { Button } from "../ui/button";
 import { CoordinatorTab } from "./CoordinatorTab";
 import { IssuesTab } from "./IssuesTab";
-import { ActivityTab } from "./ActivityTab";
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -25,7 +24,6 @@ import { ActivityTab } from "./ActivityTab";
 const TABS = [
   { id: "coordinator" as const, label: "Coordinator", icon: GitBranchIcon },
   { id: "issues" as const, label: "Issues", icon: LayoutListIcon },
-  { id: "activity" as const, label: "Activity", icon: ActivityIcon },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -34,16 +32,15 @@ type TabId = (typeof TABS)[number]["id"];
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function IssuesPageContent() {
+export default function IssuesPageContent({ projectId }: { projectId: ProjectId }) {
   const navigate = useNavigate();
-  const search = useSearch({ from: "/issues/" });
+  const search = useSearch({
+    from: "/projects/$projectId/issues",
+    select: (current) => parseIssuesRouteSearch(current),
+  });
   const activeTab = (search.tab ?? "coordinator") as TabId;
-
-  // Resolve project context -- use the first project as a reasonable default.
-  // In a multi-project setup this would need a project selector.
-  const project = useStore((store) => store.projects[0] ?? null);
+  const project = useProjectById(projectId) ?? null;
   const cwd = project?.cwd ?? null;
-  const projectId = (project?.id ?? null) as ProjectId | null;
 
   // Core data queries
   useQuery(beadsContextOptions(cwd ? { cwd } : null));
@@ -64,18 +61,12 @@ export default function IssuesPageContent() {
     }),
   );
 
-  const activityQuery = useQuery(
-    beadsSessionActivityOptions({
-      cwd: cwd ?? "",
-      enabled: cwd !== null && activeTab === "activity",
-    }),
-  );
-
   // Navigation helpers
   const setTab = useCallback(
     (tab: TabId) => {
       void navigate({
-        to: "/issues",
+        to: "/projects/$projectId/issues",
+        params: { projectId },
         search: (prev) => ({
           tab,
           ...(prev.epicId ? { epicId: prev.epicId } : {}),
@@ -84,13 +75,14 @@ export default function IssuesPageContent() {
         replace: true,
       });
     },
-    [navigate],
+    [navigate, projectId],
   );
 
   const setSelectedEpicId = useCallback(
     (epicId: string | null) => {
       void navigate({
-        to: "/issues",
+        to: "/projects/$projectId/issues",
+        params: { projectId },
         search: (prev) => ({
           ...(prev.tab ? { tab: prev.tab } : {}),
           ...(epicId ? { epicId } : {}),
@@ -98,13 +90,14 @@ export default function IssuesPageContent() {
         }),
       });
     },
-    [navigate],
+    [navigate, projectId],
   );
 
   const setSelectedIssueId = useCallback(
     (issueId: string | null) => {
       void navigate({
-        to: "/issues",
+        to: "/projects/$projectId/issues",
+        params: { projectId },
         search: (prev) => ({
           ...(prev.tab ? { tab: prev.tab } : {}),
           ...(prev.epicId ? { epicId: prev.epicId } : {}),
@@ -112,7 +105,7 @@ export default function IssuesPageContent() {
         }),
       });
     },
-    [navigate],
+    [navigate, projectId],
   );
 
   const openThread = useCallback(
@@ -125,14 +118,11 @@ export default function IssuesPageContent() {
   // Issue counts for tab badge
   const issueCount = issuesQuery.data?.issues.length ?? null;
   const epicCount = coordinatorQuery.data?.epics.length ?? null;
-  const activityCount = activityQuery.data?.entries.length ?? null;
 
-  if (!cwd) {
+  if (!project || !cwd) {
     return (
       <div className="flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-muted-foreground">
-          No project found. Create a thread to get started.
-        </p>
+        <p className="text-sm text-muted-foreground">Project not found.</p>
       </div>
     );
   }
@@ -142,8 +132,7 @@ export default function IssuesPageContent() {
       {/* Tab bar */}
       <div className="flex items-center gap-1 border-b border-border px-4 py-1.5">
         {TABS.map((tab) => {
-          const count =
-            tab.id === "coordinator" ? epicCount : tab.id === "issues" ? issueCount : activityCount;
+          const count = tab.id === "coordinator" ? epicCount : issueCount;
           return (
             <Button
               key={tab.id}
@@ -189,22 +178,14 @@ export default function IssuesPageContent() {
             onSelectEpic={setSelectedEpicId}
             onOpenThread={openThread}
           />
-        ) : activeTab === "issues" ? (
+        ) : (
           <IssuesTab
             cwd={cwd}
+            projectId={projectId}
             issues={issuesQuery.data?.issues ?? []}
             issuesPending={issuesQuery.isPending}
             issuesError={issuesQuery.error}
             selectedIssueId={search.issueId ?? null}
-            onSelectIssue={setSelectedIssueId}
-            onOpenThread={openThread}
-          />
-        ) : (
-          <ActivityTab
-            cwd={cwd}
-            entries={activityQuery.data?.entries ?? []}
-            entriesPending={activityQuery.isPending}
-            entriesError={activityQuery.error}
             onSelectIssue={setSelectedIssueId}
             onOpenThread={openThread}
           />

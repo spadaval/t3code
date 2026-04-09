@@ -89,8 +89,7 @@ const STALE_FETCH_LIFECYCLE = {
 
 const TIMEOUT_FETCH_LIFECYCLE = {
   kind: "timeout",
-  detail:
-    "Swarm validation and status request timed out. Retry the coordinator state request or inspect the backend error.",
+  detail: "Swarm validation and status request timed out: Beads command timed out.",
 } as const;
 
 describe("deriveCoordinatorFetchLifecycle", () => {
@@ -128,7 +127,30 @@ describe("deriveCoordinatorFetchLifecycle", () => {
     ).toEqual({
       kind: "stale",
       detail:
-        "Showing the last known swarm validation because the latest refresh failed. Refresh the coordinator state or inspect the backend error.",
+        "Showing the last known swarm validation because the latest refresh failed: backend exploded",
+    });
+  });
+
+  it("preserves distinct validation and status backend errors", () => {
+    expect(
+      deriveCoordinatorFetchLifecycle({
+        support: { pending: false, hasData: true, error: null },
+        requireSwarmState: true,
+        validation: {
+          pending: false,
+          hasData: false,
+          error: "Issue 'EPIC-404' was not found.",
+        },
+        status: {
+          pending: false,
+          hasData: false,
+          error: "Swarm 'swarm-404' was not found.",
+        },
+      }),
+    ).toEqual({
+      kind: "error",
+      detail:
+        "Swarm validation request failed: Issue 'EPIC-404' was not found. Swarm status request failed: Swarm 'swarm-404' was not found.",
     });
   });
 

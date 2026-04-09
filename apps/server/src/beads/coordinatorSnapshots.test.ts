@@ -163,4 +163,26 @@ describe("buildCoordinatorEpicSnapshot", () => {
       disabled: false,
     });
   });
+
+  it("preserves backend error detail when validation and status lookups fail", () => {
+    const snapshot = buildCoordinatorEpicSnapshot({
+      issue: null,
+      support: SWARM_SUPPORT,
+      validation: null,
+      status: null,
+      validationError: "Issue 'EPIC-404' was not found.",
+      statusError: "Issue 'EPIC-404' was not found.",
+      projectSwarmRuns: [],
+      epicSwarmRuns: [],
+      epicExecutions: [],
+      fallbackEpicId: "EPIC-404",
+      fallbackEpicTitle: "Missing epic",
+    });
+
+    expect(snapshot.fetchLifecycle).toEqual({
+      kind: "error",
+      detail: "Swarm validation and status request failed: Issue 'EPIC-404' was not found.",
+    });
+    expect(snapshot.stateKind).toBe("error");
+  });
 });

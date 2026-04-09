@@ -10,39 +10,51 @@ describe("issuePaneStore", () => {
   beforeEach(() => {
     useIssuePaneStore.setState({
       byThreadId: {},
-      setActivePanelTab: useIssuePaneStore.getState().setActivePanelTab,
       setSelectedIssueId: useIssuePaneStore.getState().setSelectedIssueId,
       setSearch: useIssuePaneStore.getState().setSearch,
       setScope: useIssuePaneStore.getState().setScope,
+      resetThreadState: useIssuePaneStore.getState().resetThreadState,
     });
   });
 
-  it("defaults each thread to the issues panel tab", () => {
-    expect(getIssuePaneState(THREAD_A)).toMatchObject({
-      activePanelTab: "issues",
+  it("defaults each thread to the lightweight sidebar issue state", () => {
+    expect(getIssuePaneState(THREAD_A)).toEqual({
       selectedIssueId: null,
       search: "",
       scope: "active",
     });
   });
 
-  it("stores active panel tabs independently per thread", () => {
+  it("stores thread selections independently", () => {
     const store = useIssuePaneStore.getState();
-    store.setActivePanelTab(THREAD_A, "coordinator");
-    store.setActivePanelTab(THREAD_B, "issues");
+    store.setSelectedIssueId(THREAD_A, "TASK-1");
+    store.setSelectedIssueId(THREAD_B, "TASK-2");
 
-    expect(getIssuePaneState(THREAD_A).activePanelTab).toBe("coordinator");
-    expect(getIssuePaneState(THREAD_B).activePanelTab).toBe("issues");
+    expect(getIssuePaneState(THREAD_A).selectedIssueId).toBe("TASK-1");
+    expect(getIssuePaneState(THREAD_B).selectedIssueId).toBe("TASK-2");
   });
 
-  it("does not clear the selected issue when switching top-level tabs", () => {
+  it("stores search and scope independently per thread", () => {
     const store = useIssuePaneStore.getState();
-    store.setSelectedIssueId(THREAD_A, "beads-123");
-    store.setActivePanelTab(THREAD_A, "coordinator");
+    store.setSearch(THREAD_A, "parser");
+    store.setScope(THREAD_A, "closed");
 
     expect(getIssuePaneState(THREAD_A)).toMatchObject({
-      activePanelTab: "coordinator",
-      selectedIssueId: "beads-123",
+      search: "parser",
+      scope: "closed",
+    });
+  });
+
+  it("can reset a thread state back to defaults", () => {
+    const store = useIssuePaneStore.getState();
+    store.setSelectedIssueId(THREAD_A, "TASK-1");
+    store.setSearch(THREAD_A, "parser");
+    store.resetThreadState(THREAD_A);
+
+    expect(getIssuePaneState(THREAD_A)).toEqual({
+      selectedIssueId: null,
+      search: "",
+      scope: "active",
     });
   });
 });
