@@ -1,17 +1,13 @@
 import { TurnId } from "@t3tools/contracts";
 
 export interface DiffRouteSearch {
-  rightPane?: "diff" | "issues" | undefined;
+  diff?: "1" | undefined;
   diffTurnId?: TurnId | undefined;
   diffFilePath?: string | undefined;
 }
 
 function isDiffOpenValue(value: unknown): boolean {
   return value === "1" || value === 1 || value === true;
-}
-
-function isRightPaneValue(value: unknown): value is DiffRouteSearch["rightPane"] {
-  return value === "diff" || value === "issues";
 }
 
 function normalizeSearchString(value: unknown): string | undefined {
@@ -36,18 +32,13 @@ export function stripDiffSearchParams<T extends Record<string, unknown>>(
 }
 
 export function parseDiffRouteSearch(search: Record<string, unknown>): DiffRouteSearch {
-  const rightPane = isRightPaneValue(search.rightPane)
-    ? search.rightPane
-    : isDiffOpenValue(search.diff)
-      ? "diff"
-      : undefined;
-  const diffTurnIdRaw = rightPane === "diff" ? normalizeSearchString(search.diffTurnId) : undefined;
+  const diff = isDiffOpenValue(search.diff) || search.rightPane === "diff" ? "1" : undefined;
+  const diffTurnIdRaw = diff ? normalizeSearchString(search.diffTurnId) : undefined;
   const diffTurnId = diffTurnIdRaw ? TurnId.makeUnsafe(diffTurnIdRaw) : undefined;
-  const diffFilePath =
-    rightPane === "diff" && diffTurnId ? normalizeSearchString(search.diffFilePath) : undefined;
+  const diffFilePath = diff && diffTurnId ? normalizeSearchString(search.diffFilePath) : undefined;
 
   return {
-    ...(rightPane ? { rightPane } : {}),
+    ...(diff ? { diff } : {}),
     ...(diffTurnId ? { diffTurnId } : {}),
     ...(diffFilePath ? { diffFilePath } : {}),
   };

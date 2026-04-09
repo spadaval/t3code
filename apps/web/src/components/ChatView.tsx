@@ -885,9 +885,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
-  const rightPane = rawSearch.rightPane;
-  const diffOpen = rightPane === "diff";
-  const issuesOpen = rightPane === "issues";
+  const diffOpen = rawSearch.diff === "1";
+  const issuesOpen = false;
   const activeThreadId = activeThread?.id ?? null;
   const existingOpenTerminalThreadIds = useMemo(() => {
     const existingThreadIds = new Set<ThreadId>([...serverThreadIds, ...draftThreadIds]);
@@ -1685,17 +1684,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
       to: "/$threadId",
       params: { threadId },
       replace: true,
-      search: () => (diffOpen ? {} : { rightPane: "diff" as const }),
+      search: () => (diffOpen ? {} : { diff: "1" as const }),
     });
   }, [diffOpen, navigate, threadId]);
   const onToggleIssues = useCallback(() => {
     void navigate({
-      to: "/$threadId",
-      params: { threadId },
+      to: "/issues",
       replace: true,
-      search: () => (issuesOpen ? {} : { rightPane: "issues" as const }),
+      search: { tab: "issues" as const },
     });
-  }, [issuesOpen, navigate, threadId]);
+  }, [navigate]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -4190,8 +4188,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
         params: { threadId },
         search: () =>
           filePath
-            ? { rightPane: "diff" as const, diffTurnId: turnId, diffFilePath: filePath }
-            : { rightPane: "diff" as const, diffTurnId: turnId },
+            ? { diff: "1" as const, diffTurnId: turnId, diffFilePath: filePath }
+            : { diff: "1" as const, diffTurnId: turnId },
       });
     },
     [navigate, threadId],

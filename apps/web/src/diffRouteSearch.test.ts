@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "./diffRouteSearch";
 
 describe("parseDiffRouteSearch", () => {
-  it("parses valid right pane diff values", () => {
+  it("parses legacy right pane diff values", () => {
     const parsed = parseDiffRouteSearch({
       rightPane: "diff",
       diffTurnId: "turn-1",
@@ -11,20 +11,20 @@ describe("parseDiffRouteSearch", () => {
     });
 
     expect(parsed).toEqual({
-      rightPane: "diff",
+      diff: "1",
       diffTurnId: "turn-1",
       diffFilePath: "src/app.ts",
     });
   });
 
-  it("accepts the legacy diff toggle and normalizes it to rightPane", () => {
+  it("accepts the diff toggle and normalizes it to diff", () => {
     expect(
       parseDiffRouteSearch({
         diff: 1,
         diffTurnId: "turn-1",
       }),
     ).toEqual({
-      rightPane: "diff",
+      diff: "1",
       diffTurnId: "turn-1",
     });
 
@@ -34,7 +34,7 @@ describe("parseDiffRouteSearch", () => {
         diffTurnId: "turn-1",
       }),
     ).toEqual({
-      rightPane: "diff",
+      diff: "1",
       diffTurnId: "turn-1",
     });
   });
@@ -46,7 +46,7 @@ describe("parseDiffRouteSearch", () => {
       diffFilePath: "src/app.ts",
     });
 
-    expect(parsed).toEqual({ rightPane: "issues" });
+    expect(parsed).toEqual({});
   });
 
   it("drops file value when turn is not selected", () => {
@@ -56,7 +56,7 @@ describe("parseDiffRouteSearch", () => {
     });
 
     expect(parsed).toEqual({
-      rightPane: "diff",
+      diff: "1",
     });
   });
 
@@ -68,13 +68,13 @@ describe("parseDiffRouteSearch", () => {
     });
 
     expect(parsed).toEqual({
-      rightPane: "diff",
+      diff: "1",
     });
   });
 });
 
 describe("stripDiffSearchParams", () => {
-  it("removes right pane and diff search params", () => {
+  it("removes legacy right pane and diff search params", () => {
     expect(
       stripDiffSearchParams({
         rightPane: "issues",

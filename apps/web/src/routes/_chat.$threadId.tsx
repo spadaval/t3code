@@ -22,7 +22,6 @@ import { useComposerDraftStore } from "../composerDraftStore";
 import { parseDiffRouteSearch } from "../diffRouteSearch";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useStore } from "../store";
-import { IssuesPanel } from "../components/IssuesPanel";
 import { Sheet, SheetPopup } from "../components/ui/sheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
 
@@ -169,24 +168,8 @@ function ChatThreadRouteView() {
   const draftThreadExists = useComposerDraftStore((store) =>
     Object.hasOwn(store.draftThreadsByThreadId, threadId),
   );
-  const activeProjectId = useStore(
-    (store) => store.threads.find((thread) => thread.id === threadId)?.projectId ?? null,
-  );
-  const draftProjectId = useComposerDraftStore(
-    (store) => store.draftThreadsByThreadId[threadId]?.projectId ?? null,
-  );
-  const activeProject = useStore(
-    (store) =>
-      store.projects.find((project) => project.id === (activeProjectId ?? draftProjectId)) ??
-      undefined,
-  );
-  const activeThreadWorktreePath = useStore(
-    (store) => store.threads.find((thread) => thread.id === threadId)?.worktreePath ?? null,
-  );
   const routeThreadExists = threadExists || draftThreadExists;
-  const rightPane = search.rightPane;
-  const diffOpen = rightPane === "diff";
-  const issuesOpen = rightPane === "issues";
+  const diffOpen = search.diff === "1";
   const shouldUseDiffSheet = useMediaQuery(DIFF_INLINE_LAYOUT_MEDIA_QUERY);
   // TanStack Router keeps active route components mounted across param-only navigations
   // unless remountDeps are configured, so this stays warm across thread switches.
@@ -220,15 +203,7 @@ function ChatThreadRouteView() {
   }
 
   const shouldRenderDiffContent = diffOpen || hasOpenedDiff;
-  const rightPaneContent = issuesOpen ? (
-    <IssuesPanel
-      activeThreadId={threadId}
-      cwd={activeThreadWorktreePath ?? activeProject?.cwd ?? null}
-      projectId={activeProject?.id ?? null}
-      projectDefaultModelSelection={activeProject?.defaultModelSelection ?? null}
-      onClose={closeRightPane}
-    />
-  ) : shouldRenderDiffContent ? (
+  const rightPaneContent = shouldRenderDiffContent ? (
     <LazyDiffPanel mode={shouldUseDiffSheet ? "sheet" : "sidebar"} />
   ) : null;
 
@@ -238,7 +213,7 @@ function ChatThreadRouteView() {
         <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
           <ChatView threadId={threadId} />
         </SidebarInset>
-        <RightPaneInlineSidebar open={rightPane !== undefined} onClose={closeRightPane}>
+        <RightPaneInlineSidebar open={diffOpen} onClose={closeRightPane}>
           {rightPaneContent}
         </RightPaneInlineSidebar>
       </>
@@ -250,7 +225,7 @@ function ChatThreadRouteView() {
       <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
         <ChatView threadId={threadId} />
       </SidebarInset>
-      <RightPaneSheet open={rightPane !== undefined} onClose={closeRightPane}>
+      <RightPaneSheet open={diffOpen} onClose={closeRightPane}>
         {rightPaneContent}
       </RightPaneSheet>
     </>

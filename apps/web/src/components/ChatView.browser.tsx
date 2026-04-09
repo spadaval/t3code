@@ -1105,13 +1105,6 @@ async function waitForPlanSidebarCloseButton() {
   );
 }
 
-async function waitForIssuesCloseButton() {
-  return waitForElement(
-    () => document.querySelector<HTMLButtonElement>('[aria-label="Close issues"]'),
-    "Unable to find the issues close button.",
-  );
-}
-
 async function waitForImagesToLoad(scope: ParentNode): Promise<void> {
   const images = Array.from(scope.querySelectorAll("img"));
   if (images.length === 0) {
@@ -3008,7 +3001,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("reopens the issues sidebar from the top bar", async () => {
+  it("navigates to the issues page from the top bar", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -3021,12 +3014,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const openIssuesButton = await waitForIssuesToggle("Show issues");
       openIssuesButton.click();
 
-      await expect.element(await waitForIssuesCloseButton()).toBeInTheDocument();
       await waitForURL(
         mounted.router,
-        (path) =>
-          path === `/${THREAD_ID}` && mounted.router.state.location.search.rightPane === "issues",
-        "Route search should open the issues pane.",
+        (path) => path === "/issues" && mounted.router.state.location.search.tab === "issues",
+        "Navigation should open the issues page.",
       );
     } finally {
       await mounted.cleanup();
