@@ -1,6 +1,4 @@
 import type {
-  BeadsIssueDependency,
-  BeadsIssueDetail,
   BeadsIssueSummary,
   OrchestrationSwarmSchedulerMode,
   OrchestrationSwarmWorkspaceMode,
@@ -10,16 +8,6 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import path from "node:path";
-
-function formatDependencies(dependencies: ReadonlyArray<BeadsIssueDependency>): string {
-  if (dependencies.length === 0) {
-    return "None";
-  }
-
-  return dependencies
-    .map((dependency) => `- ${dependency.id}: ${dependency.title} [${dependency.status}]`)
-    .join("\n");
-}
 
 export function buildSwarmIssueLink(input: {
   issue: BeadsIssueSummary;
@@ -41,7 +29,8 @@ export function buildSwarmWorkerThreadTitle(issue: BeadsIssueSummary): string {
 }
 
 export function buildSwarmWorkerPrompt(input: {
-  issue: BeadsIssueDetail;
+  issueId: string;
+  issueTitle: string;
   epicIssueId: string;
   runId: SwarmRunId;
   executionId: SwarmTaskExecutionId;
@@ -50,34 +39,34 @@ export function buildSwarmWorkerPrompt(input: {
   sequenceNumber: number;
 }): string {
   const sections = [
-    `Epic: ${input.epicIssueId}`,
-    `Run: ${input.runId}`,
-    `Execution: ${input.executionId}`,
-    `Sequence: ${input.sequenceNumber}`,
-    `Scheduler mode: ${input.schedulerMode}`,
-    `Workspace mode: ${input.workspaceMode}`,
+    "## Assignment",
     "",
-    `Issue: ${input.issue.id}`,
-    `Title: ${input.issue.title}`,
-    `Status: ${input.issue.status}`,
-    `Priority: ${input.issue.priority === null ? "unset" : `P${input.issue.priority}`}`,
+    `You are a swarm worker implementing issue ${input.issueId}: ${input.issueTitle}`,
+    `This issue belongs to epic ${input.epicIssueId}.`,
     "",
-    "Description:",
-    input.issue.description?.trim().length ? input.issue.description : "None",
+    "## Getting started",
     "",
-    "Notes:",
-    input.issue.notes?.trim().length ? input.issue.notes : "None",
+    `Run \`bd show ${input.issueId}\` to read the full issue details, including description, notes, dependencies, and comments.`,
+    "Understand the requirements thoroughly before writing any code.",
     "",
-    "Labels:",
-    input.issue.labels.length > 0 ? input.issue.labels.join(", ") : "None",
+    "## Rules",
     "",
-    "Dependencies:",
-    formatDependencies(input.issue.dependencies),
+    "- Implement the issue in the shared workspace. Do NOT create a branch or worktree.",
+    "- Stay focused on this issue. Do not work on unrelated changes.",
+    "- Follow the project's existing patterns, conventions, and quality standards.",
+    "- Commit your work with clear, descriptive commit messages.",
+    "- When done, push your commits: `git pull --rebase && git push`.",
     "",
-    "Implement this issue in the shared workspace.",
-    "When the issue is fully complete, close the Beads issue yourself to signal completion.",
-    "Do not create a branch or worktree for this swarm worker.",
-    "Keep Beads tracking aligned with the code work and summarize any follow-up items that should be recorded back into the tracker.",
+    "## Completion",
+    "",
+    `- When the issue is fully implemented, close it with \`bd close ${input.issueId}\`.`,
+    "- Closing the issue signals the swarm coordinator that this worker has finished.",
+    "- If you discover follow-up work that is out of scope, file new issues with `bd` rather than expanding the scope of this task.",
+    "",
+    "## Context",
+    "",
+    `Run: ${input.runId} | Execution: ${input.executionId} | Sequence: ${input.sequenceNumber}`,
+    `Scheduler: ${input.schedulerMode} | Workspace: ${input.workspaceMode}`,
   ];
 
   return sections.join("\n");

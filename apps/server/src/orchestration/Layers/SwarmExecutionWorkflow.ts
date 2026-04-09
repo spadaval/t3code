@@ -1207,7 +1207,8 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
           threadId: workerThreadId,
           title: threadTitle,
           promptText: buildSwarmWorkerPrompt({
-            issue: originalIssue,
+            issueId: originalIssue.id,
+            issueTitle: originalIssue.title,
             epicIssueId: run.epicIssueId,
             runId: run.runId,
             executionId,
