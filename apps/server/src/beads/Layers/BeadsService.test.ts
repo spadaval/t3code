@@ -923,6 +923,97 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
+  it.effect(
+    "returns null swarm summaries when beads reports epic metadata without a swarm id",
+    () =>
+      Effect.gen(function* () {
+        const now = new Date().toISOString();
+        installBdJsonMock({
+          context: {
+            beads_dir: "/repo/.beads",
+            repo_root: "/repo",
+            cwd_repo_root: "/repo",
+            is_redirected: false,
+            is_worktree: false,
+            backend: "dolt",
+            dolt_mode: "server",
+            database: "repo",
+            project_id: "project-1",
+            role: "maintainer",
+            bd_version: "1.0.0",
+          },
+          "show EPIC-1 --long": [
+            {
+              id: "EPIC-1",
+              title: "Epic coordination",
+              description: null,
+              notes: null,
+              status: "open",
+              priority: 2,
+              issue_type: "epic",
+              assignee: null,
+              owner: "alice",
+              created_at: now,
+              created_by: "alice",
+              updated_at: now,
+              labels: [],
+              dependencies: [],
+              dependents: [],
+            },
+          ],
+          "swarm list": {
+            swarms: [],
+          },
+          "swarm validate EPIC-1": {
+            epic_id: "EPIC-1",
+            epic_title: "Epic coordination",
+            total_issues: 3,
+            closed_issues: 1,
+            ready_fronts: [],
+            max_parallelism: 1,
+            estimated_sessions: 3,
+            warnings: null,
+            errors: null,
+            swarmable: true,
+          },
+          "swarm status EPIC-1": {
+            epic_id: "EPIC-1",
+            epic_title: "Epic coordination",
+            total_issues: 3,
+            completed: [],
+            active: [],
+            ready: [
+              {
+                id: "READY-1",
+                title: "Ready child",
+                status: "open",
+                priority: 2,
+                issue_type: "task",
+                assignee: null,
+                owner: null,
+              },
+            ],
+            blocked: [],
+            active_count: 0,
+            ready_count: 1,
+            blocked_count: 0,
+          },
+        });
+
+        const beads = yield* BeadsService;
+        const validation = yield* beads.validateEpicSwarm({ cwd: "/repo", epicIssueId: "EPIC-1" });
+        const status = yield* beads.getEpicSwarmStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
+
+        assert.equal(validation.swarm, null);
+        assert.equal(status.swarm, null);
+        assert.equal(validation.estimatedWorkerSessions, 3);
+        assert.deepStrictEqual(
+          status.ready.map((issue) => issue.id),
+          ["READY-1"],
+        );
+      }),
+  );
+
   it.effect("hydrates sparse swarm status entries from epic child records", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();

@@ -336,6 +336,24 @@ function mapSwarmSummary(
   });
 }
 
+function mapSwarmSummaryIfPresent(
+  raw: Record<string, unknown>,
+  fallback?: Partial<BeadsSwarmSummaryType>,
+): BeadsSwarmSummaryType | null {
+  const swarmId =
+    trimToNull(raw.swarm_id) ??
+    trimToNull(raw.swarmId) ??
+    trimToNull(raw.id) ??
+    fallback?.swarmId ??
+    null;
+
+  if (swarmId === null) {
+    return null;
+  }
+
+  return mapSwarmSummary(raw, fallback);
+}
+
 function mapReadyFronts(value: unknown): BeadsIssueRelationSummaryType[][] {
   if (!Array.isArray(value)) {
     return [];
@@ -1306,13 +1324,11 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         ],
         { concurrency: "unbounded" },
       );
-      const validationSwarm =
-        swarm === null &&
-        trimToNull(rawValidation.swarm_id) === null &&
-        trimToNull(rawValidation.id) === null &&
-        trimToNull(rawValidation.epic_id) === null
-          ? null
-          : mapSwarmSummary(rawValidation, swarm ?? undefined);
+      const rawValidationSwarm = asRecord(rawValidation.swarm);
+      const validationSwarm = mapSwarmSummaryIfPresent(
+        rawValidationSwarm ?? rawValidation,
+        swarm ?? undefined,
+      );
 
       return decodeSwarmValidation({
         epicId: epic.id,
@@ -1368,35 +1384,28 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         { concurrency: "unbounded" },
       );
       const rawStatusSwarm = asRecord(rawStatus.swarm);
-      const statusSwarm =
-        swarm === null &&
-        rawStatusSwarm === null &&
-        trimToNull(rawStatus.epic_id) === null &&
-        trimToNull(rawStatus.epic_title) === null
-          ? null
-          : mapSwarmSummary(
-              {
-                ...rawStatusSwarm,
-                epic_id: rawStatus.epic_id ?? rawStatusSwarm?.epic_id,
-                epic_title: rawStatus.epic_title ?? rawStatusSwarm?.epic_title,
-                total_issues: rawStatus.total_issues ?? rawStatusSwarm?.total_issues,
-                completed_issues:
-                  rawStatus.completed_issues ?? asRecordArray(rawStatus.completed).length,
-                active_issues:
-                  rawStatus.active_issues ??
-                  rawStatus.active_count ??
-                  asRecordArray(rawStatus.active).length,
-                ready_issues:
-                  rawStatus.ready_issues ??
-                  rawStatus.ready_count ??
-                  asRecordArray(rawStatus.ready).length,
-                blocked_issues:
-                  rawStatus.blocked_issues ??
-                  rawStatus.blocked_count ??
-                  asRecordArray(rawStatus.blocked).length,
-              },
-              swarm ?? undefined,
-            );
+      const statusSwarm = mapSwarmSummaryIfPresent(
+        {
+          ...rawStatusSwarm,
+          epic_id: rawStatus.epic_id ?? rawStatusSwarm?.epic_id,
+          epic_title: rawStatus.epic_title ?? rawStatusSwarm?.epic_title,
+          total_issues: rawStatus.total_issues ?? rawStatusSwarm?.total_issues,
+          completed_issues: rawStatus.completed_issues ?? asRecordArray(rawStatus.completed).length,
+          active_issues:
+            rawStatus.active_issues ??
+            rawStatus.active_count ??
+            asRecordArray(rawStatus.active).length,
+          ready_issues:
+            rawStatus.ready_issues ??
+            rawStatus.ready_count ??
+            asRecordArray(rawStatus.ready).length,
+          blocked_issues:
+            rawStatus.blocked_issues ??
+            rawStatus.blocked_count ??
+            asRecordArray(rawStatus.blocked).length,
+        },
+        swarm ?? undefined,
+      );
 
       return decodeSwarmStatus({
         epicId: epic.id,
