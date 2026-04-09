@@ -386,6 +386,12 @@ describe("commandInvariants", () => {
         commandType: "swarm-run.resume",
         status: "cancelled",
       }),
+    ).toBe(true);
+    expect(
+      isAllowedSwarmRunStatusTransition({
+        commandType: "swarm-run.resume",
+        status: "completed",
+      }),
     ).toBe(false);
 
     await Effect.runPromise(
@@ -401,20 +407,18 @@ describe("commandInvariants", () => {
       }),
     );
 
-    await expect(
-      Effect.runPromise(
-        requireSwarmRunInAllowedStatus({
-          readModel,
-          command: {
-            type: "swarm-run.resume",
-            commandId: CommandId.makeUnsafe("cmd-run-resume-stale"),
-            runId: "run-2" as never,
-            createdAt: now,
-          },
+    await Effect.runPromise(
+      requireSwarmRunInAllowedStatus({
+        readModel,
+        command: {
+          type: "swarm-run.resume",
+          commandId: CommandId.makeUnsafe("cmd-run-resume-cancelled"),
           runId: "run-2" as never,
-        }),
-      ),
-    ).rejects.toThrow("cannot transition");
+          createdAt: now,
+        },
+        runId: "run-2" as never,
+      }),
+    );
   });
 
   it("checks swarm task execution run ownership and status transitions", async () => {

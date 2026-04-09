@@ -2,7 +2,6 @@ import type {
   BeadsIssueDetail as BeadsIssueDetailType,
   BeadsIssueSummary,
   BeadsIssueWorkflowKind,
-  ModelSelection,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -28,6 +27,7 @@ import {
   beadsStartWorkflowMutationOptions,
   beadsUpdateIssueMutationOptions,
 } from "~/lib/beadsReactQuery";
+import { resolveDefaultModelSelection } from "~/lib/modelSelection";
 import { isEpicIssueType } from "~/issuePanel";
 import { listIssueLinkedThreads } from "~/issueThreads";
 import { useStore } from "~/store";
@@ -748,13 +748,6 @@ function getStatusVariant(status: string): "success" | "warning" | "info" | "err
     default:
       return "secondary";
   }
-}
-
-function resolveDefaultModelSelection(
-  modelSelection: ModelSelection | null | undefined,
-): ModelSelection {
-  if (modelSelection) return modelSelection;
-  return { provider: "codex", model: "codex-mini-latest" };
 }
 
 // ---------------------------------------------------------------------------

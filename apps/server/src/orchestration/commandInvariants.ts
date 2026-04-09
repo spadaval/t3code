@@ -64,7 +64,7 @@ const SWARM_RUN_ALLOWED_TRANSITIONS = {
   "swarm-run.mark-started": ["requested"],
   "swarm-run.mark-idle": ["running"],
   "swarm-run.pause": ["requested", "running", "idle", "blocked"],
-  "swarm-run.resume": ["idle", "paused", "blocked"],
+  "swarm-run.resume": ["idle", "paused", "blocked", "cancelled"],
   "swarm-run.block": ["requested", "running", "idle", "blocked"],
   "swarm-run.fail": ["requested", "running", "idle", "paused", "blocked"],
   "swarm-run.cancel": ["requested", "running", "idle", "paused", "blocked"],

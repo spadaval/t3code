@@ -108,6 +108,21 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
     [navigate, projectId],
   );
 
+  const openEpicIssue = useCallback(
+    (epicId: string) => {
+      void navigate({
+        to: "/projects/$projectId/issues",
+        params: { projectId },
+        search: {
+          tab: "issues",
+          epicId,
+          issueId: epicId,
+        },
+      });
+    },
+    [navigate, projectId],
+  );
+
   const openThread = useCallback(
     (threadId: ThreadId) => {
       void navigate({ to: "/$threadId", params: { threadId } });
@@ -176,6 +191,7 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
             snapshotError={coordinatorQuery.error}
             selectedEpicId={search.epicId ?? null}
             onSelectEpic={setSelectedEpicId}
+            onOpenEpicIssue={openEpicIssue}
             onOpenThread={openThread}
           />
         ) : (

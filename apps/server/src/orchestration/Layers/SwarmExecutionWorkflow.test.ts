@@ -1480,6 +1480,49 @@ describe("SwarmExecutionWorkflow", () => {
     expect(resumed.status).toBe("idle");
   });
 
+  it("resumes cancelled runs by relaunching the next ready task", async () => {
+    const harness = await createHarness();
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startSwarmRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const cancelled = await runtime!.runPromise(
+      harness.workflow.cancelSwarmRun({
+        runId: started.runId,
+      }),
+    );
+    expect(cancelled.status).toBe("cancelled");
+
+    const resumed = await runtime!.runPromise(
+      harness.workflow.resumeSwarmRun({
+        runId: started.runId,
+      }),
+    );
+    expect(resumed.status).toBe("running");
+
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const latestRun = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
+    const latestExecution = snapshot.swarmTaskExecutions.at(-1);
+    const issue = harness.getIssue("TASK-1");
+
+    expect(latestRun?.status).toBe("running");
+    expect(snapshot.swarmTaskExecutions).toHaveLength(2);
+    expect(latestExecution?.issueId).toBe("TASK-1");
+    expect(latestExecution?.status).toBe("requested");
+    expect(issue?.status).toBe("in_progress");
+    expect(issue?.assignee).toBe(`t3code-swarm/${started.runId}`);
+  });
+
   it("rejects continuing a paused run that must be resumed", async () => {
     const baseline = makeTrackerState();
     const harness = await createHarness(

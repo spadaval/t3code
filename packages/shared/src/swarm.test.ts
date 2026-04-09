@@ -11,6 +11,7 @@ import type {
 import { describe, expect, it } from "vitest";
 
 import {
+  applySwarmRunLifecycleEvent,
   compareSwarmReadyIssues,
   createEmptySwarmProjectionState,
   describeSwarmCoordinatorFetchFailure,
@@ -429,6 +430,56 @@ describe("swarm", () => {
       label: "Continue swarm",
       busyLabel: "Continuing...",
       disabled: false,
+    });
+  });
+
+  it("returns resume actions for paused and cancelled runs", () => {
+    for (const status of ["paused", "cancelled"] as const) {
+      expect(
+        getEpicSwarmCoordinatorPrimaryAction({
+          swarmSupport: makeSwarmSupport(),
+          status: makeSwarmStatus(),
+          validation: makeSwarmValidation(),
+          swarmRuns: [
+            makeRun(`run-${status}`, {
+              status,
+              ...(status === "paused" ? { pausedAt: "2026-04-06T00:00:02.000Z" } : {}),
+              ...(status === "cancelled" ? { cancelledAt: "2026-04-06T00:00:02.000Z" } : {}),
+            }),
+          ],
+          hasProjectConflict: false,
+          fetchLifecycle: { kind: "ready", detail: null },
+        }),
+      ).toEqual({
+        kind: "resume_swarm",
+        label: "Resume swarm",
+        busyLabel: "Resuming...",
+        disabled: false,
+      });
+    }
+  });
+
+  it("clears cancelled metadata when a cancelled run resumes", () => {
+    const cancelled = makeRun("run-cancelled", {
+      status: "cancelled",
+      cancelledAt: "2026-04-06T00:00:02.000Z",
+      updatedAt: "2026-04-06T00:00:02.000Z",
+    });
+
+    expect(
+      applySwarmRunLifecycleEvent(
+        cancelled,
+        makeEvent("swarm-run.resumed", {
+          runId: "run-cancelled" as never,
+          resumedAt: "2026-04-06T00:00:03.000Z",
+          updatedAt: "2026-04-06T00:00:03.000Z",
+        }),
+      ),
+    ).toMatchObject({
+      runId: "run-cancelled",
+      status: "running",
+      cancelledAt: null,
+      blockedContext: null,
     });
   });
 

@@ -791,6 +791,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 startedAt: event.payload.startedAt,
                 lastError: null,
                 blockedContext: null,
+                cancelledAt: null,
                 updatedAt: event.payload.updatedAt,
               });
               return;
@@ -802,6 +803,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 idledAt: event.payload.idledAt,
                 lastError: null,
                 blockedContext: null,
+                cancelledAt: null,
                 updatedAt: event.payload.updatedAt,
               });
               return;
@@ -813,6 +815,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 pausedAt: event.payload.pausedAt,
                 lastError: null,
                 blockedContext: null,
+                cancelledAt: null,
                 updatedAt: event.payload.updatedAt,
               });
               return;
@@ -823,6 +826,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 status: "running",
                 lastError: null,
                 blockedContext: null,
+                cancelledAt: null,
                 updatedAt: event.payload.updatedAt,
               });
               return;
@@ -834,6 +838,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 lastError: event.payload.reason,
                 blockedAt: event.payload.blockedAt,
                 blockedContext: event.payload.blockedContext,
+                cancelledAt: null,
                 updatedAt: event.payload.updatedAt,
               });
               return;
@@ -845,6 +850,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 lastError: event.payload.reason,
                 blockedContext: null,
                 failedAt: event.payload.failedAt,
+                cancelledAt: null,
                 updatedAt: event.payload.updatedAt,
               });
               return;
@@ -867,6 +873,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 lastError: null,
                 blockedContext: null,
                 completedAt: event.payload.completedAt,
+                cancelledAt: null,
                 updatedAt: event.payload.updatedAt,
               });
               return;

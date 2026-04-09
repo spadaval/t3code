@@ -102,6 +102,10 @@ function isNonTerminalRunStatus(status: OrchestrationSwarmRunStatus): boolean {
   return !isTerminalRunStatus(status);
 }
 
+function isResumeBlockedRunStatus(status: OrchestrationSwarmRunStatus): boolean {
+  return status === "failed" || status === "completed";
+}
+
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message;
@@ -1893,13 +1897,13 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
   const resumeSwarmRun: SwarmExecutionWorkflowShape["resumeSwarmRun"] = (input) =>
     Effect.gen(function* () {
       const run = yield* getRunById(input.runId);
-      if (isTerminalRunStatus(run.status)) {
+      if (isResumeBlockedRunStatus(run.status)) {
         return asControlResult(run);
       }
-      if (run.status !== "paused") {
+      if (run.status !== "paused" && run.status !== "cancelled") {
         return yield* workflowError(
           "resumeSwarmRun",
-          `Swarm run '${run.runId}' is not paused and cannot be resumed.`,
+          `Swarm run '${run.runId}' is not paused or cancelled and cannot be resumed.`,
         );
       }
       const executionState = yield* getRunExecutionState(run.runId);

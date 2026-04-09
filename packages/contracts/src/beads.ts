@@ -250,6 +250,7 @@ export const BeadsCoordinatorPrimaryAction = Schema.Struct({
     "refresh_swarm_state",
     "start_swarm",
     "continue_swarm",
+    "resume_swarm",
     "open_coordinator",
   ]),
   label: TrimmedNonEmptyString,

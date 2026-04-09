@@ -9,6 +9,11 @@ import type {
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
+import {
+  DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE,
+  DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE,
+} from "@t3tools/contracts";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { describeCoordinatorEpicState } from "@t3tools/shared/swarm";
 import { type ReactNode, useMemo, useState } from "react";
 import {
@@ -17,22 +22,30 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   CircleDotIcon,
-  ClockIcon,
   ExternalLinkIcon,
   Loader2Icon,
   OctagonAlertIcon,
+  PauseIcon,
   PlayIcon,
+  RefreshCwIcon,
+  XIcon,
   ZapIcon,
 } from "lucide-react";
 
+import { beadsQueryKeys } from "~/lib/beadsReactQuery";
+import { resolveDefaultModelSelection } from "~/lib/modelSelection";
+import { ensureNativeApi } from "~/nativeApi";
 import { partitionCoordinatorEpics } from "~/issuePanel";
 import { cn } from "~/lib/utils";
+import { useProjectById } from "~/storeSelectors";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
+import { DEFAULT_RUNTIME_MODE } from "~/types";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { ScrollArea } from "../ui/scroll-area";
 import { LoadingSpinner } from "../shared/LoadingSpinner";
 import { ErrorDisplay } from "../shared/ErrorDisplay";
+import { toastManager } from "../ui/toast";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,8 +62,19 @@ type CoordinatorTabProps = {
   snapshotError: Error | null;
   selectedEpicId: string | null;
   onSelectEpic: (epicId: string | null) => void;
+  onOpenEpicIssue: (epicId: string) => void;
   onOpenThread: (threadId: ThreadId) => void;
 };
+
+type CoordinatorActionInput =
+  | { kind: "create_swarm"; epicIssueId: string }
+  | { kind: "repair_swarm"; epicIssueId: string }
+  | { kind: "start_swarm"; epicIssueId: string }
+  | { kind: "continue_swarm"; runId: OrchestrationSwarmRun["runId"] }
+  | { kind: "resume_swarm"; runId: OrchestrationSwarmRun["runId"] }
+  | { kind: "pause_swarm"; runId: OrchestrationSwarmRun["runId"] }
+  | { kind: "cancel_swarm"; runId: OrchestrationSwarmRun["runId"] }
+  | { kind: "refresh_swarm_state"; epicIssueId: string };
 
 // ---------------------------------------------------------------------------
 // Status styling (matches CoordinatorPanel sidebar)
@@ -91,14 +115,6 @@ const LABEL_CLASSES: Record<StatusColor, string> = {
   green: "text-success-foreground",
   blue: "text-info-foreground",
   gray: "text-muted-foreground",
-};
-
-const CARD_BORDER_CLASSES: Record<StatusColor, string> = {
-  red: "border-destructive/25",
-  amber: "border-warning/25",
-  green: "border-success/25",
-  blue: "border-info/25",
-  gray: "border-border/60",
 };
 
 const CARD_BG_CLASSES: Record<StatusColor, string> = {
@@ -261,8 +277,10 @@ function executionStatusBadgeVariant(
 // ---------------------------------------------------------------------------
 
 export function CoordinatorTab(props: CoordinatorTabProps) {
-  const epics = props.snapshot?.epics ?? [];
-  const sorted = useMemo(() => [...epics].toSorted(compareEpics), [epics]);
+  const queryClient = useQueryClient();
+  const project = useProjectById(props.projectId);
+  const epics = props.snapshot?.epics ?? null;
+  const sorted = useMemo(() => [...(epics ?? [])].toSorted(compareEpics), [epics]);
   const sections = useMemo(() => partitionCoordinatorEpics(sorted), [sorted]);
 
   const selectedEpic = useMemo(
@@ -272,6 +290,111 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
 
   // Auto-select first epic if none selected and epics exist
   const effectiveSelectedEpic = selectedEpic ?? sorted[0] ?? null;
+
+  const coordinatorActionMutation = useMutation({
+    mutationFn: async (
+      action: CoordinatorActionInput,
+    ): Promise<{ threadId: ThreadId; created: boolean } | null> => {
+      const api = ensureNativeApi();
+
+      switch (action.kind) {
+        case "create_swarm":
+        case "repair_swarm":
+          if (!props.projectId || !project) {
+            throw new Error("Project context is unavailable.");
+          }
+
+          return api.beads.startEpicPlanImplementation({
+            cwd: props.cwd,
+            projectId: props.projectId,
+            epicIssueId: action.epicIssueId,
+            modelSelection: resolveDefaultModelSelection(project.defaultModelSelection),
+            runtimeMode: DEFAULT_RUNTIME_MODE,
+          });
+        case "start_swarm":
+          if (!props.projectId) {
+            throw new Error("Project context is unavailable.");
+          }
+
+          await api.orchestration.startSwarmRun({
+            projectId: props.projectId,
+            epicIssueId: action.epicIssueId,
+            schedulerMode: DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE,
+            workspaceMode: DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE,
+            runtimeMode: DEFAULT_RUNTIME_MODE,
+          });
+          return null;
+        case "continue_swarm":
+          await api.orchestration.continueSwarmRun({ runId: action.runId });
+          return null;
+        case "resume_swarm":
+          await api.orchestration.resumeSwarmRun({ runId: action.runId });
+          return null;
+        case "pause_swarm":
+          await api.orchestration.pauseSwarmRun({ runId: action.runId });
+          return null;
+        case "cancel_swarm":
+          await api.orchestration.cancelSwarmRun({ runId: action.runId });
+          return null;
+        case "refresh_swarm_state":
+          await queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
+          return null;
+      }
+    },
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
+
+      if (result) {
+        if (!result.created) {
+          toastManager.add({
+            type: "info",
+            title: "Reused linked thread",
+            description: "An existing implementation-planning thread was reused for this epic.",
+          });
+        }
+
+        props.onOpenThread(result.threadId);
+      }
+    },
+  });
+
+  const busyActionKey = useMemo(() => {
+    const action = coordinatorActionMutation.variables;
+    if (!coordinatorActionMutation.isPending || !action) {
+      return null;
+    }
+
+    switch (action.kind) {
+      case "create_swarm":
+        return `create:${action.epicIssueId}`;
+      case "repair_swarm":
+        return `repair:${action.epicIssueId}`;
+      case "start_swarm":
+        return `start:${action.epicIssueId}`;
+      case "continue_swarm":
+        return `continue:${action.runId}`;
+      case "resume_swarm":
+        return `resume:${action.runId}`;
+      case "pause_swarm":
+        return `pause:${action.runId}`;
+      case "cancel_swarm":
+        return `cancel:${action.runId}`;
+      case "refresh_swarm_state":
+        return `refresh:${action.epicIssueId}`;
+    }
+  }, [coordinatorActionMutation.isPending, coordinatorActionMutation.variables]);
+
+  const handleCoordinatorAction = async (action: CoordinatorActionInput) => {
+    try {
+      await coordinatorActionMutation.mutateAsync(action);
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: describeCoordinatorActionError(action.kind),
+        description: error instanceof Error ? error.message : "An unknown error occurred.",
+      });
+    }
+  };
 
   // Gate: loading / error / unsupported states
   if (props.swarmSupportPending) {
@@ -343,6 +466,7 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
               emptyText="Nothing needs attention."
               selectedEpicId={effectiveSelectedEpic?.epicId ?? null}
               onSelect={props.onSelectEpic}
+              onOpenEpicIssue={props.onOpenEpicIssue}
             />
             <EpicListSection
               label="Active"
@@ -350,6 +474,7 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
               emptyText="No active swarm runs."
               selectedEpicId={effectiveSelectedEpic?.epicId ?? null}
               onSelect={props.onSelectEpic}
+              onOpenEpicIssue={props.onOpenEpicIssue}
             />
             <EpicListSection
               label="History"
@@ -357,6 +482,7 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
               emptyText="No completed or cancelled runs."
               selectedEpicId={effectiveSelectedEpic?.epicId ?? null}
               onSelect={props.onSelectEpic}
+              onOpenEpicIssue={props.onOpenEpicIssue}
               defaultCollapsed={
                 sections.needsAttention.length + sections.active.length > 0 &&
                 sections.history.length > 3
@@ -370,7 +496,14 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
       <div className="min-w-0 flex-1">
         {effectiveSelectedEpic ? (
           <ScrollArea>
-            <EpicDetail epic={effectiveSelectedEpic} onOpenThread={props.onOpenThread} />
+            <EpicDetail
+              epic={effectiveSelectedEpic}
+              busyActionKey={busyActionKey}
+              onOpenEpicIssue={props.onOpenEpicIssue}
+              onOpenThread={props.onOpenThread}
+              onRunAction={(action) => void handleCoordinatorAction(action)}
+              onSelectEpic={props.onSelectEpic}
+            />
           </ScrollArea>
         ) : (
           <div className="flex h-full items-center justify-center">
@@ -392,6 +525,7 @@ function EpicListSection(props: {
   emptyText: string;
   selectedEpicId: string | null;
   onSelect: (epicId: string | null) => void;
+  onOpenEpicIssue: (epicId: string) => void;
   defaultCollapsed?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(props.defaultCollapsed ?? false);
@@ -423,6 +557,7 @@ function EpicListSection(props: {
                 epic={epic}
                 selected={epic.epicId === props.selectedEpicId}
                 onSelect={() => props.onSelect(epic.epicId)}
+                onOpenEpicIssue={props.onOpenEpicIssue}
               />
             ))}
           </div>
@@ -441,6 +576,7 @@ function EpicListItem(props: {
   epic: BeadsCoordinatorEpicSnapshot;
   selected: boolean;
   onSelect: () => void;
+  onOpenEpicIssue: (epicId: string) => void;
 }) {
   const { epic, selected } = props;
   const desc = describeEpic(epic);
@@ -448,30 +584,34 @@ function EpicListItem(props: {
   const pct = progressPercent(epic);
 
   return (
-    <button
-      type="button"
+    <div
       className={cn(
-        "w-full rounded-lg border px-3 py-2.5 text-left transition-colors",
+        "rounded-lg border px-3 py-2.5 transition-colors",
         selected
           ? cn("border-primary/30 bg-primary/5", CARD_BG_CLASSES[color])
           : "border-transparent hover:bg-muted/50",
       )}
-      onClick={props.onSelect}
     >
-      <div className="flex items-start gap-2">
-        <span
-          className={cn("mt-1.5 size-2 shrink-0 rounded-full", DOT_CLASSES[color])}
-          aria-hidden
-        />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-foreground">{epic.epicTitle}</p>
-          <p className={cn("mt-0.5 text-xs", LABEL_CLASSES[color])}>{desc.label}</p>
+      <button type="button" className="w-full text-left" onClick={props.onSelect}>
+        <div className="flex items-start gap-2">
+          <span
+            className={cn("mt-1.5 size-2 shrink-0 rounded-full", DOT_CLASSES[color])}
+            aria-hidden
+          />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-foreground">{epic.epicTitle}</p>
+            <p className={cn("mt-0.5 text-xs", LABEL_CLASSES[color])}>{desc.label}</p>
+          </div>
+          {pct !== null && (
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{pct}%</span>
+          )}
         </div>
-        {pct !== null && (
-          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{pct}%</span>
-        )}
+      </button>
+      <div className="mt-2 flex items-center justify-between gap-2 pl-4">
+        <span className="text-[11px] uppercase tracking-wide text-muted-foreground/60">Epic</span>
+        <EpicIssueLink epicId={epic.epicId} onOpenEpicIssue={props.onOpenEpicIssue} />
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -481,7 +621,11 @@ function EpicListItem(props: {
 
 function EpicDetail(props: {
   epic: BeadsCoordinatorEpicSnapshot;
+  busyActionKey: string | null;
+  onOpenEpicIssue: (epicId: string) => void;
   onOpenThread: (threadId: ThreadId) => void;
+  onRunAction: (action: CoordinatorActionInput) => void;
+  onSelectEpic: (epicId: string | null) => void;
 }) {
   const { epic } = props;
   const desc = describeEpic(epic);
@@ -502,7 +646,10 @@ function EpicDetail(props: {
             aria-hidden
           />
           <div className="min-w-0 flex-1">
-            <h2 className="text-lg font-semibold text-foreground">{epic.epicTitle}</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-semibold text-foreground">{epic.epicTitle}</h2>
+              <EpicIssueLink epicId={epic.epicId} onOpenEpicIssue={props.onOpenEpicIssue} />
+            </div>
             <div className="mt-1 flex items-center gap-2">
               <span className={cn("text-sm font-medium", LABEL_CLASSES[color])}>{desc.label}</span>
               <span className="text-sm text-muted-foreground">{desc.summary}</span>
@@ -510,6 +657,13 @@ function EpicDetail(props: {
           </div>
         </div>
       </div>
+
+      <CoordinatorActionBar
+        epic={epic}
+        busyActionKey={props.busyActionKey}
+        onRunAction={props.onRunAction}
+        onSelectEpic={props.onSelectEpic}
+      />
 
       {/* Progress bar */}
       {summary && summary.totalIssueCount > 0 ? (
@@ -598,6 +752,197 @@ function EpicDetail(props: {
         <ExecutionLog executions={executions} onOpenThread={props.onOpenThread} />
       ) : null}
     </div>
+  );
+}
+
+type CoordinatorAction = {
+  key: string;
+  label: string;
+  busyLabel: string;
+  disabled?: boolean;
+  variant?: "default" | "outline" | "destructive-outline";
+  icon?: ReactNode;
+  onClick: () => void;
+};
+
+function CoordinatorActionBar(props: {
+  epic: BeadsCoordinatorEpicSnapshot;
+  busyActionKey: string | null;
+  onRunAction: (action: CoordinatorActionInput) => void;
+  onSelectEpic: (epicId: string | null) => void;
+}) {
+  const { epic } = props;
+  const run = epic.latestRun;
+  const primaryAction = epic.primaryAction;
+  const actions: CoordinatorAction[] = [];
+
+  switch (primaryAction.kind) {
+    case "create_swarm":
+      actions.push({
+        key: `create:${epic.epicId}`,
+        label: primaryAction.label,
+        busyLabel: primaryAction.busyLabel,
+        disabled: primaryAction.disabled,
+        icon: <PlayIcon className="size-3" />,
+        onClick: () => props.onRunAction({ kind: "create_swarm", epicIssueId: epic.epicId }),
+      });
+      break;
+    case "repair_swarm":
+      actions.push({
+        key: `repair:${epic.epicId}`,
+        label: primaryAction.label,
+        busyLabel: primaryAction.busyLabel,
+        disabled: primaryAction.disabled,
+        icon: <PlayIcon className="size-3" />,
+        onClick: () => props.onRunAction({ kind: "repair_swarm", epicIssueId: epic.epicId }),
+      });
+      break;
+    case "start_swarm":
+      actions.push({
+        key: `start:${epic.epicId}`,
+        label: primaryAction.label,
+        busyLabel: primaryAction.busyLabel,
+        disabled: primaryAction.disabled,
+        icon: <PlayIcon className="size-3" />,
+        onClick: () => props.onRunAction({ kind: "start_swarm", epicIssueId: epic.epicId }),
+      });
+      break;
+    case "continue_swarm":
+      if (run) {
+        actions.push({
+          key: `continue:${run.runId}`,
+          label: primaryAction.label,
+          busyLabel: primaryAction.busyLabel,
+          disabled: primaryAction.disabled,
+          icon: <PlayIcon className="size-3" />,
+          onClick: () => props.onRunAction({ kind: "continue_swarm", runId: run.runId }),
+        });
+      }
+      break;
+    case "resume_swarm":
+      if (run) {
+        actions.push({
+          key: `resume:${run.runId}`,
+          label: primaryAction.label,
+          busyLabel: primaryAction.busyLabel,
+          disabled: primaryAction.disabled,
+          icon: <PlayIcon className="size-3" />,
+          onClick: () => props.onRunAction({ kind: "resume_swarm", runId: run.runId }),
+        });
+      }
+      break;
+    case "refresh_swarm_state":
+      actions.push({
+        key: `refresh:${epic.epicId}`,
+        label: primaryAction.label,
+        busyLabel: primaryAction.busyLabel,
+        disabled: primaryAction.disabled,
+        variant: "outline",
+        icon: <RefreshCwIcon className="size-3" />,
+        onClick: () => props.onRunAction({ kind: "refresh_swarm_state", epicIssueId: epic.epicId }),
+      });
+      break;
+    case "open_coordinator":
+      if (epic.projectConflict) {
+        actions.push({
+          key: `conflict:${epic.projectConflict.run.runId}`,
+          label: primaryAction.label,
+          busyLabel: primaryAction.busyLabel,
+          disabled: primaryAction.disabled,
+          variant: "outline",
+          icon: <ExternalLinkIcon className="size-3" />,
+          onClick: () => props.onSelectEpic(epic.projectConflict?.run.epicIssueId ?? null),
+        });
+      }
+      break;
+    case "checking":
+    case "unsupported":
+      break;
+  }
+
+  if (run?.status === "running" && epic.activeExecution === null) {
+    actions.push({
+      key: `pause:${run.runId}`,
+      label: "Pause swarm",
+      busyLabel: "Pausing...",
+      variant: "outline",
+      icon: <PauseIcon className="size-3" />,
+      onClick: () => props.onRunAction({ kind: "pause_swarm", runId: run.runId }),
+    });
+  }
+
+  if (run && run.status !== "cancelled" && run.status !== "completed" && run.status !== "failed") {
+    actions.push({
+      key: `cancel:${run.runId}`,
+      label: "Cancel swarm",
+      busyLabel: "Cancelling...",
+      variant: "destructive-outline",
+      icon: <XIcon className="size-3" />,
+      onClick: () => props.onRunAction({ kind: "cancel_swarm", runId: run.runId }),
+    });
+  }
+
+  if (actions.length === 0) {
+    return null;
+  }
+
+  return (
+    <DetailSection title="Actions">
+      <div className="flex flex-wrap gap-2">
+        {actions.map((action) => {
+          const busy = props.busyActionKey === action.key;
+          return (
+            <Button
+              key={action.key}
+              size="sm"
+              variant={action.variant ?? "default"}
+              disabled={busy || action.disabled}
+              onClick={action.onClick}
+              className="gap-1.5"
+            >
+              {busy ? <Loader2Icon className="size-3 animate-spin" /> : action.icon}
+              {busy ? action.busyLabel : action.label}
+            </Button>
+          );
+        })}
+      </div>
+    </DetailSection>
+  );
+}
+
+function describeCoordinatorActionError(actionKind: CoordinatorActionInput["kind"]): string {
+  switch (actionKind) {
+    case "create_swarm":
+      return "Unable to create swarm";
+    case "repair_swarm":
+      return "Unable to repair swarm";
+    case "start_swarm":
+      return "Unable to start swarm";
+    case "continue_swarm":
+      return "Unable to continue swarm";
+    case "resume_swarm":
+      return "Unable to resume swarm";
+    case "pause_swarm":
+      return "Unable to pause swarm";
+    case "cancel_swarm":
+      return "Unable to cancel swarm";
+    case "refresh_swarm_state":
+      return "Unable to refresh swarm state";
+    default:
+      return "Unable to run coordinator action";
+  }
+}
+
+function EpicIssueLink(props: { epicId: string; onOpenEpicIssue: (epicId: string) => void }) {
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center rounded-md border border-border/70 px-2 py-0.5 font-mono text-[11px] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+      onClick={() => props.onOpenEpicIssue(props.epicId)}
+      aria-label={`Open epic ${props.epicId} in issues tab`}
+    >
+      {props.epicId}
+    </button>
   );
 }
 

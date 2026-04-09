@@ -435,6 +435,7 @@ export interface EpicSwarmCoordinatorPrimaryAction {
     | "refresh_swarm_state"
     | "start_swarm"
     | "continue_swarm"
+    | "resume_swarm"
     | "open_coordinator";
   readonly label: string;
   readonly busyLabel: string;
@@ -684,8 +685,6 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
         disabled: false,
       };
     case "running":
-    case "idle":
-    case "paused":
       if (input.hasProjectConflict) {
         return {
           kind: "open_coordinator",
@@ -698,6 +697,44 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
         kind: "open_coordinator",
         label: "Open coordinator",
         busyLabel: "Opening...",
+        disabled: false,
+      };
+    case "idle":
+      if (input.hasProjectConflict) {
+        return {
+          kind: "open_coordinator",
+          label: "View active swarm",
+          busyLabel: "Opening...",
+          disabled: false,
+        };
+      }
+      if (latestRun?.schedulerMode === "semi-automatic") {
+        return {
+          kind: "continue_swarm",
+          label: "Continue swarm",
+          busyLabel: "Continuing...",
+          disabled: false,
+        };
+      }
+      return {
+        kind: "open_coordinator",
+        label: "Open coordinator",
+        busyLabel: "Opening...",
+        disabled: false,
+      };
+    case "paused":
+      if (input.hasProjectConflict) {
+        return {
+          kind: "open_coordinator",
+          label: "View active swarm",
+          busyLabel: "Opening...",
+          disabled: false,
+        };
+      }
+      return {
+        kind: "resume_swarm",
+        label: "Resume swarm",
+        busyLabel: "Resuming...",
         disabled: false,
       };
     case "blocked":
@@ -722,6 +759,20 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
         hasProjectConflict: input.hasProjectConflict,
       });
     case "cancelled":
+      if (input.hasProjectConflict) {
+        return {
+          kind: "open_coordinator",
+          label: "View active swarm",
+          busyLabel: "Opening...",
+          disabled: false,
+        };
+      }
+      return {
+        kind: "resume_swarm",
+        label: "Resume swarm",
+        busyLabel: "Resuming...",
+        disabled: false,
+      };
     case "completed":
       return {
         kind: "open_coordinator",
@@ -805,6 +856,7 @@ export function applySwarmRunLifecycleEvent(
         startedAt: event.payload.startedAt,
         lastError: null,
         blockedContext: null,
+        cancelledAt: null,
         updatedAt: event.payload.updatedAt,
       };
     case "swarm-run.idled":
@@ -814,6 +866,7 @@ export function applySwarmRunLifecycleEvent(
         idledAt: event.payload.idledAt,
         lastError: null,
         blockedContext: null,
+        cancelledAt: null,
         updatedAt: event.payload.updatedAt,
       };
     case "swarm-run.paused":
@@ -823,6 +876,7 @@ export function applySwarmRunLifecycleEvent(
         pausedAt: event.payload.pausedAt,
         lastError: null,
         blockedContext: null,
+        cancelledAt: null,
         updatedAt: event.payload.updatedAt,
       };
     case "swarm-run.resumed":
@@ -831,6 +885,7 @@ export function applySwarmRunLifecycleEvent(
         status: "running",
         lastError: null,
         blockedContext: null,
+        cancelledAt: null,
         updatedAt: event.payload.updatedAt,
       };
     case "swarm-run.blocked":
@@ -840,6 +895,7 @@ export function applySwarmRunLifecycleEvent(
         lastError: event.payload.reason,
         blockedAt: event.payload.blockedAt,
         blockedContext: event.payload.blockedContext,
+        cancelledAt: null,
         updatedAt: event.payload.updatedAt,
       };
     case "swarm-run.failed":
@@ -849,6 +905,7 @@ export function applySwarmRunLifecycleEvent(
         lastError: event.payload.reason,
         blockedContext: null,
         failedAt: event.payload.failedAt,
+        cancelledAt: null,
         updatedAt: event.payload.updatedAt,
       };
     case "swarm-run.cancelled":
@@ -867,6 +924,7 @@ export function applySwarmRunLifecycleEvent(
         lastError: null,
         blockedContext: null,
         completedAt: event.payload.completedAt,
+        cancelledAt: null,
         updatedAt: event.payload.updatedAt,
       };
   }
