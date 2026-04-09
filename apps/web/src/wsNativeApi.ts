@@ -117,6 +117,7 @@ export function createWsNativeApi(): NativeApi {
       getEpicCoordinatorSnapshot: rpcClient.beads.getEpicCoordinatorSnapshot,
       getSessionActivity: rpcClient.beads.getSessionActivity,
       startWorkflow: rpcClient.beads.startWorkflow,
+      startBacklogGrooming: rpcClient.beads.startBacklogGrooming,
       startEpicQuickRefine: rpcClient.beads.startEpicQuickRefine,
       startEpicPlannedRefine: rpcClient.beads.startEpicPlannedRefine,
       startEpicCoordinationPrep: rpcClient.beads.startEpicCoordinationPrep,

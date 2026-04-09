@@ -16,8 +16,11 @@ import {
   createEmptySwarmProjectionState,
   describeSwarmCoordinatorFetchFailure,
   describeSharedWorkspaceProjectConflict,
+  deriveExecutionBlocking,
   deriveEpicSwarmCoordinatorState,
+  deriveSwarmProgress,
   deriveSwarmRunExecutionState,
+  deriveTrackerState,
   findConflictingSharedWorkspaceRun,
   getEpicSwarmCoordinatorPrimaryAction,
   listSwarmRuns,
@@ -100,7 +103,10 @@ function makeRun(
 
 function makeSwarmStatus(
   overrides: Partial<BeadsSwarmStatus> = {},
-): Pick<BeadsSwarmStatus, "swarm" | "ready" | "active" | "blocked"> {
+): Pick<
+  BeadsSwarmStatus,
+  "swarm" | "completed" | "ready" | "active" | "blocked" | "blockedBreakdown"
+> {
   return {
     swarm: {
       swarmId: "SWARM-1",
@@ -113,9 +119,15 @@ function makeSwarmStatus(
       readyIssueCount: 0,
       blockedIssueCount: 0,
     },
+    completed: [],
     ready: [],
     active: [],
     blocked: [],
+    blockedBreakdown: {
+      internal: [],
+      external: [],
+      unknown: [],
+    },
     ...overrides,
   };
 }
@@ -410,6 +422,87 @@ describe("swarm", () => {
     });
   });
 
+  it("classifies execution-blocking issues from blocked breakdowns", () => {
+    expect(
+      deriveExecutionBlocking(
+        makeSwarmStatus({
+          blocked: [makeIssue("TASK-2", 2)],
+          blockedBreakdown: {
+            internal: [makeIssue("TASK-2", 2)],
+            external: [],
+            unknown: [],
+          },
+        }),
+      ),
+    ).toMatchObject({
+      hasExecutionBlockingIssues: false,
+      internalBlockedIssues: [expect.objectContaining({ id: "TASK-2" })],
+      externalBlockedIssues: [],
+      unknownBlockedIssues: [],
+    });
+
+    expect(
+      deriveExecutionBlocking(
+        makeSwarmStatus({
+          blocked: [makeIssue("TASK-9", 9)],
+          blockedBreakdown: {
+            internal: [],
+            external: [makeIssue("TASK-9", 9)],
+            unknown: [],
+          },
+        }),
+      ).hasExecutionBlockingIssues,
+    ).toBe(true);
+  });
+
+  it("derives progress and tracker state from external-only blocking semantics", () => {
+    const internalOnlyStatus = makeSwarmStatus({
+      blocked: [makeIssue("TASK-2", 2)],
+      blockedBreakdown: {
+        internal: [makeIssue("TASK-2", 2)],
+        external: [],
+        unknown: [],
+      },
+    });
+    const externalStatus = makeSwarmStatus({
+      ready: [makeIssue("TASK-3", 1)],
+      blocked: [makeIssue("TASK-9", 9)],
+      blockedBreakdown: {
+        internal: [],
+        external: [makeIssue("TASK-9", 9)],
+        unknown: [],
+      },
+    });
+
+    expect(
+      deriveSwarmProgress({
+        validation: null,
+        status: internalOnlyStatus,
+      }),
+    ).toMatchObject({
+      blockedIssueCount: 0,
+      internalBlockedIssueCount: 1,
+      externalBlockedIssueCount: 0,
+      unknownBlockedIssueCount: 0,
+    });
+
+    expect(
+      deriveTrackerState({
+        trackerLoadState: "ready",
+        status: internalOnlyStatus,
+        progress: { isComplete: false },
+      }),
+    ).toBe("not_started");
+
+    expect(
+      deriveTrackerState({
+        trackerLoadState: "ready",
+        status: externalStatus,
+        progress: { isComplete: false },
+      }),
+    ).toBe("blocked");
+  });
+
   it("keeps coordinator actions aligned for recoverable blocked runs", () => {
     expect(
       getEpicSwarmCoordinatorPrimaryAction({
@@ -436,6 +529,54 @@ describe("swarm", () => {
       kind: "run_next_swarm_task",
       label: "Run next task",
       busyLabel: "Running...",
+      disabled: false,
+    });
+  });
+
+  it("keeps start actions available for internal-only blockers but not external blockers", () => {
+    expect(
+      getEpicSwarmCoordinatorPrimaryAction({
+        swarmSupport: makeSwarmSupport(),
+        status: makeSwarmStatus({
+          blocked: [makeIssue("TASK-2", 2)],
+          blockedBreakdown: {
+            internal: [makeIssue("TASK-2", 2)],
+            external: [],
+            unknown: [],
+          },
+        }),
+        validation: makeSwarmValidation(),
+        swarmRuns: [],
+        hasProjectConflict: false,
+        fetchLifecycle: { kind: "ready", detail: null },
+      }),
+    ).toEqual({
+      kind: "start_swarm",
+      label: "Start epic",
+      busyLabel: "Starting...",
+      disabled: false,
+    });
+
+    expect(
+      getEpicSwarmCoordinatorPrimaryAction({
+        swarmSupport: makeSwarmSupport(),
+        status: makeSwarmStatus({
+          blocked: [makeIssue("TASK-9", 9)],
+          blockedBreakdown: {
+            internal: [],
+            external: [makeIssue("TASK-9", 9)],
+            unknown: [],
+          },
+        }),
+        validation: makeSwarmValidation(),
+        swarmRuns: [],
+        hasProjectConflict: false,
+        fetchLifecycle: { kind: "ready", detail: null },
+      }),
+    ).toEqual({
+      kind: "open_coordinator",
+      label: "Open epic",
+      busyLabel: "Opening...",
       disabled: false,
     });
   });

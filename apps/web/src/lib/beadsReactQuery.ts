@@ -12,6 +12,7 @@ import type {
   BeadsProjectCoordinatorSnapshotInput,
   BeadsQueryIssuesInput,
   BeadsQueryIssuesResult,
+  BeadsStartBacklogGroomingInput,
   BeadsUpdateIssueInput,
   BeadsCommentIssueInput,
   BeadsListSwarmsInput,
@@ -288,6 +289,16 @@ export function beadsStartWorkflowMutationOptions(input: { queryClient: QueryCli
   return mutationOptions({
     mutationFn: async (payload: BeadsStartWorkflowInput) =>
       ensureNativeApi().beads.startWorkflow(payload),
+    onSuccess: async () => {
+      await input.queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
+    },
+  });
+}
+
+export function beadsStartBacklogGroomingMutationOptions(input: { queryClient: QueryClient }) {
+  return mutationOptions({
+    mutationFn: async (payload: BeadsStartBacklogGroomingInput) =>
+      ensureNativeApi().beads.startBacklogGrooming(payload),
     onSuccess: async () => {
       await input.queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
     },

@@ -1,742 +1,48 @@
-import { Duration, Effect, Layer, ManagedRuntime, Stream } from "effect";
+import { Duration, Effect, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  BeadsError,
-  type BeadsIssueDetail,
-  type BeadsSwarmStatus,
-  type BeadsSwarmSupport,
-  type BeadsSwarmValidation,
   CommandId,
   ProjectId,
   SwarmRunId,
   SwarmTaskExecutionId,
   ThreadId,
-  type OrchestrationCommand,
-  type OrchestrationLatestTurn,
-  type OrchestrationReadModel,
-  type OrchestrationSession,
-  TurnId,
-  type OrchestrationSwarmRun,
-  type OrchestrationSwarmTaskExecution,
 } from "@t3tools/contracts";
-import {
-  BeadsTrackerService,
-  type BeadsTrackerServiceShape,
-} from "../../beads/Services/BeadsTrackerService.ts";
-import {
-  OrchestrationEngineService,
-  type OrchestrationEngineShape,
-} from "../Services/OrchestrationEngine.ts";
+import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { SwarmExecutionWorkflow } from "../Services/SwarmExecutionWorkflow.ts";
-import { SwarmExecutionWorkflowLive } from "./SwarmExecutionWorkflow.ts";
+import {
+  applyCommand,
+  createSwarmExecutionWorkflowHarness,
+  type HarnessOptions,
+  makeCompletedLatestTurn,
+  makeErroredLatestTurn,
+  makeErroredSession,
+  makeIdleSession,
+  makeInterruptedLatestTurn,
+  makeReadySession,
+  makeRunningLatestTurn,
+  makeRunningSession,
+  makeStoppedSession,
+  makeTrackerState,
+  now,
+  relationIssue,
+  type SwarmExecutionWorkflowHarnessRuntime,
+} from "./SwarmExecutionWorkflow.testHarness.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
-const now = "2026-04-06T13:00:00.000Z";
-
-type TrackerState = {
-  support: BeadsSwarmSupport;
-  validation: BeadsSwarmValidation;
-  status: BeadsSwarmStatus;
-};
-
-type HarnessOptions = {
-  failUpdateIssueForIds?: ReadonlyArray<string>;
-  failDispatchForCommandTypes?: ReadonlyArray<OrchestrationCommand["type"]>;
-  beforeGetIssue?: (issueId: string) => Effect.Effect<void>;
-  createEpicSwarmMode?: "succeed" | "fail";
-  createEpicSwarmErrorMessage?: string;
-};
-
-function beadsError(message: string) {
-  return new BeadsError({ message });
-}
-
-function relationIssue(id: string, priority: number | null) {
-  return {
-    id,
-    title: id,
-    status: "open",
-    priority,
-    issueType: "task",
-    assignee: null,
-    owner: null,
-    parent: null,
-  } as const;
-}
-
-function makeTrackerState(overrides?: Partial<TrackerState>): TrackerState {
-  const swarm = {
-    swarmId: "SWARM-1",
-    epicId: "EPIC-1",
-    epicTitle: "Epic 1",
-    totalIssueCount: 2,
-    completedIssueCount: 0,
-    activeIssueCount: 0,
-    readyIssueCount: 1,
-    blockedIssueCount: 0,
-    activeWorkerCount: 0,
-  } as const;
-
-  return {
-    support: {
-      supported: true,
-      reason: null,
-      backend: {
-        kind: "dolt",
-        doltMode: "remote",
-        database: "beads",
-        projectId: "proj",
-        role: "primary",
-        bdVersion: "1.0.0",
-      },
-    },
-    validation: {
-      epicId: "EPIC-1",
-      epicTitle: "Epic 1",
-      swarm,
-      valid: true,
-      errors: [],
-      warnings: [],
-      readyFronts: [[relationIssue("TASK-1", 1)]],
-      estimatedWorkerSessions: 1,
-      maxParallelism: 1,
-    },
-    status: {
-      epicId: "EPIC-1",
-      epicTitle: "Epic 1",
-      swarm,
-      completed: [],
-      active: [],
-      ready: [relationIssue("TASK-1", 1)],
-      blocked: [],
-    },
-    ...overrides,
-  };
-}
-
-function makeIssueDetail(
-  overrides: Partial<BeadsIssueDetail> & Pick<BeadsIssueDetail, "id" | "title">,
-): BeadsIssueDetail {
-  const { id, title, ...rest } = overrides;
-
-  return {
-    id,
-    title,
-    description: "Implement the task.",
-    notes: null,
-    status: "open",
-    priority: 1,
-    issueType: "task",
-    assignee: null,
-    owner: "issue-owner",
-    createdAt: now,
-    createdBy: "tester",
-    updatedAt: now,
-    labels: [],
-    parent: { id: "EPIC-1", title: "Epic 1" },
-    dependencies: [],
-    comments: [],
-    history: [],
-    ...rest,
-  };
-}
-
-function makeCompletedLatestTurn(turnId: string): OrchestrationLatestTurn {
-  return {
-    turnId: TurnId.makeUnsafe(turnId),
-    state: "completed",
-    requestedAt: now,
-    startedAt: now,
-    completedAt: now,
-    assistantMessageId: null,
-  };
-}
-
-function makeRunningLatestTurn(turnId: string): OrchestrationLatestTurn {
-  return {
-    turnId: TurnId.makeUnsafe(turnId),
-    state: "running",
-    requestedAt: now,
-    startedAt: now,
-    completedAt: null,
-    assistantMessageId: null,
-  };
-}
-
-function makeReadySession(threadId: ThreadId): OrchestrationSession {
-  return {
-    threadId,
-    status: "ready",
-    providerName: "codex",
-    runtimeMode: "full-access",
-    activeTurnId: null,
-    lastError: null,
-    updatedAt: now,
-  };
-}
-
-function makeIdleSession(threadId: ThreadId): OrchestrationSession {
-  return {
-    threadId,
-    status: "idle",
-    providerName: "codex",
-    runtimeMode: "full-access",
-    activeTurnId: null,
-    lastError: null,
-    updatedAt: now,
-  };
-}
-
-function makeRunningSession(
-  threadId: ThreadId,
-  activeTurnId = "turn-running",
-): OrchestrationSession {
-  return {
-    threadId,
-    status: "running",
-    providerName: "codex",
-    runtimeMode: "full-access",
-    activeTurnId: TurnId.makeUnsafe(activeTurnId),
-    lastError: null,
-    updatedAt: now,
-  };
-}
-
-function makeErroredLatestTurn(turnId: string): OrchestrationLatestTurn {
-  return {
-    turnId: TurnId.makeUnsafe(turnId),
-    state: "error",
-    requestedAt: now,
-    startedAt: now,
-    completedAt: now,
-    assistantMessageId: null,
-  };
-}
-
-function makeInterruptedLatestTurn(turnId: string): OrchestrationLatestTurn {
-  return {
-    turnId: TurnId.makeUnsafe(turnId),
-    state: "interrupted",
-    requestedAt: now,
-    startedAt: now,
-    completedAt: now,
-    assistantMessageId: null,
-  };
-}
-
-function makeErroredSession(
-  threadId: ThreadId,
-  lastError: string,
-  activeTurnId = "turn-error",
-): OrchestrationSession {
-  return {
-    threadId,
-    status: "error",
-    providerName: "codex",
-    runtimeMode: "full-access",
-    activeTurnId: TurnId.makeUnsafe(activeTurnId),
-    lastError,
-    updatedAt: now,
-  };
-}
-
-function makeStoppedSession(threadId: ThreadId): OrchestrationSession {
-  return {
-    threadId,
-    status: "stopped",
-    providerName: "codex",
-    runtimeMode: "full-access",
-    activeTurnId: null,
-    lastError: null,
-    updatedAt: now,
-  };
-}
-
-function createEmptyReadModel(): OrchestrationReadModel {
-  return {
-    snapshotSequence: 0,
-    projects: [],
-    threads: [],
-    planImplementationLaunches: [],
-    swarmRuns: [],
-    swarmTaskExecutions: [],
-    updatedAt: now,
-  };
-}
-
-function updateRun(
-  readModel: OrchestrationReadModel,
-  runId: string,
-  transform: (run: OrchestrationSwarmRun) => OrchestrationSwarmRun,
-): OrchestrationReadModel {
-  return {
-    ...readModel,
-    swarmRuns: readModel.swarmRuns.map((run) => (run.runId === runId ? transform(run) : run)),
-  };
-}
-
-function updateExecution(
-  readModel: OrchestrationReadModel,
-  executionId: string,
-  transform: (execution: OrchestrationSwarmTaskExecution) => OrchestrationSwarmTaskExecution,
-): OrchestrationReadModel {
-  return {
-    ...readModel,
-    swarmTaskExecutions: readModel.swarmTaskExecutions.map((execution) =>
-      execution.executionId === executionId ? transform(execution) : execution,
-    ),
-  };
-}
-
-function applyCommand(
-  readModel: OrchestrationReadModel,
-  command: OrchestrationCommand,
-  sequence: number,
-): OrchestrationReadModel {
-  switch (command.type) {
-    case "project.create":
-      return {
-        ...readModel,
-        snapshotSequence: sequence,
-        updatedAt: command.createdAt,
-        projects: [
-          ...readModel.projects,
-          {
-            id: command.projectId,
-            title: command.title,
-            workspaceRoot: command.workspaceRoot,
-            defaultModelSelection: command.defaultModelSelection ?? null,
-            scripts: [],
-            createdAt: command.createdAt,
-            updatedAt: command.createdAt,
-            deletedAt: null,
-          },
-        ],
-      };
-
-    case "thread.create":
-      return {
-        ...readModel,
-        snapshotSequence: sequence,
-        updatedAt: command.createdAt,
-        threads: [
-          ...readModel.threads,
-          {
-            id: command.threadId,
-            projectId: command.projectId,
-            title: command.title,
-            modelSelection: command.modelSelection,
-            runtimeMode: command.runtimeMode,
-            interactionMode: command.interactionMode,
-            branch: command.branch,
-            worktreePath: command.worktreePath,
-            issueLink: command.issueLink ?? null,
-            latestTurn: null,
-            createdAt: command.createdAt,
-            updatedAt: command.createdAt,
-            archivedAt: null,
-            deletedAt: null,
-            messages: [],
-            proposedPlans: [],
-            activities: [],
-            checkpoints: [],
-            session: null,
-          },
-        ],
-      };
-
-    case "thread.turn.start":
-      return {
-        ...readModel,
-        snapshotSequence: sequence,
-        updatedAt: command.createdAt,
-        threads: readModel.threads.map((thread) =>
-          thread.id !== command.threadId
-            ? thread
-            : {
-                ...thread,
-                updatedAt: command.createdAt,
-                messages: [
-                  ...thread.messages,
-                  {
-                    id: command.message.messageId,
-                    role: "user",
-                    text: command.message.text,
-                    attachments: command.message.attachments,
-                    turnId: null,
-                    streaming: false,
-                    createdAt: command.createdAt,
-                    updatedAt: command.createdAt,
-                  },
-                ],
-              },
-        ),
-      };
-
-    case "thread.turn.interrupt":
-      return {
-        ...readModel,
-        snapshotSequence: sequence,
-        updatedAt: command.createdAt,
-      };
-
-    case "thread.session.stop":
-      return {
-        ...readModel,
-        snapshotSequence: sequence,
-        updatedAt: command.createdAt,
-        threads: readModel.threads.map((thread) =>
-          thread.id !== command.threadId
-            ? thread
-            : {
-                ...thread,
-                updatedAt: command.createdAt,
-                session:
-                  thread.session === null
-                    ? null
-                    : {
-                        ...thread.session,
-                        status: "stopped",
-                        activeTurnId: null,
-                        updatedAt: command.createdAt,
-                      },
-              },
-        ),
-      };
-
-    case "thread.delete":
-      return {
-        ...readModel,
-        snapshotSequence: sequence,
-        updatedAt: now,
-        threads: readModel.threads.map((thread) =>
-          thread.id === command.threadId ? { ...thread, deletedAt: now, updatedAt: now } : thread,
-        ),
-      };
-
-    case "swarm-run.request":
-      return {
-        ...readModel,
-        snapshotSequence: sequence,
-        updatedAt: command.createdAt,
-        swarmRuns: [
-          ...readModel.swarmRuns,
-          {
-            runId: command.runId,
-            projectId: command.projectId,
-            epicIssueId: command.epicIssueId,
-            status: "requested",
-            schedulerMode: command.schedulerMode,
-            workspaceMode: command.workspaceMode,
-            provider: command.provider ?? null,
-            model: command.model ?? null,
-            modelOptions: command.modelOptions ?? null,
-            providerOptions: command.providerOptions ?? null,
-            assistantDeliveryMode: command.assistantDeliveryMode ?? null,
-            runtimeMode: command.runtimeMode,
-            lastError: null,
-            requestedAt: command.createdAt,
-            startedAt: null,
-            idledAt: null,
-            pausedAt: null,
-            blockedAt: null,
-            blockedContext: null,
-            failedAt: null,
-            cancelledAt: null,
-            completedAt: null,
-            updatedAt: command.createdAt,
-          },
-        ],
-      };
-
-    case "swarm-run.mark-started":
-      return updateRun(
-        {
-          ...readModel,
-          snapshotSequence: sequence,
-          updatedAt: command.createdAt,
-        },
-        command.runId,
-        (run) => ({
-          ...run,
-          status: "running",
-          startedAt: command.createdAt,
-          lastError: null,
-          blockedContext: null,
-          updatedAt: command.createdAt,
-        }),
-      );
-
-    case "swarm-run.mark-idle":
-      return updateRun(
-        {
-          ...readModel,
-          snapshotSequence: sequence,
-          updatedAt: command.createdAt,
-        },
-        command.runId,
-        (run) => ({
-          ...run,
-          status: "idle",
-          idledAt: command.createdAt,
-          lastError: null,
-          blockedContext: null,
-          updatedAt: command.createdAt,
-        }),
-      );
-
-    case "swarm-run.pause":
-      return updateRun(
-        {
-          ...readModel,
-          snapshotSequence: sequence,
-          updatedAt: command.createdAt,
-        },
-        command.runId,
-        (run) => ({
-          ...run,
-          status: "paused",
-          pausedAt: command.createdAt,
-          lastError: null,
-          blockedContext: null,
-          updatedAt: command.createdAt,
-        }),
-      );
-
-    case "swarm-run.resume":
-      return updateRun(
-        {
-          ...readModel,
-          snapshotSequence: sequence,
-          updatedAt: command.createdAt,
-        },
-        command.runId,
-        (run) => ({
-          ...run,
-          status: "running",
-          lastError: null,
-          blockedContext: null,
-          updatedAt: command.createdAt,
-        }),
-      );
-
-    case "swarm-run.block":
-      return updateRun(
-        {
-          ...readModel,
-          snapshotSequence: sequence,
-          updatedAt: command.createdAt,
-        },
-        command.runId,
-        (run) => ({
-          ...run,
-          status: "blocked",
-          blockedAt: command.createdAt,
-          lastError: command.reason,
-          blockedContext: command.blockedContext,
-          updatedAt: command.createdAt,
-        }),
-      );
-
-    case "swarm-run.fail":
-      return updateRun(
-        {
-          ...readModel,
-          snapshotSequence: sequence,
-          updatedAt: command.createdAt,
-        },
-        command.runId,
-        (run) => ({
-          ...run,
-          status: "failed",
-          failedAt: command.createdAt,
-          lastError: command.reason,
-          blockedContext: null,
-          updatedAt: command.createdAt,
-        }),
-      );
-
-    case "swarm-run.cancel":
-      return updateRun(
-        {
-          ...readModel,
-          snapshotSequence: sequence,
-          updatedAt: command.createdAt,
-        },
-        command.runId,
-        (run) => ({
-          ...run,
-          status: "cancelled",
-          cancelledAt: command.createdAt,
-          lastError: null,
-          blockedContext: null,
-          updatedAt: command.createdAt,
-        }),
-      );
-
-    case "swarm-run.complete":
-      return updateRun(
-        {
-          ...readModel,
-          snapshotSequence: sequence,
-          updatedAt: command.createdAt,
-        },
-        command.runId,
-        (run) => ({
-          ...run,
-          status: "completed",
-          completedAt: command.createdAt,
-          lastError: null,
-          blockedContext: null,
-          updatedAt: command.createdAt,
-        }),
-      );
-
-    case "swarm-task-execution.request":
-      return {
-        ...updateRun(
-          {
-            ...readModel,
-            snapshotSequence: sequence,
-            updatedAt: command.createdAt,
-          },
-          command.runId,
-          (run) => ({
-            ...run,
-            updatedAt: command.createdAt,
-          }),
-        ),
-        swarmTaskExecutions: [
-          ...readModel.swarmTaskExecutions,
-          {
-            executionId: command.executionId,
-            runId: command.runId,
-            issueId: command.issueId,
-            workerThreadId: command.workerThreadId,
-            sequenceNumber: command.sequenceNumber,
-            status: "requested",
-            originalStatus: command.originalStatus,
-            originalAssignee: command.originalAssignee,
-            lastError: null,
-            requestedAt: command.createdAt,
-            startedAt: null,
-            completedAt: null,
-            failedAt: null,
-            cancelledAt: null,
-            updatedAt: command.createdAt,
-          },
-        ],
-      };
-
-    case "swarm-task-execution.start":
-      return updateExecution(
-        updateRun(
-          {
-            ...readModel,
-            snapshotSequence: sequence,
-            updatedAt: command.createdAt,
-          },
-          command.runId,
-          (run) => ({
-            ...run,
-            updatedAt: command.createdAt,
-          }),
-        ),
-        command.executionId,
-        (execution) => ({
-          ...execution,
-          status: "active",
-          startedAt: command.createdAt,
-          updatedAt: command.createdAt,
-        }),
-      );
-
-    case "swarm-task-execution.complete":
-      return updateExecution(
-        updateRun(
-          {
-            ...readModel,
-            snapshotSequence: sequence,
-            updatedAt: command.createdAt,
-          },
-          command.runId,
-          (run) => ({
-            ...run,
-            updatedAt: command.createdAt,
-          }),
-        ),
-        command.executionId,
-        (execution) => ({
-          ...execution,
-          status: "completed",
-          completedAt: command.createdAt,
-          updatedAt: command.createdAt,
-        }),
-      );
-
-    case "swarm-task-execution.fail":
-      return updateExecution(
-        updateRun(
-          {
-            ...readModel,
-            snapshotSequence: sequence,
-            updatedAt: command.createdAt,
-          },
-          command.runId,
-          (run) => ({
-            ...run,
-            updatedAt: command.createdAt,
-          }),
-        ),
-        command.executionId,
-        (execution) => ({
-          ...execution,
-          status: "failed",
-          lastError: command.reason,
-          failedAt: command.createdAt,
-          updatedAt: command.createdAt,
-        }),
-      );
-
-    case "swarm-task-execution.cancel":
-      return updateExecution(
-        updateRun(
-          {
-            ...readModel,
-            snapshotSequence: sequence,
-            updatedAt: command.createdAt,
-          },
-          command.runId,
-          (run) => ({
-            ...run,
-            updatedAt: command.createdAt,
-          }),
-        ),
-        command.executionId,
-        (execution) => ({
-          ...execution,
-          status: "cancelled",
-          cancelledAt: command.createdAt,
-          updatedAt: command.createdAt,
-        }),
-      );
-
-    default:
-      return readModel;
-  }
-}
 
 describe("SwarmExecutionWorkflow", () => {
+  let harnessRuntime: SwarmExecutionWorkflowHarnessRuntime | null = null;
   let runtime: ManagedRuntime.ManagedRuntime<
     OrchestrationEngineService | SwarmExecutionWorkflow,
     unknown
   > | null = null;
 
   afterEach(async () => {
-    if (runtime) {
-      await runtime.dispose();
+    if (harnessRuntime) {
+      await harnessRuntime.dispose();
     }
+    harnessRuntime = null;
     runtime = null;
   });
 
@@ -744,325 +50,9 @@ describe("SwarmExecutionWorkflow", () => {
     initialTrackerState = makeTrackerState(),
     options: HarnessOptions = {},
   ) {
-    let trackerState = initialTrackerState;
-    let trackerStateSequence: ReadonlyArray<TrackerState> | null = null;
-    let pendingTrackerStateSnapshot: TrackerState | null = null;
-    let pendingTrackerStateReadsRemaining = 0;
-    let createEpicSwarmCallCount = 0;
-    let readModel = createEmptyReadModel();
-    let readModelCallCount = 0;
-    let sequence = 0;
-    const issues = new Map<string, BeadsIssueDetail>([
-      [
-        "TASK-1",
-        makeIssueDetail({
-          id: "TASK-1",
-          title: "Task 1",
-        }),
-      ],
-      [
-        "TASK-2",
-        makeIssueDetail({
-          id: "TASK-2",
-          title: "Task 2",
-          priority: 2,
-        }),
-      ],
-    ]);
-
-    const readTrackerStateSnapshot = (): TrackerState => {
-      if (pendingTrackerStateSnapshot !== null) {
-        const snapshot = pendingTrackerStateSnapshot;
-        pendingTrackerStateReadsRemaining -= 1;
-        if (pendingTrackerStateReadsRemaining === 0) {
-          pendingTrackerStateSnapshot = null;
-        }
-        return snapshot;
-      }
-
-      const snapshot = trackerStateSequence?.[0] ?? trackerStateSequence?.at(-1) ?? trackerState;
-
-      if (trackerStateSequence && trackerStateSequence.length > 1) {
-        trackerStateSequence = trackerStateSequence.slice(1);
-      }
-
-      pendingTrackerStateSnapshot = snapshot;
-      pendingTrackerStateReadsRemaining = 2;
-      return snapshot;
-    };
-
-    const trackerService: BeadsTrackerServiceShape = {
-      queryIssues: () => Effect.fail(beadsError("unexpected queryIssues call")),
-      listCoordinatorEpics: () =>
-        Effect.sync(() =>
-          [...issues.values()]
-            .filter((issue) => issue.issueType === "epic" && issue.status !== "closed")
-            .map((issue) => ({
-              id: issue.id,
-              title: issue.title,
-              description: issue.description,
-              notes: issue.notes,
-              status: issue.status,
-              priority: issue.priority,
-              issueType: issue.issueType,
-              assignee: issue.assignee,
-              owner: issue.owner,
-              createdAt: issue.createdAt,
-              createdBy: issue.createdBy,
-              updatedAt: issue.updatedAt,
-              labels: issue.labels,
-              parent: issue.parent,
-              dependencyCount: issue.dependencyCount,
-              dependentCount: issue.dependentCount,
-              commentCount: issue.commentCount,
-            })),
-        ),
-      getIssue: ({ issueId }) =>
-        Effect.suspend(() => {
-          const beforeGetIssue = options.beforeGetIssue?.(issueId) ?? Effect.void;
-          const issue = issues.get(issueId);
-          if (!issue) {
-            return Effect.fail(beadsError(`Unknown issue '${issueId}'.`));
-          }
-          return beforeGetIssue.pipe(Effect.flatMap(() => Effect.succeed(issue)));
-        }),
-      updateIssue: (input) =>
-        Effect.suspend(() => {
-          if (options.failUpdateIssueForIds?.includes(input.issueId)) {
-            return Effect.fail(
-              beadsError(`Simulated updateIssue failure for issue '${input.issueId}'.`),
-            );
-          }
-          const existing = issues.get(input.issueId);
-          if (!existing) {
-            return Effect.fail(beadsError(`Unknown issue '${input.issueId}'.`));
-          }
-          const updated = {
-            ...existing,
-            ...(input.status !== undefined ? { status: input.status } : {}),
-            ...(input.assignee !== undefined ? { assignee: input.assignee ?? null } : {}),
-            updatedAt: now,
-          } satisfies BeadsIssueDetail;
-          issues.set(input.issueId, updated);
-          return Effect.succeed(updated);
-        }),
-      commentIssue: (input) =>
-        Effect.suspend(() => {
-          const existing = issues.get(input.issueId);
-          if (!existing) {
-            return Effect.fail(beadsError(`Unknown issue '${input.issueId}'.`));
-          }
-          const updated = {
-            ...existing,
-            comments: [
-              ...existing.comments,
-              {
-                id: `comment-${existing.comments.length + 1}`,
-                issueId: input.issueId,
-                author: "swarm",
-                text: input.text,
-                createdAt: now,
-              },
-            ],
-            updatedAt: now,
-          } satisfies BeadsIssueDetail;
-          issues.set(input.issueId, updated);
-          return Effect.succeed(updated);
-        }),
-      getContext: () => Effect.fail(beadsError("unexpected getContext call")),
-      getSwarmSupport: () => Effect.succeed(readTrackerStateSnapshot().support),
-      getIssueGraph: () => Effect.fail(beadsError("unexpected getIssueGraph call")),
-      getEpicSwarm: () => Effect.succeed(readTrackerStateSnapshot().validation.swarm),
-      validateEpicSwarm: () => Effect.succeed(readTrackerStateSnapshot().validation),
-      getEpicSwarmStatus: () => Effect.succeed(readTrackerStateSnapshot().status),
-      listSwarms: () =>
-        Effect.sync(() => {
-          const currentTrackerState = readTrackerStateSnapshot();
-          return {
-            swarms: currentTrackerState.validation.swarm
-              ? [currentTrackerState.validation.swarm]
-              : [],
-          };
-        }),
-      listSwarmsWithSupport: () =>
-        Effect.sync(() => {
-          const currentTrackerState = readTrackerStateSnapshot();
-          return {
-            swarms: currentTrackerState.validation.swarm
-              ? [currentTrackerState.validation.swarm]
-              : [],
-          };
-        }),
-      createEpicSwarm: ({ epicIssueId }) =>
-        Effect.suspend(() => {
-          createEpicSwarmCallCount += 1;
-
-          if (options.createEpicSwarmMode === "fail") {
-            return Effect.fail(
-              beadsError(
-                options.createEpicSwarmErrorMessage ??
-                  `Failed to create swarm for ${epicIssueId}: simulated create failure.`,
-              ),
-            );
-          }
-
-          const currentSwarm = trackerState.validation.swarm ?? trackerState.status.swarm;
-          const swarm = currentSwarm ?? {
-            swarmId: `SWARM-${epicIssueId}`,
-            epicId: epicIssueId,
-            epicTitle: trackerState.validation.epicTitle,
-            totalIssueCount:
-              trackerState.status.completed.length +
-              trackerState.status.active.length +
-              trackerState.status.ready.length +
-              trackerState.status.blocked.length,
-            completedIssueCount: trackerState.status.completed.length,
-            activeIssueCount: trackerState.status.active.length,
-            readyIssueCount: trackerState.status.ready.length,
-            blockedIssueCount: trackerState.status.blocked.length,
-            activeWorkerCount: 0,
-          };
-
-          trackerState = {
-            ...trackerState,
-            validation: {
-              ...trackerState.validation,
-              swarm,
-            },
-            status: {
-              ...trackerState.status,
-              swarm,
-            },
-          };
-
-          return Effect.succeed(swarm);
-        }),
-      loadEpicCoordinatorTrackerState: ({ issueSummary }) =>
-        Effect.sync(() => {
-          const currentTrackerState = readTrackerStateSnapshot();
-          return {
-            issueSummary: issueSummary ?? null,
-            validation: currentTrackerState.validation,
-            status: currentTrackerState.status,
-            validationError: null,
-            statusError: null,
-          };
-        }),
-      createIssue: () => Effect.fail(beadsError("unexpected createIssue call")),
-    };
-
-    const engineService: OrchestrationEngineShape = {
-      getReadModel: () =>
-        Effect.sync(() => {
-          readModelCallCount += 1;
-          return readModel;
-        }),
-      readEvents: () => Stream.empty,
-      streamDomainEvents: Stream.empty,
-      dispatch: (command) =>
-        Effect.sync(() => {
-          if (options.failDispatchForCommandTypes?.includes(command.type)) {
-            throw new Error(`Simulated dispatch failure for command '${command.type}'.`);
-          }
-          sequence += 1;
-          readModel = applyCommand(readModel, command, sequence);
-          return { sequence };
-        }),
-    };
-
-    const layer = SwarmExecutionWorkflowLive.pipe(
-      Layer.provideMerge(Layer.succeed(OrchestrationEngineService, engineService)),
-      Layer.provideMerge(Layer.succeed(BeadsTrackerService, trackerService)),
-    );
-
-    runtime = ManagedRuntime.make(layer);
-
-    const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
-    const workflow = await runtime.runPromise(Effect.service(SwarmExecutionWorkflow));
-    const projectId = asProjectId("project-1");
-
-    await runtime.runPromise(
-      engine.dispatch({
-        type: "project.create",
-        commandId: CommandId.makeUnsafe("cmd-project"),
-        projectId,
-        title: "Project",
-        workspaceRoot: "/repo/project",
-        defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
-        createdAt: now,
-      }),
-    );
-
-    return {
-      engine,
-      workflow,
-      projectId,
-      getIssue: (issueId: string) => issues.get(issueId) ?? null,
-      patchIssue: (
-        issueId: string,
-        patch: Partial<Pick<BeadsIssueDetail, "status" | "assignee" | "owner" | "comments">>,
-      ) => {
-        const existing = issues.get(issueId);
-        if (!existing) {
-          return;
-        }
-        issues.set(issueId, {
-          ...existing,
-          ...patch,
-          updatedAt: now,
-        });
-      },
-      patchThread: (
-        threadId: ThreadId,
-        patch: {
-          latestTurn?: OrchestrationLatestTurn | null;
-          session?: OrchestrationSession | null;
-        },
-      ) => {
-        const nextThreads = [...readModel.threads];
-        const threadIndex = nextThreads.findIndex((thread) => thread.id === threadId);
-        if (threadIndex >= 0) {
-          const nextThread = { ...nextThreads[threadIndex]! };
-          if (patch.latestTurn !== undefined) {
-            nextThread.latestTurn = patch.latestTurn;
-          }
-          if (patch.session !== undefined) {
-            nextThread.session = patch.session;
-          }
-          nextThreads[threadIndex] = nextThread;
-        }
-        readModel = {
-          ...readModel,
-          threads: nextThreads,
-        };
-      },
-      setTrackerState: (next: TrackerState) => {
-        trackerState = next;
-        trackerStateSequence = null;
-        pendingTrackerStateSnapshot = null;
-        pendingTrackerStateReadsRemaining = 0;
-      },
-      setTrackerStateSequence: (next: ReadonlyArray<TrackerState>) => {
-        trackerStateSequence = next;
-        trackerState = next.at(-1) ?? trackerState;
-        pendingTrackerStateSnapshot = null;
-        pendingTrackerStateReadsRemaining = 0;
-      },
-      getCreateEpicSwarmCallCount: () => createEpicSwarmCallCount,
-      getReadModelCallCount: () => readModelCallCount,
-      patchReadModel: (transform: (current: OrchestrationReadModel) => OrchestrationReadModel) => {
-        readModel = transform(readModel);
-      },
-      patchExecution: (
-        executionId: SwarmTaskExecutionId,
-        patch: Partial<OrchestrationSwarmTaskExecution>,
-      ) => {
-        readModel = updateExecution(readModel, executionId, (execution) => ({
-          ...execution,
-          ...patch,
-        }));
-      },
-    };
+    harnessRuntime = await createSwarmExecutionWorkflowHarness(initialTrackerState, options);
+    runtime = harnessRuntime.runtime;
+    return harnessRuntime.harness;
   }
 
   it("starts a swarm run and keeps duplicate starts on the same non-terminal run", async () => {
@@ -2798,5 +1788,243 @@ describe("SwarmExecutionWorkflow", () => {
     expect(nextExecution?.status).toBe("requested");
     expect(nextExecution?.issueId).toBe("TASK-2");
     expect(nextIssue?.status).toBe("in_progress");
+  });
+
+  it("automatically schedules the lowest-priority ready issue first", async () => {
+    const baseline = makeTrackerState();
+    const harness = await createHarness(
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [[relationIssue("TASK-2", 2), relationIssue("TASK-1", 1)]],
+        },
+        status: {
+          ...baseline.status,
+          ready: [relationIssue("TASK-2", 2), relationIssue("TASK-1", 1)],
+        },
+      }),
+    );
+
+    const started = await harness.startRun();
+    await harness.drainScheduler();
+
+    const snapshot = await harness.getSnapshot();
+    const firstExecution = snapshot.swarmTaskExecutions[0];
+
+    expect(started.status).toBe("running");
+    expect(firstExecution?.issueId).toBe("TASK-1");
+    expect(firstExecution?.sequenceNumber).toBe(1);
+    expect(snapshot.threads).toHaveLength(1);
+    expect(snapshot.threads[0]?.issueLink?.issueId).toBe("TASK-1");
+    expect(harness.getIssue("TASK-1")?.status).toBe("in_progress");
+    expect(harness.getIssue("TASK-2")?.status).toBe("open");
+  });
+
+  it("does not relaunch an already attempted issue when another ready issue is available", async () => {
+    const harness = await createHarness();
+
+    const started = await harness.startRun();
+    await harness.drainScheduler();
+
+    const initialSnapshot = await harness.getSnapshot();
+    const execution = initialSnapshot.swarmTaskExecutions[0];
+    expect(execution?.workerThreadId).toBeTruthy();
+    if (!execution?.workerThreadId) {
+      return;
+    }
+
+    harness.patchWorkerThread(execution.workerThreadId, {
+      latestTurn: makeErroredLatestTurn("turn-worker-error"),
+      session: makeErroredSession(execution.workerThreadId, "Worker crashed"),
+    });
+
+    await harness.startSchedulerService();
+
+    const baseline = makeTrackerState();
+    harness.setTrackerState(
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [[relationIssue("TASK-1", 1), relationIssue("TASK-2", 2)]],
+        },
+        status: {
+          ...baseline.status,
+          ready: [relationIssue("TASK-1", 1), relationIssue("TASK-2", 2)],
+          blocked: [],
+        },
+      }),
+    );
+
+    const continued = await harness.continueRun(started.runId);
+    await harness.drainScheduler();
+
+    const snapshot = await harness.getSnapshot();
+    const nextExecution = snapshot.swarmTaskExecutions.find(
+      (entry) => entry.executionId !== execution.executionId,
+    );
+
+    expect(continued.status).toBe("running");
+    expect(nextExecution?.issueId).toBe("TASK-2");
+    expect(nextExecution?.sequenceNumber).toBe(2);
+    expect(harness.getIssue("TASK-1")?.status).toBe("open");
+    expect(harness.getIssue("TASK-2")?.status).toBe("in_progress");
+  });
+
+  it("retries the requested failed execution instead of selecting a different ready issue", async () => {
+    const harness = await createHarness();
+
+    const started = await harness.startRun();
+    await harness.drainScheduler();
+
+    const initialSnapshot = await harness.getSnapshot();
+    const execution = initialSnapshot.swarmTaskExecutions[0];
+    expect(execution?.workerThreadId).toBeTruthy();
+    if (!execution?.workerThreadId) {
+      return;
+    }
+
+    harness.patchWorkerThread(execution.workerThreadId, {
+      latestTurn: makeErroredLatestTurn("turn-worker-error"),
+      session: makeErroredSession(execution.workerThreadId, "Worker crashed"),
+    });
+
+    await harness.startSchedulerService();
+
+    const baseline = makeTrackerState();
+    harness.setTrackerState(
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [[relationIssue("TASK-2", 2), relationIssue("TASK-1", 1)]],
+        },
+        status: {
+          ...baseline.status,
+          ready: [relationIssue("TASK-2", 2), relationIssue("TASK-1", 1)],
+          blocked: [],
+        },
+      }),
+    );
+
+    const retried = await harness.retryExecution({
+      runId: started.runId,
+      executionId: execution.executionId,
+    });
+    await harness.drainScheduler();
+
+    const snapshot = await harness.getSnapshot();
+    const retriedExecution = snapshot.swarmTaskExecutions.find(
+      (entry) => entry.executionId !== execution.executionId,
+    );
+
+    expect(retried.status).toBe("running");
+    expect(retriedExecution?.issueId).toBe("TASK-1");
+    expect(retriedExecution?.sequenceNumber).toBe(2);
+    expect(harness.getIssue("TASK-1")?.status).toBe("in_progress");
+    expect(harness.getIssue("TASK-2")?.status).toBe("open");
+  });
+
+  it("blocks with ready-exhaustion detail when every live ready issue was already attempted", async () => {
+    const harness = await createHarness();
+
+    const started = await harness.startRun();
+    await harness.drainScheduler();
+
+    const initialSnapshot = await harness.getSnapshot();
+    const execution = initialSnapshot.swarmTaskExecutions[0];
+    expect(execution?.workerThreadId).toBeTruthy();
+    if (!execution?.workerThreadId) {
+      return;
+    }
+
+    harness.patchWorkerThread(execution.workerThreadId, {
+      latestTurn: makeErroredLatestTurn("turn-worker-error"),
+      session: makeErroredSession(execution.workerThreadId, "Worker crashed"),
+    });
+
+    await harness.startSchedulerService();
+
+    const baseline = makeTrackerState();
+    harness.setTrackerState(
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [[relationIssue("TASK-1", 1)]],
+        },
+        status: {
+          ...baseline.status,
+          ready: [relationIssue("TASK-1", 1)],
+          blocked: [],
+        },
+      }),
+    );
+
+    const continued = await harness.continueRun(started.runId);
+    const snapshot = await harness.getSnapshot();
+    const run = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
+
+    expect(continued.status).toBe("blocked");
+    expect(run?.status).toBe("blocked");
+    expect(snapshot.swarmTaskExecutions).toHaveLength(1);
+    expect(run?.lastError).toContain("every live ready issue was already attempted");
+    expect(run?.lastError).toContain("Previously attempted ready issues: TASK-1.");
+  });
+
+  it("blocks immediately when only external blockers remain and does not dispatch a worker", async () => {
+    const baseline = makeTrackerState();
+    const harness = await createHarness(
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [],
+        },
+        status: {
+          ...baseline.status,
+          ready: [],
+          blocked: [relationIssue("TASK-9", 9)],
+          blockedBreakdown: {
+            internal: [],
+            external: [relationIssue("TASK-9", 9)],
+            unknown: [],
+          },
+        },
+      }),
+    );
+
+    const started = await harness.startRun();
+    const snapshot = await harness.getSnapshot();
+    const run = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
+
+    expect(started.status).toBe("blocked");
+    expect(run?.status).toBe("blocked");
+    expect(run?.blockedContext).toEqual({
+      kind: "tracker_waiting",
+      issueId: null,
+      executionId: null,
+      workerThreadId: null,
+    });
+    expect(run?.lastError).toContain("externally blocked issue");
+    expect(snapshot.swarmTaskExecutions).toHaveLength(0);
+    expect(snapshot.threads).toHaveLength(0);
+  });
+
+  it("rejects duplicate manual continue attempts while the first worker is still launching", async () => {
+    const harness = await createHarness();
+
+    const started = await harness.startRun();
+    await harness.drainScheduler();
+
+    const attempts = Array.from({ length: 4 }, () => harness.continueRun(started.runId));
+    const results = await Promise.allSettled(attempts);
+    const snapshot = await harness.getSnapshot();
+
+    for (const result of results) {
+      expect(result.status).toBe("rejected");
+      if (result.status === "rejected") {
+        expect(String(result.reason)).toContain("already has a non-terminal task execution");
+      }
+    }
+    expect(snapshot.swarmTaskExecutions).toHaveLength(1);
+    expect(snapshot.swarmTaskExecutions[0]?.status).toBe("requested");
+    expect(snapshot.threads).toHaveLength(1);
   });
 });

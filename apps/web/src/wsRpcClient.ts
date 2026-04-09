@@ -123,6 +123,7 @@ export interface WsRpcClient {
     >;
     readonly getSessionActivity: RpcUnaryMethod<typeof BEADS_WS_METHODS.getSessionActivity>;
     readonly startWorkflow: RpcUnaryMethod<typeof BEADS_WS_METHODS.startWorkflow>;
+    readonly startBacklogGrooming: RpcUnaryMethod<typeof BEADS_WS_METHODS.startBacklogGrooming>;
     readonly startEpicQuickRefine: RpcUnaryMethod<typeof BEADS_WS_METHODS.startEpicQuickRefine>;
     readonly startEpicPlannedRefine: RpcUnaryMethod<typeof BEADS_WS_METHODS.startEpicPlannedRefine>;
     readonly startEpicCoordinationPrep: RpcUnaryMethod<
@@ -313,6 +314,8 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport.request((client) => client[BEADS_WS_METHODS.getSessionActivity](input)),
       startWorkflow: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.startWorkflow](input)),
+      startBacklogGrooming: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.startBacklogGrooming](input)),
       startEpicQuickRefine: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.startEpicQuickRefine](input)),
       startEpicPlannedRefine: (input) =>

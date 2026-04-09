@@ -23,6 +23,7 @@ import {
   BeadsProjectCoordinatorSnapshotInput,
   BeadsQueryIssuesInput,
   BeadsQueryIssuesResult,
+  BeadsStartBacklogGroomingInput,
   BeadsStartWorkflowInput,
   BeadsStartWorkflowResult,
   BeadsStartEpicPlannedRefineInput,
@@ -376,6 +377,12 @@ export const WsBeadsStartWorkflowRpc = Rpc.make(BEADS_WS_METHODS.startWorkflow, 
   error: BeadsError,
 });
 
+export const WsBeadsStartBacklogGroomingRpc = Rpc.make(BEADS_WS_METHODS.startBacklogGrooming, {
+  payload: BeadsStartBacklogGroomingInput,
+  success: BeadsStartWorkflowResult,
+  error: BeadsError,
+});
+
 export const WsBeadsGetContextRpc = Rpc.make(BEADS_WS_METHODS.getContext, {
   payload: BeadsGetContextInput,
   success: BeadsContext,
@@ -629,6 +636,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsBeadsCommentIssueRpc,
   WsBeadsGetSessionActivityRpc,
   WsBeadsStartWorkflowRpc,
+  WsBeadsStartBacklogGroomingRpc,
   WsBeadsGetContextRpc,
   WsBeadsGetSwarmSupportRpc,
   WsBeadsGetIssueGraphRpc,

@@ -748,6 +748,36 @@ layer("BeadsServiceLive", (it) => {
             },
           ],
         },
+        "show BLOCKED-1 --long": [
+          {
+            id: "BLOCKED-1",
+            title: "Blocked child",
+            status: "blocked",
+            priority: 2,
+            issue_type: "task",
+            assignee: null,
+            owner: null,
+            created_at: now,
+            created_by: null,
+            updated_at: now,
+            labels: [],
+            dependencies: [
+              {
+                id: "DEP-1",
+                title: "Dependency",
+                status: "open",
+                priority: 1,
+                issue_type: "task",
+                owner: null,
+                created_at: now,
+                created_by: null,
+                updated_at: now,
+                dependency_type: "blocks",
+              },
+            ],
+            dependents: [],
+          },
+        ],
       });
 
       const beads = yield* BeadsService;
@@ -777,6 +807,10 @@ layer("BeadsServiceLive", (it) => {
       );
       assert.deepStrictEqual(
         status.blocked.map((issue) => issue.id),
+        ["BLOCKED-1"],
+      );
+      assert.deepStrictEqual(
+        status.blockedBreakdown.external.map((issue) => issue.id),
         ["BLOCKED-1"],
       );
     }),
@@ -894,6 +928,36 @@ layer("BeadsServiceLive", (it) => {
           ready_count: 1,
           blocked_count: 1,
         },
+        "show BLOCKED-1 --long": [
+          {
+            id: "BLOCKED-1",
+            title: "Blocked child",
+            status: "blocked",
+            priority: 2,
+            issue_type: "task",
+            assignee: null,
+            owner: null,
+            created_at: now,
+            created_by: null,
+            updated_at: now,
+            labels: [],
+            dependencies: [
+              {
+                id: "DEP-1",
+                title: "Dependency",
+                status: "open",
+                priority: 1,
+                issue_type: "task",
+                owner: null,
+                created_at: now,
+                created_by: null,
+                updated_at: now,
+                dependency_type: "blocks",
+              },
+            ],
+            dependents: [],
+          },
+        ],
       });
 
       const beads = yield* BeadsService;
@@ -926,6 +990,10 @@ layer("BeadsServiceLive", (it) => {
       assert.equal(status.swarm?.completedIssueCount, 1);
       assert.equal(status.swarm?.readyIssueCount, 1);
       assert.equal(status.swarm?.blockedIssueCount, 1);
+      assert.deepStrictEqual(
+        status.blockedBreakdown.external.map((issue) => issue.id),
+        ["BLOCKED-1"],
+      );
     }),
   );
 
@@ -1096,6 +1164,36 @@ layer("BeadsServiceLive", (it) => {
             },
           ],
         },
+        "show BLOCKED-1 --long": [
+          {
+            id: "BLOCKED-1",
+            title: "Blocked child",
+            status: "blocked",
+            priority: 1,
+            issue_type: "task",
+            assignee: null,
+            owner: "bob",
+            created_at: now,
+            created_by: null,
+            updated_at: now,
+            labels: [],
+            dependencies: [
+              {
+                id: "READY-1",
+                title: "Ready child",
+                status: "open",
+                priority: 2,
+                issue_type: "task",
+                owner: "alice",
+                created_at: now,
+                created_by: null,
+                updated_at: now,
+                dependency_type: "blocks",
+              },
+            ],
+            dependents: [],
+          },
+        ],
       });
 
       const beads = yield* BeadsService;
@@ -1125,6 +1223,107 @@ layer("BeadsServiceLive", (it) => {
           parent: null,
         },
       ]);
+      assert.deepStrictEqual(status.blockedBreakdown.internal, [
+        {
+          id: "BLOCKED-1",
+          title: "Blocked child",
+          status: "blocked",
+          priority: 1,
+          issueType: "task",
+          assignee: null,
+          owner: "bob",
+          parent: null,
+        },
+      ]);
+    }),
+  );
+
+  it.effect("classifies blocked issues as unknown when dependency metadata is missing", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      installBdJsonMock({
+        context: {
+          beads_dir: "/repo/.beads",
+          repo_root: "/repo",
+          cwd_repo_root: "/repo",
+          is_redirected: false,
+          is_worktree: false,
+          backend: "dolt",
+          dolt_mode: "server",
+          database: "repo",
+          project_id: "project-1",
+          role: "maintainer",
+          bd_version: "1.0.0",
+        },
+        "show EPIC-1 --long": [
+          {
+            id: "EPIC-1",
+            title: "Epic coordination",
+            description: null,
+            notes: null,
+            status: "open",
+            priority: 2,
+            issue_type: "epic",
+            assignee: null,
+            owner: "alice",
+            created_at: now,
+            created_by: "alice",
+            updated_at: now,
+            labels: [],
+            dependencies: [],
+            dependents: [
+              {
+                id: "BLOCKED-1",
+                title: "Blocked child",
+                status: "blocked",
+                priority: 1,
+                issue_type: "task",
+                assignee: null,
+                owner: "bob",
+                dependency_type: "parent-child",
+              },
+            ],
+          },
+        ],
+        "show BLOCKED-1 --long": [
+          {
+            id: "BLOCKED-1",
+            title: "Blocked child",
+            status: "blocked",
+            priority: 1,
+            issue_type: "task",
+            assignee: null,
+            owner: "bob",
+            created_at: now,
+            created_by: null,
+            updated_at: now,
+            labels: [],
+            dependents: [],
+          },
+        ],
+        "swarm list": {
+          swarms: [],
+        },
+        "swarm status EPIC-1": {
+          completed: [],
+          active: [],
+          ready: [],
+          blocked: [
+            {
+              id: "BLOCKED-1",
+              title: "Blocked child",
+            },
+          ],
+        },
+      });
+
+      const beads = yield* BeadsService;
+      const status = yield* beads.getEpicSwarmStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
+
+      assert.deepStrictEqual(
+        status.blockedBreakdown.unknown.map((issue) => issue.id),
+        ["BLOCKED-1"],
+      );
     }),
   );
 
@@ -1785,6 +1984,49 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
+  it.effect("starts backlog grooming in a new plan-mode project thread", () =>
+    Effect.gen(function* () {
+      const dispatchedCommands: unknown[] = [];
+
+      mockedDispatch.mockImplementation((command: unknown) => {
+        dispatchedCommands.push(command);
+        return Effect.succeed({ sequence: dispatchedCommands.length });
+      });
+
+      const beads = yield* BeadsService;
+      const result = yield* beads.startBacklogGrooming({
+        cwd: "/repo",
+        projectId: ProjectId.makeUnsafe("project-1"),
+        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        runtimeMode: "full-access",
+      });
+
+      assert.equal(result.created, true);
+      expect(dispatchedCommands).toHaveLength(2);
+      expect(dispatchedCommands[0]).toMatchObject({
+        type: "thread.create",
+        projectId: ProjectId.makeUnsafe("project-1"),
+        title: "Backlog grooming",
+        interactionMode: "plan",
+        branch: null,
+        worktreePath: null,
+        issueLink: null,
+      });
+      expect(dispatchedCommands[1]).toMatchObject({
+        type: "thread.turn.start",
+        threadId: (dispatchedCommands[0] as { threadId: ThreadId }).threadId,
+        interactionMode: "plan",
+        message: {
+          text: expect.stringContaining("Review and improve the project backlog"),
+        },
+      });
+      const messageText = (dispatchedCommands[1] as { message: { text: string } }).message.text;
+      expect(messageText).toContain("bd ready");
+      expect(messageText).toContain("Keep this tracker-only");
+      expect(messageText).toContain("ask for clarification before making it");
+    }),
+  );
+
   it.effect("reuses an existing active solve thread for repeated issue launches", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
@@ -2209,6 +2451,36 @@ layer("BeadsServiceLive", (it) => {
             },
           ],
         },
+        "show BLOCKED-1 --long": [
+          {
+            id: "BLOCKED-1",
+            title: "Blocked child",
+            status: "blocked",
+            priority: 2,
+            issue_type: "task",
+            assignee: null,
+            owner: null,
+            created_at: now,
+            created_by: null,
+            updated_at: now,
+            labels: [],
+            dependencies: [
+              {
+                id: "DEP-1",
+                title: "Dependency",
+                status: "open",
+                priority: 1,
+                issue_type: "task",
+                owner: null,
+                created_at: now,
+                created_by: null,
+                updated_at: now,
+                dependency_type: "blocks",
+              },
+            ],
+            dependents: [],
+          },
+        ],
       });
       mockedDispatch.mockImplementation((command: unknown) => {
         dispatchedCommands.push(command);

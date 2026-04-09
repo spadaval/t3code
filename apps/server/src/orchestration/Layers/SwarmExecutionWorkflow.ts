@@ -17,7 +17,7 @@ import {
   type OrchestrationThread,
 } from "@t3tools/contracts";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
-import { deriveSwarmRunExecutionState } from "@t3tools/shared/swarm";
+import { deriveExecutionBlocking, deriveSwarmRunExecutionState } from "@t3tools/shared/swarm";
 import { Cause, Duration, Effect, Fiber, Layer } from "effect";
 import type { Scope } from "effect";
 
@@ -230,14 +230,22 @@ function asControlResult(run: OrchestrationSwarmRun): OrchestrationSwarmRunContr
 }
 
 function describeBlockedReason(input: {
-  readonly blockedCount: number;
+  readonly internalBlockedCount: number;
+  readonly externalBlockedCount: number;
+  readonly unknownBlockedCount: number;
   readonly activeCount: number;
 }): string {
-  if (input.blockedCount > 0) {
-    return `Swarm has ${input.blockedCount} blocked issue${input.blockedCount === 1 ? "" : "s"} and no ready issue is available.`;
+  if (input.externalBlockedCount > 0) {
+    return `Swarm has ${input.externalBlockedCount} externally blocked issue${input.externalBlockedCount === 1 ? "" : "s"} and execution is halted until those dependencies are resolved.`;
+  }
+  if (input.unknownBlockedCount > 0) {
+    return `Swarm has ${input.unknownBlockedCount} blocked issue${input.unknownBlockedCount === 1 ? "" : "s"} with unclassified blocker provenance and execution is halted until tracker state is clarified.`;
   }
   if (input.activeCount > 0) {
     return `Swarm has ${input.activeCount} externally active issue${input.activeCount === 1 ? "" : "s"} and no ready issue is available.`;
+  }
+  if (input.internalBlockedCount > 0) {
+    return `Swarm is waiting on ${input.internalBlockedCount} internally blocked issue${input.internalBlockedCount === 1 ? "" : "s"} and no ready issue is available.`;
   }
   return "Swarm has no ready issue available.";
 }
@@ -1194,11 +1202,28 @@ const makeSwarmScheduler = Effect.gen(function* () {
         return yield* getRunById(run.runId);
       }
 
+      const executionBlocking = deriveExecutionBlocking(trackerState.status);
+      if (executionBlocking.hasExecutionBlockingIssues) {
+        yield* blockRun(
+          run.runId,
+          describeBlockedReason({
+            internalBlockedCount: executionBlocking.internalBlockedIssues.length,
+            externalBlockedCount: executionBlocking.externalBlockedIssues.length,
+            unknownBlockedCount: executionBlocking.unknownBlockedIssues.length,
+            activeCount: trackerState.status.active.length,
+          }),
+          trackerWaitingBlockedContext(),
+        );
+        return yield* getRunById(run.runId);
+      }
+
       if (trackerState.status.active.length > 0) {
         yield* blockRun(
           run.runId,
           describeBlockedReason({
-            blockedCount: trackerState.status.blocked.length,
+            internalBlockedCount: executionBlocking.internalBlockedIssues.length,
+            externalBlockedCount: executionBlocking.externalBlockedIssues.length,
+            unknownBlockedCount: executionBlocking.unknownBlockedIssues.length,
             activeCount: trackerState.status.active.length,
           }),
           trackerWaitingBlockedContext(),
@@ -1257,7 +1282,9 @@ const makeSwarmScheduler = Effect.gen(function* () {
           yield* blockRun(
             run.runId,
             describeBlockedReason({
-              blockedCount: trackerState.status.blocked.length,
+              internalBlockedCount: executionBlocking.internalBlockedIssues.length,
+              externalBlockedCount: executionBlocking.externalBlockedIssues.length,
+              unknownBlockedCount: executionBlocking.unknownBlockedIssues.length,
               activeCount: trackerState.status.active.length,
             }),
             trackerWaitingBlockedContext(),

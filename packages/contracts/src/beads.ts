@@ -24,6 +24,7 @@ export const BEADS_WS_METHODS = {
   commentIssue: "beads.commentIssue",
   getSessionActivity: "beads.getSessionActivity",
   startWorkflow: "beads.startWorkflow",
+  startBacklogGrooming: "beads.startBacklogGrooming",
   getContext: "beads.getContext",
   getSwarmSupport: "beads.getSwarmSupport",
   getIssueGraph: "beads.getIssueGraph",
@@ -199,6 +200,13 @@ export const BeadsSwarmValidation = Schema.Struct({
 });
 export type BeadsSwarmValidation = typeof BeadsSwarmValidation.Type;
 
+export const BeadsSwarmBlockedBreakdown = Schema.Struct({
+  internal: Schema.Array(BeadsIssueRelationSummary).pipe(Schema.withDecodingDefault(() => [])),
+  external: Schema.Array(BeadsIssueRelationSummary).pipe(Schema.withDecodingDefault(() => [])),
+  unknown: Schema.Array(BeadsIssueRelationSummary).pipe(Schema.withDecodingDefault(() => [])),
+});
+export type BeadsSwarmBlockedBreakdown = typeof BeadsSwarmBlockedBreakdown.Type;
+
 export const BeadsSwarmStatus = Schema.Struct({
   epicId: BeadsIssueId,
   epicTitle: TrimmedNonEmptyString,
@@ -207,6 +215,13 @@ export const BeadsSwarmStatus = Schema.Struct({
   active: Schema.Array(BeadsIssueRelationSummary).pipe(Schema.withDecodingDefault(() => [])),
   ready: Schema.Array(BeadsIssueRelationSummary).pipe(Schema.withDecodingDefault(() => [])),
   blocked: Schema.Array(BeadsIssueRelationSummary).pipe(Schema.withDecodingDefault(() => [])),
+  blockedBreakdown: BeadsSwarmBlockedBreakdown.pipe(
+    Schema.withDecodingDefault(() => ({
+      internal: [],
+      external: [],
+      unknown: [],
+    })),
+  ),
 });
 export type BeadsSwarmStatus = typeof BeadsSwarmStatus.Type;
 
@@ -231,6 +246,9 @@ export const BeadsCoordinatorProgress = Schema.Struct({
   readyIssueCount: NonNegativeInt,
   activeIssueCount: NonNegativeInt,
   blockedIssueCount: NonNegativeInt,
+  internalBlockedIssueCount: NonNegativeInt,
+  externalBlockedIssueCount: NonNegativeInt,
+  unknownBlockedIssueCount: NonNegativeInt,
   activeWorkerCount: NonNegativeInt,
   isComplete: Schema.Boolean,
 });
@@ -451,6 +469,14 @@ export const BeadsStartWorkflowInput = Schema.Struct({
   runtimeMode: RuntimeMode,
 });
 export type BeadsStartWorkflowInput = typeof BeadsStartWorkflowInput.Type;
+
+export const BeadsStartBacklogGroomingInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  projectId: ProjectId,
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+});
+export type BeadsStartBacklogGroomingInput = typeof BeadsStartBacklogGroomingInput.Type;
 
 export const BeadsStartWorkflowResult = Schema.Struct({
   threadId: ThreadId,

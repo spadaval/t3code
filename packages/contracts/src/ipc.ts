@@ -18,6 +18,7 @@ import type {
   BeadsProjectCoordinatorSnapshotInput,
   BeadsQueryIssuesInput,
   BeadsQueryIssuesResult,
+  BeadsStartBacklogGroomingInput,
   BeadsStartEpicPlannedRefineInput,
   BeadsStartEpicQuickRefineInput,
   BeadsStartEpicCoordinationPrepInput,
@@ -296,6 +297,9 @@ export interface NativeApi {
       input: BeadsGetSessionActivityInput,
     ) => Promise<BeadsGetSessionActivityResult>;
     startWorkflow: (input: BeadsStartWorkflowInput) => Promise<BeadsStartWorkflowResult>;
+    startBacklogGrooming: (
+      input: BeadsStartBacklogGroomingInput,
+    ) => Promise<BeadsStartWorkflowResult>;
     startEpicQuickRefine: (
       input: BeadsStartEpicQuickRefineInput,
     ) => Promise<BeadsStartWorkflowResult>;

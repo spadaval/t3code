@@ -951,6 +951,21 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
           { "rpc.aggregate": "beads" },
         ),
+      [BEADS_WS_METHODS.startBacklogGrooming]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.startBacklogGrooming,
+          beads.startBacklogGrooming(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to start backlog grooming workflow",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
       [BEADS_WS_METHODS.startEpicQuickRefine]: (input) =>
         observeRpcEffect(
           BEADS_WS_METHODS.startEpicQuickRefine,

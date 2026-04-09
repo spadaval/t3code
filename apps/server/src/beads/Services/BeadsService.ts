@@ -18,6 +18,7 @@ import type {
   BeadsProjectCoordinatorSnapshotInput,
   BeadsQueryIssuesInput,
   BeadsQueryIssuesResult,
+  BeadsStartBacklogGroomingInput,
   BeadsStartEpicPlannedRefineInput,
   BeadsStartEpicQuickRefineInput,
   BeadsStartEpicCoordinationPrepInput,
@@ -79,6 +80,9 @@ export interface BeadsServiceShape {
   ) => Effect.Effect<BeadsGetSessionActivityResult, BeadsError>;
   readonly startWorkflow: (
     input: BeadsStartWorkflowInput,
+  ) => Effect.Effect<BeadsStartWorkflowResult, BeadsError>;
+  readonly startBacklogGrooming: (
+    input: BeadsStartBacklogGroomingInput,
   ) => Effect.Effect<BeadsStartWorkflowResult, BeadsError>;
   readonly startEpicQuickRefine: (
     input: BeadsStartEpicQuickRefineInput,

@@ -47,6 +47,38 @@ export function selectDeterministicReadyIssue(input: {
   return null;
 }
 
+export interface SwarmExecutionBlockingState {
+  readonly internalBlockedIssues: ReadonlyArray<BeadsIssueRelationSummary>;
+  readonly externalBlockedIssues: ReadonlyArray<BeadsIssueRelationSummary>;
+  readonly unknownBlockedIssues: ReadonlyArray<BeadsIssueRelationSummary>;
+  readonly hasExecutionBlockingIssues: boolean;
+}
+
+export function deriveExecutionBlocking(
+  status:
+    | (Pick<BeadsSwarmStatus, "blocked"> & Partial<Pick<BeadsSwarmStatus, "blockedBreakdown">>)
+    | null,
+): SwarmExecutionBlockingState {
+  const fallbackBlocked = status?.blocked ?? [];
+  const internalBlockedIssues = status?.blockedBreakdown?.internal ?? [];
+  const externalBlockedIssues = status?.blockedBreakdown?.external ?? [];
+  const unknownBlockedIssues =
+    status?.blockedBreakdown?.unknown ??
+    (status !== null &&
+    internalBlockedIssues.length === 0 &&
+    externalBlockedIssues.length === 0 &&
+    fallbackBlocked.length > 0
+      ? fallbackBlocked
+      : []);
+
+  return {
+    internalBlockedIssues,
+    externalBlockedIssues,
+    unknownBlockedIssues,
+    hasExecutionBlockingIssues: externalBlockedIssues.length > 0 || unknownBlockedIssues.length > 0,
+  };
+}
+
 export interface SwarmProjectionState {
   readonly swarmRunsById: Readonly<Record<string, OrchestrationSwarmRun>>;
   readonly swarmTaskExecutionsById: Readonly<Record<string, OrchestrationSwarmTaskExecution>>;
@@ -465,6 +497,9 @@ export interface SwarmProgressState {
   readonly readyIssueCount: number;
   readonly activeIssueCount: number;
   readonly blockedIssueCount: number;
+  readonly internalBlockedIssueCount: number;
+  readonly externalBlockedIssueCount: number;
+  readonly unknownBlockedIssueCount: number;
   readonly activeWorkerCount: number;
   readonly isComplete: boolean;
 }
@@ -524,12 +559,13 @@ export function deriveValidationState(input: {
 
 export function deriveSwarmProgress(input: {
   readonly validation: Pick<BeadsSwarmValidation, "swarm"> | null;
-  readonly status: Pick<
-    BeadsSwarmStatus,
-    "swarm" | "completed" | "ready" | "active" | "blocked"
-  > | null;
+  readonly status:
+    | (Pick<BeadsSwarmStatus, "swarm" | "completed" | "ready" | "active" | "blocked"> &
+        Partial<Pick<BeadsSwarmStatus, "blockedBreakdown">>)
+    | null;
 }): SwarmProgressState {
   const swarm = input.status?.swarm ?? input.validation?.swarm ?? null;
+  const executionBlocking = deriveExecutionBlocking(input.status);
   const totalIssueCount = swarm?.totalIssueCount ?? 0;
   const completedIssueCount = swarm?.completedIssueCount ?? input.status?.completed.length ?? 0;
   const readyIssueCount = swarm?.readyIssueCount ?? input.status?.ready.length ?? 0;
@@ -543,6 +579,9 @@ export function deriveSwarmProgress(input: {
     readyIssueCount,
     activeIssueCount,
     blockedIssueCount,
+    internalBlockedIssueCount: executionBlocking.internalBlockedIssues.length,
+    externalBlockedIssueCount: executionBlocking.externalBlockedIssues.length,
+    unknownBlockedIssueCount: executionBlocking.unknownBlockedIssues.length,
     activeWorkerCount,
     isComplete: totalIssueCount > 0 && completedIssueCount === totalIssueCount,
   };
@@ -550,7 +589,10 @@ export function deriveSwarmProgress(input: {
 
 export function deriveTrackerState(input: {
   readonly trackerLoadState: BeadsCoordinatorTrackerLoadState;
-  readonly status: Pick<BeadsSwarmStatus, "active" | "blocked"> | null;
+  readonly status:
+    | (Pick<BeadsSwarmStatus, "active" | "blocked"> &
+        Partial<Pick<BeadsSwarmStatus, "blockedBreakdown">>)
+    | null;
   readonly progress: Pick<SwarmProgressState, "isComplete">;
 }): BeadsCoordinatorTrackerState {
   if (input.trackerLoadState !== "ready" || input.status === null) {
@@ -561,12 +603,14 @@ export function deriveTrackerState(input: {
     return "completed";
   }
 
-  if (input.status.active.length > 0) {
-    return "in_progress";
+  const executionBlocking = deriveExecutionBlocking(input.status);
+
+  if (executionBlocking.hasExecutionBlockingIssues) {
+    return "blocked";
   }
 
-  if (input.status.blocked.length > 0) {
-    return "blocked";
+  if (input.status.active.length > 0) {
+    return "in_progress";
   }
 
   return "not_started";
@@ -690,7 +734,10 @@ export function deriveEpicSwarmCoordinatorState(input: {
 
 export function getEpicSwarmCoordinatorPrimaryAction(input: {
   readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
-  readonly status: Pick<BeadsSwarmStatus, "swarm" | "ready" | "active" | "blocked"> | null;
+  readonly status:
+    | (Pick<BeadsSwarmStatus, "swarm" | "ready" | "active" | "blocked"> &
+        Partial<Pick<BeadsSwarmStatus, "blockedBreakdown">>)
+    | null;
   readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm" | "readyFronts"> | null;
   readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
   readonly hasProjectConflict: boolean;
@@ -698,6 +745,7 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
 }): EpicSwarmCoordinatorPrimaryAction {
   const state = deriveEpicSwarmCoordinatorState(input);
   const latestRun = state.latestRun;
+  const executionBlocking = deriveExecutionBlocking(input.status);
   const recoverableWorkerFailureRun =
     latestRun?.status === "blocked" && latestRun.blockedContext?.kind === "worker_failure";
   const canContinueRecoverableRun =
@@ -707,10 +755,12 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
     (() => {
       const nextReadyIssue = selectDeterministicReadyIssueFromList(input.status?.ready ?? []);
       if (nextReadyIssue !== null) {
-        return true;
+        return !executionBlocking.hasExecutionBlockingIssues;
       }
 
-      return (input.status?.active.length ?? 0) === 0 && (input.status?.blocked.length ?? 0) === 0;
+      return (
+        (input.status?.active.length ?? 0) === 0 && !executionBlocking.hasExecutionBlockingIssues
+      );
     })();
 
   switch (state.kind) {
@@ -761,6 +811,14 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
         return {
           kind: "open_coordinator",
           label: "View active epic",
+          busyLabel: "Opening...",
+          disabled: false,
+        };
+      }
+      if (executionBlocking.hasExecutionBlockingIssues) {
+        return {
+          kind: "open_coordinator",
+          label: "Open epic",
           busyLabel: "Opening...",
           disabled: false,
         };

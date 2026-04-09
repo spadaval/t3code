@@ -97,6 +97,7 @@ const rpcClientMock = {
     getEpicCoordinatorSnapshot: vi.fn(),
     getSessionActivity: vi.fn(),
     startWorkflow: vi.fn(),
+    startBacklogGrooming: vi.fn(),
     startEpicQuickRefine: vi.fn(),
     startEpicPlannedRefine: vi.fn(),
     startEpicCoordinationPrep: vi.fn(),

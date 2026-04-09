@@ -480,6 +480,13 @@ const buildAppUnderTest = (options?: {
                 message: "BeadsService.startWorkflow was called without a test-specific mock.",
               }),
             ),
+          startBacklogGrooming: () =>
+            Effect.fail(
+              new BeadsError({
+                message:
+                  "BeadsService.startBacklogGrooming was called without a test-specific mock.",
+              }),
+            ),
           startEpicQuickRefine: () =>
             Effect.fail(
               new BeadsError({

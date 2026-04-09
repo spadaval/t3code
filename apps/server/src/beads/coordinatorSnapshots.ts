@@ -18,6 +18,7 @@ import {
   describeSharedWorkspaceProjectConflict as describeSharedWorkspaceProjectConflictMessage,
   deriveActiveExecutionId,
   deriveActiveRunId,
+  deriveExecutionBlocking,
   deriveSwarmProgress,
   deriveTrackerLoadState,
   deriveTrackerState,
@@ -119,8 +120,13 @@ function deriveEpicPrimaryAction(input: {
   readonly projectConflict: BeadsCoordinatorEpicSnapshot["projectConflict"];
   readonly latestRun: OrchestrationSwarmRun | null;
   readonly activeRun: OrchestrationSwarmRun | null;
-  readonly status: Pick<BeadsSwarmStatus, "ready" | "active" | "blocked"> | null;
+  readonly status: Pick<
+    BeadsSwarmStatus,
+    "ready" | "active" | "blocked" | "blockedBreakdown"
+  > | null;
 }): BeadsCoordinatorEpicSnapshot["primaryAction"] {
+  const executionBlocking = deriveExecutionBlocking(input.status);
+
   if (input.trackerLoadState === "timeout" || input.trackerLoadState === "error") {
     return {
       kind: "refresh_swarm_state",
@@ -184,9 +190,8 @@ function deriveEpicPrimaryAction(input: {
       case "blocked": {
         const canContinue =
           input.validationState === "valid" &&
-          ((input.status?.ready.length ?? 0) > 0 ||
-            ((input.status?.active.length ?? 0) === 0 &&
-              (input.status?.blocked.length ?? 0) === 0));
+          !executionBlocking.hasExecutionBlockingIssues &&
+          ((input.status?.ready.length ?? 0) > 0 || (input.status?.active.length ?? 0) === 0);
         if (input.activeRun.blockedContext?.kind === "worker_failure") {
           return {
             kind: "run_next_swarm_task",
@@ -212,11 +217,24 @@ function deriveEpicPrimaryAction(input: {
     }
   }
 
-  if (input.validationState === "valid" && input.trackerState !== "completed") {
+  if (
+    input.validationState === "valid" &&
+    input.trackerState !== "completed" &&
+    !executionBlocking.hasExecutionBlockingIssues
+  ) {
     return {
       kind: "start_swarm",
       label: "Start run",
       busyLabel: "Starting...",
+      disabled: false,
+    };
+  }
+
+  if (executionBlocking.hasExecutionBlockingIssues) {
+    return {
+      kind: "open_coordinator",
+      label: "Open epic",
+      busyLabel: "Opening...",
       disabled: false,
     };
   }

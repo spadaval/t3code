@@ -86,6 +86,11 @@ describe("buildCoordinatorEpicSnapshot", () => {
         active: [],
         ready: [],
         blocked: [],
+        blockedBreakdown: {
+          internal: [],
+          external: [],
+          unknown: [],
+        },
       },
       validationError: null,
       statusError: null,
@@ -148,6 +153,11 @@ describe("buildCoordinatorEpicSnapshot", () => {
         active: [],
         ready: [],
         blocked: [],
+        blockedBreakdown: {
+          internal: [],
+          external: [],
+          unknown: [],
+        },
       },
       validationError: null,
       statusError: null,
@@ -187,5 +197,154 @@ describe("buildCoordinatorEpicSnapshot", () => {
     expect(snapshot.trackerLoadDetail).toBe(
       "Swarm validation and status request failed: Issue 'EPIC-404' was not found.",
     );
+  });
+
+  it("offers run-next for worker-failure runs when a fresh ready issue exists", () => {
+    const blockedRun = makeSwarmRun({
+      status: "blocked",
+      lastError: "Worker crashed",
+      blockedAt: "2026-01-01T00:02:00.000Z",
+      blockedContext: {
+        kind: "worker_failure",
+        issueId: "TASK-1",
+        executionId: "exec-1" as never,
+        workerThreadId: "thread-1" as never,
+      },
+    });
+
+    const snapshot = buildCoordinatorEpicSnapshot({
+      issue: null,
+      support: SWARM_SUPPORT,
+      validation: {
+        epicId: "EPIC-1",
+        epicTitle: "Epic",
+        valid: true,
+        swarm: null,
+        errors: [],
+        warnings: [],
+        readyFronts: [],
+        estimatedWorkerSessions: 1,
+        maxParallelism: 1,
+      },
+      status: {
+        epicId: "EPIC-1",
+        epicTitle: "Epic",
+        swarm: null,
+        completed: [],
+        active: [],
+        ready: [
+          {
+            id: "TASK-2",
+            title: "Task 2",
+            status: "open",
+            priority: 2,
+            issueType: "task",
+            assignee: null,
+            owner: null,
+            parent: null,
+          },
+        ],
+        blocked: [],
+        blockedBreakdown: {
+          internal: [],
+          external: [],
+          unknown: [],
+        },
+      },
+      validationError: null,
+      statusError: null,
+      projectSwarmRuns: [blockedRun],
+      epicSwarmRuns: [blockedRun],
+      epicExecutions: [],
+      fallbackEpicId: "EPIC-1",
+      fallbackEpicTitle: "Epic",
+    });
+
+    expect(snapshot.primaryAction).toEqual({
+      kind: "run_next_swarm_task",
+      label: "Run next task",
+      busyLabel: "Running...",
+      disabled: false,
+    });
+  });
+
+  it("keeps external tracker blockers as coordinator-open actions instead of continue", () => {
+    const blockedRun = makeSwarmRun({
+      status: "blocked",
+      lastError: "Waiting on external dependency",
+      blockedAt: "2026-01-01T00:02:00.000Z",
+      blockedContext: {
+        kind: "tracker_waiting",
+        issueId: null,
+        executionId: null,
+        workerThreadId: null,
+      },
+    });
+
+    const snapshot = buildCoordinatorEpicSnapshot({
+      issue: null,
+      support: SWARM_SUPPORT,
+      validation: {
+        epicId: "EPIC-1",
+        epicTitle: "Epic",
+        valid: true,
+        swarm: null,
+        errors: [],
+        warnings: [],
+        readyFronts: [],
+        estimatedWorkerSessions: 1,
+        maxParallelism: 1,
+      },
+      status: {
+        epicId: "EPIC-1",
+        epicTitle: "Epic",
+        swarm: null,
+        completed: [],
+        active: [],
+        ready: [],
+        blocked: [
+          {
+            id: "TASK-9",
+            title: "Task 9",
+            status: "blocked",
+            priority: 9,
+            issueType: "task",
+            assignee: null,
+            owner: null,
+            parent: null,
+          },
+        ],
+        blockedBreakdown: {
+          internal: [],
+          external: [
+            {
+              id: "TASK-9",
+              title: "Task 9",
+              status: "blocked",
+              priority: 9,
+              issueType: "task",
+              assignee: null,
+              owner: null,
+              parent: null,
+            },
+          ],
+          unknown: [],
+        },
+      },
+      validationError: null,
+      statusError: null,
+      projectSwarmRuns: [blockedRun],
+      epicSwarmRuns: [blockedRun],
+      epicExecutions: [],
+      fallbackEpicId: "EPIC-1",
+      fallbackEpicTitle: "Epic",
+    });
+
+    expect(snapshot.primaryAction).toEqual({
+      kind: "open_coordinator",
+      label: "Open epic",
+      busyLabel: "Opening...",
+      disabled: false,
+    });
   });
 });

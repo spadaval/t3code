@@ -8,8 +8,10 @@ import {
   BeadsIssueGraph,
   BeadsProjectCoordinatorSnapshot,
   BeadsSessionActivityEntry,
+  BeadsStartBacklogGroomingInput,
   BeadsStartEpicCoordinationPrepInput,
   BeadsStartWorkflowInput,
+  BeadsSwarmStatus,
   BeadsSwarmValidation,
 } from "./beads";
 
@@ -20,10 +22,14 @@ const decodeBeadsProjectCoordinatorSnapshot = Schema.decodeUnknownEffect(
   BeadsProjectCoordinatorSnapshot,
 );
 const decodeBeadsSessionActivityEntry = Schema.decodeUnknownEffect(BeadsSessionActivityEntry);
+const decodeBeadsStartBacklogGroomingInput = Schema.decodeUnknownEffect(
+  BeadsStartBacklogGroomingInput,
+);
 const decodeBeadsStartEpicCoordinationPrepInput = Schema.decodeUnknownEffect(
   BeadsStartEpicCoordinationPrepInput,
 );
 const decodeBeadsStartWorkflowInput = Schema.decodeUnknownEffect(BeadsStartWorkflowInput);
+const decodeBeadsSwarmStatus = Schema.decodeUnknownEffect(BeadsSwarmStatus);
 const decodeBeadsSwarmValidation = Schema.decodeUnknownEffect(BeadsSwarmValidation);
 
 it.effect("decodes beads context with backend metadata", () =>
@@ -95,6 +101,25 @@ it.effect("defaults optional swarm validation metadata", () =>
   }),
 );
 
+it.effect("defaults swarm status blocked breakdown for historical payloads", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeBeadsSwarmStatus({
+      epicId: "epic-1",
+      epicTitle: "Epic",
+      completed: [],
+      active: [],
+      ready: [],
+      blocked: [{ id: "TASK-2", title: "Task 2", status: "blocked", issueType: "task" }],
+    });
+
+    assert.deepStrictEqual(parsed.blockedBreakdown, {
+      internal: [],
+      external: [],
+      unknown: [],
+    });
+  }),
+);
+
 it.effect("accepts coordination-prep workflow activity entries", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeBeadsSessionActivityEntry({
@@ -139,6 +164,22 @@ it.effect("accepts plan-implementation workflow launches", () =>
     });
 
     assert.strictEqual(parsed.workflow, "plan-implementation");
+  }),
+);
+
+it.effect("accepts backlog grooming launches", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeBeadsStartBacklogGroomingInput({
+      cwd: "/tmp/repo",
+      projectId: "project-1",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5.4-mini",
+      },
+      runtimeMode: "full-access",
+    });
+
+    assert.strictEqual(parsed.projectId, "project-1");
   }),
 );
 
@@ -191,6 +232,9 @@ it.effect("defaults coordinator snapshot collections", () =>
           readyIssueCount: 0,
           activeIssueCount: 0,
           blockedIssueCount: 0,
+          internalBlockedIssueCount: 0,
+          externalBlockedIssueCount: 0,
+          unknownBlockedIssueCount: 0,
           activeWorkerCount: 0,
           isComplete: false,
         },

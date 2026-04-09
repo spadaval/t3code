@@ -530,4 +530,100 @@ describe("commandInvariants", () => {
       ),
     ).rejects.toThrow("is stale for run 'run-1'; current non-terminal execution is 'execution-3'");
   });
+
+  it("rejects requested executions even when the run itself is otherwise manually advanceable", async () => {
+    const readModelWithIdleRun: OrchestrationReadModel = {
+      ...readModel,
+      swarmRuns: readModel.swarmRuns.map((run) =>
+        run.runId === ("run-1" as never) ? { ...run, status: "idle" } : run,
+      ),
+    };
+
+    await expect(
+      Effect.runPromise(
+        requireSwarmRunWithoutCurrentExecution({
+          readModel: readModelWithIdleRun,
+          command: {
+            type: "swarm-run.complete",
+            commandId: CommandId.makeUnsafe("cmd-run-complete-idle-requested"),
+            runId: "run-1" as never,
+            createdAt: now,
+          },
+          runId: "run-1" as never,
+        }),
+      ),
+    ).rejects.toThrow("still has non-terminal task execution 'execution-1' in status 'requested'");
+  });
+
+  it("rejects scheduler execution commands from paused and cancelled runs", async () => {
+    const readModelWithPausedRun: OrchestrationReadModel = {
+      ...readModel,
+      swarmRuns: readModel.swarmRuns.map((run) =>
+        run.runId === ("run-1" as never) ? { ...run, status: "paused" } : run,
+      ),
+    };
+
+    await expect(
+      Effect.runPromise(
+        requireSwarmRunInAllowedStatus({
+          readModel: readModelWithPausedRun,
+          command: {
+            type: "swarm-task-execution.request",
+            commandId: CommandId.makeUnsafe("cmd-run-request-paused"),
+            runId: "run-1" as never,
+            executionId: "execution-1" as never,
+            issueId: "TASK-1",
+            workerThreadId: ThreadId.makeUnsafe("thread-1"),
+            sequenceNumber: 2,
+            originalStatus: "open",
+            originalAssignee: null,
+            createdAt: now,
+          },
+          runId: "run-1" as never,
+        }),
+      ),
+    ).rejects.toThrow("cannot transition via 'swarm-task-execution.request'");
+
+    await expect(
+      Effect.runPromise(
+        requireSwarmRunInAllowedStatus({
+          readModel,
+          command: {
+            type: "swarm-task-execution.request",
+            commandId: CommandId.makeUnsafe("cmd-run-request-cancelled"),
+            runId: "run-2" as never,
+            executionId: "execution-2" as never,
+            issueId: "TASK-2",
+            workerThreadId: ThreadId.makeUnsafe("thread-2"),
+            sequenceNumber: 2,
+            originalStatus: "open",
+            originalAssignee: null,
+            createdAt: now,
+          },
+          runId: "run-2" as never,
+        }),
+      ),
+    ).rejects.toThrow("cannot transition via 'swarm-task-execution.request'");
+  });
+
+  it("rejects invalid execution resurrection transitions after terminal states", () => {
+    expect(
+      isAllowedSwarmTaskExecutionStatusTransition({
+        commandType: "swarm-task-execution.start",
+        status: "active",
+      }),
+    ).toBe(false);
+    expect(
+      isAllowedSwarmTaskExecutionStatusTransition({
+        commandType: "swarm-task-execution.complete",
+        status: "failed",
+      }),
+    ).toBe(false);
+    expect(
+      isAllowedSwarmTaskExecutionStatusTransition({
+        commandType: "swarm-task-execution.cancel",
+        status: "cancelled",
+      }),
+    ).toBe(false);
+  });
 });

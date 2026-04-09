@@ -29,6 +29,7 @@ import {
   type BeadsQueryIssuesInput,
   type BeadsQueryIssuesResult,
   type BeadsSessionActivityEntry,
+  type BeadsStartBacklogGroomingInput,
   type BeadsStartWorkflowInput,
   type BeadsStartWorkflowResult,
   type BeadsSwarmSummary as BeadsSwarmSummaryType,
@@ -39,8 +40,10 @@ import {
 import {
   Cause,
   Deferred,
+  Duration,
   Effect,
   Layer,
+  Metric,
   Option,
   Ref,
   Schema,
@@ -49,6 +52,11 @@ import {
 } from "effect";
 
 import { runProcess } from "../../processRunner.ts";
+import {
+  beadsCommandDuration,
+  beadsCommandsTotal,
+  metricAttributes,
+} from "../../observability/Metrics.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import {
   buildProjectCoordinatorSnapshot,
@@ -62,6 +70,9 @@ import {
 
 const MAX_BD_OUTPUT_BYTES = 512 * 1024;
 const ISSUE_HISTORY_LIMIT = 20;
+const SLOW_BD_COMMAND_WARN_MS = 3_000;
+const BD_COMMAND_PREVIEW_LIMIT = 240;
+const BD_LOG_SCOPE = "beads.bd";
 const decodeIssueSummary = Schema.decodeUnknownSync(BeadsIssueSummary);
 const decodeIssueDetail = Schema.decodeUnknownSync(BeadsIssueDetail);
 const decodeBeadsContext = Schema.decodeUnknownSync(BeadsContext);
@@ -76,6 +87,7 @@ const decodeListSwarmsResult = Schema.decodeUnknownSync(BeadsListSwarmsResult);
 const decodeProjectCoordinatorSnapshot = Schema.decodeUnknownSync(BeadsProjectCoordinatorSnapshot);
 const decodeEpicCoordinatorSnapshot = Schema.decodeUnknownSync(BeadsEpicCoordinatorSnapshot);
 const PROJECT_COORDINATOR_EPIC_LOAD_CONCURRENCY = 4;
+const BLOCKED_ISSUE_LOOKUP_CONCURRENCY = 4;
 
 interface SessionActivityRecord {
   readonly cwd: string;
@@ -96,6 +108,24 @@ interface BdExecutionStrategyReservation {
   readonly deferred: Deferred.Deferred<BdExecutionStrategy, BeadsError>;
   readonly created: boolean;
 }
+
+interface BdTraceContext {
+  readonly readOnly: boolean;
+  readonly routing: string;
+  readonly strategySource: string;
+  readonly executionStrategy?: BdExecutionStrategy | "unknown";
+}
+
+interface BdCommandDetails {
+  readonly action: string;
+  readonly subcommand: string | null;
+  readonly commandFamily: string;
+  readonly subject: string | null;
+  readonly preview: string;
+  readonly argCount: number;
+}
+
+type BdProcessOutcome = "success" | "nonzero_exit" | "timeout" | "spawn_error";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -124,6 +154,162 @@ function trimToNull(value: unknown): string | null {
 function errorMessageFromCause(cause: unknown): string {
   const squashed = Cause.squash(cause as any);
   return squashed instanceof Error ? squashed.message : String(squashed);
+}
+
+function truncateForTrace(value: string, limit = BD_COMMAND_PREVIEW_LIMIT): string {
+  return value.length <= limit ? value : `${value.slice(0, Math.max(0, limit - 3))}...`;
+}
+
+function summarizeBdValue(flag: string | null, value: string): string {
+  if (flag === "--title" || flag === "--description" || flag === "--notes") {
+    return `<${flag.slice(2)}:${value.length}>`;
+  }
+  if (value.length <= 80) {
+    return value;
+  }
+  return `${value.slice(0, 77)}...`;
+}
+
+function summarizeBdArgs(args: ReadonlyArray<string>): string {
+  const summary: string[] = [];
+  const action = args[0] ?? "unknown";
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] ?? "";
+    const previous = index > 0 ? (args[index - 1] ?? null) : null;
+
+    if (action === "comment" && index === 2) {
+      summary.push(`<text:${arg.length}>`);
+      continue;
+    }
+
+    if (action === "create" && index === 1) {
+      summary.push(`<title:${arg.length}>`);
+      continue;
+    }
+
+    if (previous && previous.startsWith("--")) {
+      summary.push(summarizeBdValue(previous, arg));
+      continue;
+    }
+
+    summary.push(arg.length <= 80 ? arg : `${arg.slice(0, 77)}...`);
+  }
+
+  return truncateForTrace(summary.join(" "));
+}
+
+function getBdSubject(args: ReadonlyArray<string>): string | null {
+  const action = args[0] ?? "unknown";
+  const startIndex = action === "swarm" ? 2 : 1;
+
+  for (let index = startIndex; index < args.length; index += 1) {
+    const arg = args[index];
+    if (!arg) {
+      continue;
+    }
+    if (arg.startsWith("--")) {
+      continue;
+    }
+    const previous = index > 0 ? args[index - 1] : null;
+    if (previous?.startsWith("--")) {
+      continue;
+    }
+    if ((action === "comment" && index === 2) || (action === "create" && index === 1)) {
+      continue;
+    }
+    return trimToNull(arg);
+  }
+
+  return null;
+}
+
+function getBdCommandDetails(args: ReadonlyArray<string>): BdCommandDetails {
+  const action = trimToNull(args[0]) ?? "unknown";
+  const subcommand = action === "swarm" ? (trimToNull(args[1]) ?? null) : null;
+  return {
+    action,
+    subcommand,
+    commandFamily: subcommand ? `${action}.${subcommand}` : action,
+    subject: getBdSubject(args),
+    preview: summarizeBdArgs(args),
+    argCount: args.length,
+  };
+}
+
+function recordBdCommandMetrics(input: {
+  readonly action: string;
+  readonly commandFamily: string;
+  readonly routing: string;
+  readonly strategySource: string;
+  readonly readOnly: boolean;
+  readonly executionStrategy?: BdExecutionStrategy | "unknown";
+  readonly outcome: BdProcessOutcome;
+  readonly durationMs: number;
+}): Effect.Effect<void, never, never> {
+  const attributes = {
+    action: input.action,
+    commandFamily: input.commandFamily,
+    routing: input.routing,
+    strategySource: input.strategySource,
+    readOnly: input.readOnly,
+    executionStrategy: input.executionStrategy,
+    outcome: input.outcome,
+  };
+
+  return Effect.gen(function* () {
+    yield* Metric.update(
+      Metric.withAttributes(beadsCommandDuration, metricAttributes(attributes)),
+      Duration.millis(Math.max(0, input.durationMs)),
+    );
+    yield* Metric.update(
+      Metric.withAttributes(beadsCommandsTotal, metricAttributes(attributes)),
+      1,
+    );
+  });
+}
+
+function logBdCommandResult(input: {
+  readonly cwd: string;
+  readonly details: BdCommandDetails;
+  readonly trace: BdTraceContext;
+  readonly outcome: BdProcessOutcome;
+  readonly durationMs: number;
+  readonly result?: Awaited<ReturnType<typeof runProcess>>;
+  readonly error?: string;
+}): Effect.Effect<void, never, never> {
+  const context = {
+    cwd: input.cwd,
+    command: input.details.preview,
+    action: input.details.action,
+    commandFamily: input.details.commandFamily,
+    subject: input.details.subject,
+    argCount: input.details.argCount,
+    routing: input.trace.routing,
+    strategySource: input.trace.strategySource,
+    executionStrategy: input.trace.executionStrategy,
+    readOnly: input.trace.readOnly,
+    durationMs: input.durationMs,
+    outcome: input.outcome,
+    code: input.result?.code,
+    signal: input.result?.signal,
+    timedOut: input.result?.timedOut,
+    stdoutBytes: input.result ? Buffer.byteLength(input.result.stdout) : undefined,
+    stderrBytes: input.result ? Buffer.byteLength(input.result.stderr) : undefined,
+    stdoutTruncated: input.result?.stdoutTruncated ?? false,
+    stderrTruncated: input.result?.stderrTruncated ?? false,
+    error: input.error,
+  };
+
+  const effect =
+    input.outcome === "success" && input.durationMs < SLOW_BD_COMMAND_WARN_MS
+      ? Effect.logDebug("bd command completed", context)
+      : Effect.logWarning(
+          input.outcome === "success" ? "slow bd command completed" : "bd command failed",
+          context,
+        );
+
+  return effect.pipe(Effect.annotateLogs({ scope: BD_LOG_SCOPE }));
 }
 
 function asOptionalString(value: unknown): string | undefined {
@@ -707,6 +893,33 @@ function buildWorkflowPrompt(
   ].join("\n");
 }
 
+function buildBacklogGroomingThreadTitle(): string {
+  return "Backlog grooming";
+}
+
+function buildBacklogGroomingPrompt(): string {
+  return [
+    "## Assignment",
+    "",
+    "Review and improve the project backlog so it is clear, properly scoped, and sequenced for execution.",
+    "",
+    "## Getting started",
+    "",
+    "- Use `bd` directly to inspect and update the tracker.",
+    "- Start with commands like `bd ready`, `bd blocked`, `bd list --status=open`, `bd lint`, and `bd show <issue-id>`.",
+    "",
+    "## Instructions",
+    "",
+    "- Clarify vague issues so they become executable work with concrete scope and acceptance criteria.",
+    "- Split oversized work when needed and file follow-up issues instead of silently expanding scope.",
+    "- Repair or add dependency edges when the intended sequencing is clear.",
+    "- Identify decision-shaped issues and either rewrite them into actionable work or ask for operator input when intent is unclear.",
+    "- Prefer making concrete tracker updates with `bd` over only describing what should change.",
+    "- Keep this tracker-only: do NOT implement application code, do NOT edit repository files, and do NOT create branches or worktrees.",
+    "- Use plan mode interactively: if a tracker change would be ambiguous or risky, pause and ask for clarification before making it.",
+  ].join("\n");
+}
+
 function compareLinkedIssueThreads(left: OrchestrationThread, right: OrchestrationThread): number {
   const archivedDelta = Number(left.archivedAt !== null) - Number(right.archivedAt !== null);
   if (archivedDelta !== 0) {
@@ -977,17 +1190,101 @@ const makeBeadsTrackerService = Effect.gen(function* () {
   const runBdProcess = (
     cwd: string,
     args: ReadonlyArray<string>,
-  ): Effect.Effect<Awaited<ReturnType<typeof runProcess>>, BeadsError> =>
-    Effect.tryPromise({
-      try: () =>
-        runProcess("bd", args, {
-          cwd,
-          allowNonZeroExit: true,
-          outputMode: "truncate",
-          maxBufferBytes: MAX_BD_OUTPUT_BYTES,
+    trace: BdTraceContext,
+  ): Effect.Effect<Awaited<ReturnType<typeof runProcess>>, BeadsError> => {
+    const details = getBdCommandDetails(args);
+    return Effect.gen(function* () {
+      const startedAt = Date.now();
+      yield* Effect.annotateCurrentSpan({
+        "beads.bd.action": details.action,
+        "beads.bd.subcommand": details.subcommand,
+        "beads.bd.command_family": details.commandFamily,
+        "beads.bd.command_preview": details.preview,
+        "beads.bd.subject": details.subject,
+        "beads.bd.cwd": cwd,
+        "beads.bd.arg_count": details.argCount,
+        "beads.bd.read_only": trace.readOnly,
+        "beads.bd.routing": trace.routing,
+        "beads.bd.strategy_source": trace.strategySource,
+        "beads.bd.execution_strategy": trace.executionStrategy,
+      });
+
+      const exit = yield* Effect.exit(
+        Effect.tryPromise({
+          try: () =>
+            runProcess("bd", args, {
+              cwd,
+              allowNonZeroExit: true,
+              outputMode: "truncate",
+              maxBufferBytes: MAX_BD_OUTPUT_BYTES,
+            }),
+          catch: (cause) => toBeadsError("Failed to run bd.", cause),
         }),
-      catch: (cause) => toBeadsError("Failed to run bd.", cause),
-    });
+      );
+
+      const durationMs = Math.max(0, Date.now() - startedAt);
+      const outcome: BdProcessOutcome =
+        exit._tag === "Failure"
+          ? "spawn_error"
+          : exit.value.timedOut
+            ? "timeout"
+            : exit.value.code === 0
+              ? "success"
+              : "nonzero_exit";
+
+      const result = exit._tag === "Success" ? exit.value : undefined;
+      yield* Effect.annotateCurrentSpan({
+        "beads.bd.duration_ms": durationMs,
+        "beads.bd.outcome": outcome,
+        "beads.bd.code": result?.code,
+        "beads.bd.signal": result?.signal,
+        "beads.bd.timed_out": result?.timedOut,
+        "beads.bd.stdout_bytes": result ? Buffer.byteLength(result.stdout) : undefined,
+        "beads.bd.stderr_bytes": result ? Buffer.byteLength(result.stderr) : undefined,
+        "beads.bd.stdout_truncated": result?.stdoutTruncated ?? false,
+        "beads.bd.stderr_truncated": result?.stderrTruncated ?? false,
+        "beads.bd.error": exit._tag === "Failure" ? errorMessageFromCause(exit.cause) : undefined,
+      });
+
+      yield* recordBdCommandMetrics({
+        action: details.action,
+        commandFamily: details.commandFamily,
+        routing: trace.routing,
+        strategySource: trace.strategySource,
+        readOnly: trace.readOnly,
+        outcome,
+        durationMs,
+        ...(trace.executionStrategy !== undefined
+          ? { executionStrategy: trace.executionStrategy }
+          : {}),
+      });
+      yield* logBdCommandResult({
+        cwd,
+        details,
+        trace,
+        outcome,
+        durationMs,
+        ...(result ? { result } : {}),
+        ...(exit._tag === "Failure" ? { error: errorMessageFromCause(exit.cause) } : {}),
+      });
+
+      if (exit._tag === "Success") {
+        return exit.value;
+      }
+
+      return yield* Effect.failCause(exit.cause);
+    }).pipe(
+      Effect.withSpan("beads.bd.command", {
+        kind: "client",
+        attributes: {
+          "beads.bd.command_family": details.commandFamily,
+          "beads.bd.action": details.action,
+          "beads.bd.read_only": trace.readOnly,
+          "beads.bd.routing": trace.routing,
+        },
+      }),
+    );
+  };
 
   const decodeBdProcessResult = (
     result: Awaited<ReturnType<typeof runProcess>>,
@@ -1014,8 +1311,9 @@ const makeBeadsTrackerService = Effect.gen(function* () {
   const runBdRawProcess = (
     cwd: string,
     args: ReadonlyArray<string>,
+    trace: BdTraceContext,
   ): Effect.Effect<string, BeadsError> =>
-    runBdProcess(cwd, args).pipe(Effect.flatMap((result) => decodeBdProcessResult(result)));
+    runBdProcess(cwd, args, trace).pipe(Effect.flatMap((result) => decodeBdProcessResult(result)));
 
   const resolveBdExecutionStrategy: (
     cwd: string,
@@ -1033,7 +1331,15 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     }
 
     const exit = yield* Effect.exit(
-      withSerializedBdAccess(cwd, runBdRawProcess(cwd, ["context", "--json"])).pipe(
+      withSerializedBdAccess(
+        cwd,
+        runBdRawProcess(cwd, ["context", "--json"], {
+          readOnly: true,
+          routing: "serialized.resolve_strategy",
+          strategySource: "resolve",
+          executionStrategy: "unknown",
+        }),
+      ).pipe(
         Effect.flatMap((stdout) => {
           const strategy = parseBdExecutionStrategyFromContextStdout(stdout) ?? "serial";
           return setBdExecutionStrategy(cwd, strategy).pipe(Effect.as(strategy));
@@ -1057,7 +1363,14 @@ const makeBeadsTrackerService = Effect.gen(function* () {
       // Writes stay serialized, and reads only bypass the repo lock when beads explicitly reports
       // server mode. Embedded mode remains single-request because the backend is not concurrency-safe.
       if (!isReadOnlyBdCommand(args)) {
-        return yield* withSerializedBdAccess(cwd, runBdRawProcess(cwd, args));
+        return yield* withSerializedBdAccess(
+          cwd,
+          runBdRawProcess(cwd, args, {
+            readOnly: false,
+            routing: "serialized.write",
+            strategySource: "write",
+          }),
+        );
       }
 
       if (isBdContextCommand(args)) {
@@ -1065,8 +1378,21 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         if (cached) {
           return yield* (
             cached === "parallel"
-              ? runBdRawProcess(cwd, args)
-              : withSerializedBdAccess(cwd, runBdRawProcess(cwd, args))
+              ? runBdRawProcess(cwd, args, {
+                  readOnly: true,
+                  routing: "parallel.context",
+                  strategySource: "cached",
+                  executionStrategy: cached,
+                })
+              : withSerializedBdAccess(
+                  cwd,
+                  runBdRawProcess(cwd, args, {
+                    readOnly: true,
+                    routing: "serialized.context",
+                    strategySource: "cached",
+                    executionStrategy: cached,
+                  }),
+                )
           ).pipe(
             Effect.tap((stdout) => {
               const strategy = parseBdExecutionStrategyFromContextStdout(stdout);
@@ -1079,12 +1405,33 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         if (!created) {
           const strategy = yield* Deferred.await(deferred);
           return yield* strategy === "parallel"
-            ? runBdRawProcess(cwd, args)
-            : withSerializedBdAccess(cwd, runBdRawProcess(cwd, args));
+            ? runBdRawProcess(cwd, args, {
+                readOnly: true,
+                routing: "parallel.context",
+                strategySource: "deferred",
+                executionStrategy: strategy,
+              })
+            : withSerializedBdAccess(
+                cwd,
+                runBdRawProcess(cwd, args, {
+                  readOnly: true,
+                  routing: "serialized.context",
+                  strategySource: "deferred",
+                  executionStrategy: strategy,
+                }),
+              );
         }
 
         const exit = yield* Effect.exit(
-          withSerializedBdAccess(cwd, runBdRawProcess(cwd, args)).pipe(
+          withSerializedBdAccess(
+            cwd,
+            runBdRawProcess(cwd, args, {
+              readOnly: true,
+              routing: "serialized.context",
+              strategySource: "context",
+              executionStrategy: "unknown",
+            }),
+          ).pipe(
             Effect.flatMap((stdout) => {
               const strategy = parseBdExecutionStrategyFromContextStdout(stdout) ?? "serial";
               return setBdExecutionStrategy(cwd, strategy).pipe(
@@ -1107,8 +1454,21 @@ const makeBeadsTrackerService = Effect.gen(function* () {
 
       const strategy = yield* resolveBdExecutionStrategy(cwd);
       return yield* strategy === "parallel"
-        ? runBdRawProcess(cwd, args)
-        : withSerializedBdAccess(cwd, runBdRawProcess(cwd, args));
+        ? runBdRawProcess(cwd, args, {
+            readOnly: true,
+            routing: "parallel.read",
+            strategySource: "resolved",
+            executionStrategy: strategy,
+          })
+        : withSerializedBdAccess(
+            cwd,
+            runBdRawProcess(cwd, args, {
+              readOnly: true,
+              routing: "serialized.read",
+              strategySource: "resolved",
+              executionStrategy: strategy,
+            }),
+          );
     });
 
   const runBdJson = <T>(
@@ -1463,8 +1823,147 @@ const makeBeadsTrackerService = Effect.gen(function* () {
       active: mapIssueRelationArray(input.rawStatus.active, childIssueRecordById),
       ready: mapIssueRelationArray(input.rawStatus.ready, childIssueRecordById),
       blocked: mapIssueRelationArray(input.rawStatus.blocked, childIssueRecordById),
+      blockedBreakdown: {
+        internal: [],
+        external: [],
+        unknown: [],
+      },
     });
   };
+
+  const buildBlockedIssueBreakdown = (input: {
+    cwd: string;
+    rawEpic: Record<string, unknown>;
+    status: BeadsSwarmStatus;
+  }) =>
+    Effect.gen(function* () {
+      if (input.status.blocked.length === 0) {
+        return {
+          internal: [],
+          external: [],
+          unknown: [],
+        } satisfies BeadsSwarmStatus["blockedBreakdown"];
+      }
+
+      const epicChildIssueIds = new Set(
+        asRecordArray(input.rawEpic.dependents)
+          .filter((entry) => trimToNull(entry.dependency_type) === "parent-child")
+          .flatMap((entry) => {
+            const issueId = trimToNull(entry.id);
+            return issueId ? [issueId] : [];
+          }),
+      );
+      const cachedRawIssueEffects = new Map<
+        string,
+        Effect.Effect<Record<string, unknown>, BeadsError>
+      >();
+      const loadRawIssueCached = (issueId: string) =>
+        Effect.gen(function* () {
+          let cached = cachedRawIssueEffects.get(issueId);
+          if (!cached) {
+            cached = yield* Effect.cached(getRawIssue(input.cwd, issueId));
+            cachedRawIssueEffects.set(issueId, cached);
+          }
+          return yield* cached;
+        });
+
+      const blockedClassifications = yield* Effect.forEach(
+        input.status.blocked,
+        (blockedIssue) =>
+          Effect.gen(function* () {
+            const rawBlockedIssueExit = yield* Effect.exit(loadRawIssueCached(blockedIssue.id));
+            if (rawBlockedIssueExit._tag === "Failure") {
+              return {
+                issue: blockedIssue,
+                classification: "unknown" as const,
+              };
+            }
+
+            const rawBlockedIssue = rawBlockedIssueExit.value;
+            if (!Array.isArray(rawBlockedIssue.dependencies)) {
+              return {
+                issue: blockedIssue,
+                classification: "unknown" as const,
+              };
+            }
+
+            const unresolvedDependencyIds = asRecordArray(rawBlockedIssue.dependencies).flatMap(
+              (dependency) => {
+                if (trimToNull(dependency.dependency_type) === "parent-child") {
+                  return [];
+                }
+
+                const dependencyId = trimToNull(dependency.id);
+                if (!dependencyId) {
+                  return [null];
+                }
+
+                return trimToNull(dependency.status) === "closed" ? [] : [dependencyId];
+              },
+            );
+
+            if (unresolvedDependencyIds.length === 0) {
+              return {
+                issue: blockedIssue,
+                classification: "unknown" as const,
+              };
+            }
+
+            if (unresolvedDependencyIds.some((dependencyId) => dependencyId === null)) {
+              return {
+                issue: blockedIssue,
+                classification: "unknown" as const,
+              };
+            }
+
+            const unresolvedDependencyIdStrings = unresolvedDependencyIds.filter(
+              (dependencyId): dependencyId is string => dependencyId !== null,
+            );
+
+            return {
+              issue: blockedIssue,
+              classification: unresolvedDependencyIdStrings.some(
+                (dependencyId) => !epicChildIssueIds.has(dependencyId),
+              )
+                ? ("external" as const)
+                : ("internal" as const),
+            };
+          }),
+        { concurrency: BLOCKED_ISSUE_LOOKUP_CONCURRENCY },
+      );
+
+      const breakdown = {
+        internal: [] as BeadsIssueRelationSummaryType[],
+        external: [] as BeadsIssueRelationSummaryType[],
+        unknown: [] as BeadsIssueRelationSummaryType[],
+      };
+      for (const item of blockedClassifications) {
+        breakdown[item.classification].push(item.issue);
+      }
+
+      return breakdown;
+    });
+
+  const buildSwarmStatusFromRaw = (input: {
+    cwd: string;
+    rawEpic: Record<string, unknown>;
+    epic: BeadsIssueSummaryType;
+    rawStatus: Record<string, unknown>;
+    swarmSummary: BeadsSwarmSummaryType | null | undefined;
+  }) =>
+    Effect.gen(function* () {
+      const status = decodeStatusFromRaw(input);
+      const blockedBreakdown = yield* buildBlockedIssueBreakdown({
+        cwd: input.cwd,
+        rawEpic: input.rawEpic,
+        status,
+      });
+
+      return decodeSwarmStatus({
+        ...status,
+        blockedBreakdown,
+      });
+    });
 
   const loadEpicCoordinatorTrackerState: BeadsTrackerServiceShape["loadEpicCoordinatorTrackerState"] =
     (input) =>
@@ -1529,7 +2028,8 @@ const makeBeadsTrackerService = Effect.gen(function* () {
               : null,
           status:
             statusExit._tag === "Success"
-              ? decodeStatusFromRaw({
+              ? yield* buildSwarmStatusFromRaw({
+                  cwd: input.cwd,
                   rawEpic,
                   epic,
                   rawStatus: statusExit.value,
@@ -1618,7 +2118,13 @@ const makeBeadsTrackerService = Effect.gen(function* () {
       const swarmSummary =
         swarms.swarms.find((swarm) => swarm.epicId === input.epicIssueId) ?? null;
 
-      return decodeStatusFromRaw({ rawEpic, epic, rawStatus, swarmSummary });
+      return yield* buildSwarmStatusFromRaw({
+        cwd: input.cwd,
+        rawEpic,
+        epic,
+        rawStatus,
+        swarmSummary,
+      });
     });
 
   return {
@@ -1761,6 +2267,61 @@ const makeBeadsService = Effect.gen(function* () {
       } satisfies BeadsStartWorkflowResult;
     },
   );
+
+  const startProjectThread = Effect.fn("BeadsService.startProjectThread")(function* (input: {
+    projectId: BeadsStartBacklogGroomingInput["projectId"];
+    modelSelection: BeadsStartBacklogGroomingInput["modelSelection"];
+    runtimeMode: BeadsStartBacklogGroomingInput["runtimeMode"];
+    interactionMode: "default" | "plan";
+    threadTitle: string;
+    promptText: string;
+    createThreadErrorMessage: string;
+    startTurnErrorMessage: string;
+  }) {
+    const nextThreadId = threadId();
+    const createdAt = nowIso();
+
+    yield* orchestrationEngine
+      .dispatch({
+        type: "thread.create",
+        commandId: commandId("create-thread"),
+        threadId: nextThreadId,
+        projectId: input.projectId,
+        title: input.threadTitle,
+        modelSelection: input.modelSelection,
+        runtimeMode: input.runtimeMode,
+        interactionMode: input.interactionMode,
+        branch: null,
+        worktreePath: null,
+        issueLink: null,
+        createdAt,
+      })
+      .pipe(Effect.mapError((cause) => toBeadsError(input.createThreadErrorMessage, cause)));
+
+    yield* orchestrationEngine
+      .dispatch({
+        type: "thread.turn.start",
+        commandId: commandId("start-turn"),
+        threadId: nextThreadId,
+        message: {
+          messageId: messageId("initial"),
+          role: "user",
+          text: input.promptText,
+          attachments: [],
+        },
+        modelSelection: input.modelSelection,
+        runtimeMode: input.runtimeMode,
+        interactionMode: input.interactionMode,
+        titleSeed: input.threadTitle,
+        createdAt,
+      })
+      .pipe(Effect.mapError((cause) => toBeadsError(input.startTurnErrorMessage, cause)));
+
+    return {
+      threadId: nextThreadId,
+      created: true,
+    } satisfies BeadsStartWorkflowResult;
+  });
 
   const queryIssues: BeadsServiceShape["queryIssues"] = (input) => beadsTracker.queryIssues(input);
   const getIssue: BeadsServiceShape["getIssue"] = (input) => beadsTracker.getIssue(input);
@@ -1980,6 +2541,18 @@ const makeBeadsService = Effect.gen(function* () {
       });
     });
 
+  const startBacklogGrooming: BeadsServiceShape["startBacklogGrooming"] = (input) =>
+    startProjectThread({
+      projectId: input.projectId,
+      modelSelection: input.modelSelection,
+      runtimeMode: input.runtimeMode,
+      interactionMode: "plan",
+      threadTitle: buildBacklogGroomingThreadTitle(),
+      promptText: buildBacklogGroomingPrompt(),
+      createThreadErrorMessage: "Failed to create backlog grooming thread.",
+      startTurnErrorMessage: "Failed to start backlog grooming workflow.",
+    });
+
   const startEpicQuickRefine: BeadsServiceShape["startEpicQuickRefine"] = (input) =>
     Effect.gen(function* () {
       const epic = yield* beadsTracker.getIssue({ cwd: input.cwd, issueId: input.epicIssueId });
@@ -2078,6 +2651,7 @@ const makeBeadsService = Effect.gen(function* () {
     getEpicCoordinatorSnapshot,
     getSessionActivity,
     startWorkflow,
+    startBacklogGrooming,
     startEpicQuickRefine,
     startEpicPlannedRefine,
     startEpicCoordinationPrep,
