@@ -457,7 +457,7 @@ describe("swarm", () => {
       }),
     ).toEqual({
       kind: "resume_paused_swarm_run",
-      label: "Resume swarm",
+      label: "Resume epic",
       busyLabel: "Resuming...",
       disabled: false,
     });
@@ -478,7 +478,7 @@ describe("swarm", () => {
       }),
     ).toEqual({
       kind: "open_coordinator",
-      label: "Open coordinator",
+      label: "Open epic",
       busyLabel: "Opening...",
       disabled: false,
     });
@@ -520,7 +520,7 @@ describe("swarm", () => {
       }),
     ).toEqual({
       kind: "open_coordinator",
-      label: "View active swarm",
+      label: "View active epic",
       busyLabel: "Opening...",
       disabled: false,
     });

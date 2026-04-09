@@ -304,13 +304,13 @@ export function describeCoordinatorEpicState(input: {
     case "idle":
       return {
         label: "Idle",
-        summary: "Waiting for the next issue to be dispatched.",
+        summary: "Waiting for the next issue in this epic.",
         category: "active",
       };
     case "paused":
       return {
         label: "Paused",
-        summary: "Run paused. Resume to continue processing issues.",
+        summary: "Epic paused. Resume to continue processing issues.",
         category: "active",
       };
     case "blocked":
@@ -328,19 +328,19 @@ export function describeCoordinatorEpicState(input: {
     case "ready":
       return {
         label: "Ready",
-        summary: "Epic structure is ready for coordinated execution.",
+        summary: "Epic is ready to start.",
         category: "ready",
       };
     case "needs_preparation":
       return {
         label: "Needs prep",
-        summary: "Epic structure is invalid. Open a prep thread before starting.",
+        summary: "Epic needs prep before it can start.",
         category: "setup",
       };
     case "unsupported":
       return {
         label: "Unavailable",
-        summary: "This backend does not support swarm coordination.",
+        summary: "This backend does not support epic coordination.",
         category: "done",
       };
     case "completed":
@@ -361,32 +361,32 @@ export function describeCoordinatorEpicState(input: {
     case "checking":
       return {
         label: "Loading",
-        summary: input.fetchDetail ?? "Checking swarm state...",
+        summary: input.fetchDetail ?? "Checking epic status...",
         category: "loading",
       };
     case "timeout":
       return {
         label: "Timed out",
-        summary: input.fetchDetail ?? "State request timed out. Retry to refresh.",
+        summary: input.fetchDetail ?? "Epic status request timed out. Retry to refresh.",
         category: "blocked",
       };
     case "stale":
       return {
         label: "Stale",
-        summary: input.fetchDetail ?? "Showing last known state. Refresh to update.",
+        summary: input.fetchDetail ?? "Showing last known epic status. Refresh to update.",
         category: "blocked",
       };
     case "error":
       return {
         label: "Error",
-        summary: input.fetchDetail ?? "Could not load swarm state. Retry to refresh.",
+        summary: input.fetchDetail ?? "Could not load epic status. Retry to refresh.",
         category: "blocked",
       };
   }
 }
 
 export function describeSharedWorkspaceProjectConflict(run: OrchestrationSwarmRun): string {
-  return `Shared workspace is already busy with ${run.epicIssueId} (${formatSwarmRunStatusLabel(run.status)}). Finish, cancel, or resume that run before starting or resuming another shared-workspace swarm in this project.`;
+  return `Shared workspace is already busy with ${run.epicIssueId} (${formatSwarmRunStatusLabel(run.status)}). Finish, cancel, or resume that epic before starting or resuming another epic in this project.`;
 }
 
 export type SwarmCoordinatorFetchLifecycleKind =
@@ -547,36 +547,36 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
     case "checking":
       return {
         kind: "checking",
-        label: "Checking swarm...",
+        label: "Checking epic...",
         busyLabel: "Checking...",
         disabled: true,
       };
     case "timeout":
       return {
         kind: "refresh_swarm_state",
-        label: "Retry swarm state",
+        label: "Retry epic status",
         busyLabel: "Retrying...",
         disabled: false,
       };
     case "stale":
       return {
         kind: "refresh_swarm_state",
-        label: "Refresh swarm state",
+        label: "Refresh epic status",
         busyLabel: "Refreshing...",
         disabled: false,
       };
     case "error":
       return {
         kind: "refresh_swarm_state",
-        label: "Retry swarm state",
+        label: "Retry epic status",
         busyLabel: "Retrying...",
         disabled: false,
       };
     case "unsupported":
       return {
         kind: "unsupported",
-        label: "Swarm unavailable",
-        busyLabel: "Swarm unavailable",
+        label: "Epic coordination unavailable",
+        busyLabel: "Epic coordination unavailable",
         disabled: true,
       };
     case "needs_preparation":
@@ -590,14 +590,14 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
       if (input.hasProjectConflict) {
         return {
           kind: "open_coordinator",
-          label: "View active swarm",
+          label: "View active epic",
           busyLabel: "Opening...",
           disabled: false,
         };
       }
       return {
         kind: "start_swarm",
-        label: "Start swarm",
+        label: "Start epic",
         busyLabel: "Starting...",
         disabled: false,
       };
@@ -605,14 +605,14 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
       if (input.hasProjectConflict) {
         return {
           kind: "open_coordinator",
-          label: "View active swarm",
+          label: "View active epic",
           busyLabel: "Opening...",
           disabled: false,
         };
       }
       return {
         kind: "open_coordinator",
-        label: "Open coordinator",
+        label: "Open epic",
         busyLabel: "Opening...",
         disabled: false,
       };
@@ -620,7 +620,7 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
       if (input.hasProjectConflict) {
         return {
           kind: "open_coordinator",
-          label: "View active swarm",
+          label: "View active epic",
           busyLabel: "Opening...",
           disabled: false,
         };
@@ -635,7 +635,7 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
       }
       return {
         kind: "open_coordinator",
-        label: "Open coordinator",
+        label: "Open epic",
         busyLabel: "Opening...",
         disabled: false,
       };
@@ -643,14 +643,14 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
       if (input.hasProjectConflict) {
         return {
           kind: "open_coordinator",
-          label: "View active swarm",
+          label: "View active epic",
           busyLabel: "Opening...",
           disabled: false,
         };
       }
       return {
         kind: "resume_paused_swarm_run",
-        label: "Resume swarm",
+        label: "Resume epic",
         busyLabel: "Resuming...",
         disabled: false,
       };
@@ -664,28 +664,28 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
           }
         : {
             kind: "open_coordinator",
-            label: "Open coordinator",
+            label: "Open epic",
             busyLabel: "Opening...",
             disabled: false,
           };
     case "failed":
       return {
         kind: "open_coordinator",
-        label: "Open coordinator",
+        label: "Open epic",
         busyLabel: "Opening...",
         disabled: false,
       };
     case "cancelled":
       return {
         kind: "open_coordinator",
-        label: input.hasProjectConflict ? "View active swarm" : "Open coordinator",
+        label: input.hasProjectConflict ? "View active epic" : "Open epic",
         busyLabel: "Opening...",
         disabled: false,
       };
     case "completed":
       return {
         kind: "open_coordinator",
-        label: "Open coordinator",
+        label: "Open epic",
         busyLabel: "Opening...",
         disabled: false,
       };

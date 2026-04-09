@@ -453,7 +453,7 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
         <ZapIcon className="size-8 text-muted-foreground/30" />
-        <p className="text-sm text-muted-foreground">No epics or swarm history found.</p>
+        <p className="text-sm text-muted-foreground">No epics found.</p>
         <p className="text-xs text-muted-foreground/70">
           Create an epic issue to get started with the coordinator.
         </p>
@@ -478,7 +478,7 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
             <EpicListSection
               label="Active"
               epics={sections.active}
-              emptyText="No active swarm runs."
+              emptyText="No active epics."
               selectedEpicId={effectiveSelectedEpic?.epicId ?? null}
               onSelect={props.onSelectEpic}
               onOpenEpicIssue={props.onOpenEpicIssue}
@@ -894,7 +894,7 @@ function CoordinatorActionBar(props: {
   if (run?.status === "running" && epic.activeExecution === null) {
     actions.push({
       key: `pause:${run.runId}`,
-      label: "Pause swarm",
+      label: "Pause epic",
       busyLabel: "Pausing...",
       variant: "outline",
       icon: <PauseIcon className="size-3" />,
@@ -905,7 +905,7 @@ function CoordinatorActionBar(props: {
   if (run && run.status !== "cancelled" && run.status !== "completed" && run.status !== "failed") {
     actions.push({
       key: `cancel:${run.runId}`,
-      label: "Cancel swarm",
+      label: "Cancel epic",
       busyLabel: "Cancelling...",
       variant: "destructive-outline",
       icon: <XIcon className="size-3" />,
@@ -946,19 +946,19 @@ function describeCoordinatorActionError(actionKind: CoordinatorActionInput["kind
     case "open_coordination_prep_thread":
       return "Unable to open prep thread";
     case "start_swarm":
-      return "Unable to start swarm";
+      return "Unable to start epic";
     case "run_next_swarm_task":
-      return "Unable to run the next swarm task";
+      return "Unable to run the next epic task";
     case "resume_paused_swarm_run":
-      return "Unable to resume the paused swarm";
+      return "Unable to resume the paused epic";
     case "retry_swarm_task_execution":
-      return "Unable to retry the swarm task";
+      return "Unable to retry the epic task";
     case "pause_swarm":
-      return "Unable to pause swarm";
+      return "Unable to pause epic";
     case "cancel_swarm":
-      return "Unable to cancel swarm";
+      return "Unable to cancel epic";
     case "refresh_swarm_state":
-      return "Unable to refresh swarm state";
+      return "Unable to refresh epic status";
     default:
       return "Unable to run coordinator action";
   }

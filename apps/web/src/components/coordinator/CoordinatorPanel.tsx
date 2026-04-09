@@ -186,7 +186,7 @@ export function CoordinatorPanel(props: CoordinatorPanelProps) {
   }
 
   if (totalCards === 0) {
-    return <PanelMessage>No epics or swarm history found for this project.</PanelMessage>;
+    return <PanelMessage>No epics found for this project.</PanelMessage>;
   }
 
   return (
@@ -205,7 +205,7 @@ export function CoordinatorPanel(props: CoordinatorPanelProps) {
         ))}
       </Section>
 
-      <Section label="Active" count={sections.active.length} emptyText="No active swarm runs.">
+      <Section label="Active" count={sections.active.length} emptyText="No active epics.">
         {sections.active.map((card) => (
           <EpicCard key={card.epicId} card={card} {...props} />
         ))}
@@ -571,7 +571,7 @@ function CardActions(props: { card: CoordinatorCardData; panelProps: CardActions
     if (c.stateKind === "ready" && !conflict) {
       return {
         key: "start",
-        label: "Start swarm",
+        label: "Start epic",
         busyLabel: "Starting...",
         busyKey: startKey,
         onClick: () => p.onOpenStartSwarm(c),
@@ -593,7 +593,7 @@ function CardActions(props: { card: CoordinatorCardData; panelProps: CardActions
     if (run?.status === "blocked" && run.blockedContext?.kind === "worker_failure") {
       return {
         key: "continue",
-        label: "Continue swarm",
+        label: "Continue epic",
         busyLabel: "Continuing...",
         busyKey: continueKey,
         onClick: () => p.onContinueRun(run.runId),
@@ -691,7 +691,7 @@ function CardActions(props: { card: CoordinatorCardData; panelProps: CardActions
     if (c.projectConflict) {
       actions.push({
         key: "open-conflict",
-        label: "View active swarm",
+        label: "View active epic",
         onClick: () => p.onOpenEpic(c.projectConflict!.run.epicIssueId),
       });
     }

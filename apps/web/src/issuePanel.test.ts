@@ -572,13 +572,13 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       }),
     ).toEqual({
       kind: "checking",
-      label: "Checking swarm...",
+      label: "Checking epic...",
       busyLabel: "Checking...",
       disabled: true,
     });
   });
 
-  it("returns Retry swarm state when fetches timed out", () => {
+  it("returns Retry epic status when fetches timed out", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -590,7 +590,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       }),
     ).toEqual({
       kind: "refresh_swarm_state",
-      label: "Retry swarm state",
+      label: "Retry epic status",
       busyLabel: "Retrying...",
       disabled: false,
     });
@@ -661,7 +661,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     });
   });
 
-  it("returns Start swarm when the swarm is valid and runnable", () => {
+  it("returns Start epic when the swarm is valid and runnable", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -687,13 +687,13 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       }),
     ).toEqual({
       kind: "start_swarm",
-      label: "Start swarm",
+      label: "Start epic",
       busyLabel: "Starting...",
       disabled: false,
     });
   });
 
-  it("returns Open coordinator when a swarm run already exists", () => {
+  it("returns Open epic when a swarm run already exists", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -719,13 +719,13 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       }),
     ).toEqual({
       kind: "open_coordinator",
-      label: "Open coordinator",
+      label: "Open epic",
       busyLabel: "Opening...",
       disabled: false,
     });
   });
 
-  it("returns Resume swarm for paused runs and Open coordinator for cancelled runs", () => {
+  it("returns Resume epic for paused runs and Open epic for cancelled runs", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -756,7 +756,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       }),
     ).toEqual({
       kind: "resume_paused_swarm_run",
-      label: "Resume swarm",
+      label: "Resume epic",
       busyLabel: "Resuming...",
       disabled: false,
     });
@@ -791,7 +791,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       }),
     ).toEqual({
       kind: "open_coordinator",
-      label: "Open coordinator",
+      label: "Open epic",
       busyLabel: "Opening...",
       disabled: false,
     });
@@ -835,7 +835,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     });
   });
 
-  it("returns Open coordinator when the latest run failed but the swarm is still valid", () => {
+  it("returns Open epic when the latest run failed but the swarm is still valid", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -876,13 +876,13 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       }),
     ).toEqual({
       kind: "open_coordinator",
-      label: "Open coordinator",
+      label: "Open epic",
       busyLabel: "Opening...",
       disabled: false,
     });
   });
 
-  it("returns Open coordinator when the latest run failed and validation is now broken", () => {
+  it("returns Open epic when the latest run failed and validation is now broken", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -923,13 +923,13 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       }),
     ).toEqual({
       kind: "open_coordinator",
-      label: "Open coordinator",
+      label: "Open epic",
       busyLabel: "Opening...",
       disabled: false,
     });
   });
 
-  it("returns Open coordinator when the latest run failed and epic structure is invalid", () => {
+  it("returns Open epic when the latest run failed and epic structure is invalid", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -941,7 +941,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       }),
     ).toEqual({
       kind: "open_coordinator",
-      label: "Open coordinator",
+      label: "Open epic",
       busyLabel: "Opening...",
       disabled: false,
     });
@@ -1098,7 +1098,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     });
   });
 
-  it("keeps Open coordinator for generic tracker-blocked runs", () => {
+  it("keeps Open epic for generic tracker-blocked runs", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -1161,7 +1161,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       }),
     ).toEqual({
       kind: "open_coordinator",
-      label: "Open coordinator",
+      label: "Open epic",
       busyLabel: "Opening...",
       disabled: false,
     });
@@ -1199,7 +1199,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       }),
     ).toEqual({
       kind: "open_coordinator",
-      label: "View active swarm",
+      label: "View active epic",
       busyLabel: "Opening...",
       disabled: false,
     });

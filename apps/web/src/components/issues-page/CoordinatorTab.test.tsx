@@ -40,7 +40,7 @@ function renderCoordinatorTab() {
               stateKind: "cancelled",
               primaryAction: {
                 kind: "resume_paused_swarm_run",
-                label: "Resume swarm",
+                label: "Resume epic",
                 busyLabel: "Resuming...",
                 disabled: false,
               },
@@ -91,10 +91,10 @@ function renderCoordinatorTab() {
 }
 
 describe("CoordinatorTab actions", () => {
-  it("renders a resume action for cancelled swarms", () => {
+  it("renders a resume action for cancelled epics", () => {
     const markup = renderCoordinatorTab();
 
     expect(markup).toContain("Actions");
-    expect(markup).toContain("Resume swarm");
+    expect(markup).toContain("Resume epic");
   });
 });
