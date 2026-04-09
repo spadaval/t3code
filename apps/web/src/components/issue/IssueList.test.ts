@@ -146,4 +146,34 @@ describe("IssueList hierarchy rendering", () => {
     expect(markup).not.toContain("Hidden story");
     expect(markup).not.toContain("Epic 1");
   });
+
+  it("keeps epic progress counts stable when closed children are filtered out", () => {
+    const markup = renderToStaticMarkup(
+      createElement(IssueList, {
+        issues: [
+          makeIssue({
+            id: "EPIC-1",
+            title: "Epic 1",
+            issueType: "epic",
+          }),
+          makeIssue({
+            id: "TASK-OPEN",
+            title: "Open task",
+            parent: { id: "EPIC-1", title: "Epic 1" },
+            status: "open",
+          }),
+          makeIssue({
+            id: "TASK-CLOSED",
+            title: "Closed task",
+            parent: { id: "EPIC-1", title: "Epic 1" },
+            status: "closed",
+          }),
+        ],
+        scopeFilter: "active",
+      }),
+    );
+
+    expect(markup).toContain("1/2 done");
+    expect(markup).not.toContain("Closed task");
+  });
 });

@@ -5,6 +5,7 @@ import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { filterIssuesForList } from "~/lib/issuePanelLogic";
 import {
   buildIssueTree,
+  buildIssueTreeNodeLookup,
   collectIssueTreeBranchIds,
   countIssueTreeDescendantStatuses,
   flattenVisibleIssueTree,
@@ -132,6 +133,11 @@ export function IssueList({
   const issueTree = useMemo(() => {
     return buildIssueTree(filteredIssues);
   }, [filteredIssues]);
+  const fullIssueTree = useMemo(() => buildIssueTree(issues), [issues]);
+  const fullTreeNodesById = useMemo(
+    () => buildIssueTreeNodeLookup(fullIssueTree.roots),
+    [fullIssueTree.roots],
+  );
 
   const branchIds = useMemo(() => collectIssueTreeBranchIds(issueTree.roots), [issueTree.roots]);
 
@@ -315,6 +321,7 @@ export function IssueList({
                 onIssueSelect={onIssueSelect}
                 onIssueContextMenu={handleIssueContextMenu}
                 onLabelClick={onLabelClick}
+                progressNodesById={fullTreeNodesById}
               />
             ))}
           </div>
@@ -414,6 +421,7 @@ function IssueTreeNodeSection({
   onIssueSelect,
   onIssueContextMenu,
   onLabelClick,
+  progressNodesById,
 }: {
   node: IssueTreeNode;
   collapsedById: Readonly<Record<string, boolean>>;
@@ -423,10 +431,12 @@ function IssueTreeNodeSection({
   onIssueSelect?: ((issueId: string) => void) | undefined;
   onIssueContextMenu?: ((issue: BeadsIssueSummary, event: React.MouseEvent) => void) | undefined;
   onLabelClick?: ((label: string) => void) | undefined;
+  progressNodesById: ReadonlyMap<string, IssueTreeNode>;
 }) {
   const collapsed = node.hasVisibleChildren ? (collapsedById[node.issue.id] ?? true) : false;
   const indentStyle =
     node.depth === 0 ? undefined : ({ paddingLeft: `${String(node.depth * 16)}px` } as const);
+  const progressNode = progressNodesById.get(node.issue.id) ?? node;
 
   return (
     <div style={indentStyle}>
@@ -439,6 +449,7 @@ function IssueTreeNodeSection({
           onToggle={() => onToggleBranch(node.issue.id)}
           onIssueSelect={onIssueSelect}
           onIssueContextMenu={onIssueContextMenu}
+          progressNode={progressNode}
         >
           {!collapsed &&
             node.children.map((child) => (
@@ -452,6 +463,7 @@ function IssueTreeNodeSection({
                 onIssueSelect={onIssueSelect}
                 onIssueContextMenu={onIssueContextMenu}
                 onLabelClick={onLabelClick}
+                progressNodesById={progressNodesById}
               />
             ))}
         </EpicTreeSection>
@@ -479,6 +491,7 @@ function IssueTreeNodeSection({
                 onIssueSelect={onIssueSelect}
                 onIssueContextMenu={onIssueContextMenu}
                 onLabelClick={onLabelClick}
+                progressNodesById={progressNodesById}
               />
             ))}
         </>
@@ -504,6 +517,7 @@ function EpicTreeSection({
   onToggle,
   onIssueSelect,
   onIssueContextMenu,
+  progressNode,
   children,
 }: {
   node: IssueTreeNode;
@@ -513,9 +527,13 @@ function EpicTreeSection({
   onToggle: () => void;
   onIssueSelect?: ((issueId: string) => void) | undefined;
   onIssueContextMenu?: ((issue: BeadsIssueSummary, event: React.MouseEvent) => void) | undefined;
+  progressNode: IssueTreeNode;
   children: ReactNode;
 }) {
-  const descendantStatusCounts = useMemo(() => countIssueTreeDescendantStatuses(node), [node]);
+  const descendantStatusCounts = useMemo(
+    () => countIssueTreeDescendantStatuses(progressNode),
+    [progressNode],
+  );
 
   return (
     <div className="overflow-hidden rounded-md border border-border/40">

@@ -191,6 +191,25 @@ export function collectIssueTreeBranchIds(roots: readonly IssueTreeNode[]): stri
   return branchIds;
 }
 
+export function buildIssueTreeNodeLookup(
+  roots: readonly IssueTreeNode[],
+): ReadonlyMap<string, IssueTreeNode> {
+  const nodesById = new Map<string, IssueTreeNode>();
+
+  const visitNode = (node: IssueTreeNode) => {
+    nodesById.set(node.issue.id, node);
+    for (const child of node.children) {
+      visitNode(child);
+    }
+  };
+
+  for (const root of roots) {
+    visitNode(root);
+  }
+
+  return nodesById;
+}
+
 export function countIssueTreeDescendantStatuses(
   node: IssueTreeNode,
 ): IssueTreeDescendantStatusCounts {
