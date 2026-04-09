@@ -349,7 +349,7 @@ describe("deriveEpicCoordinatorState", () => {
     });
   });
 
-  it("returns no_swarm when no swarm exists and there is no run history", () => {
+  it("returns needs_preparation when epic structure is invalid and there is no run history", () => {
     expect(
       deriveEpicCoordinatorState({
         swarmSupport: { supported: true },
@@ -359,13 +359,13 @@ describe("deriveEpicCoordinatorState", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "no_swarm",
+      kind: "needs_preparation",
       latestRun: null,
       fetchLifecycle: READY_FETCH_LIFECYCLE,
     });
   });
 
-  it("returns needs_repair when a swarm exists but beads validation fails", () => {
+  it("returns needs_preparation when a swarm exists but beads validation fails", () => {
     expect(
       deriveEpicCoordinatorState({
         swarmSupport: { supported: true },
@@ -400,7 +400,7 @@ describe("deriveEpicCoordinatorState", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "needs_repair",
+      kind: "needs_preparation",
       latestRun: null,
       fetchLifecycle: READY_FETCH_LIFECYCLE,
     });
@@ -425,6 +425,22 @@ describe("deriveEpicCoordinatorState", () => {
             activeWorkerCount: 1,
           },
         },
+        swarmRuns: [],
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
+      }),
+    ).toEqual({
+      kind: "ready",
+      latestRun: null,
+      fetchLifecycle: READY_FETCH_LIFECYCLE,
+    });
+  });
+
+  it("returns ready when epic structure is valid even if swarm metadata is still missing", () => {
+    expect(
+      deriveEpicCoordinatorState({
+        swarmSupport: { supported: true },
+        status: { swarm: null },
+        validation: { valid: true, swarm: null },
         swarmRuns: [],
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
@@ -580,7 +596,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     });
   });
 
-  it("returns Create swarm when the epic has no swarm", () => {
+  it("returns Open prep thread when epic structure is invalid and no swarm exists", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -591,14 +607,14 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "create_swarm",
-      label: "Create swarm",
-      busyLabel: "Starting...",
+      kind: "open_coordination_prep_thread",
+      label: "Open prep thread",
+      busyLabel: "Opening...",
       disabled: false,
     });
   });
 
-  it("returns Repair swarm when the epic swarm exists but is invalid", () => {
+  it("returns Open prep thread when the epic swarm exists but is invalid", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -638,9 +654,9 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "repair_swarm",
-      label: "Repair swarm",
-      busyLabel: "Starting...",
+      kind: "open_coordination_prep_thread",
+      label: "Open prep thread",
+      busyLabel: "Opening...",
       disabled: false,
     });
   });
@@ -834,7 +850,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     });
   });
 
-  it("returns Repair swarm when the latest run failed and validation is now broken", () => {
+  it("returns Open prep thread when the latest run failed and validation is now broken", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -874,14 +890,14 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "repair_swarm",
-      label: "Repair swarm",
-      busyLabel: "Starting...",
+      kind: "open_coordination_prep_thread",
+      label: "Open prep thread",
+      busyLabel: "Opening...",
       disabled: false,
     });
   });
 
-  it("returns Create swarm when the latest run failed after the swarm disappeared", () => {
+  it("returns Open prep thread when the latest run failed and epic structure is invalid", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -892,9 +908,9 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "create_swarm",
-      label: "Create swarm",
-      busyLabel: "Starting...",
+      kind: "open_coordination_prep_thread",
+      label: "Open prep thread",
+      busyLabel: "Opening...",
       disabled: false,
     });
   });
@@ -1248,14 +1264,14 @@ describe("partitionCoordinatorEpics", () => {
   it("groups states into needs-attention, active, and history buckets", () => {
     expect(
       partitionCoordinatorEpics([
-        { id: "needs-repair", stateKind: "needs_repair" as const },
+        { id: "needs-preparation", stateKind: "needs_preparation" as const },
         { id: "running", stateKind: "running" as const },
         { id: "completed", stateKind: "completed" as const },
         { id: "idle", stateKind: "idle" as const },
       ]),
     ).toEqual({
       needsAttention: [
-        { id: "needs-repair", stateKind: "needs_repair" },
+        { id: "needs-preparation", stateKind: "needs_preparation" },
         { id: "idle", stateKind: "idle" },
       ],
       active: [{ id: "running", stateKind: "running" }],

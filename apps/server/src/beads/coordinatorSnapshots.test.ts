@@ -105,7 +105,7 @@ describe("buildCoordinatorEpicSnapshot", () => {
     });
   });
 
-  it("returns Repair swarm for failed runs when validation is broken", () => {
+  it("returns Open prep thread for failed runs when validation is broken", () => {
     const failedRun = makeSwarmRun({
       status: "failed",
       lastError: "boom",
@@ -157,9 +157,9 @@ describe("buildCoordinatorEpicSnapshot", () => {
 
     expect(snapshot.stateKind).toBe("failed");
     expect(snapshot.primaryAction).toEqual({
-      kind: "repair_swarm",
-      label: "Repair swarm",
-      busyLabel: "Starting...",
+      kind: "open_coordination_prep_thread",
+      label: "Open prep thread",
+      busyLabel: "Opening...",
       disabled: false,
     });
   });

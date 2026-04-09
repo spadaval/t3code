@@ -8,6 +8,7 @@ import {
   BeadsIssueGraph,
   BeadsProjectCoordinatorSnapshot,
   BeadsSessionActivityEntry,
+  BeadsStartEpicCoordinationPrepInput,
   BeadsStartWorkflowInput,
   BeadsSwarmValidation,
 } from "./beads";
@@ -19,6 +20,9 @@ const decodeBeadsProjectCoordinatorSnapshot = Schema.decodeUnknownEffect(
   BeadsProjectCoordinatorSnapshot,
 );
 const decodeBeadsSessionActivityEntry = Schema.decodeUnknownEffect(BeadsSessionActivityEntry);
+const decodeBeadsStartEpicCoordinationPrepInput = Schema.decodeUnknownEffect(
+  BeadsStartEpicCoordinationPrepInput,
+);
 const decodeBeadsStartWorkflowInput = Schema.decodeUnknownEffect(BeadsStartWorkflowInput);
 const decodeBeadsSwarmValidation = Schema.decodeUnknownEffect(BeadsSwarmValidation);
 
@@ -91,7 +95,7 @@ it.effect("defaults optional swarm validation metadata", () =>
   }),
 );
 
-it.effect("accepts plan-implementation workflow activity entries", () =>
+it.effect("accepts coordination-prep workflow activity entries", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeBeadsSessionActivityEntry({
       kind: "workflow-started",
@@ -112,11 +116,11 @@ it.effect("accepts plan-implementation workflow activity entries", () =>
         parent: null,
       },
       createdAt: "2026-01-03T00:00:00.000Z",
-      workflowKind: "plan-implementation",
+      workflowKind: "coordination-prep",
       threadId: "thread-1",
     });
 
-    assert.strictEqual(parsed.workflowKind, "plan-implementation");
+    assert.strictEqual(parsed.workflowKind, "coordination-prep");
   }),
 );
 
@@ -135,6 +139,23 @@ it.effect("accepts plan-implementation workflow launches", () =>
     });
 
     assert.strictEqual(parsed.workflow, "plan-implementation");
+  }),
+);
+
+it.effect("accepts epic coordination prep launches", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeBeadsStartEpicCoordinationPrepInput({
+      cwd: "/tmp/repo",
+      projectId: "project-1",
+      epicIssueId: "EPIC-1",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5.4-mini",
+      },
+      runtimeMode: "full-access",
+    });
+
+    assert.strictEqual(parsed.epicIssueId, "EPIC-1");
   }),
 );
 

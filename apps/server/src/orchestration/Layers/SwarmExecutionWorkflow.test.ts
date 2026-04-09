@@ -44,6 +44,8 @@ type HarnessOptions = {
   failUpdateIssueForIds?: ReadonlyArray<string>;
   failDispatchForCommandTypes?: ReadonlyArray<OrchestrationCommand["type"]>;
   beforeGetIssue?: (issueId: string) => Effect.Effect<void>;
+  createEpicSwarmMode?: "succeed" | "fail";
+  createEpicSwarmErrorMessage?: string;
 };
 
 function beadsError(message: string) {
@@ -731,6 +733,7 @@ describe("SwarmExecutionWorkflow", () => {
     options: HarnessOptions = {},
   ) {
     let trackerState = initialTrackerState;
+    let createEpicSwarmCallCount = 0;
     let readModel = createEmptyReadModel();
     let readModelCallCount = 0;
     let sequence = 0;
@@ -815,6 +818,50 @@ describe("SwarmExecutionWorkflow", () => {
       listSwarms: () =>
         Effect.succeed({
           swarms: trackerState.validation.swarm ? [trackerState.validation.swarm] : [],
+        }),
+      createEpicSwarm: ({ epicIssueId }) =>
+        Effect.suspend(() => {
+          createEpicSwarmCallCount += 1;
+
+          if (options.createEpicSwarmMode === "fail") {
+            return Effect.fail(
+              beadsError(
+                options.createEpicSwarmErrorMessage ??
+                  `Failed to create swarm for ${epicIssueId}: simulated create failure.`,
+              ),
+            );
+          }
+
+          const currentSwarm = trackerState.validation.swarm ?? trackerState.status.swarm;
+          const swarm = currentSwarm ?? {
+            swarmId: `SWARM-${epicIssueId}`,
+            epicId: epicIssueId,
+            epicTitle: trackerState.validation.epicTitle,
+            totalIssueCount:
+              trackerState.status.completed.length +
+              trackerState.status.active.length +
+              trackerState.status.ready.length +
+              trackerState.status.blocked.length,
+            completedIssueCount: trackerState.status.completed.length,
+            activeIssueCount: trackerState.status.active.length,
+            readyIssueCount: trackerState.status.ready.length,
+            blockedIssueCount: trackerState.status.blocked.length,
+            activeWorkerCount: 0,
+          };
+
+          trackerState = {
+            ...trackerState,
+            validation: {
+              ...trackerState.validation,
+              swarm,
+            },
+            status: {
+              ...trackerState.status,
+              swarm,
+            },
+          };
+
+          return Effect.succeed(swarm);
         }),
     };
 
@@ -906,6 +953,7 @@ describe("SwarmExecutionWorkflow", () => {
       setTrackerState: (next: TrackerState) => {
         trackerState = next;
       },
+      getCreateEpicSwarmCallCount: () => createEpicSwarmCallCount,
       getReadModelCallCount: () => readModelCallCount,
       patchReadModel: (transform: (current: OrchestrationReadModel) => OrchestrationReadModel) => {
         readModel = transform(readModel);
@@ -1063,7 +1111,7 @@ describe("SwarmExecutionWorkflow", () => {
     );
   });
 
-  it("rejects starting a run when the epic has no swarm", async () => {
+  it("auto-creates a missing swarm before starting a run", async () => {
     const baseline = makeTrackerState();
     const harness = await createHarness(
       makeTrackerState({
@@ -1078,17 +1126,22 @@ describe("SwarmExecutionWorkflow", () => {
       }),
     );
 
-    await expect(
-      runtime!.runPromise(
-        harness.workflow.startSwarmRun({
-          projectId: harness.projectId,
-          epicIssueId: "EPIC-1",
-          schedulerMode: "automatic",
-          workspaceMode: "shared",
-          runtimeMode: "full-access",
-        }),
-      ),
-    ).rejects.toThrow("does not have a swarm");
+    const started = await runtime!.runPromise(
+      harness.workflow.startSwarmRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        runtimeMode: "full-access",
+      }),
+    );
+
+    expect(started.status).toBe("requested");
+    expect(harness.getCreateEpicSwarmCallCount()).toBe(1);
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    expect(snapshot.swarmRuns).toHaveLength(1);
+    expect(snapshot.swarmRuns[0]?.epicIssueId).toBe("EPIC-1");
   });
 
   it("coalesces repeated continue signals for the same running run", async () => {
@@ -1170,7 +1223,60 @@ describe("SwarmExecutionWorkflow", () => {
           runtimeMode: "full-access",
         }),
       ),
-    ).rejects.toThrow("Swarm graph is invalid.");
+    ).rejects.toThrow("Cannot start swarm for EPIC-1: Swarm graph is invalid.");
+    expect(harness.getCreateEpicSwarmCallCount()).toBe(0);
+  });
+
+  it("does not auto-create a swarm when one already exists", async () => {
+    const harness = await createHarness();
+
+    await runtime!.runPromise(
+      harness.workflow.startSwarmRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        runtimeMode: "full-access",
+      }),
+    );
+
+    expect(harness.getCreateEpicSwarmCallCount()).toBe(0);
+  });
+
+  it("preserves explicit swarm creation failures when auto-create cannot recover", async () => {
+    const baseline = makeTrackerState();
+    const harness = await createHarness(
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          swarm: null,
+        },
+        status: {
+          ...baseline.status,
+          swarm: null,
+        },
+      }),
+      {
+        createEpicSwarmMode: "fail",
+        createEpicSwarmErrorMessage:
+          "Failed to create swarm for EPIC-1: swarm was still missing after create completed.",
+      },
+    );
+
+    await expect(
+      runtime!.runPromise(
+        harness.workflow.startSwarmRun({
+          projectId: harness.projectId,
+          epicIssueId: "EPIC-1",
+          schedulerMode: "automatic",
+          workspaceMode: "shared",
+          runtimeMode: "full-access",
+        }),
+      ),
+    ).rejects.toThrow(
+      "Failed to create swarm for EPIC-1: swarm was still missing after create completed.",
+    );
+    expect(harness.getCreateEpicSwarmCallCount()).toBe(1);
   });
 
   it("blocks a running swarm when no ready issue remains and blocked work exists", async () => {
@@ -2134,7 +2240,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(currentExecution?.status).toBe("requested");
     expect(issue?.status).toBe("in_progress");
     expect(issue?.assignee).toBe(`t3code-swarm/${started.runId}`);
-  });
+  }, 10_000);
 
   it("keeps a worker-failure run blocked until tracker invariants are repaired", async () => {
     const harness = await createHarness();

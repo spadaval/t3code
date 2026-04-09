@@ -27,7 +27,7 @@ import {
   BeadsStartWorkflowResult,
   BeadsStartEpicPlannedRefineInput,
   BeadsStartEpicQuickRefineInput,
-  BeadsStartEpicPlanImplementationInput,
+  BeadsStartEpicCoordinationPrepInput,
   BeadsSwarmStatus,
   BeadsSwarmSummary,
   BeadsSwarmSupport,
@@ -440,10 +440,10 @@ export const WsBeadsStartEpicPlannedRefineRpc = Rpc.make(BEADS_WS_METHODS.startE
   error: BeadsError,
 });
 
-export const WsBeadsStartEpicPlanImplementationRpc = Rpc.make(
-  BEADS_WS_METHODS.startEpicPlanImplementation,
+export const WsBeadsStartEpicCoordinationPrepRpc = Rpc.make(
+  BEADS_WS_METHODS.startEpicCoordinationPrep,
   {
-    payload: BeadsStartEpicPlanImplementationInput,
+    payload: BeadsStartEpicCoordinationPrepInput,
     success: BeadsStartWorkflowResult,
     error: BeadsError,
   },
@@ -619,7 +619,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsBeadsGetEpicCoordinatorSnapshotRpc,
   WsBeadsStartEpicQuickRefineRpc,
   WsBeadsStartEpicPlannedRefineRpc,
-  WsBeadsStartEpicPlanImplementationRpc,
+  WsBeadsStartEpicCoordinationPrepRpc,
   WsSubscribeOrchestrationDomainEventsRpc,
   WsSubscribeTerminalEventsRpc,
   WsSubscribeServerConfigRpc,

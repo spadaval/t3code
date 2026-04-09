@@ -40,8 +40,7 @@ export interface CoordinatorPanelProps {
   onOpenEpic: (epicId: string) => void;
   onSelectIssue: (issueId: string) => void;
   onOpenWorkerThread: (threadId: ThreadId) => void;
-  onCreateSwarm: (epicId: string) => void;
-  onRepairSwarm: (epicId: string) => void;
+  onOpenCoordinationPrepThread: (epicId: string) => void;
   onOpenStartSwarm: (card: CoordinatorCardData) => void;
   onContinueRun: (runId: OrchestrationSwarmRun["runId"]) => void;
   onRefreshSwarmStatus: (epicId: string) => void;
@@ -83,22 +82,20 @@ function stateRank(kind: BeadsCoordinatorEpicStateKind): number {
       return 5;
     case "idle":
       return 6;
-    case "needs_repair":
+    case "needs_preparation":
       return 7;
-    case "no_swarm":
-      return 8;
     case "ready":
-      return 9;
+      return 8;
     case "running":
-      return 10;
+      return 9;
     case "cancelled":
-      return 11;
+      return 10;
     case "completed":
-      return 12;
+      return 11;
     case "unsupported":
-      return 13;
+      return 12;
     case "checking":
-      return 14;
+      return 13;
   }
 }
 
@@ -461,8 +458,7 @@ function CardActions(props: { card: CoordinatorCardData; panelProps: CardActions
 
   // Build action key references for busy state
   const refreshKey = `refresh:${card.epicId}`;
-  const createKey = `create:${card.epicId}`;
-  const repairKey = `repair:${card.epicId}`;
+  const prepKey = `prep:${card.epicId}`;
   const startKey = `start:${card.epicId}`;
   const continueKey = latestRun ? `continue:${latestRun.runId}` : null;
   const pauseKey = latestRun ? `pause:${latestRun.runId}` : null;
@@ -561,22 +557,13 @@ function CardActions(props: { card: CoordinatorCardData; panelProps: CardActions
     }
 
     // Setup states
-    if (c.stateKind === "no_swarm") {
+    if (c.stateKind === "needs_preparation") {
       return {
-        key: "create",
-        label: "Create swarm",
-        busyLabel: "Creating...",
-        busyKey: createKey,
-        onClick: () => p.onCreateSwarm(c.epicId),
-      };
-    }
-    if (c.stateKind === "needs_repair") {
-      return {
-        key: "repair",
-        label: "Repair swarm",
-        busyLabel: "Repairing...",
-        busyKey: repairKey,
-        onClick: () => p.onRepairSwarm(c.epicId),
+        key: "prep",
+        label: "Open prep thread",
+        busyLabel: "Opening...",
+        busyKey: prepKey,
+        onClick: () => p.onOpenCoordinationPrepThread(c.epicId),
       };
     }
 
@@ -627,24 +614,14 @@ function CardActions(props: { card: CoordinatorCardData; panelProps: CardActions
     // Failed: use server-computed recovery action
     if (c.stateKind === "failed" && c.primaryAction) {
       const pa = c.primaryAction;
-      if (pa.kind === "create_swarm") {
+      if (pa.kind === "open_coordination_prep_thread") {
         return {
-          key: "failed-create",
+          key: "failed-prep",
           label: pa.label,
           busyLabel: pa.busyLabel,
-          busyKey: createKey,
+          busyKey: prepKey,
           disabled: pa.disabled,
-          onClick: () => p.onCreateSwarm(c.epicId),
-        };
-      }
-      if (pa.kind === "repair_swarm") {
-        return {
-          key: "failed-repair",
-          label: pa.label,
-          busyLabel: pa.busyLabel,
-          busyKey: repairKey,
-          disabled: pa.disabled,
-          onClick: () => p.onRepairSwarm(c.epicId),
+          onClick: () => p.onOpenCoordinationPrepThread(c.epicId),
         };
       }
       if (pa.kind === "start_swarm") {

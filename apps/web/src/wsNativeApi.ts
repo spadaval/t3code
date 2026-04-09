@@ -118,7 +118,7 @@ export function createWsNativeApi(): NativeApi {
       startWorkflow: rpcClient.beads.startWorkflow,
       startEpicQuickRefine: rpcClient.beads.startEpicQuickRefine,
       startEpicPlannedRefine: rpcClient.beads.startEpicPlannedRefine,
-      startEpicPlanImplementation: rpcClient.beads.startEpicPlanImplementation,
+      startEpicCoordinationPrep: rpcClient.beads.startEpicCoordinationPrep,
     },
     orchestration: {
       getSnapshot: rpcClient.orchestration.getSnapshot,

@@ -67,8 +67,7 @@ type CoordinatorTabProps = {
 };
 
 type CoordinatorActionInput =
-  | { kind: "create_swarm"; epicIssueId: string }
-  | { kind: "repair_swarm"; epicIssueId: string }
+  | { kind: "open_coordination_prep_thread"; epicIssueId: string }
   | { kind: "start_swarm"; epicIssueId: string }
   | { kind: "continue_swarm"; runId: OrchestrationSwarmRun["runId"] }
   | { kind: "resume_swarm"; runId: OrchestrationSwarmRun["runId"] }
@@ -145,22 +144,20 @@ function stateRank(kind: BeadsCoordinatorEpicStateKind): number {
       return 5;
     case "idle":
       return 6;
-    case "needs_repair":
+    case "needs_preparation":
       return 7;
-    case "no_swarm":
-      return 8;
     case "ready":
-      return 9;
+      return 8;
     case "running":
-      return 10;
+      return 9;
     case "cancelled":
-      return 11;
+      return 10;
     case "completed":
-      return 12;
+      return 11;
     case "unsupported":
-      return 13;
+      return 12;
     case "checking":
-      return 14;
+      return 13;
   }
 }
 
@@ -298,13 +295,12 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
       const api = ensureNativeApi();
 
       switch (action.kind) {
-        case "create_swarm":
-        case "repair_swarm":
+        case "open_coordination_prep_thread":
           if (!props.projectId || !project) {
             throw new Error("Project context is unavailable.");
           }
 
-          return api.beads.startEpicPlanImplementation({
+          return api.beads.startEpicCoordinationPrep({
             cwd: props.cwd,
             projectId: props.projectId,
             epicIssueId: action.epicIssueId,
@@ -349,7 +345,7 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
           toastManager.add({
             type: "info",
             title: "Reused linked thread",
-            description: "An existing implementation-planning thread was reused for this epic.",
+            description: "An existing coordination prep thread was reused for this epic.",
           });
         }
 
@@ -365,10 +361,8 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
     }
 
     switch (action.kind) {
-      case "create_swarm":
-        return `create:${action.epicIssueId}`;
-      case "repair_swarm":
-        return `repair:${action.epicIssueId}`;
+      case "open_coordination_prep_thread":
+        return `prep:${action.epicIssueId}`;
       case "start_swarm":
         return `start:${action.epicIssueId}`;
       case "continue_swarm":
@@ -777,24 +771,15 @@ function CoordinatorActionBar(props: {
   const actions: CoordinatorAction[] = [];
 
   switch (primaryAction.kind) {
-    case "create_swarm":
+    case "open_coordination_prep_thread":
       actions.push({
-        key: `create:${epic.epicId}`,
+        key: `prep:${epic.epicId}`,
         label: primaryAction.label,
         busyLabel: primaryAction.busyLabel,
         disabled: primaryAction.disabled,
         icon: <PlayIcon className="size-3" />,
-        onClick: () => props.onRunAction({ kind: "create_swarm", epicIssueId: epic.epicId }),
-      });
-      break;
-    case "repair_swarm":
-      actions.push({
-        key: `repair:${epic.epicId}`,
-        label: primaryAction.label,
-        busyLabel: primaryAction.busyLabel,
-        disabled: primaryAction.disabled,
-        icon: <PlayIcon className="size-3" />,
-        onClick: () => props.onRunAction({ kind: "repair_swarm", epicIssueId: epic.epicId }),
+        onClick: () =>
+          props.onRunAction({ kind: "open_coordination_prep_thread", epicIssueId: epic.epicId }),
       });
       break;
     case "start_swarm":
@@ -912,10 +897,8 @@ function CoordinatorActionBar(props: {
 
 function describeCoordinatorActionError(actionKind: CoordinatorActionInput["kind"]): string {
   switch (actionKind) {
-    case "create_swarm":
-      return "Unable to create swarm";
-    case "repair_swarm":
-      return "Unable to repair swarm";
+    case "open_coordination_prep_thread":
+      return "Unable to open prep thread";
     case "start_swarm":
       return "Unable to start swarm";
     case "continue_swarm":

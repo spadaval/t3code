@@ -124,8 +124,8 @@ export interface WsRpcClient {
     readonly startWorkflow: RpcUnaryMethod<typeof BEADS_WS_METHODS.startWorkflow>;
     readonly startEpicQuickRefine: RpcUnaryMethod<typeof BEADS_WS_METHODS.startEpicQuickRefine>;
     readonly startEpicPlannedRefine: RpcUnaryMethod<typeof BEADS_WS_METHODS.startEpicPlannedRefine>;
-    readonly startEpicPlanImplementation: RpcUnaryMethod<
-      typeof BEADS_WS_METHODS.startEpicPlanImplementation
+    readonly startEpicCoordinationPrep: RpcUnaryMethod<
+      typeof BEADS_WS_METHODS.startEpicCoordinationPrep
     >;
   };
   readonly orchestration: {
@@ -309,8 +309,8 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport.request((client) => client[BEADS_WS_METHODS.startEpicQuickRefine](input)),
       startEpicPlannedRefine: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.startEpicPlannedRefine](input)),
-      startEpicPlanImplementation: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.startEpicPlanImplementation](input)),
+      startEpicCoordinationPrep: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.startEpicCoordinationPrep](input)),
     },
     orchestration: {
       getSnapshot: () =>

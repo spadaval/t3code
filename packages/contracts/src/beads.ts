@@ -32,7 +32,7 @@ export const BEADS_WS_METHODS = {
   getEpicCoordinatorSnapshot: "beads.getEpicCoordinatorSnapshot",
   startEpicQuickRefine: "beads.startEpicQuickRefine",
   startEpicPlannedRefine: "beads.startEpicPlannedRefine",
-  startEpicPlanImplementation: "beads.startEpicPlanImplementation",
+  startEpicCoordinationPrep: "beads.startEpicCoordinationPrep",
 } as const;
 
 const BeadsIssueId = TrimmedNonEmptyString;
@@ -228,8 +228,7 @@ export const BeadsCoordinatorEpicStateKind = Schema.Literals([
   "stale",
   "error",
   "unsupported",
-  "no_swarm",
-  "needs_repair",
+  "needs_preparation",
   "ready",
   "running",
   "idle",
@@ -245,8 +244,7 @@ export const BeadsCoordinatorPrimaryAction = Schema.Struct({
   kind: Schema.Literals([
     "checking",
     "unsupported",
-    "create_swarm",
-    "repair_swarm",
+    "open_coordination_prep_thread",
     "refresh_swarm_state",
     "start_swarm",
     "continue_swarm",
@@ -403,6 +401,7 @@ export const BeadsSessionWorkflowKind = Schema.Literals([
   "solve",
   "continue",
   "plan-implementation",
+  "coordination-prep",
 ]);
 export type BeadsSessionWorkflowKind = typeof BeadsSessionWorkflowKind.Type;
 
@@ -455,9 +454,8 @@ export type BeadsStartEpicQuickRefineInput = typeof BeadsStartEpicQuickRefineInp
 export const BeadsStartEpicPlannedRefineInput = Schema.Struct(BeadsEpicWorkflowStartInputBase);
 export type BeadsStartEpicPlannedRefineInput = typeof BeadsStartEpicPlannedRefineInput.Type;
 
-export const BeadsStartEpicPlanImplementationInput = Schema.Struct(BeadsEpicWorkflowStartInputBase);
-export type BeadsStartEpicPlanImplementationInput =
-  typeof BeadsStartEpicPlanImplementationInput.Type;
+export const BeadsStartEpicCoordinationPrepInput = Schema.Struct(BeadsEpicWorkflowStartInputBase);
+export type BeadsStartEpicCoordinationPrepInput = typeof BeadsStartEpicCoordinationPrepInput.Type;
 
 export const BeadsListSwarmsResult = Schema.Struct({
   swarms: Schema.Array(BeadsSwarmSummary).pipe(Schema.withDecodingDefault(() => [])),

@@ -494,11 +494,11 @@ const buildAppUnderTest = (options?: {
                   "BeadsService.startEpicPlannedRefine was called without a test-specific mock.",
               }),
             ),
-          startEpicPlanImplementation: () =>
+          startEpicCoordinationPrep: () =>
             Effect.fail(
               new BeadsError({
                 message:
-                  "BeadsService.startEpicPlanImplementation was called without a test-specific mock.",
+                  "BeadsService.startEpicCoordinationPrep was called without a test-specific mock.",
               }),
             ),
           ...options?.layers?.beads,

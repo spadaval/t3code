@@ -16,7 +16,7 @@ import type {
   BeadsListSwarmsInput,
   BeadsStartEpicPlannedRefineInput,
   BeadsStartEpicQuickRefineInput,
-  BeadsStartEpicPlanImplementationInput,
+  BeadsStartEpicCoordinationPrepInput,
   BeadsStartWorkflowInput,
   BeadsSwarmStatus,
   BeadsSwarmSummary,
@@ -303,12 +303,10 @@ export function beadsStartEpicPlannedRefineMutationOptions(input: { queryClient:
   });
 }
 
-export function beadsStartEpicPlanImplementationMutationOptions(input: {
-  queryClient: QueryClient;
-}) {
+export function beadsStartEpicCoordinationPrepMutationOptions(input: { queryClient: QueryClient }) {
   return mutationOptions({
-    mutationFn: async (payload: BeadsStartEpicPlanImplementationInput) =>
-      ensureNativeApi().beads.startEpicPlanImplementation(payload),
+    mutationFn: async (payload: BeadsStartEpicCoordinationPrepInput) =>
+      ensureNativeApi().beads.startEpicCoordinationPrep(payload),
     onSuccess: async () => {
       await input.queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
     },

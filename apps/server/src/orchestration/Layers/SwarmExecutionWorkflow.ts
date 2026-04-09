@@ -833,6 +833,32 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
       }),
     );
 
+  const requireStartableTrackerState = (
+    operation: string,
+    input: { projectId: OrchestrationProject["id"]; epicIssueId: string },
+  ) =>
+    getTrackerState(input).pipe(
+      Effect.flatMap((trackerState) => {
+        if (!trackerState.support.supported) {
+          return Effect.fail(
+            workflowError(
+              operation,
+              trackerState.support.reason ?? "Swarm execution is not supported in this project.",
+            ),
+          );
+        }
+
+        if (!trackerState.validation.valid) {
+          const detail = trackerState.validation.errors.join("; ") || "Swarm validation failed.";
+          return Effect.fail(
+            workflowError(operation, `Cannot start swarm for ${input.epicIssueId}: ${detail}`),
+          );
+        }
+
+        return Effect.succeed(trackerState);
+      }),
+    );
+
   const markRunStarted = (runId: SwarmRunId) =>
     dispatchOrFail("markRunStarted", {
       type: "swarm-run.mark-started",
@@ -1750,15 +1776,34 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         });
       }
 
-      const trackerState = yield* requireRunnableTrackerState("startSwarmRun", {
+      let trackerState = yield* requireStartableTrackerState("startSwarmRun", {
         projectId: input.projectId,
         epicIssueId: input.epicIssueId,
       });
+
+      if (!trackerState.validation.swarm) {
+        yield* beadsTracker
+          .createEpicSwarm({
+            cwd: project.workspaceRoot,
+            epicIssueId: input.epicIssueId,
+          })
+          .pipe(
+            Effect.mapError((error) =>
+              workflowError("startSwarmRun", truncateDetail(toErrorMessage(error)), error),
+            ),
+          );
+
+        trackerState = yield* requireStartableTrackerState("startSwarmRun", {
+          projectId: input.projectId,
+          epicIssueId: input.epicIssueId,
+        });
+      }
+
       const swarm = trackerState.validation.swarm;
       if (!swarm) {
         return yield* workflowError(
-          "createRun",
-          `Epic '${input.epicIssueId}' does not have a swarm to execute.`,
+          "startSwarmRun",
+          `Failed to create swarm for ${input.epicIssueId}: swarm was still missing after create completed.`,
         );
       }
 

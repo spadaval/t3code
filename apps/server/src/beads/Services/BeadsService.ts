@@ -19,7 +19,7 @@ import type {
   BeadsQueryIssuesResult,
   BeadsStartEpicPlannedRefineInput,
   BeadsStartEpicQuickRefineInput,
-  BeadsStartEpicPlanImplementationInput,
+  BeadsStartEpicCoordinationPrepInput,
   BeadsStartWorkflowInput,
   BeadsStartWorkflowResult,
   BeadsSwarmStatus,
@@ -82,8 +82,8 @@ export interface BeadsServiceShape {
   readonly startEpicPlannedRefine: (
     input: BeadsStartEpicPlannedRefineInput,
   ) => Effect.Effect<BeadsStartWorkflowResult, BeadsError>;
-  readonly startEpicPlanImplementation: (
-    input: BeadsStartEpicPlanImplementationInput,
+  readonly startEpicCoordinationPrep: (
+    input: BeadsStartEpicCoordinationPrepInput,
   ) => Effect.Effect<BeadsStartWorkflowResult, BeadsError>;
 }
 

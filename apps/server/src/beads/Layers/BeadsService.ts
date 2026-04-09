@@ -732,19 +732,16 @@ function buildEpicPlannedRefineThreadTitle(issue: BeadsIssueSummaryType): string
   return `${issue.id}: ${issue.title} (Planned refine)`;
 }
 
-type EpicPlanImplementationIntent = "create_swarm" | "repair_swarm";
+type EpicCoordinationPrepIntent = "prepare" | "repair";
 
-function resolveEpicPlanImplementationIntent(
+function resolveEpicCoordinationPrepIntent(
   validation: Pick<BeadsSwarmValidation, "swarm">,
-): EpicPlanImplementationIntent {
-  return validation.swarm === null ? "create_swarm" : "repair_swarm";
+): EpicCoordinationPrepIntent {
+  return validation.swarm === null ? "prepare" : "repair";
 }
 
-function buildEpicPlanImplementationThreadTitle(
-  issue: BeadsIssueSummaryType,
-  intent: EpicPlanImplementationIntent,
-): string {
-  return `${issue.id}: ${issue.title} (${intent === "create_swarm" ? "Create swarm" : "Repair swarm"})`;
+function buildEpicCoordinationPrepThreadTitle(issue: BeadsIssueSummaryType): string {
+  return `${issue.id}: ${issue.title} (Coordination prep)`;
 }
 
 function buildEpicRefinePrompt(
@@ -798,11 +795,11 @@ function formatIssueRelationList(issues: ReadonlyArray<BeadsIssueRelationSummary
   return issues.map((issue) => `- ${issue.id}: ${issue.title} [${issue.status}]`).join("\n");
 }
 
-function buildEpicPlanImplementationPrompt(input: {
+function buildEpicCoordinationPrepPrompt(input: {
   issue: Pick<BeadsIssueDetailType, "id" | "title">;
   validation: BeadsSwarmValidation;
   status: BeadsSwarmStatus;
-  intent: EpicPlanImplementationIntent;
+  intent: EpicCoordinationPrepIntent;
 }): string {
   const swarmState = input.validation.swarm
     ? `${input.validation.swarm.swarmId} (${input.validation.valid ? "valid" : "needs work"})`
@@ -822,11 +819,11 @@ function buildEpicPlanImplementationPrompt(input: {
   const activeIssues = formatIssueRelationList(input.status.active);
   const blockedIssues = formatIssueRelationList(input.status.blocked);
 
-  if (input.intent === "create_swarm") {
+  if (input.intent === "prepare") {
     return [
       "## Assignment",
       "",
-      `Create a swarm for epic ${input.issue.id}: ${input.issue.title}`,
+      `Prepare epic ${input.issue.id}: ${input.issue.title} for coordinated execution`,
       "",
       "## Getting started",
       "",
@@ -843,18 +840,19 @@ function buildEpicPlanImplementationPrompt(input: {
       "",
       "## Instructions",
       "",
-      "- This is tracker-only coordination work. Use `bd` to create the epic swarm and any required tracker metadata.",
-      "- Do NOT describe this as a repair task -- no swarm exists yet.",
+      "- This is tracker-only coordination work. Fix the epic structure so it is ready for coordinated execution.",
+      "- Use `bd` to refine child issues, dependencies, and any coordination metadata required to make the epic swarmable.",
+      "- Do NOT describe this as repairing an existing swarm -- the epic is not ready yet.",
       "- Do NOT implement application code. Do NOT create a worktree.",
       "- When finished, summarize the resulting swarm state and any blockers that still prevent launching worker threads.",
     ].join("\n");
   }
 
-  // repair_swarm intent
+  // repair intent
   return [
     "## Assignment",
     "",
-    `Repair the swarm for epic ${input.issue.id}: ${input.issue.title}`,
+    `Repair coordination setup for epic ${input.issue.id}: ${input.issue.title}`,
     "",
     "## Getting started",
     "",
@@ -871,8 +869,8 @@ function buildEpicPlanImplementationPrompt(input: {
     "",
     "## Instructions",
     "",
-    "- This is tracker-only coordination work. Use `bd` to repair the existing epic swarm and correct any tracker metadata drift.",
-    "- Repair the current swarm instead of creating a replacement unless recovery is impossible.",
+    "- This is tracker-only coordination work. Use `bd` to repair the existing coordination setup and correct tracker metadata drift.",
+    "- Repair the current coordination setup instead of replacing it unless recovery is impossible.",
     "- Do NOT implement application code. Do NOT create a worktree unless tracker-only recovery is impossible.",
     "- When finished, summarize the resulting swarm state and any blockers that still prevent launching worker threads.",
   ].join("\n");
@@ -1291,6 +1289,35 @@ const makeBeadsTrackerService = Effect.gen(function* () {
       ),
     );
 
+  const createEpicSwarm: BeadsTrackerServiceShape["createEpicSwarm"] = (input) =>
+    Effect.gen(function* () {
+      const support = yield* getSwarmSupport({ cwd: input.cwd });
+      if (!support.supported) {
+        return yield* toBeadsError(
+          support.reason ?? "Swarm coordination is unavailable for this beads backend.",
+        );
+      }
+
+      yield* runBdRaw(input.cwd, ["swarm", "create", input.epicIssueId, "--json"]).pipe(
+        Effect.mapError((error) =>
+          toBeadsError(
+            `Failed to create swarm for ${input.epicIssueId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          ),
+        ),
+      );
+
+      const swarm = yield* getEpicSwarm(input);
+      if (swarm === null) {
+        return yield* toBeadsError(
+          `Failed to create swarm for ${input.epicIssueId}: swarm was still missing after create completed.`,
+        );
+      }
+
+      return swarm;
+    });
+
   const validateEpicSwarm: BeadsTrackerServiceShape["validateEpicSwarm"] = (input) =>
     Effect.gen(function* () {
       const [epic, support] = yield* Effect.all(
@@ -1430,6 +1457,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     validateEpicSwarm,
     getEpicSwarmStatus,
     listSwarms,
+    createEpicSwarm,
   } satisfies BeadsTrackerServiceShape;
 });
 
@@ -1437,6 +1465,7 @@ const makeBeadsService = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const beadsTracker = yield* BeadsTrackerService;
   const sessionActivityRef = yield* Ref.make<ReadonlyArray<SessionActivityRecord>>([]);
+  type SessionWorkflowKind = BeadsStartWorkflowInput["workflow"] | "coordination-prep";
 
   const appendSessionActivity = (record: SessionActivityRecord) =>
     Ref.update(sessionActivityRef, (records) => [record, ...records].slice(0, 200));
@@ -1444,7 +1473,7 @@ const makeBeadsService = Effect.gen(function* () {
   const appendWorkflowStartedSessionActivity = (input: {
     readonly cwd: string;
     readonly issue: BeadsIssueDetailType;
-    readonly workflowKind: BeadsStartWorkflowInput["workflow"] | "plan-implementation";
+    readonly workflowKind: SessionWorkflowKind;
     readonly threadId: ThreadId;
   }) =>
     appendSessionActivity({
@@ -1468,7 +1497,7 @@ const makeBeadsService = Effect.gen(function* () {
       interactionMode: "default" | "plan";
       threadTitle: string;
       promptText: string;
-      workflowKind: BeadsStartWorkflowInput["workflow"] | "plan-implementation";
+      workflowKind: SessionWorkflowKind;
       createThreadErrorMessage: string;
       startTurnErrorMessage: string;
     }) {
@@ -1834,7 +1863,7 @@ const makeBeadsService = Effect.gen(function* () {
       });
     });
 
-  const startEpicPlanImplementation: BeadsServiceShape["startEpicPlanImplementation"] = (input) =>
+  const startEpicCoordinationPrep: BeadsServiceShape["startEpicCoordinationPrep"] = (input) =>
     Effect.gen(function* () {
       const [support, epic] = yield* Effect.all(
         [
@@ -1846,7 +1875,7 @@ const makeBeadsService = Effect.gen(function* () {
 
       if (!support.supported) {
         return yield* toBeadsError(
-          support.reason ?? "Swarm-backed implementation is unavailable for this beads backend.",
+          support.reason ?? "Swarm coordination is unavailable for this beads backend.",
         );
       }
 
@@ -1857,7 +1886,7 @@ const makeBeadsService = Effect.gen(function* () {
         ],
         { concurrency: "unbounded" },
       );
-      const intent = resolveEpicPlanImplementationIntent(validation);
+      const intent = resolveEpicCoordinationPrepIntent(validation);
 
       return yield* startLinkedIssueThread({
         cwd: input.cwd,
@@ -1866,16 +1895,16 @@ const makeBeadsService = Effect.gen(function* () {
         modelSelection: input.modelSelection,
         runtimeMode: input.runtimeMode,
         interactionMode: "default",
-        threadTitle: buildEpicPlanImplementationThreadTitle(epic, intent),
-        promptText: buildEpicPlanImplementationPrompt({
+        threadTitle: buildEpicCoordinationPrepThreadTitle(epic),
+        promptText: buildEpicCoordinationPrepPrompt({
           issue: epic,
           validation,
           status,
           intent,
         }),
-        workflowKind: "plan-implementation",
-        createThreadErrorMessage: "Failed to create epic implementation-planning thread.",
-        startTurnErrorMessage: "Failed to start epic implementation-planning workflow.",
+        workflowKind: "coordination-prep",
+        createThreadErrorMessage: "Failed to create epic coordination prep thread.",
+        startTurnErrorMessage: "Failed to start epic coordination prep workflow.",
       });
     });
 
@@ -1897,7 +1926,7 @@ const makeBeadsService = Effect.gen(function* () {
     startWorkflow,
     startEpicQuickRefine,
     startEpicPlannedRefine,
-    startEpicPlanImplementation,
+    startEpicCoordinationPrep,
   } satisfies BeadsServiceShape;
 });
 

@@ -53,6 +53,9 @@ export interface BeadsTrackerServiceShape {
   readonly listSwarms: (
     input: BeadsListSwarmsInput,
   ) => Effect.Effect<BeadsListSwarmsResult, BeadsError>;
+  readonly createEpicSwarm: (
+    input: BeadsEpicIssueInput,
+  ) => Effect.Effect<BeadsSwarmSummary, BeadsError>;
 }
 
 export class BeadsTrackerService extends ServiceMap.Service<

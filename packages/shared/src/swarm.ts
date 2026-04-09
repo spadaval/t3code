@@ -324,19 +324,13 @@ export function describeCoordinatorEpicState(input: {
     case "ready":
       return {
         label: "Ready",
-        summary: "Swarm is valid and ready to start.",
+        summary: "Epic structure is ready for coordinated execution.",
         category: "ready",
       };
-    case "no_swarm":
+    case "needs_preparation":
       return {
-        label: "No swarm",
-        summary: "Create a swarm to begin coordinated implementation.",
-        category: "setup",
-      };
-    case "needs_repair":
-      return {
-        label: "Needs repair",
-        summary: "Swarm exists but is invalid. Repair before starting.",
+        label: "Needs prep",
+        summary: "Epic structure is invalid. Open a prep thread before starting.",
         category: "setup",
       };
     case "unsupported":
@@ -409,8 +403,7 @@ export type EpicSwarmCoordinatorStateKind =
   | "stale"
   | "error"
   | "unsupported"
-  | "no_swarm"
-  | "needs_repair"
+  | "needs_preparation"
   | "ready"
   | "running"
   | "idle"
@@ -430,8 +423,7 @@ export interface EpicSwarmCoordinatorPrimaryAction {
   readonly kind:
     | "checking"
     | "unsupported"
-    | "create_swarm"
-    | "repair_swarm"
+    | "open_coordination_prep_thread"
     | "refresh_swarm_state"
     | "start_swarm"
     | "continue_swarm"
@@ -444,8 +436,7 @@ export interface EpicSwarmCoordinatorPrimaryAction {
 
 function getFailedSwarmRecoveryAction(input: {
   readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
-  readonly status: Pick<BeadsSwarmStatus, "swarm"> | null;
-  readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm"> | null;
+  readonly validation: Pick<BeadsSwarmValidation, "valid"> | null;
   readonly hasProjectConflict: boolean;
 }): EpicSwarmCoordinatorPrimaryAction {
   if (input.swarmSupport?.supported !== true) {
@@ -466,21 +457,11 @@ function getFailedSwarmRecoveryAction(input: {
     };
   }
 
-  const swarm = input.validation?.swarm ?? input.status?.swarm ?? null;
-  if (swarm === null) {
-    return {
-      kind: "create_swarm",
-      label: "Create swarm",
-      busyLabel: "Starting...",
-      disabled: false,
-    };
-  }
-
   if (input.validation?.valid === false) {
     return {
-      kind: "repair_swarm",
-      label: "Repair swarm",
-      busyLabel: "Starting...",
+      kind: "open_coordination_prep_thread",
+      label: "Open prep thread",
+      busyLabel: "Opening...",
       disabled: false,
     };
   }
@@ -559,18 +540,9 @@ export function deriveEpicSwarmCoordinatorState(input: {
     };
   }
 
-  const swarm = input.validation?.swarm ?? input.status?.swarm ?? null;
-  if (swarm === null) {
-    return {
-      kind: "no_swarm",
-      latestRun: null,
-      fetchLifecycle: input.fetchLifecycle,
-    };
-  }
-
   if (input.validation?.valid === false) {
     return {
-      kind: "needs_repair",
+      kind: "needs_preparation",
       latestRun: null,
       fetchLifecycle: input.fetchLifecycle,
     };
@@ -655,18 +627,11 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
         busyLabel: "Swarm unavailable",
         disabled: true,
       };
-    case "no_swarm":
+    case "needs_preparation":
       return {
-        kind: "create_swarm",
-        label: "Create swarm",
-        busyLabel: "Starting...",
-        disabled: false,
-      };
-    case "needs_repair":
-      return {
-        kind: "repair_swarm",
-        label: "Repair swarm",
-        busyLabel: "Starting...",
+        kind: "open_coordination_prep_thread",
+        label: "Open prep thread",
+        busyLabel: "Opening...",
         disabled: false,
       };
     case "ready":
@@ -754,7 +719,6 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
     case "failed":
       return getFailedSwarmRecoveryAction({
         swarmSupport: input.swarmSupport,
-        status: input.status,
         validation: input.validation,
         hasProjectConflict: input.hasProjectConflict,
       });

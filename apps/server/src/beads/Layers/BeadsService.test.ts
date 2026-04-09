@@ -1515,7 +1515,7 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
-  it.effect("starts missing-swarm planning in a tracker-only linked thread", () =>
+  it.effect("opens coordination prep when no swarm exists yet and epic structure is invalid", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
       const dispatchedCommands: unknown[] = [];
@@ -1589,7 +1589,7 @@ layer("BeadsServiceLive", (it) => {
       });
 
       const beads = yield* BeadsService;
-      const result = yield* beads.startEpicPlanImplementation({
+      const result = yield* beads.startEpicCoordinationPrep({
         cwd: "/repo",
         projectId: ProjectId.makeUnsafe("project-1"),
         epicIssueId: "EPIC-1",
@@ -1602,7 +1602,7 @@ layer("BeadsServiceLive", (it) => {
       expect(dispatchedCommands[0]).toMatchObject({
         type: "thread.create",
         projectId: ProjectId.makeUnsafe("project-1"),
-        title: "EPIC-1: Epic coordination (Create swarm)",
+        title: "EPIC-1: Epic coordination (Coordination prep)",
         interactionMode: "default",
         branch: null,
         worktreePath: null,
@@ -1618,21 +1618,23 @@ layer("BeadsServiceLive", (it) => {
         threadId: (dispatchedCommands[0] as { threadId: ThreadId }).threadId,
         interactionMode: "default",
         message: {
-          text: expect.stringContaining("Create a swarm for epic EPIC-1: Epic coordination"),
+          text: expect.stringContaining(
+            "Prepare epic EPIC-1: Epic coordination for coordinated execution",
+          ),
         },
       });
       const messageText = (dispatchedCommands[1] as { message: { text: string } }).message.text;
       expect(messageText).toContain(
-        "Use `bd` to create the epic swarm and any required tracker metadata.",
+        "Fix the epic structure so it is ready for coordinated execution.",
       );
       expect(messageText).toContain(
-        "Do NOT describe this as a repair task -- no swarm exists yet.",
+        "Do NOT describe this as repairing an existing swarm -- the epic is not ready yet.",
       );
       expect(messageText).toContain("Do NOT implement application code. Do NOT create a worktree.");
     }),
   );
 
-  it.effect("starts swarm repair planning when an invalid swarm already exists", () =>
+  it.effect("opens coordination prep when an invalid swarm already exists", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
       const dispatchedCommands: unknown[] = [];
@@ -1750,7 +1752,7 @@ layer("BeadsServiceLive", (it) => {
       });
 
       const beads = yield* BeadsService;
-      const result = yield* beads.startEpicPlanImplementation({
+      const result = yield* beads.startEpicCoordinationPrep({
         cwd: "/repo",
         projectId: ProjectId.makeUnsafe("project-1"),
         epicIssueId: "EPIC-1",
@@ -1761,14 +1763,14 @@ layer("BeadsServiceLive", (it) => {
       assert.equal(result.created, true);
       expect(dispatchedCommands[0]).toMatchObject({
         type: "thread.create",
-        title: "EPIC-1: Epic coordination (Repair swarm)",
+        title: "EPIC-1: Epic coordination (Coordination prep)",
       });
       const messageText = (dispatchedCommands[1] as { message: { text: string } }).message.text;
       expect(messageText).toContain(
-        "Use `bd` to repair the existing epic swarm and correct any tracker metadata drift.",
+        "Use `bd` to repair the existing coordination setup and correct tracker metadata drift.",
       );
       expect(messageText).toContain(
-        "Repair the current swarm instead of creating a replacement unless recovery is impossible.",
+        "Repair the current coordination setup instead of replacing it unless recovery is impossible.",
       );
       expect(messageText).toContain(
         "Do NOT implement application code. Do NOT create a worktree unless tracker-only recovery is impossible.",
@@ -1776,7 +1778,7 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
-  it.effect("rejects epic implementation planning when swarm support is unavailable", () =>
+  it.effect("rejects epic coordination prep when swarm support is unavailable", () =>
     Effect.gen(function* () {
       installBdJsonMock({
         context: {
@@ -1816,7 +1818,7 @@ layer("BeadsServiceLive", (it) => {
 
       const beads = yield* BeadsService;
       const exit = yield* beads
-        .startEpicPlanImplementation({
+        .startEpicCoordinationPrep({
           cwd: "/repo",
           projectId: ProjectId.makeUnsafe("project-1"),
           epicIssueId: "EPIC-1",

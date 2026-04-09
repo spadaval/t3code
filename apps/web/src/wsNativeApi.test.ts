@@ -99,7 +99,7 @@ const rpcClientMock = {
     startWorkflow: vi.fn(),
     startEpicQuickRefine: vi.fn(),
     startEpicPlannedRefine: vi.fn(),
-    startEpicPlanImplementation: vi.fn(),
+    startEpicCoordinationPrep: vi.fn(),
   },
   orchestration: {
     getSnapshot: vi.fn(),

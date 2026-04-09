@@ -20,7 +20,7 @@ import type {
   BeadsQueryIssuesResult,
   BeadsStartEpicPlannedRefineInput,
   BeadsStartEpicQuickRefineInput,
-  BeadsStartEpicPlanImplementationInput,
+  BeadsStartEpicCoordinationPrepInput,
   BeadsStartWorkflowInput,
   BeadsStartWorkflowResult,
   BeadsSwarmStatus,
@@ -296,8 +296,8 @@ export interface NativeApi {
     startEpicPlannedRefine: (
       input: BeadsStartEpicPlannedRefineInput,
     ) => Promise<BeadsStartWorkflowResult>;
-    startEpicPlanImplementation: (
-      input: BeadsStartEpicPlanImplementationInput,
+    startEpicCoordinationPrep: (
+      input: BeadsStartEpicCoordinationPrepInput,
     ) => Promise<BeadsStartWorkflowResult>;
   };
 }

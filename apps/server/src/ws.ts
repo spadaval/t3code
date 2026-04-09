@@ -952,15 +952,15 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
           { "rpc.aggregate": "beads" },
         ),
-      [BEADS_WS_METHODS.startEpicPlanImplementation]: (input) =>
+      [BEADS_WS_METHODS.startEpicCoordinationPrep]: (input) =>
         observeRpcEffect(
-          BEADS_WS_METHODS.startEpicPlanImplementation,
-          beads.startEpicPlanImplementation(input).pipe(
+          BEADS_WS_METHODS.startEpicCoordinationPrep,
+          beads.startEpicCoordinationPrep(input).pipe(
             Effect.mapError((cause) =>
               Schema.is(BeadsError)(cause)
                 ? cause
                 : new BeadsError({
-                    message: "Failed to start epic plan implementation workflow",
+                    message: "Failed to start epic coordination prep workflow",
                     cause,
                   }),
             ),
