@@ -1,7 +1,7 @@
 import { DEFAULT_MODEL_BY_PROVIDER, type ModelSelection, type ThreadId } from "@t3tools/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { ArrowLeftIcon, ArrowUpRightIcon, ExternalLinkIcon, PlayIcon, XIcon } from "lucide-react";
 
 import { parseChatRouteSearch, stripRightPaneSearchParams } from "~/chatRouteSearch";
@@ -64,20 +64,31 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
   const setSelectedIssueId = useIssuePaneStore((store) => store.setSelectedIssueId);
   const setSearch = useIssuePaneStore((store) => store.setSearch);
   const setScope = useIssuePaneStore((store) => store.setScope);
+  const hasBootstrappedLinkedIssueSelectionRef = useRef(false);
 
   const selectedIssueId = routeSearch.issueId ?? paneState.selectedIssueId;
   const initialLinkedIssueId = thread?.issueLink?.issueId ?? null;
 
   useEffect(() => {
+    hasBootstrappedLinkedIssueSelectionRef.current = false;
+  }, [threadId]);
+
+  useEffect(() => {
     if (routeSearch.rightPane !== "issues") {
+      hasBootstrappedLinkedIssueSelectionRef.current = false;
+      return;
+    }
+    if (hasBootstrappedLinkedIssueSelectionRef.current) {
       return;
     }
     if (selectedIssueId !== null) {
+      hasBootstrappedLinkedIssueSelectionRef.current = true;
       return;
     }
     if (initialLinkedIssueId === null) {
       return;
     }
+    hasBootstrappedLinkedIssueSelectionRef.current = true;
     setSelectedIssueId(threadId, initialLinkedIssueId);
     void navigate({
       to: "/$threadId",
@@ -221,7 +232,6 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
   );
 
   const onBackToList = useCallback(() => {
-    setSelectedIssueId(threadId, null);
     void navigate({
       to: "/$threadId",
       params: { threadId },
@@ -230,6 +240,8 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
         ...stripRightPaneSearchParams(previous),
         rightPane: "issues" as const,
       }),
+    }).then(() => {
+      setSelectedIssueId(threadId, null);
     });
   }, [navigate, setSelectedIssueId, threadId]);
 
