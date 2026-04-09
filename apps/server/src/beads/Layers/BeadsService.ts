@@ -23,7 +23,6 @@ import {
   type BeadsIssueComment,
   type BeadsIssueDependency,
   type BeadsIssueDetail as BeadsIssueDetailType,
-  type BeadsIssueHistoryEntry,
   type BeadsIssueRelationSummary as BeadsIssueRelationSummaryType,
   type BeadsIssueSummary as BeadsIssueSummaryType,
   type BeadsQueryIssuesInput,
@@ -69,7 +68,6 @@ import {
 } from "../Services/BeadsTrackerService.ts";
 
 const MAX_BD_OUTPUT_BYTES = 512 * 1024;
-const ISSUE_HISTORY_LIMIT = 20;
 const SLOW_BD_COMMAND_WARN_MS = 3_000;
 const BD_COMMAND_PREVIEW_LIMIT = 240;
 const BD_LOG_SCOPE = "beads.bd";
@@ -757,21 +755,9 @@ function mapIssueComment(raw: Record<string, unknown>): BeadsIssueComment {
   };
 }
 
-function mapIssueHistoryEntry(raw: Record<string, unknown>): BeadsIssueHistoryEntry {
-  const issue = raw.Issue as Record<string, unknown> | undefined;
-  return {
-    commitHash: String(raw.CommitHash),
-    committer: trimToNull(raw.Committer),
-    commitDate: String(raw.CommitDate),
-    title: typeof issue?.title === "string" ? issue.title : "Unknown issue",
-    status: typeof issue?.status === "string" ? issue.status : "unknown",
-  };
-}
-
 function mapIssueDetail(
   rawIssue: Record<string, unknown>,
   comments: ReadonlyArray<Record<string, unknown>>,
-  history: ReadonlyArray<Record<string, unknown>>,
 ): BeadsIssueDetailType {
   return decodeIssueDetail({
     ...mapIssueSummary(rawIssue),
@@ -779,7 +765,6 @@ function mapIssueDetail(
       ? rawIssue.dependencies.map((entry) => mapIssueDependency(entry as Record<string, unknown>))
       : [],
     comments: comments.map(mapIssueComment),
-    history: history.map(mapIssueHistoryEntry),
   });
 }
 
@@ -1502,23 +1487,12 @@ const makeBeadsTrackerService = Effect.gen(function* () {
       (json) => (Array.isArray(json) ? json : []) as ReadonlyArray<Record<string, unknown>>,
     );
 
-  const getIssueHistory = (cwd: string, issueId: string) =>
-    runBdJson(
-      cwd,
-      ["history", issueId, "--limit", String(ISSUE_HISTORY_LIMIT)],
-      (json) => (Array.isArray(json) ? json : []) as ReadonlyArray<Record<string, unknown>>,
-    );
-
   const getIssueDetail = (input: BeadsGetIssueInput) =>
     Effect.all(
-      [
-        getRawIssue(input.cwd, input.issueId),
-        getIssueComments(input.cwd, input.issueId),
-        getIssueHistory(input.cwd, input.issueId),
-      ],
+      [getRawIssue(input.cwd, input.issueId), getIssueComments(input.cwd, input.issueId)],
       { concurrency: "unbounded" },
     ).pipe(
-      Effect.map(([issue, comments, history]) => mapIssueDetail(issue, comments, history)),
+      Effect.map(([issue, comments]) => mapIssueDetail(issue, comments)),
       Effect.mapError((error) =>
         Schema.is(BeadsError)(error) ? error : toBeadsError("Failed to load issue detail.", error),
       ),
@@ -1677,12 +1651,8 @@ const makeBeadsTrackerService = Effect.gen(function* () {
 
   const getIssueGraph: BeadsTrackerServiceShape["getIssueGraph"] = (input) =>
     Effect.gen(function* () {
-      const [rawIssue, comments, history] = yield* Effect.all(
-        [
-          getRawIssue(input.cwd, input.epicIssueId),
-          getIssueComments(input.cwd, input.epicIssueId),
-          getIssueHistory(input.cwd, input.epicIssueId),
-        ],
+      const [rawIssue, comments] = yield* Effect.all(
+        [getRawIssue(input.cwd, input.epicIssueId), getIssueComments(input.cwd, input.epicIssueId)],
         { concurrency: "unbounded" },
       );
       const parentRef = mapParentRef(rawIssue);
@@ -1699,7 +1669,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
       const dependentIssueRecords = dependentRecords.filter(
         (entry) => trimToNull(entry.dependency_type) !== "parent-child",
       );
-      const epic = mapIssueDetail(rawIssue, comments, history);
+      const epic = mapIssueDetail(rawIssue, comments);
       return decodeIssueGraph({
         epic,
         parent,
@@ -2325,6 +2295,16 @@ const makeBeadsService = Effect.gen(function* () {
 
   const queryIssues: BeadsServiceShape["queryIssues"] = (input) => beadsTracker.queryIssues(input);
   const getIssue: BeadsServiceShape["getIssue"] = (input) => beadsTracker.getIssue(input);
+  const getIssues: BeadsServiceShape["getIssues"] = (input) =>
+    Effect.all(
+      input.issueIds.map((issueId) => beadsTracker.getIssue({ cwd: input.cwd, issueId })),
+      { concurrency: 10 },
+    ).pipe(
+      Effect.map((issues) => ({ issues })),
+      Effect.mapError((error) =>
+        Schema.is(BeadsError)(error) ? error : toBeadsError("Failed to load issues batch.", error),
+      ),
+    );
 
   const createIssue: BeadsServiceShape["createIssue"] = (input) =>
     Effect.gen(function* () {
@@ -2637,6 +2617,7 @@ const makeBeadsService = Effect.gen(function* () {
   return {
     queryIssues,
     getIssue,
+    getIssues,
     createIssue,
     updateIssue,
     commentIssue,

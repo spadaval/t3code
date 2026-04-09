@@ -1,5 +1,6 @@
 import type {
   BeadsCoordinatorEpicSnapshot,
+  BeadsIssueDetail,
   BeadsIssueRelationSummary,
   BeadsSwarmStatus,
   OrchestrationSwarmRun,
@@ -164,6 +165,7 @@ describe("buildWorkGraphData", () => {
     const result = buildWorkGraphData({ ...BASE_EPIC, status: null });
     expect(result.sections).toEqual([]);
     expect(result.hasWaveData).toBe(false);
+    expect(result.waveCount).toBe(0);
   });
 
   it("returns empty sections when all status buckets are empty", () => {
@@ -175,7 +177,7 @@ describe("buildWorkGraphData", () => {
     expect(result.hasWaveData).toBe(false);
   });
 
-  it("places issues in an unscheduled section when no runs exist", () => {
+  it("places issues in a pending section when no runs exist", () => {
     const issueA = makeIssue("A", "Fix auth");
     const issueB = makeIssue("B", "Add types");
     const result = buildWorkGraphData({
@@ -185,13 +187,13 @@ describe("buildWorkGraphData", () => {
 
     expect(result.sections).toHaveLength(1);
     expect(result.sections[0]!.kind).toBe("unscheduled");
-    expect(result.sections[0]!.label).toBe("Not Scheduled");
-    // Groups: "Issues" (ready) then "Completed".
+    expect(result.sections[0]!.label).toBe("Pending");
+    // Groups: "Completed" first, then "Issues" (ready).
     expect(result.sections[0]!.groups).toHaveLength(2);
-    expect(result.sections[0]!.groups[0]!.label).toBe("Issues");
-    expect(result.sections[0]!.groups[0]!.nodes.map((n) => n.issue.id)).toEqual(["B"]);
-    expect(result.sections[0]!.groups[1]!.label).toBe("Completed");
-    expect(result.sections[0]!.groups[1]!.nodes.map((n) => n.issue.id)).toEqual(["A"]);
+    expect(result.sections[0]!.groups[0]!.label).toBe("Completed");
+    expect(result.sections[0]!.groups[0]!.nodes.map((n) => n.issue.id)).toEqual(["A"]);
+    expect(result.sections[0]!.groups[1]!.label).toBe("Issues");
+    expect(result.sections[0]!.groups[1]!.nodes.map((n) => n.issue.id)).toEqual(["B"]);
   });
 
   it("creates wave groups in the active run section from validation.readyFronts", () => {
@@ -219,6 +221,7 @@ describe("buildWorkGraphData", () => {
     });
 
     expect(result.hasWaveData).toBe(true);
+    expect(result.waveCount).toBe(2);
     expect(result.maxParallelism).toBe(2);
     expect(result.estimatedWorkerSessions).toBe(3);
     expect(result.sections).toHaveLength(1);
@@ -392,7 +395,7 @@ describe("buildWorkGraphData", () => {
     expect(result.runs).toHaveLength(2);
   });
 
-  it("produces both wave groups and completed group together", () => {
+  it("produces completed group before wave groups", () => {
     const done = makeIssue("DONE-1", "Done task");
     const ready = makeIssue("READY-1", "Ready task");
     const run = makeRun("run-1", "running");
@@ -417,14 +420,14 @@ describe("buildWorkGraphData", () => {
       } as BeadsCoordinatorEpicSnapshot["validation"],
     });
 
-    // Single active section with Wave 1 and Completed groups.
+    // Single active section with Completed first, then Wave 1.
     expect(result.sections).toHaveLength(1);
     const groups = result.sections[0]!.groups;
     expect(groups).toHaveLength(2);
-    expect(groups[0]!.label).toBe("Wave 1");
-    expect(groups[0]!.nodes[0]!.issue.id).toBe("READY-1");
-    expect(groups[1]!.label).toBe("Completed");
-    expect(groups[1]!.nodes[0]!.issue.id).toBe("DONE-1");
+    expect(groups[0]!.label).toBe("Completed");
+    expect(groups[0]!.nodes[0]!.issue.id).toBe("DONE-1");
+    expect(groups[1]!.label).toBe("Wave 1");
+    expect(groups[1]!.nodes[0]!.issue.id).toBe("READY-1");
   });
 
   it("creates separate sections for multiple runs", () => {
@@ -538,5 +541,132 @@ describe("buildWorkGraphData", () => {
     const histNode = hist.groups.flatMap((g) => g.nodes).find((n) => n.issue.id === "A")!;
     expect(histNode.status).toBe("blocked");
     expect(histNode.latestExecution!.status).toBe("failed");
+  });
+
+  it("cancelled run with no active run does not claim unexecuted issues", () => {
+    const issueA = makeIssue("A", "Task A");
+    const issueB = makeIssue("B", "Task B");
+    const run = makeRun("run-1", "cancelled", {
+      cancelledAt: "2026-04-08T00:00:05.000Z",
+    });
+    const exec1 = makeExecution("exec-1", "A", 1, {
+      runId: "run-1" as never,
+      status: "cancelled",
+    });
+
+    const result = buildWorkGraphData({
+      ...BASE_EPIC,
+      activeRunId: null,
+      runs: [run],
+      executions: [exec1],
+      status: makeStatus({ ready: [issueA, issueB] }),
+    });
+
+    // run-1 should only claim issue A (has execution). Issue B goes to pending.
+    expect(result.sections).toHaveLength(2);
+    const hist = result.sections.find((s) => s.kind === "historical")!;
+    const histNodes = hist.groups.flatMap((g) => g.nodes);
+    expect(histNodes).toHaveLength(1);
+    expect(histNodes[0]!.issue.id).toBe("A");
+
+    const pending = result.sections.find((s) => s.kind === "unscheduled")!;
+    expect(pending.label).toBe("Pending");
+    const pendingNodes = pending.groups.flatMap((g) => g.nodes);
+    expect(pendingNodes).toHaveLength(1);
+    expect(pendingNodes[0]!.issue.id).toBe("B");
+  });
+
+  it("populates blockedBy classification from blocked breakdown", () => {
+    const issueA = makeIssue("A", "Task A");
+    const issueB = makeIssue("B", "Task B");
+    const run = makeRun("run-1", "running");
+
+    const result = buildWorkGraphData({
+      ...BASE_EPIC,
+      activeRunId: "run-1" as never,
+      runs: [run],
+      status: makeStatus({
+        blocked: [issueA, issueB],
+        blockedBreakdown: {
+          internal: [issueA],
+          external: [issueB],
+          unknown: [],
+        },
+      }),
+    });
+
+    const nodes = allNodes(result);
+    const nodeA = nodes.find((n) => n.issue.id === "A")!;
+    const nodeB = nodes.find((n) => n.issue.id === "B")!;
+    expect(nodeA.blockedBy).toBe("internal");
+    expect(nodeB.blockedBy).toBe("external");
+  });
+
+  it("enriches nodes with issue details when provided", () => {
+    const issueA = makeIssue("A", "Task A");
+    const run = makeRun("run-1", "running");
+    const detail: BeadsIssueDetail = {
+      id: "A",
+      title: "Task A",
+      description: "First line of description\nSecond line",
+      status: "open",
+      priority: null,
+      issueType: "task",
+      assignee: null,
+      owner: null,
+      parent: null,
+      createdAt: "2026-04-08T00:00:00.000Z",
+      updatedAt: "2026-04-08T00:00:00.000Z",
+      createdBy: null,
+      labels: [],
+      dependencies: [
+        {
+          id: "B",
+          title: "Task B",
+          status: "open",
+          priority: null,
+          issueType: "task",
+          owner: null,
+          createdAt: "2026-04-08T00:00:00.000Z",
+          createdBy: null,
+          updatedAt: "2026-04-08T00:00:00.000Z",
+          dependencyType: "blocked_by",
+        },
+      ],
+      comments: [],
+    } as unknown as BeadsIssueDetail;
+
+    const issueDetailsMap = new Map<string, BeadsIssueDetail>([["A", detail]]);
+
+    const result = buildWorkGraphData(
+      {
+        ...BASE_EPIC,
+        activeRunId: "run-1" as never,
+        runs: [run],
+        status: makeStatus({ ready: [issueA] }),
+      },
+      issueDetailsMap,
+    );
+
+    const nodes = allNodes(result);
+    expect(nodes[0]!.dependencies).toHaveLength(1);
+    expect(nodes[0]!.dependencies[0]!.id).toBe("B");
+    expect(nodes[0]!.descriptionSnippet).toBe("First line of description");
+  });
+
+  it("nodes have empty dependencies and null snippet without issue details", () => {
+    const issueA = makeIssue("A", "Task A");
+    const run = makeRun("run-1", "running");
+
+    const result = buildWorkGraphData({
+      ...BASE_EPIC,
+      activeRunId: "run-1" as never,
+      runs: [run],
+      status: makeStatus({ ready: [issueA] }),
+    });
+
+    const nodes = allNodes(result);
+    expect(nodes[0]!.dependencies).toEqual([]);
+    expect(nodes[0]!.descriptionSnippet).toBeNull();
   });
 });

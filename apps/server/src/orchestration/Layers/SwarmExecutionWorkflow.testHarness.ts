@@ -156,7 +156,6 @@ export function makeIssueDetail(
     parent: { id: "EPIC-1", title: "Epic 1" },
     dependencies: [],
     comments: [],
-    history: [],
     ...rest,
   };
 }

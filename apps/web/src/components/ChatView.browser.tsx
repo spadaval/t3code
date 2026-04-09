@@ -3109,7 +3109,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
             commentCount: 0,
             dependencies: [],
             comments: [],
-            history: [],
           };
         }
         return undefined;

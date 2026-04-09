@@ -403,7 +403,6 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
                 <IssueDetail
                   issue={selectedIssue}
                   showCompactSections
-                  hideHistory
                   autoFocus
                   onClose={onBackToList}
                   onDependencyClick={onSelectIssue}

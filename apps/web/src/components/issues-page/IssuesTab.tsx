@@ -16,7 +16,6 @@ import {
   OctagonAlertIcon,
   SendIcon,
   XIcon,
-  Clock3Icon,
 } from "lucide-react";
 
 import {
@@ -436,9 +435,6 @@ function IssueDetailPanel({
 
             {/* Comments */}
             {issue.comments.length > 0 && <CommentsSection comments={issue.comments} />}
-
-            {/* History */}
-            {issue.history.length > 0 && <HistorySection history={issue.history} />}
 
             {/* Comment input */}
             <div className="mt-6 border-t border-border pt-5">
@@ -1023,101 +1019,4 @@ function CommentsSection({ comments }: { comments: BeadsIssueDetailType["comment
       </div>
     </div>
   );
-}
-
-// ---------------------------------------------------------------------------
-// History section
-// ---------------------------------------------------------------------------
-
-function HistorySection({ history }: { history: BeadsIssueDetailType["history"] }) {
-  const settings = useSettings();
-  const [expanded, setExpanded] = useState(false);
-  const PREVIEW_LIMIT = 3;
-  const visible = expanded ? history : history.slice(0, PREVIEW_LIMIT);
-  const hasHidden = history.length > PREVIEW_LIMIT;
-
-  return (
-    <div className="mt-6 space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          History ({history.length})
-        </h3>
-        {hasHidden && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setExpanded(!expanded)}
-            className="h-auto p-0 text-xs text-muted-foreground hover:text-foreground hover:bg-transparent"
-          >
-            {expanded ? "Show less" : `Show ${history.length - PREVIEW_LIMIT} more`}
-          </Button>
-        )}
-      </div>
-      <div className="space-y-2">
-        {visible.map((entry, index) => {
-          // Compare with the next (older) entry to derive what changed
-          const olderEntry = index < history.length - 1 ? (history[index + 1] ?? null) : null;
-          const changeDescription = deriveHistoryChangeDescription(entry, olderEntry);
-
-          return (
-            <div
-              key={entry.commitHash}
-              className="flex items-start gap-3 rounded border border-border/30 bg-muted/10 p-2"
-            >
-              <Clock3Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-              <div className="min-w-0 flex-1 space-y-1">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <code className="rounded bg-muted/50 px-1 font-mono text-[10px]">
-                    {entry.commitHash.slice(0, 8)}
-                  </code>
-                  <span>{entry.committer || "Unknown"}</span>
-                  <span className="opacity-60">·</span>
-                  <span>{formatShortTimestamp(entry.commitDate, settings.timestampFormat)}</span>
-                </div>
-                <p className="text-sm text-foreground">{changeDescription}</p>
-                {entry.status && (
-                  <StatusIndicator variant={getStatusVariant(entry.status)} size="sm">
-                    {entry.status.replace(/_/g, " ")}
-                  </StatusIndicator>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Derive a human-readable description of what changed between two history entries.
- * Compares the current entry with the older entry to identify status, title changes.
- */
-function deriveHistoryChangeDescription(
-  entry: BeadsIssueDetailType["history"][0],
-  olderEntry: BeadsIssueDetailType["history"][0] | null,
-): string {
-  const changes: string[] = [];
-
-  if (olderEntry === null) {
-    // This is the oldest entry — it's the creation event
-    return `Created with status "${entry.status.replace(/_/g, " ")}"`;
-  }
-
-  if (entry.status !== olderEntry.status) {
-    changes.push(
-      `Status changed from "${olderEntry.status.replace(/_/g, " ")}" to "${entry.status.replace(/_/g, " ")}"`,
-    );
-  }
-
-  if (entry.title !== olderEntry.title) {
-    changes.push(`Title updated`);
-  }
-
-  if (changes.length === 0) {
-    // Fields we can't see changed (description, priority, labels, etc.)
-    return "Issue updated";
-  }
-
-  return changes.join(". ");
 }

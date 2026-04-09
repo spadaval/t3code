@@ -195,7 +195,7 @@ layer("BeadsServiceLive", (it) => {
             ]);
           }
 
-          if (action === "comments" || action === "history") {
+          if (action === "comments") {
             return successJson([]);
           }
 
@@ -213,7 +213,7 @@ layer("BeadsServiceLive", (it) => {
 
       assert.equal(left.id, "ISS-1");
       assert.equal(right.id, "ISS-1");
-      expect(mockedRunProcess).toHaveBeenCalledTimes(7);
+      expect(mockedRunProcess).toHaveBeenCalledTimes(5);
       expect(maxActiveCalls).toBe(1);
     }),
   );
@@ -268,7 +268,7 @@ layer("BeadsServiceLive", (it) => {
             ]);
           }
 
-          if (action === "comments" || action === "history") {
+          if (action === "comments") {
             return successJson([]);
           }
 
@@ -290,20 +290,10 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
-  it.effect("caps issue history fetches at the source", () =>
+  it.effect("loads issue detail without fetching history", () =>
     Effect.gen(function* () {
       const cwd = "/repo-history-limit";
       const now = new Date().toISOString();
-      const returnedHistory = Array.from({ length: 20 }, (_, index) => ({
-        CommitHash: `commit-${index}`,
-        Committer: "beads",
-        CommitDate: now,
-        Issue: {
-          id: "ISS-1",
-          title: `Recent history entry ${index}`,
-          status: "open",
-        },
-      }));
 
       mockedRunProcess.mockImplementation(async (_command, args) => {
         const key = commandKey(args);
@@ -327,7 +317,7 @@ layer("BeadsServiceLive", (it) => {
           return successJson([
             {
               id: "ISS-1",
-              title: "Bounded issue history",
+              title: "Issue detail without history",
               description: "desc",
               notes: "notes",
               status: "open",
@@ -347,25 +337,18 @@ layer("BeadsServiceLive", (it) => {
           return successJson([]);
         }
 
-        if (key === "history ISS-1 --limit 20") {
-          return successJson(returnedHistory);
-        }
-
         throw new Error(`Unexpected bd args: ${args.join(" ")}`);
       });
 
       const beads = yield* BeadsService;
       const issue = yield* beads.getIssue({ cwd, issueId: "ISS-1" });
-      const historyCall = mockedRunProcess.mock.calls.find(([, args]) =>
-        commandKey(args).startsWith("history ISS-1"),
-      );
 
       assert.equal(issue.id, "ISS-1");
-      assert.equal(issue.history.length, returnedHistory.length);
-      expect(historyCall?.[2]).toMatchObject({
-        outputMode: "truncate",
-        maxBufferBytes: 512 * 1024,
-      });
+      expect(
+        mockedRunProcess.mock.calls.some(([, args]) =>
+          commandKey(args).startsWith("history ISS-1"),
+        ),
+      ).toBe(false);
     }),
   );
 
@@ -608,7 +591,6 @@ layer("BeadsServiceLive", (it) => {
           },
         ],
         "comments EPIC-1": [],
-        "history EPIC-1": [],
       });
 
       const beads = yield* BeadsService;

@@ -4,7 +4,6 @@ import {
   BugIcon,
   CheckSquare2Icon,
   CircleDotIcon,
-  Clock3Icon,
   GitBranchIcon,
   LightbulbIcon,
   LinkIcon,
@@ -35,13 +34,10 @@ export interface IssueDetailProps {
   onDependencyClick?: ((dependencyId: string) => void) | undefined;
   onLabelClick?: ((label: string) => void) | undefined;
   showCompactSections?: boolean;
-  /** Hide the history section entirely (useful in sidebar where it's not valuable) */
-  hideHistory?: boolean;
   // Enhanced interaction props
   loading?: boolean;
   sectionsLoading?: {
     comments?: boolean;
-    history?: boolean;
     dependencies?: boolean;
   };
   onClose?: () => void;
@@ -52,11 +48,9 @@ export interface IssueDetailProps {
  * IssueDetail - Enhanced clean, focused issue detail display component
  *
  * Features:
- * - Progressive loading of sections
  * - Keyboard navigation and shortcuts
  * - Focus management for accessibility
  * - Loading states for different sections
- * - Enhanced interactions and animations
  *
  * Replaces the monolithic badge-heavy IssueOverviewContent with a clean,
  * hierarchical layout that implements progressive disclosure patterns.
@@ -65,7 +59,6 @@ export interface IssueDetailProps {
  * Keyboard shortcuts:
  * - Escape: Close detail view (if onClose provided)
  * - C: Toggle comments section
- * - H: Toggle history section
  * - D: Toggle dependencies section
  *
  * @example
@@ -83,7 +76,6 @@ export function IssueDetail({
   onDependencyClick,
   onLabelClick,
   showCompactSections = false,
-  hideHistory = false,
   loading = false,
   sectionsLoading = {},
   onClose,
@@ -92,7 +84,6 @@ export function IssueDetail({
   const settings = useSettings();
   const containerRef = useRef<HTMLDivElement>(null);
   const [commentsExpanded, setCommentsExpanded] = useState(false);
-  const [historyExpanded, setHistoryExpanded] = useState(false);
   const [dependenciesExpanded, setDependenciesExpanded] = useState(false);
 
   const statusVariant = getStatusVariant(issue.status);
@@ -118,13 +109,6 @@ export function IssueDetail({
           if (issue.comments.length > 0 && !event.ctrlKey && !event.metaKey) {
             event.preventDefault();
             setCommentsExpanded((prev) => !prev);
-          }
-          break;
-        case "h":
-        case "H":
-          if (issue.history.length > 0 && !event.ctrlKey && !event.metaKey) {
-            event.preventDefault();
-            setHistoryExpanded((prev) => !prev);
           }
           break;
         case "d":
@@ -156,22 +140,16 @@ export function IssueDetail({
   const visibleComments = commentsExpanded
     ? issue.comments
     : issue.comments.slice(0, PREVIEW_LIMIT);
-  const visibleHistory = historyExpanded ? issue.history : issue.history.slice(0, PREVIEW_LIMIT);
   const visibleDependencies = dependenciesExpanded
     ? issue.dependencies
     : issue.dependencies.slice(0, PREVIEW_LIMIT);
 
   const hasHiddenComments = issue.comments.length > PREVIEW_LIMIT;
-  const hasHiddenHistory = issue.history.length > PREVIEW_LIMIT;
   const hasHiddenDependencies = issue.dependencies.length > PREVIEW_LIMIT;
 
   const handleToggleComments = useCallback(() => {
     setCommentsExpanded(!commentsExpanded);
   }, [commentsExpanded]);
-
-  const handleToggleHistory = useCallback(() => {
-    setHistoryExpanded(!historyExpanded);
-  }, [historyExpanded]);
 
   const handleToggleDependencies = useCallback(() => {
     setDependenciesExpanded(!dependenciesExpanded);
@@ -310,47 +288,6 @@ export function IssueDetail({
             )}
           </ProgressiveSection>
         )}
-
-        {/* History (hidden in sidebar via hideHistory prop) */}
-        {!hideHistory && issue.history.length > 0 && (
-          <ProgressiveSection
-            title={`History (${issue.history.length})`}
-            expanded={historyExpanded}
-            onToggle={handleToggleHistory}
-            hasHidden={hasHiddenHistory}
-            hiddenCount={issue.history.length - PREVIEW_LIMIT}
-            compact={showCompactSections}
-            loading={sectionsLoading.history ?? false}
-            shortcut="H"
-          >
-            {sectionsLoading.history ? (
-              <div className="space-y-2">
-                {Array.from({ length: 2 }).map((_, i) => (
-                  <div
-                    key={`history-skeleton-${String(i)}`}
-                    className="h-16 bg-muted/50 rounded border animate-pulse"
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {visibleHistory.map((entry, index) => {
-                  const olderEntry =
-                    index < issue.history.length - 1 ? (issue.history[index + 1] ?? null) : null;
-                  return (
-                    <HistoryItem
-                      key={entry.commitHash}
-                      entry={entry}
-                      olderEntry={olderEntry}
-                      timestampFormat={settings.timestampFormat}
-                      compact={showCompactSections}
-                    />
-                  );
-                })}
-              </div>
-            )}
-          </ProgressiveSection>
-        )}
       </div>
 
       {/* Keyboard shortcuts help */}
@@ -365,11 +302,6 @@ export function IssueDetail({
               {issue.comments.length > 0 && (
                 <span>
                   <kbd className="px-1 py-0.5 bg-muted rounded text-xs">C</kbd> Comments
-                </span>
-              )}
-              {!hideHistory && issue.history.length > 0 && (
-                <span>
-                  <kbd className="px-1 py-0.5 bg-muted rounded text-xs">H</kbd> History
                 </span>
               )}
               {issue.dependencies.length > 0 && (
@@ -778,79 +710,6 @@ function CommentItem({
       <div className="whitespace-pre-wrap text-sm text-foreground pl-5">{comment.text}</div>
     </div>
   );
-}
-
-function HistoryItem({
-  entry,
-  olderEntry,
-  timestampFormat,
-  compact,
-}: {
-  entry: BeadsIssueDetail["history"][0];
-  olderEntry: BeadsIssueDetail["history"][0] | null;
-  timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
-  compact?: boolean;
-}) {
-  const changeDescription = deriveChangeDescription(entry, olderEntry);
-
-  return (
-    <div
-      className={cn(
-        "flex items-start gap-3 p-2 rounded border border-border/30 bg-muted/10",
-        compact && "p-1.5",
-      )}
-    >
-      <Clock3Icon className="size-3.5 text-muted-foreground mt-0.5 shrink-0" />
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <code className="font-mono bg-muted/50 px-1 rounded text-[10px]">
-            {entry.commitHash.slice(0, 8)}
-          </code>
-          <span>{entry.committer || "Unknown"}</span>
-          <span className="opacity-60">·</span>
-          <span>{formatShortTimestamp(entry.commitDate, timestampFormat)}</span>
-        </div>
-        <p className="text-sm text-foreground">{changeDescription}</p>
-        {entry.status && (
-          <div className="flex items-center gap-1">
-            <StatusIndicator variant={getStatusVariant(entry.status)} size="sm">
-              {formatStatusDisplay(entry.status)}
-            </StatusIndicator>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Derive a human-readable description of what changed between two history entries.
- */
-function deriveChangeDescription(
-  entry: BeadsIssueDetail["history"][0],
-  olderEntry: BeadsIssueDetail["history"][0] | null,
-): string {
-  if (olderEntry === null) {
-    return `Created with status "${formatStatusDisplay(entry.status)}"`;
-  }
-
-  const changes: string[] = [];
-
-  if (entry.status !== olderEntry.status) {
-    changes.push(
-      `Status changed from "${formatStatusDisplay(olderEntry.status)}" to "${formatStatusDisplay(entry.status)}"`,
-    );
-  }
-
-  if (entry.title !== olderEntry.title) {
-    changes.push("Title updated");
-  }
-
-  if (changes.length === 0) {
-    return "Issue updated";
-  }
-
-  return changes.join(". ");
 }
 
 // Issue type icon component
