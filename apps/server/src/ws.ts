@@ -741,6 +741,21 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
           { "rpc.aggregate": "beads" },
         ),
+      [BEADS_WS_METHODS.getIssues]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.getIssues,
+          beads.getIssues(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to load beads issues batch",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
       [BEADS_WS_METHODS.updateIssue]: (input) =>
         observeRpcEffect(
           BEADS_WS_METHODS.updateIssue,

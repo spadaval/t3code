@@ -6,6 +6,8 @@ import type {
   BeadsEpicIssueInput,
   BeadsGetContextInput,
   BeadsGetIssueInput,
+  BeadsGetIssuesInput,
+  BeadsGetIssuesResult,
   BeadsGetSessionActivityInput,
   BeadsGetSessionActivityResult,
   BeadsGetSwarmSupportInput,
@@ -277,6 +279,7 @@ export interface NativeApi {
   beads: {
     queryIssues: (input: BeadsQueryIssuesInput) => Promise<BeadsQueryIssuesResult>;
     getIssue: (input: BeadsGetIssueInput) => Promise<BeadsIssueDetail>;
+    getIssues: (input: BeadsGetIssuesInput) => Promise<BeadsGetIssuesResult>;
     createIssue: (input: BeadsCreateIssueInput) => Promise<BeadsIssueSummary>;
     updateIssue: (input: BeadsUpdateIssueInput) => Promise<BeadsIssueSummary>;
     commentIssue: (input: BeadsCommentIssueInput) => Promise<BeadsIssueDetail>;

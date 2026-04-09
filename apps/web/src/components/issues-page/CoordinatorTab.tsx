@@ -499,6 +499,7 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
         {effectiveSelectedEpic ? (
           <ScrollArea>
             <EpicDetail
+              cwd={props.cwd}
               epic={effectiveSelectedEpic}
               busyActionKey={coordinatorActions.busyActionKey}
               onOpenEpicIssue={props.onOpenEpicIssue}
@@ -622,6 +623,7 @@ function EpicListItem(props: {
 // ---------------------------------------------------------------------------
 
 function EpicDetail(props: {
+  cwd: string;
   epic: BeadsCoordinatorEpicSnapshot;
   busyActionKey: string | null;
   onOpenEpicIssue: (epicId: string) => void;
@@ -782,7 +784,7 @@ function EpicDetail(props: {
       ) : null}
 
       {/* Unified work graph */}
-      <WorkGraph epic={epic} onOpenThread={props.onOpenThread} />
+      <WorkGraph cwd={props.cwd} epic={epic} onOpenThread={props.onOpenThread} />
     </div>
   );
 }

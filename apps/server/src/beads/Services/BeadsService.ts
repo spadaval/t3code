@@ -7,6 +7,8 @@ import type {
   BeadsEpicIssueInput,
   BeadsGetContextInput,
   BeadsGetIssueInput,
+  BeadsGetIssuesInput,
+  BeadsGetIssuesResult,
   BeadsGetSessionActivityInput,
   BeadsGetSessionActivityResult,
   BeadsGetSwarmSupportInput,
@@ -41,6 +43,9 @@ export interface BeadsServiceShape {
     input: BeadsQueryIssuesInput,
   ) => Effect.Effect<BeadsQueryIssuesResult, BeadsError>;
   readonly getIssue: (input: BeadsGetIssueInput) => Effect.Effect<BeadsIssueDetail, BeadsError>;
+  readonly getIssues: (
+    input: BeadsGetIssuesInput,
+  ) => Effect.Effect<BeadsGetIssuesResult, BeadsError>;
   readonly updateIssue: (
     input: BeadsUpdateIssueInput,
   ) => Effect.Effect<BeadsIssueSummary, BeadsError>;

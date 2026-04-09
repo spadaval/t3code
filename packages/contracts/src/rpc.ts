@@ -10,6 +10,8 @@ import {
   BeadsEpicCoordinatorSnapshotInput,
   BeadsEpicIssueInput,
   BeadsGetIssueInput,
+  BeadsGetIssuesInput,
+  BeadsGetIssuesResult,
   BeadsGetContextInput,
   BeadsGetSessionActivityInput,
   BeadsGetSessionActivityResult,
@@ -347,6 +349,12 @@ export const WsBeadsGetIssueRpc = Rpc.make(BEADS_WS_METHODS.getIssue, {
   error: BeadsError,
 });
 
+export const WsBeadsGetIssuesRpc = Rpc.make(BEADS_WS_METHODS.getIssues, {
+  payload: BeadsGetIssuesInput,
+  success: BeadsGetIssuesResult,
+  error: BeadsError,
+});
+
 export const WsBeadsUpdateIssueRpc = Rpc.make(BEADS_WS_METHODS.updateIssue, {
   payload: BeadsUpdateIssueInput,
   success: BeadsIssueSummary,
@@ -631,6 +639,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsTerminalCloseRpc,
   WsBeadsQueryIssuesRpc,
   WsBeadsGetIssueRpc,
+  WsBeadsGetIssuesRpc,
   WsBeadsUpdateIssueRpc,
   WsBeadsCreateIssueRpc,
   WsBeadsCommentIssueRpc,

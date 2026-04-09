@@ -105,6 +105,7 @@ export interface WsRpcClient {
   readonly beads: {
     readonly queryIssues: RpcUnaryMethod<typeof BEADS_WS_METHODS.queryIssues>;
     readonly getIssue: RpcUnaryMethod<typeof BEADS_WS_METHODS.getIssue>;
+    readonly getIssues: RpcUnaryMethod<typeof BEADS_WS_METHODS.getIssues>;
     readonly createIssue: RpcUnaryMethod<typeof BEADS_WS_METHODS.createIssue>;
     readonly updateIssue: RpcUnaryMethod<typeof BEADS_WS_METHODS.updateIssue>;
     readonly commentIssue: RpcUnaryMethod<typeof BEADS_WS_METHODS.commentIssue>;
@@ -284,6 +285,8 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
       queryIssues: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.queryIssues](input)),
       getIssue: (input) => transport.request((client) => client[BEADS_WS_METHODS.getIssue](input)),
+      getIssues: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getIssues](input)),
       createIssue: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.createIssue](input)),
       updateIssue: (input) =>

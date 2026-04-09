@@ -1,11 +1,14 @@
 import type {
   BeadsCoordinatorEpicSnapshot,
+  BeadsIssueDetail,
   OrchestrationSwarmRun,
   OrchestrationSwarmTaskExecution,
   ThreadId,
 } from "@t3tools/contracts";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 import {
+  ArrowRightIcon,
   CheckCircle2Icon,
   ChevronDownIcon,
   ChevronRightIcon,
@@ -13,10 +16,14 @@ import {
   ClockIcon,
   ExternalLinkIcon,
   HistoryIcon,
+  LinkIcon,
   OctagonAlertIcon,
   PlayIcon,
+  ShieldAlertIcon,
 } from "lucide-react";
 
+import { beadsIssuesBatchOptions } from "~/lib/beadsReactQuery";
+import { getDependencyTypeDef } from "~/lib/issueConstants";
 import {
   buildWorkGraphData,
   type WorkGraphData,
@@ -131,10 +138,40 @@ function IssueStatusIcon(props: { status: WorkGraphIssueStatus; isActiveWorker: 
 // ---------------------------------------------------------------------------
 
 export function WorkGraph(props: {
+  cwd: string;
   epic: BeadsCoordinatorEpicSnapshot;
   onOpenThread: (threadId: ThreadId) => void;
 }) {
-  const data = useMemo(() => buildWorkGraphData(props.epic), [props.epic]);
+  // Collect all issue IDs from status buckets for batch detail fetch.
+  const issueIds = useMemo(() => {
+    const status = props.epic.status;
+    if (!status) return [];
+    const ids = new Set<string>();
+    for (const issue of status.completed) ids.add(issue.id);
+    for (const issue of status.active) ids.add(issue.id);
+    for (const issue of status.ready) ids.add(issue.id);
+    for (const issue of status.blocked) ids.add(issue.id);
+    return [...ids].toSorted();
+  }, [props.epic.status]);
+
+  const batchQuery = useQuery(
+    beadsIssuesBatchOptions(issueIds.length > 0 ? { cwd: props.cwd, issueIds } : null),
+  );
+
+  // Build a Map<issueId, BeadsIssueDetail> from the batch result.
+  const issueDetails = useMemo((): ReadonlyMap<string, BeadsIssueDetail> | undefined => {
+    if (!batchQuery.data) return undefined;
+    const map = new Map<string, BeadsIssueDetail>();
+    for (const issue of batchQuery.data.issues) {
+      map.set(issue.id, issue);
+    }
+    return map;
+  }, [batchQuery.data]);
+
+  const data = useMemo(
+    () => buildWorkGraphData(props.epic, issueDetails),
+    [props.epic, issueDetails],
+  );
   const [expandedRows, setExpandedRows] = useState<ReadonlySet<string>>(new Set());
 
   const toggleRow = useCallback((issueId: string) => {
@@ -165,6 +202,7 @@ export function WorkGraph(props: {
           <WorkGraphRunSectionView
             key={section.run?.runId ?? "__unscheduled"}
             section={section}
+            waveCount={data.waveCount}
             onOpenThread={props.onOpenThread}
             expandedRows={expandedRows}
             onToggleRow={toggleRow}
@@ -273,6 +311,7 @@ function RunHistoryPopover(props: {
 
 function WorkGraphRunSectionView(props: {
   section: WorkGraphRunSection;
+  waveCount: number;
   onOpenThread: (threadId: ThreadId) => void;
   expandedRows: ReadonlySet<string>;
   onToggleRow: (issueId: string) => void;
@@ -306,7 +345,7 @@ function WorkGraphRunSectionView(props: {
           </Badge>
         ) : (
           <Badge variant="neutral" size="sm">
-            Not Scheduled
+            Pending
           </Badge>
         )}
 
@@ -353,6 +392,7 @@ function WorkGraphRunSectionView(props: {
               key={group.label}
               group={group}
               sectionKind={section.kind}
+              waveCount={props.waveCount}
               hasNonCompletedSiblings={section.groups.some((g) => g.kind !== "completed")}
               onOpenThread={props.onOpenThread}
               expandedRows={props.expandedRows}
@@ -372,12 +412,13 @@ function WorkGraphRunSectionView(props: {
 function WorkGraphGroupView(props: {
   group: WorkGraphGroup;
   sectionKind: WorkGraphRunSection["kind"];
+  waveCount: number;
   hasNonCompletedSiblings: boolean;
   onOpenThread: (threadId: ThreadId) => void;
   expandedRows: ReadonlySet<string>;
   onToggleRow: (issueId: string) => void;
 }) {
-  const { group, sectionKind, hasNonCompletedSiblings } = props;
+  const { group, sectionKind, hasNonCompletedSiblings, waveCount } = props;
   const isCompleted = group.kind === "completed";
 
   // Auto-collapse completed groups in active sections only when there are
@@ -414,6 +455,19 @@ function WorkGraphGroupView(props: {
         </span>
         <span className="text-xs text-muted-foreground/50">({group.nodes.length})</span>
 
+        {/* Wave dependency context */}
+        {!isCompleted && group.waveIndex !== null && group.waveIndex > 0 ? (
+          <span className="flex items-center gap-1 text-[11px] text-muted-foreground/50">
+            <ArrowRightIcon className="size-2.5" />
+            depends on Wave {group.waveIndex.toString()}
+          </span>
+        ) : null}
+        {!isCompleted && group.waveIndex !== null && waveCount > 1 ? (
+          <span className="text-[11px] text-muted-foreground/40">
+            ({(group.waveIndex + 1).toString()}/{waveCount.toString()})
+          </span>
+        ) : null}
+
         {/* Inline status summary for wave groups */}
         {!isCompleted ? <GroupStatusSummary nodes={group.nodes} /> : null}
       </button>
@@ -425,6 +479,7 @@ function WorkGraphGroupView(props: {
             <WorkGraphRow
               key={node.issue.id}
               node={node}
+              waveCount={waveCount}
               onOpenThread={props.onOpenThread}
               expanded={props.expandedRows.has(node.issue.id)}
               onToggle={() => props.onToggleRow(node.issue.id)}
@@ -471,6 +526,7 @@ function GroupStatusSummary(props: { nodes: readonly WorkGraphIssueNode[] }) {
 
 function WorkGraphRow(props: {
   node: WorkGraphIssueNode;
+  waveCount: number;
   onOpenThread: (threadId: ThreadId) => void;
   expanded: boolean;
   onToggle: () => void;
@@ -503,10 +559,32 @@ function WorkGraphRow(props: {
           <IssueStatusIcon status={node.status} isActiveWorker={isActiveWorker} />
         </span>
 
+        {/* Issue ID */}
+        <span className="shrink-0 font-mono text-[11px] text-muted-foreground/60">
+          {node.issue.id}
+        </span>
+
         {/* Title */}
         <span className="min-w-0 flex-1 text-xs font-medium text-foreground">
           {node.issue.title}
         </span>
+
+        {/* Blocked-by classification badge */}
+        {node.blockedBy !== null ? (
+          <Badge
+            variant={
+              node.blockedBy === "external"
+                ? "error"
+                : node.blockedBy === "unknown"
+                  ? "warning"
+                  : "neutral"
+            }
+            size="sm"
+          >
+            <ShieldAlertIcon className="mr-0.5 size-2.5" />
+            {node.blockedBy}
+          </Badge>
+        ) : null}
 
         {/* Issue type badge (if not task) */}
         {node.issue.issueType !== "task" ? (
@@ -557,19 +635,23 @@ function WorkGraphRow(props: {
         ) : null}
 
         {/* Expand indicator */}
-        {node.executions.length > 0 ? (
-          <span className="shrink-0 text-muted-foreground/40">
-            {expanded ? (
-              <ChevronDownIcon className="size-3" />
-            ) : (
-              <ChevronRightIcon className="size-3" />
-            )}
-          </span>
-        ) : null}
+        <span className="shrink-0 text-muted-foreground/40">
+          {expanded ? (
+            <ChevronDownIcon className="size-3" />
+          ) : (
+            <ChevronRightIcon className="size-3" />
+          )}
+        </span>
       </button>
 
       {/* Expanded detail */}
-      {expanded ? <WorkGraphRowDetail node={node} onOpenThread={props.onOpenThread} /> : null}
+      {expanded ? (
+        <WorkGraphRowDetail
+          node={node}
+          waveCount={props.waveCount}
+          onOpenThread={props.onOpenThread}
+        />
+      ) : null}
     </div>
   );
 }
@@ -580,37 +662,109 @@ function WorkGraphRow(props: {
 
 function WorkGraphRowDetail(props: {
   node: WorkGraphIssueNode;
+  waveCount: number;
   onOpenThread: (threadId: ThreadId) => void;
 }) {
-  const { node } = props;
+  const { node, waveCount } = props;
+  const nonParentDeps = node.dependencies.filter(
+    (dep) => getDependencyTypeDef(dep.dependencyType).category !== "parent",
+  );
 
   return (
     <div className="space-y-2 border-t border-border/30 px-2.5 py-2">
-      {/* Metadata row */}
+      {/* Description snippet */}
+      {node.descriptionSnippet ? (
+        <p className="text-xs text-muted-foreground italic">{node.descriptionSnippet}</p>
+      ) : null}
+
+      {/* Compact context row: wave, priority, status */}
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-        <Badge variant="neutral" size="sm">
-          {node.issue.status}
-        </Badge>
+        {node.waveIndex !== null ? (
+          <Badge variant="neutral" size="sm">
+            Wave {(node.waveIndex + 1).toString()}
+            {waveCount > 1 ? ` of ${waveCount.toString()}` : ""}
+          </Badge>
+        ) : node.status === "completed" ? (
+          <Badge variant="success" size="sm">
+            Completed
+          </Badge>
+        ) : null}
+        {node.issue.priority ? (
+          <Badge variant="neutral" size="sm">
+            {node.issue.priority}
+          </Badge>
+        ) : null}
         {node.issue.issueType !== "task" ? (
           <Badge variant="neutral" size="sm">
             {node.issue.issueType}
           </Badge>
         ) : null}
-        {node.waveIndex !== null ? (
-          <span>Wave {(node.waveIndex + 1).toString()}</span>
-        ) : node.status === "completed" ? (
-          <span>Completed</span>
+        {node.blockedBy !== null ? (
+          <Badge
+            variant={
+              node.blockedBy === "external"
+                ? "error"
+                : node.blockedBy === "unknown"
+                  ? "warning"
+                  : "neutral"
+            }
+            size="sm"
+          >
+            {node.blockedBy === "internal"
+              ? "Blocked internally"
+              : node.blockedBy === "external"
+                ? "Blocked externally"
+                : "Blocked (unknown)"}
+          </Badge>
         ) : null}
-        {node.issue.assignee ? <span>Assignee: {node.issue.assignee}</span> : null}
-        {node.issue.owner ? <span>Owner: {node.issue.owner}</span> : null}
-        {node.issue.parent ? <span>Parent: {node.issue.parent.title}</span> : null}
       </div>
 
-      {/* Execution history */}
+      {/* Dependencies (non-parent) */}
+      {nonParentDeps.length > 0 ? (
+        <div>
+          <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
+            Dependencies ({nonParentDeps.length.toString()})
+          </p>
+          <div className="space-y-0.5">
+            {nonParentDeps.map((dep) => {
+              const depDef = getDependencyTypeDef(dep.dependencyType);
+              return (
+                <div
+                  key={`${dep.dependencyType}-${dep.id}`}
+                  className="flex items-center gap-2 rounded border border-border/30 px-2 py-1 text-xs"
+                >
+                  <LinkIcon className={cn("size-2.5 shrink-0", depDef.colorClass)} />
+                  <span className={cn("shrink-0 text-[11px] font-medium", depDef.colorClass)}>
+                    {depDef.directionLabel}
+                  </span>
+                  <span className="shrink-0 font-mono text-[11px] text-muted-foreground/60">
+                    {dep.id}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-foreground">{dep.title}</span>
+                  <Badge
+                    variant={
+                      dep.status === "done"
+                        ? "success"
+                        : dep.status === "in_progress"
+                          ? "info"
+                          : "neutral"
+                    }
+                    size="sm"
+                  >
+                    {dep.status}
+                  </Badge>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Execution history (compact) */}
       {node.executions.length > 0 ? (
         <div>
           <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
-            Executions ({node.executions.length})
+            Executions ({node.executions.length.toString()})
           </p>
           <div className="space-y-1">
             {node.executions.map((exec) => (
@@ -645,9 +799,7 @@ function WorkGraphRowDetail(props: {
             ))}
           </div>
         </div>
-      ) : (
-        <p className="text-xs text-muted-foreground">No executions yet.</p>
-      )}
+      ) : null}
 
       {/* Latest error (prominent display) */}
       {node.latestExecution?.lastError ? (

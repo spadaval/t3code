@@ -5,6 +5,7 @@ import type {
   BeadsEpicCoordinatorSnapshotInput,
   BeadsEpicIssueInput,
   BeadsGetIssueInput,
+  BeadsGetIssuesInput,
   BeadsGetContextInput,
   BeadsIssueSummary,
   BeadsGetSessionActivityInput,
@@ -43,6 +44,8 @@ export const beadsQueryKeys = {
       [...(input.priorities ?? [])].toSorted((left, right) => left - right),
     ] as const,
   issue: (cwd: string | null, issueId: string | null) => ["beads", "issue", cwd, issueId] as const,
+  issuesBatch: (cwd: string | null, issueIds: readonly string[]) =>
+    ["beads", "issues-batch", cwd, [...issueIds].toSorted()] as const,
   context: (input: BeadsGetContextInput) => ["beads", "context", input.cwd] as const,
   swarmSupport: (cwd: string | null) => ["beads", "swarm-support", cwd] as const,
   epicSwarm: (cwd: string | null, epicIssueId: string | null) =>
@@ -108,6 +111,20 @@ export function beadsIssueDetailOptions(input: BeadsGetIssueInput | null) {
     },
     enabled: input !== null,
     staleTime: 5_000,
+  });
+}
+
+export function beadsIssuesBatchOptions(input: BeadsGetIssuesInput | null) {
+  return queryOptions({
+    queryKey: beadsQueryKeys.issuesBatch(input?.cwd ?? null, input?.issueIds ?? []),
+    queryFn: async () => {
+      if (!input) {
+        throw new Error("Issues batch is unavailable.");
+      }
+      return ensureNativeApi().beads.getIssues(input);
+    },
+    enabled: input !== null && input.issueIds.length > 0,
+    staleTime: 10_000,
   });
 }
 

@@ -1,5 +1,7 @@
 import type {
   BeadsCoordinatorEpicSnapshot,
+  BeadsIssueDependency,
+  BeadsIssueDetail,
   BeadsIssueRelationSummary,
   BeadsSwarmStatus,
   BeadsSwarmValidation,
@@ -13,6 +15,9 @@ import type {
 
 /** Status of an issue within the work graph. */
 export type WorkGraphIssueStatus = "completed" | "active" | "ready" | "blocked";
+
+/** Classification of a blocked issue's block type. */
+export type WorkGraphBlockedBy = "internal" | "external" | "unknown" | null;
 
 /** A single issue node in the work graph, enriched with execution data. */
 export type WorkGraphIssueNode = {
@@ -28,6 +33,12 @@ export type WorkGraphIssueNode = {
   readonly latestExecution: OrchestrationSwarmTaskExecution | null;
   /** True if this issue currently has the active execution (is being worked on right now). */
   readonly isActiveWorker: boolean;
+  /** Block classification from blocked breakdown (only set when status is "blocked"). */
+  readonly blockedBy: WorkGraphBlockedBy;
+  /** Dependencies fetched from issue detail (populated when issueDetails are provided). */
+  readonly dependencies: readonly BeadsIssueDependency[];
+  /** Description snippet from issue detail (populated when issueDetails are provided). */
+  readonly descriptionSnippet: string | null;
 };
 
 /** A group of issues within a run section (wave or status bucket). */
@@ -52,7 +63,7 @@ export type WorkGraphRunSectionSummary = {
 
 /** A run section in the work graph -- groups all issues associated with a run. */
 export type WorkGraphRunSection = {
-  /** The run, or null for the "unscheduled" section. */
+  /** The run, or null for the "pending" section. */
   readonly run: OrchestrationSwarmRun | null;
   /** Section kind. */
   readonly kind: "active" | "historical" | "unscheduled";
@@ -66,7 +77,7 @@ export type WorkGraphRunSection = {
 
 /** The fully joined data model for the work graph view. */
 export type WorkGraphData = {
-  /** Run sections (active run first, then unscheduled, then historical). */
+  /** Run sections (active run first, then pending, then historical). */
   readonly sections: readonly WorkGraphRunSection[];
   /** The currently active run, if any. */
   readonly activeRun: OrchestrationSwarmRun | null;
@@ -76,6 +87,8 @@ export type WorkGraphData = {
   readonly runs: readonly OrchestrationSwarmRun[];
   /** True when wave data is available (validation.readyFronts is non-empty). */
   readonly hasWaveData: boolean;
+  /** Total number of waves from validation, or 0 if no wave data. */
+  readonly waveCount: number;
   /** Max parallelism from validation, if known. */
   readonly maxParallelism: number | null;
   /** Estimated worker sessions from validation, if known. */
@@ -142,6 +155,23 @@ function buildWaveMap(
     for (const issue of front) {
       map.set(issue.id, waveIdx);
     }
+  }
+  return map;
+}
+
+/**
+ * Build a set-based lookup for blocked issue classifications from the blocked breakdown.
+ */
+function buildBlockedByMap(status: BeadsSwarmStatus): Map<string, WorkGraphBlockedBy> {
+  const map = new Map<string, WorkGraphBlockedBy>();
+  for (const issue of status.blockedBreakdown.internal) {
+    map.set(issue.id, "internal");
+  }
+  for (const issue of status.blockedBreakdown.external) {
+    map.set(issue.id, "external");
+  }
+  for (const issue of status.blockedBreakdown.unknown) {
+    map.set(issue.id, "unknown");
   }
   return map;
 }
@@ -218,7 +248,7 @@ function computeSummary(nodes: readonly WorkGraphIssueNode[]): WorkGraphRunSecti
   return { total: nodes.length, completed, active, failed };
 }
 
-/** Build groups from a list of nodes using wave data. */
+/** Build groups from a list of nodes using wave data. Order: completed first, then waves. */
 function buildGroups(
   nodes: WorkGraphIssueNode[],
   hasWaveData: boolean,
@@ -240,8 +270,18 @@ function buildGroups(
     }
   }
 
+  // Completed group first (collapsible, out of the way).
+  if (completedNodes.length > 0) {
+    groups.push({
+      label: "Completed",
+      kind: "completed",
+      waveIndex: null,
+      nodes: sortNodes(completedNodes),
+    });
+  }
+
   if (hasWaveData) {
-    // Wave groups first (active work), then completed.
+    // Wave groups in ascending order (Wave 1 = no deps, Wave 2 = depends on Wave 1, etc.).
     for (let i = 0; i < waveCount; i++) {
       const waveIssues =
         i === waveCount - 1 ? [...waveNodes[i]!, ...unscheduledNodes] : waveNodes[i]!;
@@ -267,22 +307,23 @@ function buildGroups(
     }
   }
 
-  // Completed group last.
-  if (completedNodes.length > 0) {
-    groups.push({
-      label: "Completed",
-      kind: "completed",
-      waveIndex: null,
-      nodes: sortNodes(completedNodes),
-    });
-  }
-
   return groups;
 }
 
 function formatRunLabel(run: OrchestrationSwarmRun, isActive: boolean): string {
   const status = run.status.charAt(0).toUpperCase() + run.status.slice(1);
   return isActive ? `Current Run \u00B7 ${status}` : `Run \u00B7 ${status}`;
+}
+
+/** Extract a short description snippet from issue detail (first ~120 chars). */
+function extractDescriptionSnippet(detail: BeadsIssueDetail | undefined): string | null {
+  const desc = detail?.description;
+  if (!desc) return null;
+  const trimmed = desc.trim();
+  if (trimmed.length === 0) return null;
+  // Take first line or first 120 chars, whichever is shorter.
+  const firstLine = trimmed.split("\n")[0]!;
+  return firstLine.length > 120 ? `${firstLine.slice(0, 117)}...` : firstLine;
 }
 
 // ---------------------------------------------------------------------------
@@ -297,9 +338,14 @@ function formatRunLabel(run: OrchestrationSwarmRun, isActive: boolean): string {
  * - `epic.validation` (parallelism wavefronts)
  * - `epic.executions` (execution log, partitioned by run)
  *
+ * Optionally enriched with per-issue detail data (dependencies, description).
+ *
  * into a run-sectioned, group-based model for vertical rendering.
  */
-export function buildWorkGraphData(epic: BeadsCoordinatorEpicSnapshot): WorkGraphData {
+export function buildWorkGraphData(
+  epic: BeadsCoordinatorEpicSnapshot,
+  issueDetails?: ReadonlyMap<string, BeadsIssueDetail>,
+): WorkGraphData {
   const activeRun = epic.activeRunId
     ? (epic.runs.find((r) => r.runId === epic.activeRunId) ?? null)
     : null;
@@ -311,6 +357,8 @@ export function buildWorkGraphData(epic: BeadsCoordinatorEpicSnapshot): WorkGrap
   const hasWaveData = validation !== null && validation.readyFronts.length > 0;
   const waveMap = hasWaveData ? buildWaveMap(validation.readyFronts) : new Map<string, number>();
   const waveCount = hasWaveData ? validation.readyFronts.length : 0;
+  const blockedByMap =
+    status !== null ? buildBlockedByMap(status) : new Map<string, WorkGraphBlockedBy>();
 
   // If no status data at all, return empty graph.
   if (status === null) {
@@ -320,6 +368,7 @@ export function buildWorkGraphData(epic: BeadsCoordinatorEpicSnapshot): WorkGrap
       latestRun,
       runs: epic.runs,
       hasWaveData: false,
+      waveCount: 0,
       maxParallelism: null,
       estimatedWorkerSessions: null,
     };
@@ -340,6 +389,19 @@ export function buildWorkGraphData(epic: BeadsCoordinatorEpicSnapshot): WorkGrap
   // Determine the "primary" run: the active run, or the latest run if no active run.
   const primaryRun = activeRun ?? latestRun;
 
+  /** Enrich a node with issue detail data (dependencies, description snippet). */
+  function enrichNode(
+    issueId: string,
+    base: Omit<WorkGraphIssueNode, "dependencies" | "descriptionSnippet">,
+  ): WorkGraphIssueNode {
+    const detail = issueDetails?.get(issueId);
+    return {
+      ...base,
+      dependencies: detail?.dependencies ?? [],
+      descriptionSnippet: extractDescriptionSnippet(detail),
+    };
+  }
+
   // Build sections.
   const sections: WorkGraphRunSection[] = [];
 
@@ -350,7 +412,7 @@ export function buildWorkGraphData(epic: BeadsCoordinatorEpicSnapshot): WorkGrap
     const isPrimaryActive = primaryRun === activeRun;
 
     // Issues in the primary run: those with executions in this run,
-    // plus all non-completed issues from status (they belong to the current/latest run scope).
+    // plus (if active) all remaining issues from status buckets.
     const primaryNodes: WorkGraphIssueNode[] = [];
     const seenInPrimary = new Set<string>();
 
@@ -364,33 +426,39 @@ export function buildWorkGraphData(epic: BeadsCoordinatorEpicSnapshot): WorkGrap
       // If we don't have the issue object from status buckets, skip it
       // (shouldn't happen in practice, but be safe).
       if (typeof issue === "string") continue;
-      primaryNodes.push({
-        issue,
-        status: issueStatus,
-        waveIndex: issueStatus === "completed" ? null : (waveMap.get(issueId) ?? null),
-        executions: issueExecs,
-        latestExecution: issueExecs[0] ?? null,
-        isActiveWorker:
-          activeExecutionId !== null && issueExecs.some((e) => e.executionId === activeExecutionId),
-      });
+      primaryNodes.push(
+        enrichNode(issueId, {
+          issue,
+          status: issueStatus,
+          waveIndex: issueStatus === "completed" ? null : (waveMap.get(issueId) ?? null),
+          executions: issueExecs,
+          latestExecution: issueExecs[0] ?? null,
+          isActiveWorker:
+            activeExecutionId !== null &&
+            issueExecs.some((e) => e.executionId === activeExecutionId),
+          blockedBy: issueStatus === "blocked" ? (blockedByMap.get(issueId) ?? null) : null,
+        }),
+      );
     }
 
-    // If this is the active run (or the only run), also claim all remaining issues
-    // from the status buckets even if they don't have executions yet -- they are part
-    // of this run's scope (completed issues finished during this run, others are pending).
-    if (isPrimaryActive || epic.runs.length <= 1) {
+    // Only the active run claims all remaining issues from the status buckets.
+    // A cancelled/completed/historical run should NOT claim issues it never executed.
+    if (isPrimaryActive) {
       for (const { issue, status: issueStatus } of taggedIssues) {
         if (seenInPrimary.has(issue.id)) continue;
         seenInPrimary.add(issue.id);
         issuesClaimedByRun.add(issue.id);
-        primaryNodes.push({
-          issue,
-          status: issueStatus,
-          waveIndex: issueStatus === "completed" ? null : (waveMap.get(issue.id) ?? null),
-          executions: [],
-          latestExecution: null,
-          isActiveWorker: false,
-        });
+        primaryNodes.push(
+          enrichNode(issue.id, {
+            issue,
+            status: issueStatus,
+            waveIndex: issueStatus === "completed" ? null : (waveMap.get(issue.id) ?? null),
+            executions: [],
+            latestExecution: null,
+            isActiveWorker: false,
+            blockedBy: issueStatus === "blocked" ? (blockedByMap.get(issue.id) ?? null) : null,
+          }),
+        );
       }
     }
 
@@ -430,14 +498,17 @@ export function buildWorkGraphData(epic: BeadsCoordinatorEpicSnapshot): WorkGrap
         histStatus = "blocked";
       else histStatus = "ready";
 
-      histNodes.push({
-        issue,
-        status: histStatus,
-        waveIndex: null, // No wave data for historical runs.
-        executions: issueExecs,
-        latestExecution: latestExec,
-        isActiveWorker: false,
-      });
+      histNodes.push(
+        enrichNode(issueId, {
+          issue,
+          status: histStatus,
+          waveIndex: null, // No wave data for historical runs.
+          executions: issueExecs,
+          latestExecution: latestExec,
+          isActiveWorker: false,
+          blockedBy: null,
+        }),
+      );
     }
 
     if (histNodes.length > 0) {
@@ -453,30 +524,33 @@ export function buildWorkGraphData(epic: BeadsCoordinatorEpicSnapshot): WorkGrap
     }
   }
 
-  // --- Unscheduled section: issues not claimed by any run ---
-  const unscheduledNodes: WorkGraphIssueNode[] = [];
+  // --- Pending section: issues not claimed by any run ---
+  const pendingNodes: WorkGraphIssueNode[] = [];
   for (const { issue, status: issueStatus } of taggedIssues) {
     if (issuesClaimedByRun.has(issue.id)) continue;
-    unscheduledNodes.push({
-      issue,
-      status: issueStatus,
-      waveIndex: issueStatus === "completed" ? null : (waveMap.get(issue.id) ?? null),
-      executions: [],
-      latestExecution: null,
-      isActiveWorker: false,
-    });
+    pendingNodes.push(
+      enrichNode(issue.id, {
+        issue,
+        status: issueStatus,
+        waveIndex: issueStatus === "completed" ? null : (waveMap.get(issue.id) ?? null),
+        executions: [],
+        latestExecution: null,
+        isActiveWorker: false,
+        blockedBy: issueStatus === "blocked" ? (blockedByMap.get(issue.id) ?? null) : null,
+      }),
+    );
   }
 
-  if (unscheduledNodes.length > 0) {
-    const groups = buildGroups(unscheduledNodes, hasWaveData, waveCount);
+  if (pendingNodes.length > 0) {
+    const groups = buildGroups(pendingNodes, hasWaveData, waveCount);
     // Insert after the primary section but before historical.
     const insertIdx = sections.length > 0 && sections[0]!.kind !== "historical" ? 1 : 0;
     sections.splice(insertIdx, 0, {
       run: null,
       kind: "unscheduled",
-      label: "Not Scheduled",
+      label: "Pending",
       groups,
-      summary: computeSummary(unscheduledNodes),
+      summary: computeSummary(pendingNodes),
     });
   }
 
@@ -486,6 +560,7 @@ export function buildWorkGraphData(epic: BeadsCoordinatorEpicSnapshot): WorkGrap
     latestRun,
     runs: epic.runs,
     hasWaveData,
+    waveCount,
     maxParallelism: validation?.maxParallelism ?? null,
     estimatedWorkerSessions: validation?.estimatedWorkerSessions ?? null,
   };

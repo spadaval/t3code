@@ -103,6 +103,7 @@ export function createWsNativeApi(): NativeApi {
     beads: {
       queryIssues: rpcClient.beads.queryIssues,
       getIssue: rpcClient.beads.getIssue,
+      getIssues: rpcClient.beads.getIssues,
       createIssue: rpcClient.beads.createIssue,
       updateIssue: rpcClient.beads.updateIssue,
       commentIssue: rpcClient.beads.commentIssue,
