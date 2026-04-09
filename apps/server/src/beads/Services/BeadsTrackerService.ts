@@ -28,6 +28,9 @@ export interface BeadsTrackerServiceShape {
   readonly queryIssues: (
     input: BeadsQueryIssuesInput,
   ) => Effect.Effect<BeadsQueryIssuesResult, BeadsError>;
+  readonly listCoordinatorEpics: (input: {
+    cwd: string;
+  }) => Effect.Effect<ReadonlyArray<BeadsIssueSummary>, BeadsError>;
   readonly getIssue: (input: BeadsGetIssueInput) => Effect.Effect<BeadsIssueDetail, BeadsError>;
   readonly updateIssue: (
     input: BeadsUpdateIssueInput,
@@ -57,9 +60,29 @@ export interface BeadsTrackerServiceShape {
   readonly listSwarms: (
     input: BeadsListSwarmsInput,
   ) => Effect.Effect<BeadsListSwarmsResult, BeadsError>;
+  readonly listSwarmsWithSupport: (input: {
+    cwd: string;
+    support: BeadsSwarmSupport;
+  }) => Effect.Effect<BeadsListSwarmsResult, BeadsError>;
   readonly createEpicSwarm: (
     input: BeadsEpicIssueInput,
   ) => Effect.Effect<BeadsSwarmSummary, BeadsError>;
+  readonly loadEpicCoordinatorTrackerState: (input: {
+    cwd: string;
+    epicIssueId: string;
+    support: BeadsSwarmSupport;
+    issueSummary?: BeadsIssueSummary | null;
+    swarmSummary?: BeadsSwarmSummary | null;
+  }) => Effect.Effect<
+    {
+      readonly issueSummary: BeadsIssueSummary | null;
+      readonly validation: BeadsSwarmValidation | null;
+      readonly status: BeadsSwarmStatus | null;
+      readonly validationError: string | null;
+      readonly statusError: string | null;
+    },
+    never
+  >;
 }
 
 export class BeadsTrackerService extends ServiceMap.Service<

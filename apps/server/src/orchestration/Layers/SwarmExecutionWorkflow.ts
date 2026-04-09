@@ -2255,29 +2255,14 @@ const makeSwarmScheduler = Effect.gen(function* () {
       Effect.asVoid,
     );
 
-  const reconcileAllSafely = () =>
-    enqueueAllRuns("startup_reconcile").pipe(
-      Effect.catch((error) =>
-        Effect.logWarning("swarm scheduler reconciliation failed", {
-          cause: error,
-        }),
-      ),
-    );
+  const reconcileAllSafely = () => enqueueAllRuns("startup_reconcile");
 
   const start: SwarmSchedulerShape["start"] = Effect.gen(function* () {
     yield* reconcileAllSafely();
     yield* drain();
     yield* Effect.forever(
       Effect.sleep(RECONCILIATION_INTERVAL).pipe(
-        Effect.flatMap(() =>
-          enqueueAllRuns("periodic_reconcile").pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("swarm scheduler periodic reconciliation failed", {
-                cause: error,
-              }),
-            ),
-          ),
-        ),
+        Effect.flatMap(() => enqueueAllRuns("periodic_reconcile")),
       ),
     ).pipe(Effect.forkScoped);
   });

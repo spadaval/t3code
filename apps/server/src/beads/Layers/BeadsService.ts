@@ -75,10 +75,19 @@ const decodeSwarmStatus = Schema.decodeUnknownSync(BeadsSwarmStatus);
 const decodeListSwarmsResult = Schema.decodeUnknownSync(BeadsListSwarmsResult);
 const decodeProjectCoordinatorSnapshot = Schema.decodeUnknownSync(BeadsProjectCoordinatorSnapshot);
 const decodeEpicCoordinatorSnapshot = Schema.decodeUnknownSync(BeadsEpicCoordinatorSnapshot);
+const PROJECT_COORDINATOR_EPIC_LOAD_CONCURRENCY = 4;
 
 interface SessionActivityRecord {
   readonly cwd: string;
   readonly entry: BeadsSessionActivityEntry;
+}
+
+interface EpicCoordinatorTrackerState {
+  readonly issueSummary: BeadsIssueSummaryType | null;
+  readonly validation: BeadsSwarmValidation | null;
+  readonly status: BeadsSwarmStatus | null;
+  readonly validationError: string | null;
+  readonly statusError: string | null;
 }
 
 type BdExecutionStrategy = "parallel" | "serial";
@@ -483,6 +492,18 @@ function buildIssueTitleMap(
     return id && title ? ([[id, title]] as const) : [];
   });
   return new Map(entries);
+}
+
+function buildIssueSummaryLookup(
+  issues: ReadonlyArray<BeadsIssueSummaryType>,
+): ReadonlyMap<string, BeadsIssueSummaryType> {
+  return new Map(issues.map((issue) => [issue.id, issue] as const));
+}
+
+function buildSwarmSummaryLookup(
+  swarms: ReadonlyArray<BeadsSwarmSummaryType>,
+): ReadonlyMap<string, BeadsSwarmSummaryType> {
+  return new Map(swarms.map((swarm) => [swarm.epicId, swarm] as const));
 }
 
 function matchesIssueSummary(issue: BeadsIssueSummaryType, input: BeadsQueryIssuesInput): boolean {
@@ -1157,6 +1178,17 @@ const makeBeadsTrackerService = Effect.gen(function* () {
       } satisfies BeadsQueryIssuesResult;
     });
 
+  const listCoordinatorEpics: BeadsTrackerServiceShape["listCoordinatorEpics"] = (input) =>
+    runBdJson(input.cwd, ["list", "--all", "--type", "epic", "--limit", "0"], (json) => {
+      const rawIssues = asRecordArray(json);
+      const issueTitleById = buildIssueTitleMap(rawIssues);
+      return rawIssues
+        .map((entry) => mapIssueSummary(entry, issueTitleById))
+        .filter((issue) => issue.status !== "closed")
+        .toSorted((left, right) => compareIssueSummaries(left, right, "updated"))
+        .slice(0, 200);
+    });
+
   const getIssue: BeadsTrackerServiceShape["getIssue"] = (input) => getIssueDetail(input);
 
   const updateIssue: BeadsTrackerServiceShape["updateIssue"] = (input) =>
@@ -1261,10 +1293,9 @@ const makeBeadsTrackerService = Effect.gen(function* () {
   const getSwarmSupport: BeadsTrackerServiceShape["getSwarmSupport"] = (input) =>
     getContext({ cwd: input.cwd }).pipe(Effect.map((context) => deriveSwarmSupport(context)));
 
-  const listSwarms: BeadsTrackerServiceShape["listSwarms"] = (input) =>
+  const listSwarmsWithSupport: BeadsTrackerServiceShape["listSwarmsWithSupport"] = (input) =>
     Effect.gen(function* () {
-      const support = yield* getSwarmSupport({ cwd: input.cwd });
-      if (!support.supported) {
+      if (!input.support.supported) {
         return decodeListSwarmsResult({ swarms: [] });
       }
 
@@ -1276,6 +1307,12 @@ const makeBeadsTrackerService = Effect.gen(function* () {
           swarms: swarmsSource.map((entry) => mapSwarmSummary(entry as Record<string, unknown>)),
         });
       });
+    });
+
+  const listSwarms: BeadsTrackerServiceShape["listSwarms"] = (input) =>
+    Effect.gen(function* () {
+      const support = yield* getSwarmSupport({ cwd: input.cwd });
+      return yield* listSwarmsWithSupport({ cwd: input.cwd, support });
     });
 
   const getIssueGraph: BeadsTrackerServiceShape["getIssueGraph"] = (input) =>
@@ -1319,11 +1356,11 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     );
 
   const getEpicSwarm: BeadsTrackerServiceShape["getEpicSwarm"] = (input) =>
-    listSwarms({ cwd: input.cwd }).pipe(
-      Effect.map(
-        (result) => result.swarms.find((swarm) => swarm.epicId === input.epicIssueId) ?? null,
-      ),
-    );
+    Effect.gen(function* () {
+      const support = yield* getSwarmSupport({ cwd: input.cwd });
+      const swarms = yield* listSwarmsWithSupport({ cwd: input.cwd, support });
+      return swarms.swarms.find((swarm) => swarm.epicId === input.epicIssueId) ?? null;
+    });
 
   const createEpicSwarm: BeadsTrackerServiceShape["createEpicSwarm"] = (input) =>
     Effect.gen(function* () {
@@ -1354,6 +1391,158 @@ const makeBeadsTrackerService = Effect.gen(function* () {
       return swarm;
     });
 
+  const decodeValidationFromRaw = (input: {
+    epic: BeadsIssueSummaryType;
+    rawValidation: Record<string, unknown>;
+    swarmSummary: BeadsSwarmSummaryType | null | undefined;
+  }) => {
+    const rawValidationSwarm = asRecord(input.rawValidation.swarm);
+    const validationSwarm = mapSwarmSummaryIfPresent(
+      rawValidationSwarm ?? input.rawValidation,
+      input.swarmSummary ?? undefined,
+    );
+
+    return decodeSwarmValidation({
+      epicId: input.epic.id,
+      epicTitle: input.epic.title,
+      swarm: validationSwarm,
+      valid:
+        asBoolean(input.rawValidation.valid) ??
+        asStringArray(input.rawValidation.errors).length === 0,
+      errors: asStringArray(input.rawValidation.errors),
+      warnings: asStringArray(input.rawValidation.warnings),
+      readyFronts: mapReadyFronts(input.rawValidation.ready_fronts),
+      estimatedWorkerSessions:
+        asNumber(input.rawValidation.estimated_worker_sessions) ??
+        asNumber(input.rawValidation.estimated_sessions),
+      maxParallelism: asNumber(input.rawValidation.max_parallelism),
+    });
+  };
+
+  const decodeStatusFromRaw = (input: {
+    rawEpic: Record<string, unknown>;
+    epic: BeadsIssueSummaryType;
+    rawStatus: Record<string, unknown>;
+    swarmSummary: BeadsSwarmSummaryType | null | undefined;
+  }) => {
+    const childIssueRecordById = buildIssueRecordLookup(
+      asRecordArray(input.rawEpic.dependents).filter(
+        (entry) => trimToNull(entry.dependency_type) === "parent-child",
+      ),
+    );
+    const rawStatusSwarm = asRecord(input.rawStatus.swarm);
+    const statusSwarm = mapSwarmSummaryIfPresent(
+      {
+        ...rawStatusSwarm,
+        epic_id: input.rawStatus.epic_id ?? rawStatusSwarm?.epic_id,
+        epic_title: input.rawStatus.epic_title ?? rawStatusSwarm?.epic_title,
+        total_issues: input.rawStatus.total_issues ?? rawStatusSwarm?.total_issues,
+        completed_issues:
+          input.rawStatus.completed_issues ?? asRecordArray(input.rawStatus.completed).length,
+        active_issues:
+          input.rawStatus.active_issues ??
+          input.rawStatus.active_count ??
+          asRecordArray(input.rawStatus.active).length,
+        ready_issues:
+          input.rawStatus.ready_issues ??
+          input.rawStatus.ready_count ??
+          asRecordArray(input.rawStatus.ready).length,
+        blocked_issues:
+          input.rawStatus.blocked_issues ??
+          input.rawStatus.blocked_count ??
+          asRecordArray(input.rawStatus.blocked).length,
+      },
+      input.swarmSummary ?? undefined,
+    );
+
+    return decodeSwarmStatus({
+      epicId: input.epic.id,
+      epicTitle: input.epic.title,
+      swarm: statusSwarm,
+      completed: mapIssueRelationArray(input.rawStatus.completed, childIssueRecordById),
+      active: mapIssueRelationArray(input.rawStatus.active, childIssueRecordById),
+      ready: mapIssueRelationArray(input.rawStatus.ready, childIssueRecordById),
+      blocked: mapIssueRelationArray(input.rawStatus.blocked, childIssueRecordById),
+    });
+  };
+
+  const loadEpicCoordinatorTrackerState: BeadsTrackerServiceShape["loadEpicCoordinatorTrackerState"] =
+    (input) =>
+      Effect.gen(function* () {
+        if (!input.support.supported) {
+          return {
+            issueSummary: input.issueSummary ?? null,
+            validation: null,
+            status: null,
+            validationError: null,
+            statusError: null,
+          } satisfies EpicCoordinatorTrackerState;
+        }
+
+        const rawEpicExit = yield* Effect.exit(getRawIssue(input.cwd, input.epicIssueId));
+        if (rawEpicExit._tag === "Failure") {
+          const detail = errorMessageFromCause(rawEpicExit.cause);
+          return {
+            issueSummary: input.issueSummary ?? null,
+            validation: null,
+            status: null,
+            validationError: detail,
+            statusError: detail,
+          } satisfies EpicCoordinatorTrackerState;
+        }
+
+        const rawEpic = rawEpicExit.value;
+        const epic = mapIssueSummary(rawEpic);
+        const [validationExit, statusExit] = yield* Effect.all(
+          [
+            Effect.exit(
+              runBdJson(input.cwd, ["swarm", "validate", input.epicIssueId], (json) => {
+                const record = asRecord(json);
+                if (!record) {
+                  throw new Error("Expected epic swarm validation object.");
+                }
+                return record;
+              }),
+            ),
+            Effect.exit(
+              runBdJson(input.cwd, ["swarm", "status", input.epicIssueId], (json) => {
+                const record = asRecord(json);
+                if (!record) {
+                  throw new Error("Expected epic swarm status object.");
+                }
+                return record;
+              }),
+            ),
+          ],
+          { concurrency: "unbounded" },
+        );
+
+        return {
+          issueSummary: epic,
+          validation:
+            validationExit._tag === "Success"
+              ? decodeValidationFromRaw({
+                  epic,
+                  rawValidation: validationExit.value,
+                  swarmSummary: input.swarmSummary,
+                })
+              : null,
+          status:
+            statusExit._tag === "Success"
+              ? decodeStatusFromRaw({
+                  rawEpic,
+                  epic,
+                  rawStatus: statusExit.value,
+                  swarmSummary: input.swarmSummary,
+                })
+              : null,
+          validationError:
+            validationExit._tag === "Failure" ? errorMessageFromCause(validationExit.cause) : null,
+          statusError:
+            statusExit._tag === "Failure" ? errorMessageFromCause(statusExit.cause) : null,
+        } satisfies EpicCoordinatorTrackerState;
+      });
+
   const validateEpicSwarm: BeadsTrackerServiceShape["validateEpicSwarm"] = (input) =>
     Effect.gen(function* () {
       const [epic, support] = yield* Effect.all(
@@ -1374,9 +1563,9 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         });
       }
 
-      const [swarm, rawValidation] = yield* Effect.all(
+      const [swarms, rawValidation] = yield* Effect.all(
         [
-          getEpicSwarm(input),
+          listSwarmsWithSupport({ cwd: input.cwd, support }),
           runBdJson(input.cwd, ["swarm", "validate", input.epicIssueId], (json) => {
             const record = asRecord(json);
             if (!record) {
@@ -1387,25 +1576,10 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         ],
         { concurrency: "unbounded" },
       );
-      const rawValidationSwarm = asRecord(rawValidation.swarm);
-      const validationSwarm = mapSwarmSummaryIfPresent(
-        rawValidationSwarm ?? rawValidation,
-        swarm ?? undefined,
-      );
+      const swarmSummary =
+        swarms.swarms.find((swarm) => swarm.epicId === input.epicIssueId) ?? null;
 
-      return decodeSwarmValidation({
-        epicId: epic.id,
-        epicTitle: epic.title,
-        swarm: validationSwarm,
-        valid: asBoolean(rawValidation.valid) ?? asStringArray(rawValidation.errors).length === 0,
-        errors: asStringArray(rawValidation.errors),
-        warnings: asStringArray(rawValidation.warnings),
-        readyFronts: mapReadyFronts(rawValidation.ready_fronts),
-        estimatedWorkerSessions:
-          asNumber(rawValidation.estimated_worker_sessions) ??
-          asNumber(rawValidation.estimated_sessions),
-        maxParallelism: asNumber(rawValidation.max_parallelism),
-      });
+      return decodeValidationFromRaw({ epic, rawValidation, swarmSummary });
     });
 
   const getEpicSwarmStatus: BeadsTrackerServiceShape["getEpicSwarmStatus"] = (input) =>
@@ -1415,11 +1589,6 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         { concurrency: "unbounded" },
       );
       const epic = mapIssueSummary(rawEpic);
-      const childIssueRecordById = buildIssueRecordLookup(
-        asRecordArray(rawEpic.dependents).filter(
-          (entry) => trimToNull(entry.dependency_type) === "parent-child",
-        ),
-      );
 
       if (!support.supported) {
         return decodeSwarmStatus({
@@ -1433,9 +1602,9 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         });
       }
 
-      const [swarm, rawStatus] = yield* Effect.all(
+      const [swarms, rawStatus] = yield* Effect.all(
         [
-          getEpicSwarm(input),
+          listSwarmsWithSupport({ cwd: input.cwd, support }),
           runBdJson(input.cwd, ["swarm", "status", input.epicIssueId], (json) => {
             const record = asRecord(json);
             if (!record) {
@@ -1446,43 +1615,15 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         ],
         { concurrency: "unbounded" },
       );
-      const rawStatusSwarm = asRecord(rawStatus.swarm);
-      const statusSwarm = mapSwarmSummaryIfPresent(
-        {
-          ...rawStatusSwarm,
-          epic_id: rawStatus.epic_id ?? rawStatusSwarm?.epic_id,
-          epic_title: rawStatus.epic_title ?? rawStatusSwarm?.epic_title,
-          total_issues: rawStatus.total_issues ?? rawStatusSwarm?.total_issues,
-          completed_issues: rawStatus.completed_issues ?? asRecordArray(rawStatus.completed).length,
-          active_issues:
-            rawStatus.active_issues ??
-            rawStatus.active_count ??
-            asRecordArray(rawStatus.active).length,
-          ready_issues:
-            rawStatus.ready_issues ??
-            rawStatus.ready_count ??
-            asRecordArray(rawStatus.ready).length,
-          blocked_issues:
-            rawStatus.blocked_issues ??
-            rawStatus.blocked_count ??
-            asRecordArray(rawStatus.blocked).length,
-        },
-        swarm ?? undefined,
-      );
+      const swarmSummary =
+        swarms.swarms.find((swarm) => swarm.epicId === input.epicIssueId) ?? null;
 
-      return decodeSwarmStatus({
-        epicId: epic.id,
-        epicTitle: epic.title,
-        swarm: statusSwarm,
-        completed: mapIssueRelationArray(rawStatus.completed, childIssueRecordById),
-        active: mapIssueRelationArray(rawStatus.active, childIssueRecordById),
-        ready: mapIssueRelationArray(rawStatus.ready, childIssueRecordById),
-        blocked: mapIssueRelationArray(rawStatus.blocked, childIssueRecordById),
-      });
+      return decodeStatusFromRaw({ rawEpic, epic, rawStatus, swarmSummary });
     });
 
   return {
     queryIssues,
+    listCoordinatorEpics,
     getIssue,
     createIssue,
     updateIssue,
@@ -1494,7 +1635,9 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     validateEpicSwarm,
     getEpicSwarmStatus,
     listSwarms,
+    listSwarmsWithSupport,
     createEpicSwarm,
+    loadEpicCoordinatorTrackerState,
   } satisfies BeadsTrackerServiceShape;
 });
 
@@ -1687,66 +1830,15 @@ const makeBeadsService = Effect.gen(function* () {
     beadsTracker.validateEpicSwarm(input);
   const getEpicSwarmStatus: BeadsServiceShape["getEpicSwarmStatus"] = (input) =>
     beadsTracker.getEpicSwarmStatus(input);
-  const loadEpicCoordinatorTrackerState = (input: {
-    cwd: string;
-    epicIssueId: string;
-    support: BeadsSwarmSupportType;
-  }): Effect.Effect<
-    {
-      readonly validation: BeadsSwarmValidation | null;
-      readonly status: BeadsSwarmStatus | null;
-      readonly validationError: string | null;
-      readonly statusError: string | null;
-    },
-    never
-  > =>
-    Effect.gen(function* () {
-      if (!input.support.supported) {
-        return {
-          validation: null,
-          status: null,
-          validationError: null,
-          statusError: null,
-        } as const;
-      }
-
-      const [validationResult, statusResult] = yield* Effect.all(
-        [
-          Effect.exit(
-            beadsTracker.validateEpicSwarm({ cwd: input.cwd, epicIssueId: input.epicIssueId }),
-          ),
-          Effect.exit(
-            beadsTracker.getEpicSwarmStatus({ cwd: input.cwd, epicIssueId: input.epicIssueId }),
-          ),
-        ],
-        { concurrency: "unbounded" },
-      );
-
-      return {
-        validation: validationResult._tag === "Success" ? validationResult.value : null,
-        status: statusResult._tag === "Success" ? statusResult.value : null,
-        validationError:
-          validationResult._tag === "Failure"
-            ? errorMessageFromCause(validationResult.cause)
-            : null,
-        statusError:
-          statusResult._tag === "Failure" ? errorMessageFromCause(statusResult.cause) : null,
-      } as const;
-    });
 
   const getProjectCoordinatorSnapshot: BeadsServiceShape["getProjectCoordinatorSnapshot"] = (
     input,
   ) =>
     Effect.gen(function* () {
-      const [support, epicIssuesResult, swarms, readModel] = yield* Effect.all(
+      const [support, epicIssues, readModel] = yield* Effect.all(
         [
           beadsTracker.getSwarmSupport({ cwd: input.cwd }),
-          beadsTracker.queryIssues({
-            cwd: input.cwd,
-            issueTypes: ["epic"],
-            sortBy: "updated",
-          }),
-          beadsTracker.listSwarms({ cwd: input.cwd }),
+          beadsTracker.listCoordinatorEpics({ cwd: input.cwd }),
           orchestrationEngine
             .getReadModel()
             .pipe(
@@ -1757,28 +1849,35 @@ const makeBeadsService = Effect.gen(function* () {
         ],
         { concurrency: "unbounded" },
       );
+      const swarms = yield* beadsTracker.listSwarmsWithSupport({ cwd: input.cwd, support });
+      const issueSummaryById = buildIssueSummaryLookup(epicIssues);
+      const swarmSummaryByEpicId = buildSwarmSummaryLookup(swarms.swarms);
       const perEpicStateEntries = yield* Effect.forEach(
         new Set([
-          ...epicIssuesResult.issues.map((issue) => issue.id),
+          ...epicIssues.map((issue) => issue.id),
           ...swarms.swarms.map((swarm) => swarm.epicId),
           ...readModel.swarmRuns
             .filter((run) => run.projectId === input.projectId)
             .map((run) => run.epicIssueId),
         ]),
         (epicIssueId) =>
-          loadEpicCoordinatorTrackerState({
-            cwd: input.cwd,
-            epicIssueId,
-            support,
-          }).pipe(Effect.map((state) => [epicIssueId, state] as const)),
-        { concurrency: "unbounded" },
+          beadsTracker
+            .loadEpicCoordinatorTrackerState({
+              cwd: input.cwd,
+              epicIssueId,
+              support,
+              issueSummary: issueSummaryById.get(epicIssueId) ?? null,
+              swarmSummary: swarmSummaryByEpicId.get(epicIssueId) ?? null,
+            })
+            .pipe(Effect.map((state) => [epicIssueId, state] as const)),
+        { concurrency: PROJECT_COORDINATOR_EPIC_LOAD_CONCURRENCY },
       );
 
       return decodeProjectCoordinatorSnapshot(
         buildProjectCoordinatorSnapshot({
           projectId: input.projectId,
           support,
-          epicIssues: epicIssuesResult.issues,
+          epicIssues,
           swarms: swarms.swarms,
           readModel,
           perEpicState: new Map(perEpicStateEntries),
@@ -1802,10 +1901,13 @@ const makeBeadsService = Effect.gen(function* () {
         ],
         { concurrency: "unbounded" },
       );
-      const trackerState = yield* loadEpicCoordinatorTrackerState({
+      const swarms = yield* beadsTracker.listSwarmsWithSupport({ cwd: input.cwd, support });
+      const trackerState = yield* beadsTracker.loadEpicCoordinatorTrackerState({
         cwd: input.cwd,
         epicIssueId: input.epicIssueId,
         support,
+        issueSummary: issue,
+        swarmSummary: swarms.swarms.find((swarm) => swarm.epicId === input.epicIssueId) ?? null,
       });
 
       return decodeEpicCoordinatorSnapshot({

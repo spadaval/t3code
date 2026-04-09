@@ -793,6 +793,30 @@ describe("SwarmExecutionWorkflow", () => {
 
     const trackerService: BeadsTrackerServiceShape = {
       queryIssues: () => Effect.fail(beadsError("unexpected queryIssues call")),
+      listCoordinatorEpics: () =>
+        Effect.sync(() =>
+          [...issues.values()]
+            .filter((issue) => issue.issueType === "epic" && issue.status !== "closed")
+            .map((issue) => ({
+              id: issue.id,
+              title: issue.title,
+              description: issue.description,
+              notes: issue.notes,
+              status: issue.status,
+              priority: issue.priority,
+              issueType: issue.issueType,
+              assignee: issue.assignee,
+              owner: issue.owner,
+              createdAt: issue.createdAt,
+              createdBy: issue.createdBy,
+              updatedAt: issue.updatedAt,
+              labels: issue.labels,
+              parent: issue.parent,
+              dependencyCount: issue.dependencyCount,
+              dependentCount: issue.dependentCount,
+              commentCount: issue.commentCount,
+            })),
+        ),
       getIssue: ({ issueId }) =>
         Effect.suspend(() => {
           const beforeGetIssue = options.beforeGetIssue?.(issueId) ?? Effect.void;
@@ -860,6 +884,15 @@ describe("SwarmExecutionWorkflow", () => {
               : [],
           };
         }),
+      listSwarmsWithSupport: () =>
+        Effect.sync(() => {
+          const currentTrackerState = readTrackerStateSnapshot();
+          return {
+            swarms: currentTrackerState.validation.swarm
+              ? [currentTrackerState.validation.swarm]
+              : [],
+          };
+        }),
       createEpicSwarm: ({ epicIssueId }) =>
         Effect.suspend(() => {
           createEpicSwarmCallCount += 1;
@@ -903,6 +936,17 @@ describe("SwarmExecutionWorkflow", () => {
           };
 
           return Effect.succeed(swarm);
+        }),
+      loadEpicCoordinatorTrackerState: ({ issueSummary }) =>
+        Effect.sync(() => {
+          const currentTrackerState = readTrackerStateSnapshot();
+          return {
+            issueSummary: issueSummary ?? null,
+            validation: currentTrackerState.validation,
+            status: currentTrackerState.status,
+            validationError: null,
+            statusError: null,
+          };
         }),
       createIssue: () => Effect.fail(beadsError("unexpected createIssue call")),
     };
