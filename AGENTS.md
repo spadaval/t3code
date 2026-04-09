@@ -23,6 +23,16 @@ If a tradeoff is required, choose correctness and robustness over short-term con
 
 Long term maintainability is a core priority. If you add new functionality, first check if there is shared logic that can be extracted to a separate module. Duplicate logic across multiple files is a code smell and should be avoided. Don't be afraid to change existing code. Don't take shortcuts by just adding local logic to solve a problem.
 
+## Error Messages
+
+Vague errors are always the wrong decision.
+
+Replacing a useful specific error message with a generic one is a war crime.
+
+Always preserve at least the basic underlying error message, even if it would not fully make sense to the end user on its own.
+
+If you need to improve presentation, add context around the real error. Do not throw away the specific reason. `Failed to resume session: spawn codex ENOENT` is acceptable. `Failed to resume session` is not.
+
 ## Package Roles
 
 - `apps/server`: Node.js WebSocket server. Wraps Codex app-server (JSON-RPC over stdio), serves the React web app, and manages provider sessions.

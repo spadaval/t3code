@@ -42,6 +42,8 @@ Explain exactly what changed.
 
 Explain exactly why the change should exist.
 
+Do not replace specific error messages with generic ones. If you improve UX around failures, keep the underlying error text visible and add context around it instead of deleting it.
+
 Do not mix unrelated fixes together.
 
 If the PR makes anything resembling a UI change, include clear before/after images.
