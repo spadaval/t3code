@@ -111,9 +111,10 @@ const rpcClientMock = {
     cancelPlanImplementationLaunch: vi.fn(),
     retryPlanImplementationLaunch: vi.fn(),
     startSwarmRun: vi.fn(),
-    continueSwarmRun: vi.fn(),
     pauseSwarmRun: vi.fn(),
-    resumeSwarmRun: vi.fn(),
+    resumePausedSwarmRun: vi.fn(),
+    runNextSwarmTask: vi.fn(),
+    retrySwarmTaskExecution: vi.fn(),
     cancelSwarmRun: vi.fn(),
     onDomainEvent: vi.fn((listener: (event: OrchestrationEvent) => void) =>
       registerListener(orchestrationEventListeners, listener),
@@ -448,13 +449,16 @@ describe("wsNativeApi", () => {
     rpcClientMock.orchestration.startSwarmRun = vi
       .fn()
       .mockResolvedValue({ runId: "run-1", status: "requested" });
-    rpcClientMock.orchestration.continueSwarmRun = vi
-      .fn()
-      .mockResolvedValue({ runId: "run-1", status: "running" });
     rpcClientMock.orchestration.pauseSwarmRun = vi
       .fn()
       .mockResolvedValue({ runId: "run-1", status: "paused" });
-    rpcClientMock.orchestration.resumeSwarmRun = vi
+    rpcClientMock.orchestration.resumePausedSwarmRun = vi
+      .fn()
+      .mockResolvedValue({ runId: "run-1", status: "running" });
+    rpcClientMock.orchestration.runNextSwarmTask = vi
+      .fn()
+      .mockResolvedValue({ runId: "run-1", status: "running" });
+    rpcClientMock.orchestration.retrySwarmTaskExecution = vi
       .fn()
       .mockResolvedValue({ runId: "run-1", status: "running" });
     rpcClientMock.orchestration.cancelSwarmRun = vi
@@ -470,9 +474,13 @@ describe("wsNativeApi", () => {
       workspaceMode: "shared",
       runtimeMode: "full-access",
     });
-    await api.orchestration.continueSwarmRun({ runId: "run-1" as never });
     await api.orchestration.pauseSwarmRun({ runId: "run-1" as never });
-    await api.orchestration.resumeSwarmRun({ runId: "run-1" as never });
+    await api.orchestration.resumePausedSwarmRun({ runId: "run-1" as never });
+    await api.orchestration.runNextSwarmTask({ runId: "run-1" as never });
+    await api.orchestration.retrySwarmTaskExecution({
+      runId: "run-1" as never,
+      executionId: "exec-1" as never,
+    });
     await api.orchestration.cancelSwarmRun({ runId: "run-1" as never });
 
     expect(rpcClientMock.orchestration.startSwarmRun).toHaveBeenCalledWith({
@@ -482,14 +490,18 @@ describe("wsNativeApi", () => {
       workspaceMode: "shared",
       runtimeMode: "full-access",
     });
-    expect(rpcClientMock.orchestration.continueSwarmRun).toHaveBeenCalledWith({
-      runId: "run-1",
-    });
     expect(rpcClientMock.orchestration.pauseSwarmRun).toHaveBeenCalledWith({
       runId: "run-1",
     });
-    expect(rpcClientMock.orchestration.resumeSwarmRun).toHaveBeenCalledWith({
+    expect(rpcClientMock.orchestration.resumePausedSwarmRun).toHaveBeenCalledWith({
       runId: "run-1",
+    });
+    expect(rpcClientMock.orchestration.runNextSwarmTask).toHaveBeenCalledWith({
+      runId: "run-1",
+    });
+    expect(rpcClientMock.orchestration.retrySwarmTaskExecution).toHaveBeenCalledWith({
+      runId: "run-1",
+      executionId: "exec-1",
     });
     expect(rpcClientMock.orchestration.cancelSwarmRun).toHaveBeenCalledWith({
       runId: "run-1",

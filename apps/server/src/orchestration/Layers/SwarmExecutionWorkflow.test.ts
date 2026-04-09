@@ -904,6 +904,7 @@ describe("SwarmExecutionWorkflow", () => {
 
           return Effect.succeed(swarm);
         }),
+      createIssue: () => Effect.fail(beadsError("unexpected createIssue call")),
     };
 
     const engineService: OrchestrationEngineShape = {
@@ -1109,7 +1110,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(issue?.assignee).toBe(`t3code-swarm/${started.runId}`);
   });
 
-  it("rejects starting a shared-workspace run when the project already has another non-terminal run", async () => {
+  it("deterministically keeps one shared-workspace run and fails the loser when another starts", async () => {
     const harness = await createHarness();
 
     const first = await runtime!.runPromise(
@@ -1122,17 +1123,24 @@ describe("SwarmExecutionWorkflow", () => {
       }),
     );
 
-    await expect(
-      runtime!.runPromise(
-        harness.workflow.startSwarmRun({
-          projectId: harness.projectId,
-          epicIssueId: "EPIC-2",
-          schedulerMode: "automatic",
-          workspaceMode: "shared",
-          runtimeMode: "full-access",
-        }),
-      ),
-    ).rejects.toThrow(`blocked by run '${first.runId}'`);
+    const second = await runtime!.runPromise(
+      harness.workflow.startSwarmRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-2",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        runtimeMode: "full-access",
+      }),
+    );
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const firstRun = snapshot.swarmRuns.find((entry) => entry.runId === first.runId);
+    const secondRun = snapshot.swarmRuns.find((entry) => entry.runId === second.runId);
+
+    expect(secondRun?.status).toBe("running");
+    expect(firstRun?.status).toBe("failed");
+    expect(firstRun?.lastError).toContain(`Run '${second.runId}'`);
+    expect(firstRun?.lastError).toContain(`Run '${first.runId}'`);
   });
 
   it("allows shared-workspace runs from different projects even when epic ids match", async () => {
@@ -1208,7 +1216,7 @@ describe("SwarmExecutionWorkflow", () => {
       }),
     );
 
-    expect(started.status).toBe("requested");
+    expect(started.status).toBe("running");
     expect(harness.getCreateEpicSwarmCallCount()).toBe(1);
 
     const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
@@ -1216,7 +1224,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(snapshot.swarmRuns[0]?.epicIssueId).toBe("EPIC-1");
   });
 
-  it("coalesces repeated continue signals for the same running run", async () => {
+  it("rejects repeated run-next signals for a run that is already running", async () => {
     const harness = await createHarness(undefined, {
       beforeGetIssue: () => Effect.sleep(Duration.millis(100)),
     });
@@ -1257,20 +1265,24 @@ describe("SwarmExecutionWorkflow", () => {
     const runId = SwarmRunId.makeUnsafe("run-storm");
     const attempts = Array.from({ length: 8 }, () =>
       runtime!.runPromise(
-        harness.workflow.continueSwarmRun({
+        harness.workflow.runNextSwarmTask({
           runId,
         }),
       ),
     );
 
-    await Promise.all(attempts);
-    await runtime!.runPromise(harness.workflow.drain);
+    const results = await Promise.allSettled(attempts);
 
     const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
-    expect(snapshot.swarmTaskExecutions).toHaveLength(1);
-    expect(snapshot.swarmTaskExecutions[0]?.issueId).toBe("TASK-1");
-    expect(snapshot.threads).toHaveLength(1);
-    expect(harness.getReadModelCallCount()).toBeLessThan(60);
+    expect(results).toHaveLength(8);
+    for (const result of results) {
+      expect(result.status).toBe("rejected");
+      if (result.status === "rejected") {
+        expect(String(result.reason)).toContain("cannot manually advance from status 'running'");
+      }
+    }
+    expect(snapshot.swarmTaskExecutions).toHaveLength(0);
+    expect(snapshot.threads).toHaveLength(0);
   });
 
   it("rejects starting a run when swarm validation fails", async () => {
@@ -1414,7 +1426,7 @@ describe("SwarmExecutionWorkflow", () => {
     const firstIssue = harness.getIssue("TASK-1");
     const secondIssue = harness.getIssue("TASK-2");
 
-    expect(started.status).toBe("requested");
+    expect(started.status).toBe("running");
     expect(execution?.issueId).toBe("TASK-2");
     expect(firstIssue?.status).toBe("open");
     expect(firstIssue?.assignee).toBeNull();
@@ -1537,7 +1549,7 @@ describe("SwarmExecutionWorkflow", () => {
 
     await expect(
       runtime!.runPromise(
-        harness.workflow.continueSwarmRun({
+        harness.workflow.runNextSwarmTask({
           runId: started.runId,
         }),
       ),
@@ -1570,7 +1582,14 @@ describe("SwarmExecutionWorkflow", () => {
       session: makeReadySession(execution.workerThreadId),
     });
 
-    await runtime!.runPromise(Effect.scoped(harness.workflow.start));
+    await runtime!.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          yield* harness.workflow.start;
+          yield* harness.workflow.drain;
+        }),
+      ),
+    );
 
     const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
     const run = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
@@ -1636,7 +1655,14 @@ describe("SwarmExecutionWorkflow", () => {
       session: makeReadySession(execution.workerThreadId),
     });
 
-    await runtime!.runPromise(Effect.scoped(harness.workflow.start));
+    await runtime!.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          yield* harness.workflow.start;
+          yield* harness.workflow.drain;
+        }),
+      ),
+    );
     const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
     const run = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
     const completedExecution = snapshot.swarmTaskExecutions.find(
@@ -1788,7 +1814,7 @@ describe("SwarmExecutionWorkflow", () => {
     );
 
     const resumed = await runtime!.runPromise(
-      harness.workflow.resumeSwarmRun({
+      harness.workflow.resumePausedSwarmRun({
         runId: started.runId,
       }),
     );
@@ -1796,7 +1822,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(resumed.status).toBe("idle");
   });
 
-  it("resumes cancelled runs by relaunching the next ready task", async () => {
+  it("rejects resuming cancelled runs", async () => {
     const harness = await createHarness();
 
     const started = await runtime!.runPromise(
@@ -1817,26 +1843,13 @@ describe("SwarmExecutionWorkflow", () => {
     );
     expect(cancelled.status).toBe("cancelled");
 
-    const resumed = await runtime!.runPromise(
-      harness.workflow.resumeSwarmRun({
-        runId: started.runId,
-      }),
-    );
-    expect(resumed.status).toBe("running");
-
-    await runtime!.runPromise(harness.workflow.drain);
-
-    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
-    const latestRun = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
-    const latestExecution = snapshot.swarmTaskExecutions.at(-1);
-    const issue = harness.getIssue("TASK-1");
-
-    expect(latestRun?.status).toBe("running");
-    expect(snapshot.swarmTaskExecutions).toHaveLength(2);
-    expect(latestExecution?.issueId).toBe("TASK-1");
-    expect(latestExecution?.status).toBe("requested");
-    expect(issue?.status).toBe("in_progress");
-    expect(issue?.assignee).toBe(`t3code-swarm/${started.runId}`);
+    await expect(
+      runtime!.runPromise(
+        harness.workflow.resumePausedSwarmRun({
+          runId: started.runId,
+        }),
+      ),
+    ).rejects.toThrow("is not paused and cannot be resumed");
   });
 
   it("rejects continuing a paused run that must be resumed", async () => {
@@ -1875,29 +1888,46 @@ describe("SwarmExecutionWorkflow", () => {
 
     await expect(
       runtime!.runPromise(
-        harness.workflow.continueSwarmRun({
+        harness.workflow.runNextSwarmTask({
           runId: started.runId,
         }),
       ),
-    ).rejects.toThrow("must be resumed, not continued");
+    ).rejects.toThrow("must be resumed before running the next task");
   });
 
-  it("rejects resuming a shared-workspace run when another project run is still non-terminal", async () => {
+  it("keeps the higher-priority paused shared-workspace run and fails the lower-priority rival", async () => {
     const harness = await createHarness();
 
-    const paused = await runtime!.runPromise(
-      harness.workflow.startSwarmRun({
+    await runtime!.runPromise(
+      harness.engine.dispatch({
+        type: "swarm-run.request",
+        commandId: CommandId.makeUnsafe("cmd-swarm-run-paused-request"),
+        runId: SwarmRunId.makeUnsafe("run-paused"),
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
+        swarmId: "SWARM-1",
         schedulerMode: "automatic",
         workspaceMode: "shared",
+        provider: "codex",
+        model: "gpt-5-codex",
         runtimeMode: "full-access",
+        createdAt: now,
       }),
     );
-
     await runtime!.runPromise(
-      harness.workflow.pauseSwarmRun({
-        runId: paused.runId,
+      harness.engine.dispatch({
+        type: "swarm-run.mark-started",
+        commandId: CommandId.makeUnsafe("cmd-swarm-run-paused-started"),
+        runId: SwarmRunId.makeUnsafe("run-paused"),
+        createdAt: now,
+      }),
+    );
+    await runtime!.runPromise(
+      harness.engine.dispatch({
+        type: "swarm-run.pause",
+        commandId: CommandId.makeUnsafe("cmd-swarm-run-paused"),
+        runId: SwarmRunId.makeUnsafe("run-paused"),
+        createdAt: now,
       }),
     );
 
@@ -1919,13 +1949,22 @@ describe("SwarmExecutionWorkflow", () => {
       }),
     );
 
-    await expect(
-      runtime!.runPromise(
-        harness.workflow.resumeSwarmRun({
-          runId: paused.runId,
-        }),
-      ),
-    ).rejects.toThrow(`blocked by run '${blockingRunId}'`);
+    const resumed = await runtime!.runPromise(
+      harness.workflow.resumePausedSwarmRun({
+        runId: SwarmRunId.makeUnsafe("run-paused"),
+      }),
+    );
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const pausedRun = snapshot.swarmRuns.find(
+      (entry) => entry.runId === SwarmRunId.makeUnsafe("run-paused"),
+    );
+    const blockingRun = snapshot.swarmRuns.find((entry) => entry.runId === blockingRunId);
+
+    expect(resumed.status).toBe("running");
+    expect(pausedRun?.status).toBe("running");
+    expect(blockingRun?.status).toBe("failed");
+    expect(blockingRun?.lastError).toContain("Shared-workspace swarm scheduling invariant failed");
+    expect(blockingRun?.lastError).toContain(`Run '${pausedRun?.runId}'`);
   });
 
   it("completes automatic runs when the last task finishes and no work remains", async () => {
@@ -2397,7 +2436,7 @@ describe("SwarmExecutionWorkflow", () => {
 
     await expect(
       runtime!.runPromise(
-        harness.workflow.continueSwarmRun({
+        harness.workflow.runNextSwarmTask({
           runId: started.runId,
         }),
       ),
@@ -2444,11 +2483,11 @@ describe("SwarmExecutionWorkflow", () => {
 
     await expect(
       runtime!.runPromise(
-        harness.workflow.resumeSwarmRun({
+        harness.workflow.resumePausedSwarmRun({
           runId: started.runId,
         }),
       ),
-    ).rejects.toThrow("must be continued, not resumed");
+    ).rejects.toThrow("is not paused and cannot be resumed");
   });
 
   it("fails shared-workspace runs when cancel sees duplicate active worker executions", async () => {
@@ -2629,7 +2668,7 @@ describe("SwarmExecutionWorkflow", () => {
     );
 
     const continued = await runtime!.runPromise(
-      harness.workflow.continueSwarmRun({
+      harness.workflow.runNextSwarmTask({
         runId: started.runId,
       }),
     );
@@ -2640,10 +2679,10 @@ describe("SwarmExecutionWorkflow", () => {
     expect(continued.status).toBe("blocked");
     expect(run?.status).toBe("blocked");
     expect(run?.blockedContext).toEqual({
-      kind: "worker_failure",
-      issueId: "TASK-1",
-      executionId: execution.executionId,
-      workerThreadId: execution.workerThreadId,
+      kind: "tracker_waiting",
+      issueId: null,
+      executionId: null,
+      workerThreadId: null,
     });
     expect(snapshot.swarmTaskExecutions).toHaveLength(1);
   });
@@ -2696,7 +2735,7 @@ describe("SwarmExecutionWorkflow", () => {
     );
 
     const continued = await runtime!.runPromise(
-      harness.workflow.continueSwarmRun({
+      harness.workflow.runNextSwarmTask({
         runId: started.runId,
       }),
     );

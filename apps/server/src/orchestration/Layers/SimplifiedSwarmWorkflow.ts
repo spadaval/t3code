@@ -1,17 +1,9 @@
 // @ts-nocheck
 
-import {
-  SwarmRunId,
-  SwarmTaskExecutionId,
-  ThreadId,
-  type OrchestrationProject,
-  type OrchestrationSwarmRun,
-  type OrchestrationSwarmTaskExecution,
-} from "@t3tools/contracts";
+import { SwarmRunId } from "@t3tools/contracts";
 import type {
   WorkflowEntity,
   SwarmState,
-  TaskState,
   InterventionRequest,
   WorkflowTransitionReason,
 } from "@t3tools/contracts/workflowState";
@@ -22,8 +14,6 @@ import {
   SimplifiedSwarmWorkflow,
   SimplifiedSwarmWorkflowError,
   type SimplifiedSwarmWorkflowShape,
-  type ManualInterventionInput,
-  type InterventionResponse,
 } from "../Services/SimplifiedSwarmWorkflow.ts";
 
 /**
@@ -294,7 +284,7 @@ export const SimplifiedSwarmWorkflowLive = Layer.effect(
         }
 
         // Resume the orchestration
-        yield* orchestration.resumeSwarmRun(input);
+        yield* orchestration.resumePausedSwarmRun(input);
 
         // Update entity state
         const activeEntity = transitionSwarmState(entity, "active", "user_requested", {

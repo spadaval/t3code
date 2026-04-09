@@ -430,61 +430,12 @@ export interface EpicSwarmCoordinatorPrimaryAction {
     | "open_coordination_prep_thread"
     | "refresh_swarm_state"
     | "start_swarm"
-    | "continue_swarm"
-    | "resume_swarm"
+    | "run_next_swarm_task"
+    | "resume_paused_swarm_run"
     | "open_coordinator";
   readonly label: string;
   readonly busyLabel: string;
   readonly disabled: boolean;
-}
-
-function getFailedSwarmRecoveryAction(input: {
-  readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
-  readonly validation: Pick<BeadsSwarmValidation, "valid"> | null;
-  readonly hasProjectConflict: boolean;
-}): EpicSwarmCoordinatorPrimaryAction {
-  if (input.swarmSupport?.supported !== true) {
-    return {
-      kind: "unsupported",
-      label: "Swarm unavailable",
-      busyLabel: "Swarm unavailable",
-      disabled: true,
-    };
-  }
-
-  if (input.hasProjectConflict) {
-    return {
-      kind: "open_coordinator",
-      label: "View active swarm",
-      busyLabel: "Opening...",
-      disabled: false,
-    };
-  }
-
-  if (input.validation?.valid === false) {
-    return {
-      kind: "open_coordination_prep_thread",
-      label: "Open prep thread",
-      busyLabel: "Opening...",
-      disabled: false,
-    };
-  }
-
-  if (input.validation?.valid === true) {
-    return {
-      kind: "start_swarm",
-      label: "Retry swarm",
-      busyLabel: "Retrying...",
-      disabled: false,
-    };
-  }
-
-  return {
-    kind: "refresh_swarm_state",
-    label: "Refresh swarm state",
-    busyLabel: "Refreshing...",
-    disabled: false,
-  };
 }
 
 export function deriveEpicSwarmCoordinatorState(input: {
@@ -584,10 +535,7 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
     input.swarmSupport?.supported === true &&
     input.validation?.valid === true &&
     (() => {
-      const nextReadyIssue = selectDeterministicReadyIssue({
-        validation: input.validation,
-        status: input.status,
-      });
+      const nextReadyIssue = selectDeterministicReadyIssueFromList(input.status?.ready ?? []);
       if (nextReadyIssue !== null) {
         return true;
       }
@@ -679,9 +627,9 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
       }
       if (latestRun?.schedulerMode === "semi-automatic") {
         return {
-          kind: "continue_swarm",
-          label: "Continue swarm",
-          busyLabel: "Continuing...",
+          kind: "run_next_swarm_task",
+          label: "Run next task",
+          busyLabel: "Running...",
           disabled: false,
         };
       }
@@ -701,7 +649,7 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
         };
       }
       return {
-        kind: "resume_swarm",
+        kind: "resume_paused_swarm_run",
         label: "Resume swarm",
         busyLabel: "Resuming...",
         disabled: false,
@@ -709,9 +657,9 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
     case "blocked":
       return recoverableWorkerFailureRun
         ? {
-            kind: "continue_swarm",
-            label: "Continue swarm",
-            busyLabel: "Continuing...",
+            kind: "run_next_swarm_task",
+            label: "Run next task",
+            busyLabel: "Running...",
             disabled: !canContinueRecoverableRun,
           }
         : {
@@ -721,24 +669,17 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
             disabled: false,
           };
     case "failed":
-      return getFailedSwarmRecoveryAction({
-        swarmSupport: input.swarmSupport,
-        validation: input.validation,
-        hasProjectConflict: input.hasProjectConflict,
-      });
-    case "cancelled":
-      if (input.hasProjectConflict) {
-        return {
-          kind: "open_coordinator",
-          label: "View active swarm",
-          busyLabel: "Opening...",
-          disabled: false,
-        };
-      }
       return {
-        kind: "resume_swarm",
-        label: "Resume swarm",
-        busyLabel: "Resuming...",
+        kind: "open_coordinator",
+        label: "Open coordinator",
+        busyLabel: "Opening...",
+        disabled: false,
+      };
+    case "cancelled":
+      return {
+        kind: "open_coordinator",
+        label: input.hasProjectConflict ? "View active swarm" : "Open coordinator",
+        busyLabel: "Opening...",
         disabled: false,
       };
     case "completed":

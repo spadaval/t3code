@@ -104,6 +104,19 @@ export class SwarmExecutionWorkflowError extends Schema.TaggedErrorClass<SwarmEx
   }
 }
 
+export class SwarmSchedulerError extends Schema.TaggedErrorClass<SwarmSchedulerError>()(
+  "SwarmSchedulerError",
+  {
+    operation: Schema.String,
+    detail: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {
+  override get message(): string {
+    return `Swarm scheduler failed in ${this.operation}: ${this.detail}`;
+  }
+}
+
 export class ProjectScriptRunnerError extends Schema.TaggedErrorClass<ProjectScriptRunnerError>()(
   "ProjectScriptRunnerError",
   {

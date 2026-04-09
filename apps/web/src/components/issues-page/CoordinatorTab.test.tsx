@@ -39,7 +39,7 @@ function renderCoordinatorTab() {
               fetchLifecycle: { kind: "ready", detail: null },
               stateKind: "cancelled",
               primaryAction: {
-                kind: "resume_swarm",
+                kind: "resume_paused_swarm_run",
                 label: "Resume swarm",
                 busyLabel: "Resuming...",
                 disabled: false,

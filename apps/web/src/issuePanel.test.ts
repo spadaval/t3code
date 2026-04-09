@@ -725,44 +725,76 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     });
   });
 
-  it("returns Resume swarm for paused and cancelled runs", () => {
-    for (const status of ["paused", "cancelled"] as const) {
-      expect(
-        getEpicCoordinatorPrimaryAction({
-          swarmSupport: { supported: true },
-          status: { swarm: null, ready: [], active: [], blocked: [] },
-          validation: {
-            valid: true,
-            swarm: {
-              swarmId: "swarm-1",
-              epicId: "EPIC-1",
-              epicTitle: "Epic",
-              totalIssueCount: 3,
-              completedIssueCount: 1,
-              activeIssueCount: 0,
-              readyIssueCount: 1,
-              blockedIssueCount: 0,
-              activeWorkerCount: 0,
-            },
-            readyFronts: [],
+  it("returns Resume swarm for paused runs and Open coordinator for cancelled runs", () => {
+    expect(
+      getEpicCoordinatorPrimaryAction({
+        swarmSupport: { supported: true },
+        status: { swarm: null, ready: [], active: [], blocked: [] },
+        validation: {
+          valid: true,
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 1,
+            blockedIssueCount: 0,
+            activeWorkerCount: 0,
           },
-          swarmRuns: [
-            makeSwarmRun({
-              status,
-              ...(status === "paused" ? { pausedAt: "2026-01-01T00:02:00.000Z" } : {}),
-              ...(status === "cancelled" ? { cancelledAt: "2026-01-01T00:02:00.000Z" } : {}),
-            }),
-          ],
-          projectConflict: null,
-          fetchLifecycle: READY_FETCH_LIFECYCLE,
-        }),
-      ).toEqual({
-        kind: "resume_swarm",
-        label: "Resume swarm",
-        busyLabel: "Resuming...",
-        disabled: false,
-      });
-    }
+          readyFronts: [],
+        },
+        swarmRuns: [
+          makeSwarmRun({
+            status: "paused",
+            pausedAt: "2026-01-01T00:02:00.000Z",
+          }),
+        ],
+        projectConflict: null,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
+      }),
+    ).toEqual({
+      kind: "resume_paused_swarm_run",
+      label: "Resume swarm",
+      busyLabel: "Resuming...",
+      disabled: false,
+    });
+
+    expect(
+      getEpicCoordinatorPrimaryAction({
+        swarmSupport: { supported: true },
+        status: { swarm: null, ready: [], active: [], blocked: [] },
+        validation: {
+          valid: true,
+          swarm: {
+            swarmId: "swarm-1",
+            epicId: "EPIC-1",
+            epicTitle: "Epic",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 1,
+            blockedIssueCount: 0,
+            activeWorkerCount: 0,
+          },
+          readyFronts: [],
+        },
+        swarmRuns: [
+          makeSwarmRun({
+            status: "cancelled",
+            cancelledAt: "2026-01-01T00:02:00.000Z",
+          }),
+        ],
+        projectConflict: null,
+        fetchLifecycle: READY_FETCH_LIFECYCLE,
+      }),
+    ).toEqual({
+      kind: "open_coordinator",
+      label: "Open coordinator",
+      busyLabel: "Opening...",
+      disabled: false,
+    });
   });
 
   it("returns Continue swarm for semi-automatic idle runs", () => {
@@ -796,14 +828,14 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "continue_swarm",
-      label: "Continue swarm",
-      busyLabel: "Continuing...",
+      kind: "run_next_swarm_task",
+      label: "Run next task",
+      busyLabel: "Running...",
       disabled: false,
     });
   });
 
-  it("returns Retry swarm when the latest run failed but the swarm is still valid", () => {
+  it("returns Open coordinator when the latest run failed but the swarm is still valid", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -843,14 +875,14 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "start_swarm",
-      label: "Retry swarm",
-      busyLabel: "Retrying...",
+      kind: "open_coordinator",
+      label: "Open coordinator",
+      busyLabel: "Opening...",
       disabled: false,
     });
   });
 
-  it("returns Open prep thread when the latest run failed and validation is now broken", () => {
+  it("returns Open coordinator when the latest run failed and validation is now broken", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -890,14 +922,14 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "open_coordination_prep_thread",
-      label: "Open prep thread",
+      kind: "open_coordinator",
+      label: "Open coordinator",
       busyLabel: "Opening...",
       disabled: false,
     });
   });
 
-  it("returns Open prep thread when the latest run failed and epic structure is invalid", () => {
+  it("returns Open coordinator when the latest run failed and epic structure is invalid", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -908,8 +940,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "open_coordination_prep_thread",
-      label: "Open prep thread",
+      kind: "open_coordinator",
+      label: "Open coordinator",
       busyLabel: "Opening...",
       disabled: false,
     });
@@ -990,14 +1022,14 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "continue_swarm",
-      label: "Continue swarm",
-      busyLabel: "Continuing...",
+      kind: "run_next_swarm_task",
+      label: "Run next task",
+      busyLabel: "Running...",
       disabled: false,
     });
   });
 
-  it("disables Continue swarm while tracker state is still blocked after a worker failure", () => {
+  it("disables Run next task while tracker state is still blocked after a worker failure", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -1059,9 +1091,9 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "continue_swarm",
-      label: "Continue swarm",
-      busyLabel: "Continuing...",
+      kind: "run_next_swarm_task",
+      label: "Run next task",
+      busyLabel: "Running...",
       disabled: true,
     });
   });

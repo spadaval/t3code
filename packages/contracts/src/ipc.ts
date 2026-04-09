@@ -81,7 +81,6 @@ import type {
   ClientOrchestrationCommand,
   OrchestrationCancelPlanImplementationLaunchInput,
   OrchestrationCancelPlanImplementationLaunchResult,
-  OrchestrationContinueSwarmRunInput,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
   OrchestrationGetTurnDiffInput,
@@ -92,7 +91,9 @@ import type {
   OrchestrationPauseSwarmRunInput,
   OrchestrationReadModel,
   OrchestrationRetryPlanImplementationLaunchInput,
-  OrchestrationResumeSwarmRunInput,
+  OrchestrationResumePausedSwarmRunInput,
+  OrchestrationRetrySwarmTaskExecutionInput,
+  OrchestrationRunNextSwarmTaskInput,
   OrchestrationStartSwarmRunInput,
   OrchestrationSwarmRunControlResult,
 } from "./orchestration";
@@ -250,14 +251,17 @@ export interface NativeApi {
     startSwarmRun: (
       input: OrchestrationStartSwarmRunInput,
     ) => Promise<OrchestrationSwarmRunControlResult>;
-    continueSwarmRun: (
-      input: OrchestrationContinueSwarmRunInput,
-    ) => Promise<OrchestrationSwarmRunControlResult>;
     pauseSwarmRun: (
       input: OrchestrationPauseSwarmRunInput,
     ) => Promise<OrchestrationSwarmRunControlResult>;
-    resumeSwarmRun: (
-      input: OrchestrationResumeSwarmRunInput,
+    resumePausedSwarmRun: (
+      input: OrchestrationResumePausedSwarmRunInput,
+    ) => Promise<OrchestrationSwarmRunControlResult>;
+    runNextSwarmTask: (
+      input: OrchestrationRunNextSwarmTaskInput,
+    ) => Promise<OrchestrationSwarmRunControlResult>;
+    retrySwarmTaskExecution: (
+      input: OrchestrationRetrySwarmTaskExecutionInput,
     ) => Promise<OrchestrationSwarmRunControlResult>;
     cancelSwarmRun: (
       input: OrchestrationCancelSwarmRunInput,

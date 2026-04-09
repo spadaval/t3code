@@ -145,9 +145,14 @@ export interface WsRpcClient {
       typeof ORCHESTRATION_WS_METHODS.retryPlanImplementationLaunch
     >;
     readonly startSwarmRun: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.startSwarmRun>;
-    readonly continueSwarmRun: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.continueSwarmRun>;
     readonly pauseSwarmRun: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.pauseSwarmRun>;
-    readonly resumeSwarmRun: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.resumeSwarmRun>;
+    readonly resumePausedSwarmRun: RpcUnaryMethod<
+      typeof ORCHESTRATION_WS_METHODS.resumePausedSwarmRun
+    >;
+    readonly runNextSwarmTask: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.runNextSwarmTask>;
+    readonly retrySwarmTaskExecution: RpcUnaryMethod<
+      typeof ORCHESTRATION_WS_METHODS.retrySwarmTaskExecution
+    >;
     readonly cancelSwarmRun: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.cancelSwarmRun>;
     readonly onDomainEvent: RpcStreamMethod<typeof WS_METHODS.subscribeOrchestrationDomainEvents>;
   };
@@ -342,12 +347,16 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         ),
       startSwarmRun: (input) =>
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.startSwarmRun](input)),
-      continueSwarmRun: (input) =>
-        transport.request((client) => client[ORCHESTRATION_WS_METHODS.continueSwarmRun](input)),
       pauseSwarmRun: (input) =>
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.pauseSwarmRun](input)),
-      resumeSwarmRun: (input) =>
-        transport.request((client) => client[ORCHESTRATION_WS_METHODS.resumeSwarmRun](input)),
+      resumePausedSwarmRun: (input) =>
+        transport.request((client) => client[ORCHESTRATION_WS_METHODS.resumePausedSwarmRun](input)),
+      runNextSwarmTask: (input) =>
+        transport.request((client) => client[ORCHESTRATION_WS_METHODS.runNextSwarmTask](input)),
+      retrySwarmTaskExecution: (input) =>
+        transport.request((client) =>
+          client[ORCHESTRATION_WS_METHODS.retrySwarmTaskExecution](input),
+        ),
       cancelSwarmRun: (input) =>
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.cancelSwarmRun](input)),
       onDomainEvent: (listener, options) =>

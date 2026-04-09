@@ -33,9 +33,10 @@ export const ORCHESTRATION_WS_METHODS = {
   cancelPlanImplementationLaunch: "orchestration.cancelPlanImplementationLaunch",
   retryPlanImplementationLaunch: "orchestration.retryPlanImplementationLaunch",
   startSwarmRun: "orchestration.startSwarmRun",
-  continueSwarmRun: "orchestration.continueSwarmRun",
   pauseSwarmRun: "orchestration.pauseSwarmRun",
-  resumeSwarmRun: "orchestration.resumeSwarmRun",
+  resumePausedSwarmRun: "orchestration.resumePausedSwarmRun",
+  runNextSwarmTask: "orchestration.runNextSwarmTask",
+  retrySwarmTaskExecution: "orchestration.retrySwarmTaskExecution",
   cancelSwarmRun: "orchestration.cancelSwarmRun",
 } as const;
 
@@ -1872,14 +1873,22 @@ const OrchestrationSwarmRunControlInput = Schema.Struct({
 });
 export type OrchestrationSwarmRunControlInput = typeof OrchestrationSwarmRunControlInput.Type;
 
-export const OrchestrationContinueSwarmRunInput = OrchestrationSwarmRunControlInput;
-export type OrchestrationContinueSwarmRunInput = typeof OrchestrationContinueSwarmRunInput.Type;
-
 export const OrchestrationPauseSwarmRunInput = OrchestrationSwarmRunControlInput;
 export type OrchestrationPauseSwarmRunInput = typeof OrchestrationPauseSwarmRunInput.Type;
 
-export const OrchestrationResumeSwarmRunInput = OrchestrationSwarmRunControlInput;
-export type OrchestrationResumeSwarmRunInput = typeof OrchestrationResumeSwarmRunInput.Type;
+export const OrchestrationResumePausedSwarmRunInput = OrchestrationSwarmRunControlInput;
+export type OrchestrationResumePausedSwarmRunInput =
+  typeof OrchestrationResumePausedSwarmRunInput.Type;
+
+export const OrchestrationRunNextSwarmTaskInput = OrchestrationSwarmRunControlInput;
+export type OrchestrationRunNextSwarmTaskInput = typeof OrchestrationRunNextSwarmTaskInput.Type;
+
+export const OrchestrationRetrySwarmTaskExecutionInput = Schema.Struct({
+  runId: SwarmRunId,
+  executionId: SwarmTaskExecutionId,
+});
+export type OrchestrationRetrySwarmTaskExecutionInput =
+  typeof OrchestrationRetrySwarmTaskExecutionInput.Type;
 
 export const OrchestrationCancelSwarmRunInput = OrchestrationSwarmRunControlInput;
 export type OrchestrationCancelSwarmRunInput = typeof OrchestrationCancelSwarmRunInput.Type;
@@ -1927,16 +1936,20 @@ export const OrchestrationRpcSchemas = {
     input: OrchestrationStartSwarmRunInput,
     output: OrchestrationSwarmRunControlResult,
   },
-  continueSwarmRun: {
-    input: OrchestrationContinueSwarmRunInput,
-    output: OrchestrationSwarmRunControlResult,
-  },
   pauseSwarmRun: {
     input: OrchestrationPauseSwarmRunInput,
     output: OrchestrationSwarmRunControlResult,
   },
-  resumeSwarmRun: {
-    input: OrchestrationResumeSwarmRunInput,
+  resumePausedSwarmRun: {
+    input: OrchestrationResumePausedSwarmRunInput,
+    output: OrchestrationSwarmRunControlResult,
+  },
+  runNextSwarmTask: {
+    input: OrchestrationRunNextSwarmTaskInput,
+    output: OrchestrationSwarmRunControlResult,
+  },
+  retrySwarmTaskExecution: {
+    input: OrchestrationRetrySwarmTaskExecutionInput,
     output: OrchestrationSwarmRunControlResult,
   },
   cancelSwarmRun: {

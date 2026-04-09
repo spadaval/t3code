@@ -69,8 +69,13 @@ type CoordinatorTabProps = {
 type CoordinatorActionInput =
   | { kind: "open_coordination_prep_thread"; epicIssueId: string }
   | { kind: "start_swarm"; epicIssueId: string }
-  | { kind: "continue_swarm"; runId: OrchestrationSwarmRun["runId"] }
-  | { kind: "resume_swarm"; runId: OrchestrationSwarmRun["runId"] }
+  | { kind: "run_next_swarm_task"; runId: OrchestrationSwarmRun["runId"] }
+  | { kind: "resume_paused_swarm_run"; runId: OrchestrationSwarmRun["runId"] }
+  | {
+      kind: "retry_swarm_task_execution";
+      runId: OrchestrationSwarmRun["runId"];
+      executionId: OrchestrationSwarmTaskExecution["executionId"];
+    }
   | { kind: "pause_swarm"; runId: OrchestrationSwarmRun["runId"] }
   | { kind: "cancel_swarm"; runId: OrchestrationSwarmRun["runId"] }
   | { kind: "refresh_swarm_state"; epicIssueId: string };
@@ -320,11 +325,17 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
             runtimeMode: DEFAULT_RUNTIME_MODE,
           });
           return null;
-        case "continue_swarm":
-          await api.orchestration.continueSwarmRun({ runId: action.runId });
+        case "run_next_swarm_task":
+          await api.orchestration.runNextSwarmTask({ runId: action.runId });
           return null;
-        case "resume_swarm":
-          await api.orchestration.resumeSwarmRun({ runId: action.runId });
+        case "resume_paused_swarm_run":
+          await api.orchestration.resumePausedSwarmRun({ runId: action.runId });
+          return null;
+        case "retry_swarm_task_execution":
+          await api.orchestration.retrySwarmTaskExecution({
+            runId: action.runId,
+            executionId: action.executionId,
+          });
           return null;
         case "pause_swarm":
           await api.orchestration.pauseSwarmRun({ runId: action.runId });
@@ -365,10 +376,12 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
         return `prep:${action.epicIssueId}`;
       case "start_swarm":
         return `start:${action.epicIssueId}`;
-      case "continue_swarm":
-        return `continue:${action.runId}`;
-      case "resume_swarm":
+      case "run_next_swarm_task":
+        return `run-next:${action.runId}`;
+      case "resume_paused_swarm_run":
         return `resume:${action.runId}`;
+      case "retry_swarm_task_execution":
+        return `retry:${action.executionId}`;
       case "pause_swarm":
         return `pause:${action.runId}`;
       case "cancel_swarm":
@@ -768,6 +781,19 @@ function CoordinatorActionBar(props: {
   const { epic } = props;
   const run = epic.latestRun;
   const primaryAction = epic.primaryAction;
+  const retryableExecution =
+    epic.executions
+      .filter(
+        (execution) =>
+          run !== null &&
+          execution.runId === run.runId &&
+          (execution.status === "failed" || execution.status === "cancelled"),
+      )
+      .toSorted(
+        (left, right) =>
+          right.sequenceNumber - left.sequenceNumber ||
+          right.updatedAt.localeCompare(left.updatedAt),
+      )[0] ?? null;
   const actions: CoordinatorAction[] = [];
 
   switch (primaryAction.kind) {
@@ -792,19 +818,19 @@ function CoordinatorActionBar(props: {
         onClick: () => props.onRunAction({ kind: "start_swarm", epicIssueId: epic.epicId }),
       });
       break;
-    case "continue_swarm":
+    case "run_next_swarm_task":
       if (run) {
         actions.push({
-          key: `continue:${run.runId}`,
+          key: `run-next:${run.runId}`,
           label: primaryAction.label,
           busyLabel: primaryAction.busyLabel,
           disabled: primaryAction.disabled,
           icon: <PlayIcon className="size-3" />,
-          onClick: () => props.onRunAction({ kind: "continue_swarm", runId: run.runId }),
+          onClick: () => props.onRunAction({ kind: "run_next_swarm_task", runId: run.runId }),
         });
       }
       break;
-    case "resume_swarm":
+    case "resume_paused_swarm_run":
       if (run) {
         actions.push({
           key: `resume:${run.runId}`,
@@ -812,7 +838,7 @@ function CoordinatorActionBar(props: {
           busyLabel: primaryAction.busyLabel,
           disabled: primaryAction.disabled,
           icon: <PlayIcon className="size-3" />,
-          onClick: () => props.onRunAction({ kind: "resume_swarm", runId: run.runId }),
+          onClick: () => props.onRunAction({ kind: "resume_paused_swarm_run", runId: run.runId }),
         });
       }
       break;
@@ -843,6 +869,26 @@ function CoordinatorActionBar(props: {
     case "checking":
     case "unsupported":
       break;
+  }
+
+  if (
+    run?.status === "blocked" &&
+    run.blockedContext?.kind === "worker_failure" &&
+    retryableExecution !== null
+  ) {
+    actions.push({
+      key: `retry:${retryableExecution.executionId}`,
+      label: "Retry failed task",
+      busyLabel: "Retrying...",
+      variant: "outline",
+      icon: <RefreshCwIcon className="size-3" />,
+      onClick: () =>
+        props.onRunAction({
+          kind: "retry_swarm_task_execution",
+          runId: run.runId,
+          executionId: retryableExecution.executionId,
+        }),
+    });
   }
 
   if (run?.status === "running" && epic.activeExecution === null) {
@@ -901,10 +947,12 @@ function describeCoordinatorActionError(actionKind: CoordinatorActionInput["kind
       return "Unable to open prep thread";
     case "start_swarm":
       return "Unable to start swarm";
-    case "continue_swarm":
-      return "Unable to continue swarm";
-    case "resume_swarm":
-      return "Unable to resume swarm";
+    case "run_next_swarm_task":
+      return "Unable to run the next swarm task";
+    case "resume_paused_swarm_run":
+      return "Unable to resume the paused swarm";
+    case "retry_swarm_task_execution":
+      return "Unable to retry the swarm task";
     case "pause_swarm":
       return "Unable to pause swarm";
     case "cancel_swarm":

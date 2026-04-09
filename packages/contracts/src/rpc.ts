@@ -72,7 +72,6 @@ import {
   ClientOrchestrationCommand,
   OrchestrationCancelPlanImplementationLaunchInput,
   OrchestrationCancelPlanImplementationLaunchResult,
-  OrchestrationContinueSwarmRunInput,
   OrchestrationEvent,
   ORCHESTRATION_WS_METHODS,
   OrchestrationDispatchCommandError,
@@ -89,7 +88,9 @@ import {
   OrchestrationReplayEventsInput,
   OrchestrationRpcSchemas,
   OrchestrationRetryPlanImplementationLaunchInput,
-  OrchestrationResumeSwarmRunInput,
+  OrchestrationResumePausedSwarmRunInput,
+  OrchestrationRetrySwarmTaskExecutionInput,
+  OrchestrationRunNextSwarmTaskInput,
   OrchestrationStartSwarmRunInput,
   OrchestrationSwarmRunControlResult,
 } from "./orchestration";
@@ -525,26 +526,38 @@ export const WsOrchestrationStartSwarmRunRpc = Rpc.make(ORCHESTRATION_WS_METHODS
   error: OrchestrationDispatchCommandError,
 });
 
-export const WsOrchestrationContinueSwarmRunRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.continueSwarmRun,
-  {
-    payload: OrchestrationContinueSwarmRunInput,
-    success: OrchestrationSwarmRunControlResult,
-    error: OrchestrationDispatchCommandError,
-  },
-);
-
 export const WsOrchestrationPauseSwarmRunRpc = Rpc.make(ORCHESTRATION_WS_METHODS.pauseSwarmRun, {
   payload: OrchestrationPauseSwarmRunInput,
   success: OrchestrationSwarmRunControlResult,
   error: OrchestrationDispatchCommandError,
 });
 
-export const WsOrchestrationResumeSwarmRunRpc = Rpc.make(ORCHESTRATION_WS_METHODS.resumeSwarmRun, {
-  payload: OrchestrationResumeSwarmRunInput,
-  success: OrchestrationSwarmRunControlResult,
-  error: OrchestrationDispatchCommandError,
-});
+export const WsOrchestrationResumePausedSwarmRunRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.resumePausedSwarmRun,
+  {
+    payload: OrchestrationResumePausedSwarmRunInput,
+    success: OrchestrationSwarmRunControlResult,
+    error: OrchestrationDispatchCommandError,
+  },
+);
+
+export const WsOrchestrationRunNextSwarmTaskRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.runNextSwarmTask,
+  {
+    payload: OrchestrationRunNextSwarmTaskInput,
+    success: OrchestrationSwarmRunControlResult,
+    error: OrchestrationDispatchCommandError,
+  },
+);
+
+export const WsOrchestrationRetrySwarmTaskExecutionRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.retrySwarmTaskExecution,
+  {
+    payload: OrchestrationRetrySwarmTaskExecutionInput,
+    success: OrchestrationSwarmRunControlResult,
+    error: OrchestrationDispatchCommandError,
+  },
+);
 
 export const WsOrchestrationCancelSwarmRunRpc = Rpc.make(ORCHESTRATION_WS_METHODS.cancelSwarmRun, {
   payload: OrchestrationCancelSwarmRunInput,
@@ -641,8 +654,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationCancelPlanImplementationLaunchRpc,
   WsOrchestrationRetryPlanImplementationLaunchRpc,
   WsOrchestrationStartSwarmRunRpc,
-  WsOrchestrationContinueSwarmRunRpc,
   WsOrchestrationPauseSwarmRunRpc,
-  WsOrchestrationResumeSwarmRunRpc,
+  WsOrchestrationResumePausedSwarmRunRpc,
+  WsOrchestrationRunNextSwarmTaskRpc,
+  WsOrchestrationRetrySwarmTaskExecutionRpc,
   WsOrchestrationCancelSwarmRunRpc,
 );

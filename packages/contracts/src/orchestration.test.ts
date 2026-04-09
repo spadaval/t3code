@@ -11,11 +11,11 @@ import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   OrchestrationCommand,
-  OrchestrationContinueSwarmRunInput,
   OrchestrationEvent,
   OrchestrationGetTurnDiffInput,
   OrchestrationLatestTurn,
   OrchestrationLaunchPlanImplementationInput,
+  OrchestrationRunNextSwarmTaskInput,
   OrchestrationStartSwarmRunInput,
   OrchestrationSwarmRun,
   OrchestrationSwarmTaskExecution,
@@ -61,8 +61,8 @@ const decodeThreadMetaUpdatedPayload = Schema.decodeUnknownEffect(ThreadMetaUpda
 const decodeOrchestrationStartSwarmRunInput = Schema.decodeUnknownEffect(
   OrchestrationStartSwarmRunInput,
 );
-const decodeOrchestrationContinueSwarmRunInput = Schema.decodeUnknownEffect(
-  OrchestrationContinueSwarmRunInput,
+const decodeOrchestrationRunNextSwarmTaskInput = Schema.decodeUnknownEffect(
+  OrchestrationRunNextSwarmTaskInput,
 );
 const decodeOrchestrationSwarmRun = Schema.decodeUnknownEffect(OrchestrationSwarmRun);
 const decodeOrchestrationSwarmTaskExecution = Schema.decodeUnknownEffect(
@@ -697,7 +697,7 @@ it.effect("decodes swarm lifecycle commands", () =>
 
 it.effect("decodes swarm run control input", () =>
   Effect.gen(function* () {
-    const parsed = yield* decodeOrchestrationContinueSwarmRunInput({
+    const parsed = yield* decodeOrchestrationRunNextSwarmTaskInput({
       runId: "run-1",
     });
     assert.strictEqual(parsed.runId, "run-1");

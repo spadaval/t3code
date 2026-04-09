@@ -1,20 +1,12 @@
 import type {
   OrchestrationCancelSwarmRunInput,
-  OrchestrationContinueSwarmRunInput,
   OrchestrationPauseSwarmRunInput,
-  OrchestrationResumeSwarmRunInput,
+  OrchestrationResumePausedSwarmRunInput,
   OrchestrationStartSwarmRunInput,
-  OrchestrationSwarmRunControlResult,
   SwarmRunId,
   SwarmTaskExecutionId,
-  ThreadId,
 } from "@t3tools/contracts";
-import type {
-  WorkflowEntity,
-  SwarmState,
-  TaskState,
-  InterventionRequest,
-} from "@t3tools/contracts/workflowState";
+import type { WorkflowEntity, InterventionRequest } from "@t3tools/contracts/workflowState";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -61,7 +53,7 @@ export interface SimplifiedSwarmWorkflowShape {
   ) => Effect.Effect<WorkflowEntity, SimplifiedSwarmWorkflowError>;
 
   readonly resumeSwarm: (
-    input: OrchestrationResumeSwarmRunInput,
+    input: OrchestrationResumePausedSwarmRunInput,
   ) => Effect.Effect<WorkflowEntity, SimplifiedSwarmWorkflowError>;
 
   readonly cancelSwarm: (

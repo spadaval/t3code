@@ -36,7 +36,7 @@ import { normalizeDispatchCommand } from "./orchestration/Normalizer";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { PlanImplementationWorkflow } from "./orchestration/Services/PlanImplementationWorkflow";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
-import { SwarmExecutionWorkflow } from "./orchestration/Services/SwarmExecutionWorkflow";
+import { SwarmScheduler } from "./orchestration/Services/SwarmScheduler";
 import {
   observeRpcEffect,
   observeRpcStream,
@@ -58,7 +58,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const orchestrationEngine = yield* OrchestrationEngineService;
     const planImplementationWorkflow = yield* PlanImplementationWorkflow;
-    const swarmExecutionWorkflow = yield* SwarmExecutionWorkflow;
+    const swarmScheduler = yield* SwarmScheduler;
     const checkpointDiffQuery = yield* CheckpointDiffQuery;
     const keybindings = yield* Keybindings;
     const open = yield* Open;
@@ -514,7 +514,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [ORCHESTRATION_WS_METHODS.startSwarmRun]: (input) =>
         observeRpcEffect(
           ORCHESTRATION_WS_METHODS.startSwarmRun,
-          swarmExecutionWorkflow.startSwarmRun(input).pipe(
+          swarmScheduler.startSwarmRun(input).pipe(
             Effect.mapError(
               (cause) =>
                 new OrchestrationDispatchCommandError({
@@ -525,24 +525,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
           { "rpc.aggregate": "orchestration" },
         ),
-      [ORCHESTRATION_WS_METHODS.continueSwarmRun]: (input) =>
-        observeRpcEffect(
-          ORCHESTRATION_WS_METHODS.continueSwarmRun,
-          swarmExecutionWorkflow.continueSwarmRun(input).pipe(
-            Effect.mapError(
-              (cause) =>
-                new OrchestrationDispatchCommandError({
-                  message: "Failed to continue swarm run",
-                  cause,
-                }),
-            ),
-          ),
-          { "rpc.aggregate": "orchestration" },
-        ),
       [ORCHESTRATION_WS_METHODS.pauseSwarmRun]: (input) =>
         observeRpcEffect(
           ORCHESTRATION_WS_METHODS.pauseSwarmRun,
-          swarmExecutionWorkflow.pauseSwarmRun(input).pipe(
+          swarmScheduler.pauseSwarmRun(input).pipe(
             Effect.mapError(
               (cause) =>
                 new OrchestrationDispatchCommandError({
@@ -553,14 +539,42 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
           { "rpc.aggregate": "orchestration" },
         ),
-      [ORCHESTRATION_WS_METHODS.resumeSwarmRun]: (input) =>
+      [ORCHESTRATION_WS_METHODS.resumePausedSwarmRun]: (input) =>
         observeRpcEffect(
-          ORCHESTRATION_WS_METHODS.resumeSwarmRun,
-          swarmExecutionWorkflow.resumeSwarmRun(input).pipe(
+          ORCHESTRATION_WS_METHODS.resumePausedSwarmRun,
+          swarmScheduler.resumePausedSwarmRun(input).pipe(
             Effect.mapError(
               (cause) =>
                 new OrchestrationDispatchCommandError({
-                  message: "Failed to resume swarm run",
+                  message: "Failed to resume paused swarm run",
+                  cause,
+                }),
+            ),
+          ),
+          { "rpc.aggregate": "orchestration" },
+        ),
+      [ORCHESTRATION_WS_METHODS.runNextSwarmTask]: (input) =>
+        observeRpcEffect(
+          ORCHESTRATION_WS_METHODS.runNextSwarmTask,
+          swarmScheduler.runNextSwarmTask(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationDispatchCommandError({
+                  message: "Failed to run next swarm task",
+                  cause,
+                }),
+            ),
+          ),
+          { "rpc.aggregate": "orchestration" },
+        ),
+      [ORCHESTRATION_WS_METHODS.retrySwarmTaskExecution]: (input) =>
+        observeRpcEffect(
+          ORCHESTRATION_WS_METHODS.retrySwarmTaskExecution,
+          swarmScheduler.retrySwarmTaskExecution(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationDispatchCommandError({
+                  message: "Failed to retry swarm task execution",
                   cause,
                 }),
             ),
@@ -570,7 +584,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [ORCHESTRATION_WS_METHODS.cancelSwarmRun]: (input) =>
         observeRpcEffect(
           ORCHESTRATION_WS_METHODS.cancelSwarmRun,
-          swarmExecutionWorkflow.cancelSwarmRun(input).pipe(
+          swarmScheduler.cancelSwarmRun(input).pipe(
             Effect.mapError(
               (cause) =>
                 new OrchestrationDispatchCommandError({
@@ -736,6 +750,21 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 ? cause
                 : new BeadsError({
                     message: "Failed to update beads issue",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "beads" },
+        ),
+      [BEADS_WS_METHODS.createIssue]: (input) =>
+        observeRpcEffect(
+          BEADS_WS_METHODS.createIssue,
+          beads.createIssue(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(BeadsError)(cause)
+                ? cause
+                : new BeadsError({
+                    message: "Failed to create beads issue",
                     cause,
                   }),
             ),

@@ -67,9 +67,9 @@ import {
   type PlanImplementationWorkflowShape,
 } from "./orchestration/Services/PlanImplementationWorkflow.ts";
 import {
-  SwarmExecutionWorkflow,
-  type SwarmExecutionWorkflowShape,
-} from "./orchestration/Services/SwarmExecutionWorkflow.ts";
+  SwarmScheduler,
+  type SwarmSchedulerShape,
+} from "./orchestration/Services/SwarmScheduler.ts";
 import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
@@ -280,7 +280,7 @@ const buildAppUnderTest = (options?: {
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
     planImplementationWorkflow?: Partial<PlanImplementationWorkflowShape>;
-    swarmExecutionWorkflow?: Partial<SwarmExecutionWorkflowShape>;
+    swarmScheduler?: Partial<SwarmSchedulerShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
     browserTraceCollector?: Partial<BrowserTraceCollectorShape>;
@@ -529,15 +529,10 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(
-        Layer.mock(SwarmExecutionWorkflow)({
+        Layer.mock(SwarmScheduler)({
           start: Effect.void,
           drain: Effect.void,
           startSwarmRun: () =>
-            Effect.succeed({
-              runId: "run-1" as any,
-              status: "running",
-            }),
-          continueSwarmRun: () =>
             Effect.succeed({
               runId: "run-1" as any,
               status: "running",
@@ -547,7 +542,17 @@ const buildAppUnderTest = (options?: {
               runId: "run-1" as any,
               status: "paused",
             }),
-          resumeSwarmRun: () =>
+          resumePausedSwarmRun: () =>
+            Effect.succeed({
+              runId: "run-1" as any,
+              status: "running",
+            }),
+          runNextSwarmTask: () =>
+            Effect.succeed({
+              runId: "run-1" as any,
+              status: "running",
+            }),
+          retrySwarmTaskExecution: () =>
             Effect.succeed({
               runId: "run-1" as any,
               status: "running",
@@ -557,11 +562,7 @@ const buildAppUnderTest = (options?: {
               runId: "run-1" as any,
               status: "cancelled",
             }),
-          startSwarmTaskExecution: () => Effect.die("unused"),
-          completeSwarmTaskExecution: () => Effect.die("unused"),
-          failSwarmTaskExecution: () => Effect.die("unused"),
-          cancelSwarmTaskExecution: () => Effect.die("unused"),
-          ...options?.layers?.swarmExecutionWorkflow,
+          ...options?.layers?.swarmScheduler,
         }),
       ),
       Layer.provide(

@@ -151,8 +151,8 @@ const SWARM_RUN_ACTIONS = {
     shortcut: "p",
   },
 
-  resume_swarm: {
-    id: "resume_swarm",
+  resume_paused_swarm_run: {
+    id: "resume_paused_swarm_run",
     label: "Resume Swarm",
     description: "Resume swarm execution",
     category: "primary",
@@ -417,7 +417,7 @@ function getSwarmRunActions(entity: WorkflowEntity): ContextualAction[] {
 
     case "paused":
       actions.push(
-        SWARM_RUN_ACTIONS.resume_swarm,
+        SWARM_RUN_ACTIONS.resume_paused_swarm_run,
         SWARM_RUN_ACTIONS.execute_next_task,
         SWARM_RUN_ACTIONS.manual_task_control,
         SWARM_RUN_ACTIONS.cancel_swarm,
@@ -428,7 +428,7 @@ function getSwarmRunActions(entity: WorkflowEntity): ContextualAction[] {
 
     case "idle":
       actions.push(
-        SWARM_RUN_ACTIONS.resume_swarm,
+        SWARM_RUN_ACTIONS.resume_paused_swarm_run,
         SWARM_RUN_ACTIONS.execute_next_task,
         SWARM_RUN_ACTIONS.cancel_swarm,
         SWARM_RUN_ACTIONS.debug_swarm,

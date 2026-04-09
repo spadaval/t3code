@@ -433,37 +433,55 @@ describe("swarm", () => {
         fetchLifecycle: { kind: "ready", detail: null },
       }),
     ).toEqual({
-      kind: "continue_swarm",
-      label: "Continue swarm",
-      busyLabel: "Continuing...",
+      kind: "run_next_swarm_task",
+      label: "Run next task",
+      busyLabel: "Running...",
       disabled: false,
     });
   });
 
-  it("returns resume actions for paused and cancelled runs", () => {
-    for (const status of ["paused", "cancelled"] as const) {
-      expect(
-        getEpicSwarmCoordinatorPrimaryAction({
-          swarmSupport: makeSwarmSupport(),
-          status: makeSwarmStatus(),
-          validation: makeSwarmValidation(),
-          swarmRuns: [
-            makeRun(`run-${status}`, {
-              status,
-              ...(status === "paused" ? { pausedAt: "2026-04-06T00:00:02.000Z" } : {}),
-              ...(status === "cancelled" ? { cancelledAt: "2026-04-06T00:00:02.000Z" } : {}),
-            }),
-          ],
-          hasProjectConflict: false,
-          fetchLifecycle: { kind: "ready", detail: null },
-        }),
-      ).toEqual({
-        kind: "resume_swarm",
-        label: "Resume swarm",
-        busyLabel: "Resuming...",
-        disabled: false,
-      });
-    }
+  it("returns resume for paused runs and coordinator access for cancelled runs", () => {
+    expect(
+      getEpicSwarmCoordinatorPrimaryAction({
+        swarmSupport: makeSwarmSupport(),
+        status: makeSwarmStatus(),
+        validation: makeSwarmValidation(),
+        swarmRuns: [
+          makeRun("run-paused", {
+            status: "paused",
+            pausedAt: "2026-04-06T00:00:02.000Z",
+          }),
+        ],
+        hasProjectConflict: false,
+        fetchLifecycle: { kind: "ready", detail: null },
+      }),
+    ).toEqual({
+      kind: "resume_paused_swarm_run",
+      label: "Resume swarm",
+      busyLabel: "Resuming...",
+      disabled: false,
+    });
+
+    expect(
+      getEpicSwarmCoordinatorPrimaryAction({
+        swarmSupport: makeSwarmSupport(),
+        status: makeSwarmStatus(),
+        validation: makeSwarmValidation(),
+        swarmRuns: [
+          makeRun("run-cancelled", {
+            status: "cancelled",
+            cancelledAt: "2026-04-06T00:00:02.000Z",
+          }),
+        ],
+        hasProjectConflict: false,
+        fetchLifecycle: { kind: "ready", detail: null },
+      }),
+    ).toEqual({
+      kind: "open_coordinator",
+      label: "Open coordinator",
+      busyLabel: "Opening...",
+      disabled: false,
+    });
   });
 
   it("clears cancelled metadata when a cancelled run resumes", () => {
