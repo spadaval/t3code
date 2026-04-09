@@ -1,9 +1,83 @@
 import type { BeadsIssueSummary } from "@t3tools/contracts";
 import { type ReactNode } from "react";
+import {
+  BugIcon,
+  CheckSquare2Icon,
+  CircleDotIcon,
+  LightbulbIcon,
+  ScaleIcon,
+  WrenchIcon,
+  ZapIcon,
+} from "lucide-react";
 
 import { cn } from "~/lib/utils";
-import { StatusIndicator, IssueStatus, Priority } from "../shared/StatusIndicator";
-import { LabelGroup } from "../shared/LabelGroup";
+import { formatShortTimestamp } from "~/timestampFormat";
+import { useSettings } from "~/hooks/useSettings";
+
+// ---------------------------------------------------------------------------
+// Issue-type icon config (restored from old design)
+// ---------------------------------------------------------------------------
+
+const ISSUE_TYPE_ICON_CONFIG: Record<
+  string,
+  { icon: React.ComponentType<{ className?: string }>; className: string }
+> = {
+  bug: { icon: BugIcon, className: "text-red-500" },
+  feature: { icon: LightbulbIcon, className: "text-green-500" },
+  task: { icon: CheckSquare2Icon, className: "text-blue-500" },
+  epic: { icon: ZapIcon, className: "text-purple-500" },
+  chore: { icon: WrenchIcon, className: "text-muted-foreground" },
+  decision: { icon: ScaleIcon, className: "text-amber-500" },
+};
+
+const DEFAULT_ISSUE_TYPE_ICON = { icon: CircleDotIcon, className: "text-muted-foreground" };
+
+export function IssueTypeIcon({ issueType, className }: { issueType: string; className?: string }) {
+  const config = ISSUE_TYPE_ICON_CONFIG[issueType.toLowerCase()] ?? DEFAULT_ISSUE_TYPE_ICON;
+  const Icon = config.icon;
+  return <Icon className={cn("size-4 shrink-0", config.className, className)} />;
+}
+
+// ---------------------------------------------------------------------------
+// Semantic helpers
+// ---------------------------------------------------------------------------
+
+type SemanticVariant = "success" | "warning" | "info" | "error" | "secondary";
+
+function statusVariant(status: string): SemanticVariant {
+  switch (status) {
+    case "closed":
+      return "success";
+    case "in_progress":
+    case "open":
+      return "info";
+    case "blocked":
+      return "error";
+    case "deferred":
+      return "warning";
+    default:
+      return "secondary";
+  }
+}
+
+function priorityVariant(priority: number | null): SemanticVariant {
+  if (priority === null) return "secondary";
+  if (priority <= 1) return "error";
+  if (priority === 2) return "warning";
+  return "secondary";
+}
+
+const SEMANTIC_TEXT_COLOR: Record<SemanticVariant, string> = {
+  success: "text-success-foreground",
+  warning: "text-warning-foreground",
+  info: "text-info-foreground",
+  error: "text-destructive-foreground",
+  secondary: "text-muted-foreground",
+};
+
+// ---------------------------------------------------------------------------
+// IssueCard props
+// ---------------------------------------------------------------------------
 
 export interface IssueCardProps {
   issue: BeadsIssueSummary;
@@ -19,18 +93,14 @@ export interface IssueCardProps {
 }
 
 /**
- * IssueCard - Clean, scannable issue display component
+ * IssueCard — Minimal, icon-driven issue row.
  *
- * Replaces the previous badge-heavy issue display with a clean, hierarchical layout.
- * Focuses on readability and reduces visual noise significantly.
- *
- * @example
- * <IssueCard
- *   issue={issue}
- *   selected={selectedId === issue.id}
- *   onClick={() => setSelectedId(issue.id)}
- *   onLabelClick={handleLabelFilter}
- * />
+ * Design goals (merged from old + new):
+ * - Issue-type icon as primary visual anchor (old design)
+ * - Dense row layout: title + inline metadata on one line (old design)
+ * - Semantic color for status/priority as text, not badges (old design)
+ * - Keyboard focus & label support (new design)
+ * - No scale transforms, no shadows, no border-l accents
  */
 export function IssueCard({
   issue,
@@ -44,146 +114,89 @@ export function IssueCard({
   compact = false,
   actions,
 }: IssueCardProps) {
-  const statusVariant = getStatusVariant(issue.status);
-  const priorityComponent = issue.priority !== null ? getPriorityComponent(issue.priority) : null;
+  const settings = useSettings();
+  const statusClass = SEMANTIC_TEXT_COLOR[statusVariant(issue.status)];
+  const priorityClass =
+    issue.priority !== null ? SEMANTIC_TEXT_COLOR[priorityVariant(issue.priority)] : null;
 
   return (
-    <div
+    <button
+      type="button"
       className={cn(
-        "group border-l-2 border-transparent bg-background p-3 transition-all duration-200 ease-out",
-        "hover:bg-muted/30 hover:shadow-sm hover:scale-[1.01] focus-within:bg-muted/30 focus-within:shadow-sm",
-        selected && "border-l-primary bg-muted/50 shadow-sm animate-fade-in",
-        focused && "ring-2 ring-ring ring-offset-2 bg-muted/40 shadow-md",
-        onClick && "cursor-pointer active:scale-[0.99]",
-        compact && "py-2 px-2.5",
+        "w-full border-b border-border/50 px-4 py-2.5 text-left transition-colors",
+        "hover:bg-muted/30",
+        selected && "bg-muted/50",
+        focused && "ring-1 ring-ring ring-inset bg-muted/40",
+        onClick && "cursor-pointer",
+        compact && "py-2 px-3",
         className,
       )}
       onClick={onClick}
-      tabIndex={focused ? 0 : undefined}
-      role={onClick ? "button" : undefined}
-      aria-label={onClick ? `Select issue: ${issue.title}` : undefined}
+      tabIndex={focused ? 0 : -1}
+      aria-label={`Select issue: ${issue.title}`}
     >
-      {/* Header: Title and Status */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <StatusIndicator variant={statusVariant} size={compact ? "sm" : "md"}>
-              {formatStatusDisplay(issue.status)}
-            </StatusIndicator>
-            {showPriority && priorityComponent && (
-              <span className="transition-all duration-200 ease-out">{priorityComponent}</span>
-            )}
-            <span className="text-xs text-muted-foreground transition-colors duration-200 group-hover:text-foreground/80">
-              #{issue.id}
-            </span>
-          </div>
-
-          <h3
-            className={cn(
-              "font-medium text-foreground leading-snug transition-all duration-200 ease-out group-hover:text-foreground/90",
-              compact ? "text-sm" : "text-base",
-            )}
-          >
-            {issue.title}
-          </h3>
-        </div>
-
+      {/* Row 1: Icon + Title + Timestamp */}
+      <div className="flex items-center gap-2">
+        <IssueTypeIcon issueType={issue.issueType} />
+        <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{issue.title}</p>
+        <span className="shrink-0 text-[11px] text-muted-foreground">
+          {formatShortTimestamp(issue.updatedAt, settings.timestampFormat)}
+        </span>
         {actions && (
-          <div className="opacity-0 group-hover:opacity-100 transition-all duration-200 ease-out transform translate-x-1 group-hover:translate-x-0">
+          <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
             {actions}
           </div>
         )}
       </div>
 
-      {/* Secondary Information with staggered animation */}
-      {!compact && (
-        <div className="mt-2 space-y-1.5 animate-fade-in">
-          {/* Labels */}
-          {showLabels && issue.labels.length > 0 && (
-            <div className="transition-all duration-200 ease-out">
-              <LabelGroup labels={issue.labels} onLabelClick={onLabelClick} maxVisible={4} />
-            </div>
-          )}
-
-          {/* Description Preview (if available and not too long) */}
-          {issue.description && issue.description.length > 0 && issue.description.length < 120 && (
-            <p className="text-sm text-muted-foreground line-clamp-2 transition-colors duration-200 group-hover:text-muted-foreground/90">
-              {issue.description}
-            </p>
-          )}
-
-          {/* Metadata */}
-          <div className="flex items-center gap-3 text-xs text-muted-foreground transition-colors duration-200 group-hover:text-muted-foreground/90">
-            {issue.assignee && (
-              <span className="flex items-center gap-1">
-                <span className="size-1.5 rounded-full bg-muted-foreground/60" />
-                {issue.assignee}
-              </span>
+      {/* Row 2: ID · Status · Priority · Labels */}
+      <div className="mt-0.5 flex flex-wrap items-center gap-1 pl-6 text-xs text-muted-foreground">
+        <span>{issue.id}</span>
+        <span className="opacity-40">&middot;</span>
+        <span className={statusClass}>{issue.status.replace(/_/g, " ")}</span>
+        {showPriority && priorityClass !== null && (
+          <>
+            <span className="opacity-40">&middot;</span>
+            <span className={priorityClass}>P{issue.priority}</span>
+          </>
+        )}
+        {showLabels && issue.labels.length > 0 && (
+          <>
+            <span className="opacity-40">&middot;</span>
+            {issue.labels.slice(0, 3).map((label) =>
+              onLabelClick ? (
+                <button
+                  key={label}
+                  type="button"
+                  className="text-muted-foreground/80 cursor-pointer hover:text-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onLabelClick(label);
+                  }}
+                >
+                  {label}
+                </button>
+              ) : (
+                <span key={label} className="text-muted-foreground/80">
+                  {label}
+                </span>
+              ),
             )}
-            {issue.updatedAt && (
-              <span title={new Date(issue.updatedAt).toLocaleString()}>
-                Updated {formatRelativeTime(issue.updatedAt)}
-              </span>
+            {issue.labels.length > 3 && (
+              <span className="text-muted-foreground/60">+{issue.labels.length - 3}</span>
             )}
-            {issue.commentCount && issue.commentCount > 0 && (
-              <span className="flex items-center gap-1">
-                <span className="size-1.5 rounded-full bg-info/60" />
-                {issue.commentCount} comment{issue.commentCount !== 1 ? "s" : ""}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+          </>
+        )}
+      </div>
+    </button>
   );
 }
 
-// Helper functions to map current badge logic to clean status display
-function getStatusVariant(status: string): "success" | "warning" | "info" | "error" | "secondary" {
-  switch (status) {
-    case "closed":
-      return "success";
-    case "in_progress":
-      return "warning";
-    case "open":
-      return "info";
-    case "blocked":
-      return "error";
-    case "deferred":
-      return "secondary";
-    default:
-      return "secondary";
-  }
-}
-
-function formatStatusDisplay(status: string): string {
-  return status.replace(/_/g, " ");
-}
-
-function getPriorityComponent(priority: number): ReactNode {
-  if (priority <= 1) return <Priority.P1 />;
-  if (priority === 2) return <Priority.P2 />;
-  return <Priority.P3 />;
-}
-
-function formatRelativeTime(dateString: string): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) return "today";
-  if (diffDays === 1) return "yesterday";
-  if (diffDays < 7) return `${diffDays}d ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
-  return `${Math.floor(diffDays / 30)}mo ago`;
-}
-
-// Specialized variants for different contexts
+// Convenience variants
 export const CompactIssueCard = (props: Omit<IssueCardProps, "compact">) => (
   <IssueCard {...props} compact />
 );
 
 export const EpicIssueCard = (props: IssueCardProps) => (
-  <IssueCard {...props} className={cn("ml-4 border-l-muted", props.className)} />
+  <IssueCard {...props} className={cn("pl-8", props.className)} />
 );

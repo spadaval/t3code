@@ -87,10 +87,6 @@ export function IssueListPanel({
     [onTabChange],
   );
 
-  const handleRetry = useCallback(() => {
-    retryError?.();
-  }, [retryError]);
-
   if (error) {
     return (
       <div className={cn("flex flex-col h-full bg-background", className)}>
@@ -137,7 +133,7 @@ export function IssueListPanel({
   }
 
   return (
-    <div className={cn("flex flex-col h-full bg-background animate-fade-in", className)}>
+    <div className={cn("flex flex-col h-full bg-background", className)}>
       {/* Enhanced Tab Navigation with mobile scroll */}
       {onTabChange && (
         <NavigationTabs className="shrink-0">
@@ -149,9 +145,7 @@ export function IssueListPanel({
           >
             Issues
             {issues.length > 0 && !loading && (
-              <span className="ml-1 text-xs text-muted-foreground transition-opacity duration-200">
-                ({issues.length})
-              </span>
+              <span className="ml-1 text-xs text-muted-foreground">({issues.length})</span>
             )}
           </NavigationTab>
           <NavigationTab
@@ -162,8 +156,8 @@ export function IssueListPanel({
           >
             Coordinator
             {coordinatorActiveCount > 0 && (
-              <span className="ml-1 inline-flex items-center gap-1 text-xs transition-all duration-200">
-                <span className="size-1.5 rounded-full bg-success animate-pulse-soft shadow-sm shadow-success/30" />
+              <span className="ml-1 inline-flex items-center gap-1 text-xs">
+                <span className="size-1.5 rounded-full bg-success animate-pulse-soft" />
                 <span className="font-medium">{coordinatorActiveCount}</span>
               </span>
             )}
