@@ -1,0 +1,492 @@
+import type {
+  BeadsCoordinatorEpicSnapshot,
+  BeadsIssueRelationSummary,
+  BeadsSwarmStatus,
+  BeadsSwarmValidation,
+  OrchestrationSwarmRun,
+  OrchestrationSwarmTaskExecution,
+} from "@t3tools/contracts";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/** Status of an issue within the work graph. */
+export type WorkGraphIssueStatus = "completed" | "active" | "ready" | "blocked";
+
+/** A single issue node in the work graph, enriched with execution data. */
+export type WorkGraphIssueNode = {
+  /** The underlying issue summary. */
+  readonly issue: BeadsIssueRelationSummary;
+  /** Derived status from the swarm status buckets. */
+  readonly status: WorkGraphIssueStatus;
+  /** Wave index (0-based) from readyFronts, or null for completed/unscheduled issues. */
+  readonly waveIndex: number | null;
+  /** Executions for this issue **scoped to the parent run section**. Sorted by sequenceNumber descending. */
+  readonly executions: readonly OrchestrationSwarmTaskExecution[];
+  /** Most recent execution for this issue within the parent run section. */
+  readonly latestExecution: OrchestrationSwarmTaskExecution | null;
+  /** True if this issue currently has the active execution (is being worked on right now). */
+  readonly isActiveWorker: boolean;
+};
+
+/** A group of issues within a run section (wave or status bucket). */
+export type WorkGraphGroup = {
+  /** Display label ("Completed", "Wave 1", "Issues", etc.). */
+  readonly label: string;
+  /** Group kind. */
+  readonly kind: "completed" | "wave";
+  /** 0-based wave index, or null for the "Completed" group or fallback "Issues" group. */
+  readonly waveIndex: number | null;
+  /** Issue nodes in this group, ordered by status priority then title. */
+  readonly nodes: readonly WorkGraphIssueNode[];
+};
+
+/** Summary counts for a run section header. */
+export type WorkGraphRunSectionSummary = {
+  readonly total: number;
+  readonly completed: number;
+  readonly active: number;
+  readonly failed: number;
+};
+
+/** A run section in the work graph -- groups all issues associated with a run. */
+export type WorkGraphRunSection = {
+  /** The run, or null for the "unscheduled" section. */
+  readonly run: OrchestrationSwarmRun | null;
+  /** Section kind. */
+  readonly kind: "active" | "historical" | "unscheduled";
+  /** Display label for the section header. */
+  readonly label: string;
+  /** Wave/status groups within this run section. */
+  readonly groups: readonly WorkGraphGroup[];
+  /** Summary counts for the section header. */
+  readonly summary: WorkGraphRunSectionSummary;
+};
+
+/** The fully joined data model for the work graph view. */
+export type WorkGraphData = {
+  /** Run sections (active run first, then unscheduled, then historical). */
+  readonly sections: readonly WorkGraphRunSection[];
+  /** The currently active run, if any. */
+  readonly activeRun: OrchestrationSwarmRun | null;
+  /** The most recent run (active or historical). */
+  readonly latestRun: OrchestrationSwarmRun | null;
+  /** All runs for this epic. */
+  readonly runs: readonly OrchestrationSwarmRun[];
+  /** True when wave data is available (validation.readyFronts is non-empty). */
+  readonly hasWaveData: boolean;
+  /** Max parallelism from validation, if known. */
+  readonly maxParallelism: number | null;
+  /** Estimated worker sessions from validation, if known. */
+  readonly estimatedWorkerSessions: number | null;
+};
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a map from runId to all executions for that run,
+ * with executions sorted by sequenceNumber descending within each run.
+ */
+function buildRunExecutionMap(
+  executions: readonly OrchestrationSwarmTaskExecution[],
+): Map<string, OrchestrationSwarmTaskExecution[]> {
+  const map = new Map<string, OrchestrationSwarmTaskExecution[]>();
+  for (const exec of executions) {
+    const list = map.get(exec.runId);
+    if (list !== undefined) {
+      list.push(exec);
+    } else {
+      map.set(exec.runId, [exec]);
+    }
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => b.sequenceNumber - a.sequenceNumber);
+  }
+  return map;
+}
+
+/**
+ * Build a map from issueId to all executions for that issue within a specific set of executions,
+ * with executions sorted by sequenceNumber descending.
+ */
+function buildIssueExecutionMap(
+  executions: readonly OrchestrationSwarmTaskExecution[],
+): Map<string, OrchestrationSwarmTaskExecution[]> {
+  const map = new Map<string, OrchestrationSwarmTaskExecution[]>();
+  for (const exec of executions) {
+    const list = map.get(exec.issueId);
+    if (list !== undefined) {
+      list.push(exec);
+    } else {
+      map.set(exec.issueId, [exec]);
+    }
+  }
+  for (const list of map.values()) {
+    list.sort((a, b) => b.sequenceNumber - a.sequenceNumber);
+  }
+  return map;
+}
+
+/**
+ * Build a map from issueId to wave index (0-based) using readyFronts.
+ */
+function buildWaveMap(
+  readyFronts: readonly (readonly BeadsIssueRelationSummary[])[],
+): Map<string, number> {
+  const map = new Map<string, number>();
+  for (let waveIdx = 0; waveIdx < readyFronts.length; waveIdx++) {
+    const front = readyFronts[waveIdx]!;
+    for (const issue of front) {
+      map.set(issue.id, waveIdx);
+    }
+  }
+  return map;
+}
+
+/** Status priority for sorting nodes within a group (lower = first). */
+function statusSortPriority(status: WorkGraphIssueStatus): number {
+  switch (status) {
+    case "active":
+      return 0;
+    case "ready":
+      return 1;
+    case "blocked":
+      return 2;
+    case "completed":
+      return 3;
+  }
+}
+
+function sortNodes(nodes: WorkGraphIssueNode[]): WorkGraphIssueNode[] {
+  return nodes.toSorted((a, b) => {
+    const sp = statusSortPriority(a.status) - statusSortPriority(b.status);
+    if (sp !== 0) return sp;
+    return a.issue.title.localeCompare(b.issue.title);
+  });
+}
+
+/**
+ * Collect all unique issues from the status buckets, tagged with their status.
+ * Deduplicates by issue id (first occurrence wins).
+ */
+function collectStatusIssues(
+  status: BeadsSwarmStatus,
+): Array<{ issue: BeadsIssueRelationSummary; status: WorkGraphIssueStatus }> {
+  const seen = new Set<string>();
+  const result: Array<{ issue: BeadsIssueRelationSummary; status: WorkGraphIssueStatus }> = [];
+
+  const buckets: Array<{
+    issues: readonly BeadsIssueRelationSummary[];
+    status: WorkGraphIssueStatus;
+  }> = [
+    { issues: status.active, status: "active" },
+    { issues: status.ready, status: "ready" },
+    { issues: status.blocked, status: "blocked" },
+    { issues: status.completed, status: "completed" },
+  ];
+
+  for (const bucket of buckets) {
+    for (const issue of bucket.issues) {
+      if (!seen.has(issue.id)) {
+        seen.add(issue.id);
+        result.push({ issue, status: bucket.status });
+      }
+    }
+  }
+
+  return result;
+}
+
+/** Compute summary counts from a flat list of nodes. */
+function computeSummary(nodes: readonly WorkGraphIssueNode[]): WorkGraphRunSectionSummary {
+  let completed = 0;
+  let active = 0;
+  let failed = 0;
+  for (const node of nodes) {
+    if (node.status === "completed") completed++;
+    else if (node.status === "active") active++;
+    if (
+      node.latestExecution !== null &&
+      (node.latestExecution.status === "failed" || node.latestExecution.status === "cancelled")
+    ) {
+      failed++;
+    }
+  }
+  return { total: nodes.length, completed, active, failed };
+}
+
+/** Build groups from a list of nodes using wave data. */
+function buildGroups(
+  nodes: WorkGraphIssueNode[],
+  hasWaveData: boolean,
+  waveCount: number,
+): WorkGraphGroup[] {
+  const groups: WorkGraphGroup[] = [];
+
+  const completedNodes: WorkGraphIssueNode[] = [];
+  const waveNodes: WorkGraphIssueNode[][] = Array.from({ length: waveCount }, () => []);
+  const unscheduledNodes: WorkGraphIssueNode[] = [];
+
+  for (const node of nodes) {
+    if (node.status === "completed") {
+      completedNodes.push(node);
+    } else if (hasWaveData && node.waveIndex !== null && node.waveIndex < waveCount) {
+      waveNodes[node.waveIndex]!.push(node);
+    } else {
+      unscheduledNodes.push(node);
+    }
+  }
+
+  if (hasWaveData) {
+    // Wave groups first (active work), then completed.
+    for (let i = 0; i < waveCount; i++) {
+      const waveIssues =
+        i === waveCount - 1 ? [...waveNodes[i]!, ...unscheduledNodes] : waveNodes[i]!;
+      if (waveIssues.length > 0) {
+        groups.push({
+          label: `Wave ${(i + 1).toString()}`,
+          kind: "wave",
+          waveIndex: i,
+          nodes: sortNodes(waveIssues),
+        });
+      }
+    }
+  } else {
+    // No wave data: single "Issues" group for non-completed.
+    const allNonCompleted = nodes.filter((n) => n.status !== "completed");
+    if (allNonCompleted.length > 0) {
+      groups.push({
+        label: "Issues",
+        kind: "wave",
+        waveIndex: null,
+        nodes: sortNodes(allNonCompleted),
+      });
+    }
+  }
+
+  // Completed group last.
+  if (completedNodes.length > 0) {
+    groups.push({
+      label: "Completed",
+      kind: "completed",
+      waveIndex: null,
+      nodes: sortNodes(completedNodes),
+    });
+  }
+
+  return groups;
+}
+
+function formatRunLabel(run: OrchestrationSwarmRun, isActive: boolean): string {
+  const status = run.status.charAt(0).toUpperCase() + run.status.slice(1);
+  return isActive ? `Current Run \u00B7 ${status}` : `Run \u00B7 ${status}`;
+}
+
+// ---------------------------------------------------------------------------
+// Main builder
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the unified work graph data model from an epic snapshot.
+ *
+ * Joins three data sources:
+ * - `epic.status` (issue breakdown by status)
+ * - `epic.validation` (parallelism wavefronts)
+ * - `epic.executions` (execution log, partitioned by run)
+ *
+ * into a run-sectioned, group-based model for vertical rendering.
+ */
+export function buildWorkGraphData(epic: BeadsCoordinatorEpicSnapshot): WorkGraphData {
+  const activeRun = epic.activeRunId
+    ? (epic.runs.find((r) => r.runId === epic.activeRunId) ?? null)
+    : null;
+  const latestRun = epic.runs[0] ?? null;
+  const validation: BeadsSwarmValidation | null = epic.validation;
+  const status: BeadsSwarmStatus | null = epic.status;
+  const executions = epic.executions ?? [];
+  const activeExecutionId = epic.activeExecutionId;
+  const hasWaveData = validation !== null && validation.readyFronts.length > 0;
+  const waveMap = hasWaveData ? buildWaveMap(validation.readyFronts) : new Map<string, number>();
+  const waveCount = hasWaveData ? validation.readyFronts.length : 0;
+
+  // If no status data at all, return empty graph.
+  if (status === null) {
+    return {
+      sections: [],
+      activeRun,
+      latestRun,
+      runs: epic.runs,
+      hasWaveData: false,
+      maxParallelism: null,
+      estimatedWorkerSessions: null,
+    };
+  }
+
+  // Collect all issues with their status from tracker.
+  const taggedIssues = collectStatusIssues(status);
+  const issueMap = new Map(
+    taggedIssues.map(({ issue, status: s }) => [issue.id, { issue, status: s }]),
+  );
+
+  // Group executions by runId.
+  const runExecutionMap = buildRunExecutionMap(executions);
+
+  // Track which issues have been claimed by at least one run section.
+  const issuesClaimedByRun = new Set<string>();
+
+  // Determine the "primary" run: the active run, or the latest run if no active run.
+  const primaryRun = activeRun ?? latestRun;
+
+  // Build sections.
+  const sections: WorkGraphRunSection[] = [];
+
+  // --- Active/primary run section ---
+  if (primaryRun !== null) {
+    const runExecs = runExecutionMap.get(primaryRun.runId) ?? [];
+    const runIssueExecMap = buildIssueExecutionMap(runExecs);
+    const isPrimaryActive = primaryRun === activeRun;
+
+    // Issues in the primary run: those with executions in this run,
+    // plus all non-completed issues from status (they belong to the current/latest run scope).
+    const primaryNodes: WorkGraphIssueNode[] = [];
+    const seenInPrimary = new Set<string>();
+
+    // First, add all issues that have executions in this run.
+    for (const [issueId, issueExecs] of runIssueExecMap) {
+      seenInPrimary.add(issueId);
+      issuesClaimedByRun.add(issueId);
+      const tagged = issueMap.get(issueId);
+      const issueStatus = tagged?.status ?? "completed";
+      const issue = tagged?.issue ?? issueExecs[0]!.issueId;
+      // If we don't have the issue object from status buckets, skip it
+      // (shouldn't happen in practice, but be safe).
+      if (typeof issue === "string") continue;
+      primaryNodes.push({
+        issue,
+        status: issueStatus,
+        waveIndex: issueStatus === "completed" ? null : (waveMap.get(issueId) ?? null),
+        executions: issueExecs,
+        latestExecution: issueExecs[0] ?? null,
+        isActiveWorker:
+          activeExecutionId !== null && issueExecs.some((e) => e.executionId === activeExecutionId),
+      });
+    }
+
+    // If this is the active run (or the only run), also claim all remaining issues
+    // from the status buckets even if they don't have executions yet -- they are part
+    // of this run's scope (completed issues finished during this run, others are pending).
+    if (isPrimaryActive || epic.runs.length <= 1) {
+      for (const { issue, status: issueStatus } of taggedIssues) {
+        if (seenInPrimary.has(issue.id)) continue;
+        seenInPrimary.add(issue.id);
+        issuesClaimedByRun.add(issue.id);
+        primaryNodes.push({
+          issue,
+          status: issueStatus,
+          waveIndex: issueStatus === "completed" ? null : (waveMap.get(issue.id) ?? null),
+          executions: [],
+          latestExecution: null,
+          isActiveWorker: false,
+        });
+      }
+    }
+
+    if (primaryNodes.length > 0) {
+      const groups = buildGroups(primaryNodes, hasWaveData, waveCount);
+      sections.push({
+        run: primaryRun,
+        kind: isPrimaryActive ? "active" : "historical",
+        label: formatRunLabel(primaryRun, isPrimaryActive),
+        groups,
+        summary: computeSummary(primaryNodes),
+      });
+    }
+  }
+
+  // --- Historical run sections (non-primary runs, reverse chronological) ---
+  const historicalRuns = epic.runs.filter((r) => r.runId !== primaryRun?.runId);
+  for (const run of historicalRuns) {
+    const runExecs = runExecutionMap.get(run.runId) ?? [];
+    if (runExecs.length === 0) continue; // Skip runs with no executions.
+    const runIssueExecMap = buildIssueExecutionMap(runExecs);
+
+    const histNodes: WorkGraphIssueNode[] = [];
+    for (const [issueId, issueExecs] of runIssueExecMap) {
+      issuesClaimedByRun.add(issueId);
+      const tagged = issueMap.get(issueId);
+      const issue = tagged?.issue;
+      if (!issue) continue;
+
+      // For historical runs, derive status from the execution outcome rather than
+      // the current tracker status (which reflects the latest state, not this run's era).
+      const latestExec = issueExecs[0]!;
+      let histStatus: WorkGraphIssueStatus;
+      if (latestExec.status === "completed") histStatus = "completed";
+      else if (latestExec.status === "active") histStatus = "active";
+      else if (latestExec.status === "failed" || latestExec.status === "cancelled")
+        histStatus = "blocked";
+      else histStatus = "ready";
+
+      histNodes.push({
+        issue,
+        status: histStatus,
+        waveIndex: null, // No wave data for historical runs.
+        executions: issueExecs,
+        latestExecution: latestExec,
+        isActiveWorker: false,
+      });
+    }
+
+    if (histNodes.length > 0) {
+      // Historical runs don't use wave data -- just group by completion.
+      const groups = buildGroups(histNodes, false, 0);
+      sections.push({
+        run,
+        kind: "historical",
+        label: formatRunLabel(run, false),
+        groups,
+        summary: computeSummary(histNodes),
+      });
+    }
+  }
+
+  // --- Unscheduled section: issues not claimed by any run ---
+  const unscheduledNodes: WorkGraphIssueNode[] = [];
+  for (const { issue, status: issueStatus } of taggedIssues) {
+    if (issuesClaimedByRun.has(issue.id)) continue;
+    unscheduledNodes.push({
+      issue,
+      status: issueStatus,
+      waveIndex: issueStatus === "completed" ? null : (waveMap.get(issue.id) ?? null),
+      executions: [],
+      latestExecution: null,
+      isActiveWorker: false,
+    });
+  }
+
+  if (unscheduledNodes.length > 0) {
+    const groups = buildGroups(unscheduledNodes, hasWaveData, waveCount);
+    // Insert after the primary section but before historical.
+    const insertIdx = sections.length > 0 && sections[0]!.kind !== "historical" ? 1 : 0;
+    sections.splice(insertIdx, 0, {
+      run: null,
+      kind: "unscheduled",
+      label: "Not Scheduled",
+      groups,
+      summary: computeSummary(unscheduledNodes),
+    });
+  }
+
+  return {
+    sections,
+    activeRun,
+    latestRun,
+    runs: epic.runs,
+    hasWaveData,
+    maxParallelism: validation?.maxParallelism ?? null,
+    estimatedWorkerSessions: validation?.estimatedWorkerSessions ?? null,
+  };
+}

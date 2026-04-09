@@ -184,7 +184,8 @@ export function createEpicEntity(
   const currentState: IssuePreparationState =
     epic.coordinationSupported &&
     epic.validationState === "valid" &&
-    epic.trackerState !== "completed"
+    epic.trackerState !== "completed" &&
+    epic.trackerState !== "blocked"
       ? "ready"
       : "draft";
   const phase = determineWorkflowPhase("epic", currentState);

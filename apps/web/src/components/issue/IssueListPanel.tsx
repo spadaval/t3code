@@ -3,7 +3,7 @@ import type { ThreadId } from "@t3tools/contracts";
 import { type ReactNode, useCallback } from "react";
 
 import { cn } from "~/lib/utils";
-import { IssueList } from "./IssueList";
+import { IssueList, type IssueContextAction } from "./IssueList";
 import { NavigationTabs, NavigationTab } from "../shared/NavigationTabs";
 import { ErrorDisplay } from "../shared/ErrorDisplay";
 import { LoadingSkeleton } from "../shared/LoadingSpinner";
@@ -24,6 +24,7 @@ export interface IssueListPanelProps {
   onSearchChange?: ((search: string) => void) | undefined;
   onScopeChange?: ((scope: IssuePaneScope) => void) | undefined;
   onLabelClick?: ((label: string) => void) | undefined;
+  onIssueContextAction?: ((issueId: string, action: IssueContextAction) => void) | undefined;
 
   // Tab navigation
   activeTab?: "issues" | "coordinator" | undefined;
@@ -73,6 +74,7 @@ export function IssueListPanel({
   onSearchChange,
   onScopeChange,
   onLabelClick,
+  onIssueContextAction,
   activeTab = "issues",
   onTabChange,
   coordinatorActiveCount = 0,
@@ -180,6 +182,7 @@ export function IssueListPanel({
           onSearchChange={onSearchChange}
           onScopeChange={onScopeChange}
           onLabelClick={onLabelClick}
+          onIssueContextAction={onIssueContextAction}
           loading={loading}
           actions={actions}
           className="flex-1"

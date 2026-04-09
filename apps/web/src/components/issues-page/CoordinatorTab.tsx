@@ -1,6 +1,5 @@
 import type {
   BeadsCoordinatorEpicSnapshot,
-  BeadsIssueRelationSummary,
   BeadsProjectCoordinatorSnapshot,
   BeadsSwarmSupport,
   OrchestrationSwarmRun,
@@ -8,18 +7,11 @@ import type {
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
-import {
-  DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE,
-  DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE,
-} from "@t3tools/contracts";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useMemo, useState } from "react";
 import {
   AlertTriangleIcon,
-  CheckCircle2Icon,
   ChevronDownIcon,
   ChevronRightIcon,
-  CircleDotIcon,
   ExternalLinkIcon,
   Loader2Icon,
   OctagonAlertIcon,
@@ -30,20 +22,21 @@ import {
   ZapIcon,
 } from "lucide-react";
 
-import { beadsQueryKeys } from "~/lib/beadsReactQuery";
 import { resolveDefaultModelSelection } from "~/lib/modelSelection";
-import { ensureNativeApi } from "~/nativeApi";
 import { partitionCoordinatorEpics } from "~/issuePanel";
 import { cn } from "~/lib/utils";
 import { useProjectById } from "~/storeSelectors";
-import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { DEFAULT_RUNTIME_MODE } from "~/types";
+import {
+  type CoordinatorActionInput,
+  useEpicCoordinatorActionRunner,
+} from "~/hooks/useEpicCoordinatorActionRunner";
+import { WorkGraph } from "./WorkGraph";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { ScrollArea } from "../ui/scroll-area";
 import { LoadingSpinner } from "../shared/LoadingSpinner";
 import { ErrorDisplay } from "../shared/ErrorDisplay";
-import { toastManager } from "../ui/toast";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,20 +56,6 @@ type CoordinatorTabProps = {
   onOpenEpicIssue: (epicId: string) => void;
   onOpenThread: (threadId: ThreadId) => void;
 };
-
-type CoordinatorActionInput =
-  | { kind: "open_coordination_prep_thread"; epicIssueId: string }
-  | { kind: "start_swarm"; epicIssueId: string }
-  | { kind: "run_next_swarm_task"; runId: OrchestrationSwarmRun["runId"] }
-  | { kind: "resume_paused_swarm_run"; runId: OrchestrationSwarmRun["runId"] }
-  | {
-      kind: "retry_swarm_task_execution";
-      runId: OrchestrationSwarmRun["runId"];
-      executionId: OrchestrationSwarmTaskExecution["executionId"];
-    }
-  | { kind: "pause_swarm"; runId: OrchestrationSwarmRun["runId"] }
-  | { kind: "cancel_swarm"; runId: OrchestrationSwarmRun["runId"] }
-  | { kind: "refresh_swarm_state"; epicIssueId: string };
 
 // ---------------------------------------------------------------------------
 // Status styling (matches CoordinatorPanel sidebar)
@@ -307,12 +286,27 @@ function describeEpic(epic: BeadsCoordinatorEpicSnapshot) {
       return {
         label: "Blocked",
         summary:
-          epic.progress.blockedIssueCount > 0
-            ? `${epic.progress.blockedIssueCount} blocked issue${epic.progress.blockedIssueCount !== 1 ? "s" : ""} in Beads`
-            : "Tracker reports blocked work.",
+          epic.progress.externalBlockedIssueCount > 0
+            ? `${epic.progress.externalBlockedIssueCount} externally blocked issue${epic.progress.externalBlockedIssueCount !== 1 ? "s" : ""} in Beads`
+            : epic.progress.unknownBlockedIssueCount > 0
+              ? `${epic.progress.unknownBlockedIssueCount} blocked issue${epic.progress.unknownBlockedIssueCount !== 1 ? "s" : ""} with unknown provenance in Beads`
+              : "Tracker reports blocked work.",
         category: "blocked",
       } satisfies CoordinatorStatusDescription;
     case "not_started":
+      if (
+        epic.progress.externalBlockedIssueCount === 0 &&
+        epic.progress.unknownBlockedIssueCount === 0 &&
+        epic.progress.internalBlockedIssueCount > 0 &&
+        epic.progress.readyIssueCount === 0 &&
+        epic.progress.activeIssueCount === 0
+      ) {
+        return {
+          label: "Waiting",
+          summary: "Waiting on internal dependencies.",
+          category: "ready",
+        } satisfies CoordinatorStatusDescription;
+      }
       return {
         label: "Not Started",
         summary:
@@ -359,21 +353,6 @@ function formatRunStatus(status: OrchestrationSwarmRun["status"]): string {
   }
 }
 
-function formatExecutionStatus(status: OrchestrationSwarmTaskExecution["status"]): string {
-  switch (status) {
-    case "requested":
-      return "Requested";
-    case "active":
-      return "Active";
-    case "completed":
-      return "Completed";
-    case "failed":
-      return "Failed";
-    case "cancelled":
-      return "Cancelled";
-  }
-}
-
 function runStatusBadgeVariant(
   status: OrchestrationSwarmRun["status"],
 ): "success" | "error" | "warning" | "info" | "neutral" {
@@ -393,28 +372,11 @@ function runStatusBadgeVariant(
   }
 }
 
-function executionStatusBadgeVariant(
-  status: OrchestrationSwarmTaskExecution["status"],
-): "success" | "error" | "warning" | "info" | "neutral" {
-  switch (status) {
-    case "completed":
-      return "success";
-    case "failed":
-    case "cancelled":
-      return "error";
-    case "active":
-      return "info";
-    default:
-      return "neutral";
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 export function CoordinatorTab(props: CoordinatorTabProps) {
-  const queryClient = useQueryClient();
   const project = useProjectById(props.projectId);
   const epics = props.snapshot?.epics ?? null;
   const sorted = useMemo(() => [...(epics ?? [])].toSorted(compareEpics), [epics]);
@@ -427,116 +389,14 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
 
   // Auto-select first epic if none selected and epics exist
   const effectiveSelectedEpic = selectedEpic ?? sorted[0] ?? null;
-
-  const coordinatorActionMutation = useMutation({
-    mutationFn: async (
-      action: CoordinatorActionInput,
-    ): Promise<{ threadId: ThreadId; created: boolean } | null> => {
-      const api = ensureNativeApi();
-
-      switch (action.kind) {
-        case "open_coordination_prep_thread":
-          if (!props.projectId || !project) {
-            throw new Error("Project context is unavailable.");
-          }
-
-          return api.beads.startEpicCoordinationPrep({
-            cwd: props.cwd,
-            projectId: props.projectId,
-            epicIssueId: action.epicIssueId,
-            modelSelection: resolveDefaultModelSelection(project.defaultModelSelection),
-            runtimeMode: DEFAULT_RUNTIME_MODE,
-          });
-        case "start_swarm":
-          if (!props.projectId) {
-            throw new Error("Project context is unavailable.");
-          }
-
-          await api.orchestration.startSwarmRun({
-            projectId: props.projectId,
-            epicIssueId: action.epicIssueId,
-            schedulerMode: DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE,
-            workspaceMode: DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE,
-            runtimeMode: DEFAULT_RUNTIME_MODE,
-          });
-          return null;
-        case "run_next_swarm_task":
-          await api.orchestration.runNextSwarmTask({ runId: action.runId });
-          return null;
-        case "resume_paused_swarm_run":
-          await api.orchestration.resumePausedSwarmRun({ runId: action.runId });
-          return null;
-        case "retry_swarm_task_execution":
-          await api.orchestration.retrySwarmTaskExecution({
-            runId: action.runId,
-            executionId: action.executionId,
-          });
-          return null;
-        case "pause_swarm":
-          await api.orchestration.pauseSwarmRun({ runId: action.runId });
-          return null;
-        case "cancel_swarm":
-          await api.orchestration.cancelSwarmRun({ runId: action.runId });
-          return null;
-        case "refresh_swarm_state":
-          await queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
-          return null;
-      }
-    },
-    onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
-
-      if (result) {
-        if (!result.created) {
-          toastManager.add({
-            type: "info",
-            title: "Reused linked thread",
-            description: "An existing coordination prep thread was reused for this epic.",
-          });
-        }
-
-        props.onOpenThread(result.threadId);
-      }
-    },
+  const coordinatorActions = useEpicCoordinatorActionRunner({
+    cwd: props.cwd,
+    projectId: props.projectId,
+    modelSelection: project ? resolveDefaultModelSelection(project.defaultModelSelection) : null,
+    runtimeMode: DEFAULT_RUNTIME_MODE,
+    onOpenThread: props.onOpenThread,
+    onOpenCoordinator: props.onSelectEpic,
   });
-
-  const busyActionKey = useMemo(() => {
-    const action = coordinatorActionMutation.variables;
-    if (!coordinatorActionMutation.isPending || !action) {
-      return null;
-    }
-
-    switch (action.kind) {
-      case "open_coordination_prep_thread":
-        return `prep:${action.epicIssueId}`;
-      case "start_swarm":
-        return `start:${action.epicIssueId}`;
-      case "run_next_swarm_task":
-        return `run-next:${action.runId}`;
-      case "resume_paused_swarm_run":
-        return `resume:${action.runId}`;
-      case "retry_swarm_task_execution":
-        return `retry:${action.executionId}`;
-      case "pause_swarm":
-        return `pause:${action.runId}`;
-      case "cancel_swarm":
-        return `cancel:${action.runId}`;
-      case "refresh_swarm_state":
-        return `refresh:${action.epicIssueId}`;
-    }
-  }, [coordinatorActionMutation.isPending, coordinatorActionMutation.variables]);
-
-  const handleCoordinatorAction = async (action: CoordinatorActionInput) => {
-    try {
-      await coordinatorActionMutation.mutateAsync(action);
-    } catch (error) {
-      toastManager.add({
-        type: "error",
-        title: describeCoordinatorActionError(action.kind),
-        description: error instanceof Error ? error.message : "An unknown error occurred.",
-      });
-    }
-  };
 
   // Gate: loading / error / unsupported states
   if (props.swarmSupportPending) {
@@ -640,10 +500,10 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
           <ScrollArea>
             <EpicDetail
               epic={effectiveSelectedEpic}
-              busyActionKey={busyActionKey}
+              busyActionKey={coordinatorActions.busyActionKey}
               onOpenEpicIssue={props.onOpenEpicIssue}
               onOpenThread={props.onOpenThread}
-              onRunAction={(action) => void handleCoordinatorAction(action)}
+              onRunAction={(action) => void coordinatorActions.runAction(action)}
               onSelectEpic={props.onSelectEpic}
             />
           </ScrollArea>
@@ -773,11 +633,7 @@ function EpicDetail(props: {
   const desc = describeEpic(epic);
   const color = categoryColor(desc.category);
   const summary = epic.progress;
-  const status = epic.status;
   const validation = epic.validation;
-  const runs = epic.runs ?? [];
-  const executions = epic.executions ?? [];
-  const activeExecution = getActiveExecution(epic);
   const activeRun = getActiveRun(epic);
   const latestRun = getLatestRun(epic);
 
@@ -888,7 +744,11 @@ function EpicDetail(props: {
             {summary.blockedIssueCount > 0 && (
               <span className="flex items-center gap-1">
                 <span className="size-1.5 rounded-full bg-destructive" />
-                {summary.blockedIssueCount} blocked
+                {summary.externalBlockedIssueCount > 0
+                  ? `${summary.externalBlockedIssueCount} external blocked`
+                  : summary.unknownBlockedIssueCount > 0
+                    ? `${summary.unknownBlockedIssueCount} unknown blocked`
+                    : `${summary.internalBlockedIssueCount} internal blocked`}
               </span>
             )}
             {summary.activeWorkerCount > 0 && (
@@ -899,11 +759,6 @@ function EpicDetail(props: {
             )}
           </div>
         </div>
-      ) : null}
-
-      {/* Active worker card */}
-      {activeExecution ? (
-        <ActiveWorkerCard execution={activeExecution} onOpenThread={props.onOpenThread} />
       ) : null}
 
       {/* Project conflict warning */}
@@ -921,32 +776,13 @@ function EpicDetail(props: {
         </div>
       ) : null}
 
-      {/* Issue breakdown by status */}
-      {status ? <IssueBreakdown status={status} /> : null}
-
-      {/* Parallelism wavefronts */}
-      {validation && validation.readyFronts.length > 0 ? (
-        <WavefrontDisplay validation={validation} />
-      ) : null}
-
       {/* Validation messages */}
       {validation && (validation.errors.length > 0 || validation.warnings.length > 0) ? (
         <ValidationMessages validation={validation} />
       ) : null}
 
-      {/* Run history */}
-      {runs.length > 0 ? (
-        <RunHistory runs={runs} activeRunId={epic.activeRunId} />
-      ) : (
-        <DetailSection title="Runs">
-          <p className="text-sm text-muted-foreground">No runs yet.</p>
-        </DetailSection>
-      )}
-
-      {/* Execution log */}
-      {executions.length > 0 ? (
-        <ExecutionLog executions={executions} onOpenThread={props.onOpenThread} />
-      ) : null}
+      {/* Unified work graph */}
+      <WorkGraph epic={epic} onOpenThread={props.onOpenThread} />
     </div>
   );
 }
@@ -1130,29 +966,6 @@ function CoordinatorActionBar(props: {
   );
 }
 
-function describeCoordinatorActionError(actionKind: CoordinatorActionInput["kind"]): string {
-  switch (actionKind) {
-    case "open_coordination_prep_thread":
-      return "Unable to open prep thread";
-    case "start_swarm":
-      return "Unable to start run";
-    case "run_next_swarm_task":
-      return "Unable to run the next task";
-    case "resume_paused_swarm_run":
-      return "Unable to resume the paused run";
-    case "retry_swarm_task_execution":
-      return "Unable to retry the task";
-    case "pause_swarm":
-      return "Unable to pause run";
-    case "cancel_swarm":
-      return "Unable to cancel run";
-    case "refresh_swarm_state":
-      return "Unable to refresh tracker status";
-    default:
-      return "Unable to run coordinator action";
-  }
-}
-
 function EpicIssueLink(props: { epicId: string; onOpenEpicIssue: (epicId: string) => void }) {
   return (
     <button
@@ -1163,156 +976,6 @@ function EpicIssueLink(props: { epicId: string; onOpenEpicIssue: (epicId: string
     >
       {props.epicId}
     </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Active worker card
-// ---------------------------------------------------------------------------
-
-function ActiveWorkerCard(props: {
-  execution: OrchestrationSwarmTaskExecution;
-  onOpenThread: (threadId: ThreadId) => void;
-}) {
-  const { execution } = props;
-  return (
-    <div className="flex items-center gap-3 rounded-lg border border-info/20 bg-info/5 px-3.5 py-3">
-      <span className="size-2 shrink-0 animate-pulse rounded-full bg-info" />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-foreground">
-          Working on <span className="font-semibold">{execution.issueId}</span>
-        </p>
-        {execution.startedAt ? (
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Started {formatRelativeTimeLabel(execution.startedAt)}
-          </p>
-        ) : null}
-      </div>
-      {execution.workerThreadId ? (
-        <Button
-          size="xs"
-          variant="ghost"
-          onClick={() => props.onOpenThread(execution.workerThreadId!)}
-          className="shrink-0 gap-1 text-muted-foreground hover:text-foreground"
-        >
-          <ExternalLinkIcon className="size-3" />
-          Open thread
-        </Button>
-      ) : null}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Issue breakdown by status
-// ---------------------------------------------------------------------------
-
-function IssueBreakdown(props: { status: NonNullable<BeadsCoordinatorEpicSnapshot["status"]> }) {
-  const { status } = props;
-  const groups: Array<{
-    label: string;
-    icon: ReactNode;
-    issues: ReadonlyArray<BeadsIssueRelationSummary>;
-    color: string;
-  }> = [
-    {
-      label: "Completed",
-      icon: <CheckCircle2Icon className="size-3.5 text-success-foreground" />,
-      issues: status.completed,
-      color: "text-success-foreground",
-    },
-    {
-      label: "Active",
-      icon: <PlayIcon className="size-3.5 text-info-foreground" />,
-      issues: status.active,
-      color: "text-info-foreground",
-    },
-    {
-      label: "Ready",
-      icon: <CircleDotIcon className="size-3.5 text-muted-foreground" />,
-      issues: status.ready,
-      color: "text-foreground",
-    },
-    {
-      label: "Blocked",
-      icon: <OctagonAlertIcon className="size-3.5 text-destructive" />,
-      issues: status.blocked,
-      color: "text-destructive",
-    },
-  ];
-
-  const nonEmpty = groups.filter((g) => g.issues.length > 0);
-  if (nonEmpty.length === 0) return null;
-
-  return (
-    <DetailSection title="Issue Breakdown">
-      <div className="space-y-3">
-        {nonEmpty.map((group) => (
-          <div key={group.label}>
-            <div className="mb-1.5 flex items-center gap-1.5">
-              {group.icon}
-              <span className={cn("text-xs font-medium", group.color)}>{group.label}</span>
-              <span className="text-xs text-muted-foreground/60">({group.issues.length})</span>
-            </div>
-            <div className="space-y-1 pl-5">
-              {group.issues.map((issue) => (
-                <div key={issue.id} className="flex items-center gap-2 text-xs">
-                  <span className="min-w-0 flex-1 truncate text-foreground">{issue.title}</span>
-                  <Badge variant="neutral" size="sm">
-                    {issue.status}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </DetailSection>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Wavefront display (parallelism)
-// ---------------------------------------------------------------------------
-
-function WavefrontDisplay(props: {
-  validation: NonNullable<BeadsCoordinatorEpicSnapshot["validation"]>;
-}) {
-  const { validation } = props;
-  const maxParallelism = validation.maxParallelism;
-  const estimatedWorkers = validation.estimatedWorkerSessions;
-
-  return (
-    <DetailSection title="Parallelism Wavefronts">
-      {(maxParallelism !== null || estimatedWorkers !== null) && (
-        <div className="mb-3 flex gap-4 text-xs text-muted-foreground">
-          {maxParallelism !== null && <span>Max parallelism: {maxParallelism}</span>}
-          {estimatedWorkers !== null && <span>Est. worker sessions: {estimatedWorkers}</span>}
-        </div>
-      )}
-      <div className="space-y-2">
-        {validation.readyFronts.map((front, frontIndex) => (
-          <div
-            key={`front-${frontIndex.toString()}`}
-            className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2"
-          >
-            <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-              Wave {(frontIndex + 1).toString()}
-              <span className="ml-1 text-muted-foreground/50">
-                ({front.length} issue{front.length !== 1 ? "s" : ""})
-              </span>
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {front.map((issue) => (
-                <Badge key={issue.id} variant="neutral" size="sm">
-                  {issue.title}
-                </Badge>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </DetailSection>
   );
 }
 
@@ -1354,125 +1017,9 @@ function ValidationMessages(props: {
 // Run history table
 // ---------------------------------------------------------------------------
 
-function RunHistory(props: {
-  runs: ReadonlyArray<OrchestrationSwarmRun>;
-  activeRunId: OrchestrationSwarmRun["runId"] | null;
-}) {
-  const sorted = useMemo(
-    () =>
-      [...props.runs].toSorted(
-        (a, b) => b.requestedAt.localeCompare(a.requestedAt) || b.runId.localeCompare(a.runId),
-      ),
-    [props.runs],
-  );
-
-  return (
-    <DetailSection title="Run History">
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-border/50 text-left text-muted-foreground">
-              <th className="pb-2 pr-3 font-medium">Status</th>
-              <th className="pb-2 pr-3 font-medium">Run</th>
-              <th className="pb-2 pr-3 font-medium">Mode</th>
-              <th className="pb-2 pr-3 font-medium">Started</th>
-              <th className="pb-2 pr-3 font-medium">Updated</th>
-              <th className="pb-2 font-medium">Error</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/30">
-            {sorted.map((run) => (
-              <tr key={run.runId}>
-                <td className="py-2 pr-3">
-                  <Badge variant={runStatusBadgeVariant(run.status)} size="sm">
-                    {formatRunStatus(run.status)}
-                  </Badge>
-                </td>
-                <td className="py-2 pr-3 text-muted-foreground">
-                  {run.runId === props.activeRunId ? "Active" : "History"}
-                </td>
-                <td className="py-2 pr-3 text-muted-foreground">{run.schedulerMode}</td>
-                <td className="py-2 pr-3 tabular-nums text-muted-foreground">
-                  {run.startedAt ? formatRelativeTimeLabel(run.startedAt) : "—"}
-                </td>
-                <td className="py-2 pr-3 tabular-nums text-muted-foreground">
-                  {formatRelativeTimeLabel(run.updatedAt)}
-                </td>
-                <td className="max-w-48 truncate py-2 text-destructive">{run.lastError ?? "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </DetailSection>
-  );
-}
-
 // ---------------------------------------------------------------------------
-// Execution log table
+// Detail section wrapper
 // ---------------------------------------------------------------------------
-
-function ExecutionLog(props: {
-  executions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
-  onOpenThread: (threadId: ThreadId) => void;
-}) {
-  const sorted = useMemo(
-    () => [...props.executions].toSorted((a, b) => b.sequenceNumber - a.sequenceNumber),
-    [props.executions],
-  );
-
-  return (
-    <DetailSection title="Execution Log">
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-border/50 text-left text-muted-foreground">
-              <th className="pb-2 pr-3 font-medium">#</th>
-              <th className="pb-2 pr-3 font-medium">Issue</th>
-              <th className="pb-2 pr-3 font-medium">Status</th>
-              <th className="pb-2 pr-3 font-medium">Started</th>
-              <th className="pb-2 font-medium">Thread</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/30">
-            {sorted.map((exec) => (
-              <tr key={exec.executionId}>
-                <td className="py-2 pr-3 tabular-nums text-muted-foreground">
-                  {exec.sequenceNumber}
-                </td>
-                <td className="max-w-32 truncate py-2 pr-3 font-medium text-foreground">
-                  {exec.issueId}
-                </td>
-                <td className="py-2 pr-3">
-                  <Badge variant={executionStatusBadgeVariant(exec.status)} size="sm">
-                    {formatExecutionStatus(exec.status)}
-                  </Badge>
-                </td>
-                <td className="py-2 pr-3 tabular-nums text-muted-foreground">
-                  {exec.startedAt ? formatRelativeTimeLabel(exec.startedAt) : "—"}
-                </td>
-                <td className="py-2">
-                  {exec.workerThreadId ? (
-                    <button
-                      type="button"
-                      className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
-                      onClick={() => props.onOpenThread(exec.workerThreadId!)}
-                    >
-                      <ExternalLinkIcon className="size-3" />
-                      <span>Open</span>
-                    </button>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </DetailSection>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Detail section wrapper

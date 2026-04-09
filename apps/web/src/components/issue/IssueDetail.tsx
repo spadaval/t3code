@@ -5,15 +5,24 @@ import {
   CheckSquare2Icon,
   CircleDotIcon,
   Clock3Icon,
+  GitBranchIcon,
   LightbulbIcon,
+  LinkIcon,
   MessageSquareTextIcon,
+  OctagonAlertIcon,
   ScaleIcon,
   WrenchIcon,
   ZapIcon,
 } from "lucide-react";
 
 import { cn } from "~/lib/utils";
-import { getStatusVariant, formatStatusDisplay, getPriorityVariant } from "~/lib/issueConstants";
+import {
+  getStatusVariant,
+  formatStatusDisplay,
+  getPriorityVariant,
+  getDependencyTypeDef,
+  groupDependenciesByCategory,
+} from "~/lib/issueConstants";
 import { formatShortTimestamp } from "~/timestampFormat";
 import { useSettings } from "~/hooks/useSettings";
 import { StatusIndicator } from "../shared/StatusIndicator";
@@ -26,6 +35,8 @@ export interface IssueDetailProps {
   onDependencyClick?: ((dependencyId: string) => void) | undefined;
   onLabelClick?: ((label: string) => void) | undefined;
   showCompactSections?: boolean;
+  /** Hide the history section entirely (useful in sidebar where it's not valuable) */
+  hideHistory?: boolean;
   // Enhanced interaction props
   loading?: boolean;
   sectionsLoading?: {
@@ -72,6 +83,7 @@ export function IssueDetail({
   onDependencyClick,
   onLabelClick,
   showCompactSections = false,
+  hideHistory = false,
   loading = false,
   sectionsLoading = {},
   onClose,
@@ -240,37 +252,20 @@ export function IssueDetail({
 
       {/* Tertiary: Progressive Disclosure Sections */}
       <div className="space-y-6">
-        {/* Dependencies */}
+        {/* Dependencies — grouped by type */}
         {issue.dependencies.length > 0 && (
-          <ProgressiveSection
-            title={`Dependencies (${issue.dependencies.length})`}
+          <DependenciesGroupedSection
+            dependencies={issue.dependencies}
             expanded={dependenciesExpanded}
             onToggle={handleToggleDependencies}
             hasHidden={hasHiddenDependencies}
             hiddenCount={issue.dependencies.length - PREVIEW_LIMIT}
             compact={showCompactSections}
             loading={sectionsLoading.dependencies ?? false}
-            shortcut="D"
-          >
-            {sectionsLoading.dependencies ? (
-              <div className="space-y-2">
-                {Array.from({ length: 2 }).map((_, i) => (
-                  <div key={i} className="h-20 bg-muted/50 rounded-lg border animate-pulse" />
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {visibleDependencies.map((dependency) => (
-                  <DependencyItem
-                    key={`${dependency.id}:${dependency.dependencyType}`}
-                    dependency={dependency}
-                    onClick={onDependencyClick ? () => onDependencyClick(dependency.id) : undefined}
-                    timestampFormat={settings.timestampFormat}
-                  />
-                ))}
-              </div>
-            )}
-          </ProgressiveSection>
+            visibleDependencies={visibleDependencies}
+            onDependencyClick={onDependencyClick}
+            timestampFormat={settings.timestampFormat}
+          />
         )}
 
         {/* Comments */}
@@ -316,8 +311,8 @@ export function IssueDetail({
           </ProgressiveSection>
         )}
 
-        {/* History */}
-        {issue.history.length > 0 && (
+        {/* History (hidden in sidebar via hideHistory prop) */}
+        {!hideHistory && issue.history.length > 0 && (
           <ProgressiveSection
             title={`History (${issue.history.length})`}
             expanded={historyExpanded}
@@ -331,19 +326,27 @@ export function IssueDetail({
             {sectionsLoading.history ? (
               <div className="space-y-2">
                 {Array.from({ length: 2 }).map((_, i) => (
-                  <div key={i} className="h-16 bg-muted/50 rounded border animate-pulse" />
+                  <div
+                    key={`history-skeleton-${String(i)}`}
+                    className="h-16 bg-muted/50 rounded border animate-pulse"
+                  />
                 ))}
               </div>
             ) : (
               <div className="space-y-2">
-                {visibleHistory.map((entry) => (
-                  <HistoryItem
-                    key={entry.commitHash}
-                    entry={entry}
-                    timestampFormat={settings.timestampFormat}
-                    compact={showCompactSections}
-                  />
-                ))}
+                {visibleHistory.map((entry, index) => {
+                  const olderEntry =
+                    index < issue.history.length - 1 ? (issue.history[index + 1] ?? null) : null;
+                  return (
+                    <HistoryItem
+                      key={entry.commitHash}
+                      entry={entry}
+                      olderEntry={olderEntry}
+                      timestampFormat={settings.timestampFormat}
+                      compact={showCompactSections}
+                    />
+                  );
+                })}
               </div>
             )}
           </ProgressiveSection>
@@ -364,7 +367,7 @@ export function IssueDetail({
                   <kbd className="px-1 py-0.5 bg-muted rounded text-xs">C</kbd> Comments
                 </span>
               )}
-              {issue.history.length > 0 && (
+              {!hideHistory && issue.history.length > 0 && (
                 <span>
                   <kbd className="px-1 py-0.5 bg-muted rounded text-xs">H</kbd> History
                 </span>
@@ -554,6 +557,150 @@ function ProgressiveSection({
   );
 }
 
+// Dependency type icon helper
+function DependencyTypeIcon({
+  iconHint,
+  className,
+}: {
+  iconHint: "hierarchy" | "block" | "link";
+  className?: string;
+}) {
+  switch (iconHint) {
+    case "hierarchy":
+      return <GitBranchIcon className={cn("size-3", className)} />;
+    case "block":
+      return <OctagonAlertIcon className={cn("size-3", className)} />;
+    default:
+      return <LinkIcon className={cn("size-3", className)} />;
+  }
+}
+
+// Grouped dependencies section — separates parent links from blocking/ordering deps
+function DependenciesGroupedSection({
+  dependencies,
+  expanded,
+  onToggle,
+  hasHidden,
+  hiddenCount,
+  compact,
+  loading,
+  visibleDependencies,
+  onDependencyClick,
+  timestampFormat,
+}: {
+  dependencies: BeadsIssueDetail["dependencies"];
+  expanded: boolean;
+  onToggle: () => void;
+  hasHidden: boolean;
+  hiddenCount: number;
+  compact?: boolean;
+  loading: boolean;
+  visibleDependencies: BeadsIssueDetail["dependencies"];
+  onDependencyClick?: ((dependencyId: string) => void) | undefined;
+  timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
+}) {
+  const grouped = groupDependenciesByCategory(visibleDependencies);
+  const hasMultipleCategories =
+    [grouped.parents.length > 0, grouped.blockers.length > 0, grouped.other.length > 0].filter(
+      Boolean,
+    ).length > 1;
+
+  return (
+    <ProgressiveSection
+      title={`Dependencies (${dependencies.length})`}
+      expanded={expanded}
+      onToggle={onToggle}
+      hasHidden={hasHidden}
+      hiddenCount={hiddenCount}
+      compact={compact ?? false}
+      loading={loading}
+      shortcut="D"
+    >
+      {loading ? (
+        <div className="space-y-2">
+          <div className="h-20 bg-muted/50 rounded-lg border animate-pulse" />
+          <div className="h-20 bg-muted/50 rounded-lg border animate-pulse" />
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {grouped.parents.length > 0 && (
+            <DependencyCategoryGroup
+              label="Parent links"
+              iconHint="hierarchy"
+              colorClass="text-purple-500"
+              showLabel={hasMultipleCategories}
+              dependencies={grouped.parents}
+              onDependencyClick={onDependencyClick}
+              timestampFormat={timestampFormat}
+            />
+          )}
+          {grouped.blockers.length > 0 && (
+            <DependencyCategoryGroup
+              label="Blocking / ordering"
+              iconHint="block"
+              colorClass="text-red-500"
+              showLabel={hasMultipleCategories}
+              dependencies={grouped.blockers}
+              onDependencyClick={onDependencyClick}
+              timestampFormat={timestampFormat}
+            />
+          )}
+          {grouped.other.length > 0 && (
+            <DependencyCategoryGroup
+              label="Related"
+              iconHint="link"
+              colorClass="text-muted-foreground"
+              showLabel={hasMultipleCategories}
+              dependencies={grouped.other}
+              onDependencyClick={onDependencyClick}
+              timestampFormat={timestampFormat}
+            />
+          )}
+        </div>
+      )}
+    </ProgressiveSection>
+  );
+}
+
+function DependencyCategoryGroup({
+  label,
+  iconHint,
+  colorClass,
+  showLabel,
+  dependencies,
+  onDependencyClick,
+  timestampFormat,
+}: {
+  label: string;
+  iconHint: "hierarchy" | "block" | "link";
+  colorClass: string;
+  showLabel: boolean;
+  dependencies: BeadsIssueDetail["dependencies"];
+  onDependencyClick?: ((dependencyId: string) => void) | undefined;
+  timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
+}) {
+  return (
+    <div className="space-y-1.5">
+      {showLabel && (
+        <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+          <DependencyTypeIcon iconHint={iconHint} className={colorClass} />
+          {label}
+        </div>
+      )}
+      <div className="space-y-2">
+        {dependencies.map((dependency) => (
+          <DependencyItem
+            key={`${dependency.id}:${dependency.dependencyType}`}
+            dependency={dependency}
+            onClick={onDependencyClick ? () => onDependencyClick(dependency.id) : undefined}
+            timestampFormat={timestampFormat}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Individual item components
 function DependencyItem({
   dependency,
@@ -566,6 +713,7 @@ function DependencyItem({
   const statusVariant = getStatusVariant(dependency.status);
   const priorityComponent =
     dependency.priority !== null ? getPriorityDisplay(dependency.priority) : null;
+  const depTypeDef = getDependencyTypeDef(dependency.dependencyType);
 
   const content = (
     <div className="flex items-start justify-between gap-3 p-3 rounded-lg border border-border/50 bg-muted/20">
@@ -581,7 +729,10 @@ function DependencyItem({
           {priorityComponent && <span className="text-muted-foreground">{priorityComponent}</span>}
           <span className="text-muted-foreground">#{dependency.id}</span>
           <span className="text-muted-foreground opacity-60">·</span>
-          <span className="text-muted-foreground capitalize">{dependency.dependencyType}</span>
+          <span className={cn("flex items-center gap-1", depTypeDef.colorClass)}>
+            <DependencyTypeIcon iconHint={depTypeDef.iconHint} className={depTypeDef.colorClass} />
+            {depTypeDef.directionLabel}
+          </span>
         </div>
         {dependency.description && (
           <p className="text-xs text-muted-foreground line-clamp-2">{dependency.description}</p>
@@ -631,13 +782,17 @@ function CommentItem({
 
 function HistoryItem({
   entry,
+  olderEntry,
   timestampFormat,
   compact,
 }: {
   entry: BeadsIssueDetail["history"][0];
+  olderEntry: BeadsIssueDetail["history"][0] | null;
   timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
   compact?: boolean;
 }) {
+  const changeDescription = deriveChangeDescription(entry, olderEntry);
+
   return (
     <div
       className={cn(
@@ -655,7 +810,7 @@ function HistoryItem({
           <span className="opacity-60">·</span>
           <span>{formatShortTimestamp(entry.commitDate, timestampFormat)}</span>
         </div>
-        <p className="text-sm text-foreground">{entry.title}</p>
+        <p className="text-sm text-foreground">{changeDescription}</p>
         {entry.status && (
           <div className="flex items-center gap-1">
             <StatusIndicator variant={getStatusVariant(entry.status)} size="sm">
@@ -666,6 +821,36 @@ function HistoryItem({
       </div>
     </div>
   );
+}
+
+/**
+ * Derive a human-readable description of what changed between two history entries.
+ */
+function deriveChangeDescription(
+  entry: BeadsIssueDetail["history"][0],
+  olderEntry: BeadsIssueDetail["history"][0] | null,
+): string {
+  if (olderEntry === null) {
+    return `Created with status "${formatStatusDisplay(entry.status)}"`;
+  }
+
+  const changes: string[] = [];
+
+  if (entry.status !== olderEntry.status) {
+    changes.push(
+      `Status changed from "${formatStatusDisplay(olderEntry.status)}" to "${formatStatusDisplay(entry.status)}"`,
+    );
+  }
+
+  if (entry.title !== olderEntry.title) {
+    changes.push("Title updated");
+  }
+
+  if (changes.length === 0) {
+    return "Issue updated";
+  }
+
+  return changes.join(". ");
 }
 
 // Issue type icon component

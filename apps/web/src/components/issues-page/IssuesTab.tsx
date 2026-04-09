@@ -1,19 +1,19 @@
 import type {
   BeadsIssueDetail as BeadsIssueDetailType,
   BeadsIssueSummary,
-  BeadsIssueWorkflowKind,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import {
-  ArrowUpRightIcon,
   CircleDotIcon,
+  GitBranchIcon,
+  LinkIcon,
   Loader2Icon,
   MessageSquareTextIcon,
-  PlayIcon,
+  OctagonAlertIcon,
   SendIcon,
   XIcon,
   Clock3Icon,
@@ -22,27 +22,30 @@ import {
 import {
   beadsCommentIssueMutationOptions,
   beadsIssueDetailOptions,
-  beadsStartWorkflowMutationOptions,
   beadsUpdateIssueMutationOptions,
 } from "~/lib/beadsReactQuery";
+import { cn } from "~/lib/utils";
 import {
   CORE_ISSUE_STATUSES,
   ISSUE_PRIORITIES,
   getStatusVariant,
   getPriorityVariant,
   formatPriorityDisplay,
+  getDependencyTypeDef,
+  groupDependenciesByCategory,
 } from "~/lib/issueConstants";
 import { resolveDefaultModelSelection } from "~/lib/modelSelection";
-import { isEpicIssueType } from "~/issuePanel";
 import { listIssueLinkedThreads } from "~/issueThreads";
 import { useStore } from "~/store";
 import { useProjectById } from "~/storeSelectors";
 import { formatShortTimestamp } from "~/timestampFormat";
 import { DEFAULT_RUNTIME_MODE } from "~/types";
 import { useSettings } from "~/hooks/useSettings";
-import { IssueList } from "../issue/IssueList";
+import { IssueList, type IssueContextAction } from "../issue/IssueList";
 import { CreateIssueDialog } from "../issue/CreateIssueDialog";
 import { EditableTitle, EditableTextArea } from "../issue/EditableField";
+import { IssueWorkflowActions, useIssueWorkflowLaunchers } from "../issue/IssueWorkflowActions";
+import { LoadingSpinner } from "../shared/LoadingSpinner";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -67,13 +70,6 @@ type IssuesTabProps = {
 
 type IssuePaneScope = "active" | "all" | "closed";
 
-const WORKFLOW_OPTIONS: { value: BeadsIssueWorkflowKind; label: string; description: string }[] = [
-  { value: "solve", label: "Solve", description: "Implement the issue" },
-  { value: "refine", label: "Refine", description: "Break down and clarify" },
-  { value: "continue", label: "Continue", description: "Resume prior work" },
-  { value: "plan-implementation", label: "Plan", description: "Create implementation plan" },
-];
-
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -81,12 +77,66 @@ const WORKFLOW_OPTIONS: { value: BeadsIssueWorkflowKind; label: string; descript
 export function IssuesTab(props: IssuesTabProps) {
   const [searchValue, setSearchValue] = useState("");
   const [scopeFilter, setScopeFilter] = useState<IssuePaneScope>("active");
+  const queryClient = useQueryClient();
+  const project = useProjectById(props.projectId);
+  const closeIssueMutation = useMutation(beadsUpdateIssueMutationOptions({ queryClient }));
+  const resolvedModelSelection = useMemo(
+    () => resolveDefaultModelSelection(project?.defaultModelSelection ?? null),
+    [project?.defaultModelSelection],
+  );
+  const workflowLaunchers = useIssueWorkflowLaunchers({
+    cwd: props.cwd,
+    projectId: props.projectId,
+    modelSelection: resolvedModelSelection,
+    runtimeMode: DEFAULT_RUNTIME_MODE,
+    onOpenThread: props.onOpenThread,
+  });
+  const handleIssueContextAction = useCallback(
+    async (issueId: string, action: IssueContextAction) => {
+      switch (action) {
+        case "implement":
+          await workflowLaunchers.startIssueWorkflow(issueId, "solve");
+          return;
+        case "refine":
+          await workflowLaunchers.startIssueWorkflow(issueId, "refine");
+          return;
+        case "quick_refine":
+          await workflowLaunchers.startEpicQuickRefine(issueId);
+          return;
+        case "planned_refine":
+          await workflowLaunchers.startEpicPlannedRefine(issueId);
+          return;
+        case "open_in_tracker":
+          props.onSelectIssue(issueId);
+          return;
+        case "mark_closed":
+          try {
+            await closeIssueMutation.mutateAsync({
+              cwd: props.cwd,
+              issueId,
+              status: "closed",
+            });
+          } catch (error) {
+            toastManager.add({
+              type: "error",
+              title: "Failed to close issue",
+              description: error instanceof Error ? error.message : "An unknown error occurred.",
+            });
+          }
+          return;
+        case "copy_id":
+        case "copy_title":
+          return;
+      }
+    },
+    [closeIssueMutation, props, workflowLaunchers],
+  );
 
   if (props.issuesPending) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2Icon className="size-4 animate-spin" />
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <LoadingSpinner size="sm" variant="muted" label="Loading issues" />
           Loading issues...
         </div>
       </div>
@@ -113,6 +163,7 @@ export function IssuesTab(props: IssuesTabProps) {
           onIssueSelect={(issueId) => props.onSelectIssue(issueId)}
           onSearchChange={setSearchValue}
           onScopeChange={setScopeFilter}
+          onIssueContextAction={(issueId, action) => void handleIssueContextAction(issueId, action)}
           className="flex-1"
           actions={
             <CreateIssueDialog
@@ -130,6 +181,8 @@ export function IssuesTab(props: IssuesTabProps) {
             cwd={props.cwd}
             projectId={props.projectId}
             issueId={props.selectedIssueId}
+            modelSelection={resolvedModelSelection}
+            workflowLaunchers={workflowLaunchers}
             onSelectIssue={props.onSelectIssue}
             onOpenThread={props.onOpenThread}
             onClose={() => props.onSelectIssue(null)}
@@ -150,6 +203,8 @@ function IssueDetailPanel({
   cwd,
   projectId,
   issueId,
+  modelSelection,
+  workflowLaunchers,
   onSelectIssue,
   onOpenThread,
   onClose,
@@ -157,13 +212,14 @@ function IssueDetailPanel({
   cwd: string;
   projectId: ProjectId;
   issueId: string;
+  modelSelection: ReturnType<typeof resolveDefaultModelSelection>;
+  workflowLaunchers: ReturnType<typeof useIssueWorkflowLaunchers>;
   onSelectIssue: (issueId: string | null) => void;
   onOpenThread: (threadId: ThreadId) => void;
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const project = useProjectById(projectId);
   const threads = useStore((store) => store.threads);
 
   const issueDetailQuery = useQuery(beadsIssueDetailOptions({ cwd, issueId }));
@@ -182,7 +238,6 @@ function IssueDetailPanel({
   // Mutations
   const updateIssueMutation = useMutation(beadsUpdateIssueMutationOptions({ queryClient }));
   const commentIssueMutation = useMutation(beadsCommentIssueMutationOptions({ queryClient }));
-  const startWorkflowMutation = useMutation(beadsStartWorkflowMutationOptions({ queryClient }));
 
   const handleStatusChange = useCallback(
     async (newStatus: string) => {
@@ -242,54 +297,31 @@ function IssueDetailPanel({
     [cwd, issueId, commentIssueMutation],
   );
 
-  const handleStartWorkflow = useCallback(
-    async (workflow: BeadsIssueWorkflowKind) => {
-      if (!project) return;
-      try {
-        const result = await startWorkflowMutation.mutateAsync({
-          cwd,
-          projectId,
-          issueId,
-          workflow,
-          modelSelection: resolveDefaultModelSelection(project.defaultModelSelection),
-          runtimeMode: DEFAULT_RUNTIME_MODE,
-        });
-
-        if (!result.created) {
-          toastManager.add({
-            type: "info",
-            title: "Reused linked thread",
-            description: "An existing linked thread was reused for this issue.",
-          });
-        }
-
-        void navigate({
-          to: "/$threadId",
-          params: { threadId: result.threadId },
-          search: () => ({}),
-        });
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: "Unable to start work",
-          description: error instanceof Error ? error.message : "An unknown error occurred.",
-        });
-      }
-    },
-    [cwd, issueId, navigate, project, projectId, startWorkflowMutation],
-  );
-
   const openLinkedThread = useCallback(() => {
     const targetThreadId = linkedThreads[0]?.id;
     if (!targetThreadId) return;
     onOpenThread(targetThreadId);
   }, [linkedThreads, onOpenThread]);
+  const openCoordinator = useCallback(
+    (epicId: string) => {
+      void navigate({
+        to: "/projects/$projectId/issues",
+        params: { projectId },
+        search: (previous) => ({
+          tab: "coordinator",
+          epicId,
+          ...(previous.issueId ? { issueId: previous.issueId } : {}),
+        }),
+      });
+    },
+    [navigate, projectId],
+  );
 
   if (issueDetailQuery.isPending) {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2Icon className="size-4 animate-spin" />
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <LoadingSpinner size="sm" variant="muted" label="Loading issue" />
           Loading issue...
         </div>
       </div>
@@ -307,8 +339,6 @@ function IssueDetailPanel({
   if (!issue) {
     return <EmptyDetailState issueCount={0} />;
   }
-
-  const isEpic = isEpicIssueType(issue.issueType);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -341,49 +371,20 @@ function IssueDetailPanel({
             </SelectPopup>
           </Select>
 
-          {/* Workflow dropdown */}
-          {!isEpic && (
-            <Select
-              value=""
-              onValueChange={(value) => {
-                if (value) void handleStartWorkflow(value as BeadsIssueWorkflowKind);
-              }}
-              disabled={startWorkflowMutation.isPending}
-            >
-              <SelectTrigger size="xs" className="w-auto min-w-[6rem]">
-                <span className="flex items-center gap-1.5">
-                  {startWorkflowMutation.isPending ? (
-                    <Loader2Icon className="size-3 animate-spin" />
-                  ) : (
-                    <PlayIcon className="size-3" />
-                  )}
-                  Start work
-                </span>
-              </SelectTrigger>
-              <SelectPopup>
-                {WORKFLOW_OPTIONS.map((w) => (
-                  <SelectItem key={w.value} value={w.value}>
-                    <span>
-                      <span className="font-medium">{w.label}</span>
-                      <span className="ml-2 text-muted-foreground">{w.description}</span>
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
-          )}
-
-          {/* Open linked thread */}
-          <Button
-            size="xs"
-            variant="outline"
-            disabled={linkedThreads.length === 0}
-            onClick={openLinkedThread}
-            className="gap-1.5"
-          >
-            <ArrowUpRightIcon className="size-3" />
-            {linkedThreads.length > 1 ? `Thread (${linkedThreads.length})` : "Open thread"}
-          </Button>
+          <IssueWorkflowActions
+            issue={issue}
+            cwd={cwd}
+            projectId={projectId}
+            modelSelection={modelSelection}
+            runtimeMode={DEFAULT_RUNTIME_MODE}
+            linkedThreadCount={linkedThreads.length}
+            linkedThreadLabel="Open thread"
+            launchers={workflowLaunchers}
+            onOpenLinkedThread={openLinkedThread}
+            onOpenInTracker={() => onSelectIssue(issue.id)}
+            onOpenThread={onOpenThread}
+            onOpenCoordinator={openCoordinator}
+          />
         </div>
 
         {/* Close detail */}
@@ -392,115 +393,131 @@ function IssueDetailPanel({
         </Button>
       </div>
 
-      {/* Detail content */}
+      {/* Detail content — 1.5 column layout (main + metadata sidebar) */}
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-2xl px-6 py-5">
-          {/* Editable title */}
-          <EditableTitle
-            value={issue.title}
-            onSave={(title) => void handleFieldUpdate({ title })}
-            saving={updateIssueMutation.isPending}
-          />
+        <div className="flex gap-6 px-6 py-5">
+          {/* Main content column */}
+          <div className="min-w-0 flex-1">
+            {/* Editable title */}
+            <EditableTitle
+              value={issue.title}
+              onSave={(title) => void handleFieldUpdate({ title })}
+              saving={updateIssueMutation.isPending}
+            />
 
-          {/* Metadata row */}
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
-            <span className="font-mono">#{issue.id}</span>
-            <span className="capitalize">{issue.issueType}</span>
+            {/* Editable description */}
+            <div className="mt-5">
+              <EditableTextArea
+                value={issue.description ?? ""}
+                onSave={(description) => void handleFieldUpdate({ description })}
+                saving={updateIssueMutation.isPending}
+                label="Description"
+              />
+            </div>
 
-            {/* Editable priority */}
-            <Select
-              value={issue.priority !== null ? String(issue.priority) : "none"}
-              onValueChange={(value) => {
-                if (!value) return;
-                if (value === "none") {
-                  // Can't unset priority via the API easily, so skip
-                  return;
-                }
-                void handleFieldUpdate({ priority: Number.parseInt(value, 10) });
-              }}
-              disabled={updateIssueMutation.isPending}
-            >
-              <SelectTrigger
-                size="xs"
-                variant="ghost"
-                className="h-auto w-auto min-w-0 gap-1 px-1 py-0 text-xs"
+            {/* Editable notes */}
+            <div className="mt-5">
+              <EditableTextArea
+                value={issue.notes ?? ""}
+                onSave={(notes) => void handleFieldUpdate({ notes })}
+                saving={updateIssueMutation.isPending}
+                label="Notes"
+                minHeight="min-h-[4rem]"
+              />
+            </div>
+
+            {/* Dependencies */}
+            {issue.dependencies.length > 0 && (
+              <DependenciesSection
+                dependencies={issue.dependencies}
+                onDependencyClick={(depId) => onSelectIssue(depId)}
+              />
+            )}
+
+            {/* Comments */}
+            {issue.comments.length > 0 && <CommentsSection comments={issue.comments} />}
+
+            {/* History */}
+            {issue.history.length > 0 && <HistorySection history={issue.history} />}
+
+            {/* Comment input */}
+            <div className="mt-6 border-t border-border pt-5">
+              <CommentInput onSubmit={handleComment} isPending={commentIssueMutation.isPending} />
+            </div>
+          </div>
+
+          {/* Metadata sidebar */}
+          <aside className="w-56 shrink-0 space-y-5">
+            {/* ID & Type */}
+            <MetadataField label="ID">
+              <span className="font-mono text-sm text-foreground">#{issue.id}</span>
+            </MetadataField>
+
+            <MetadataField label="Type">
+              <span className="text-sm capitalize text-foreground">{issue.issueType}</span>
+            </MetadataField>
+
+            {/* Priority */}
+            <MetadataField label="Priority">
+              <Select
+                value={issue.priority !== null ? String(issue.priority) : "none"}
+                onValueChange={(value) => {
+                  if (!value || value === "none") return;
+                  void handleFieldUpdate({ priority: Number.parseInt(value, 10) });
+                }}
+                disabled={updateIssueMutation.isPending}
               >
-                <StatusIndicator
-                  variant={getPriorityVariant(issue.priority)}
-                  size="sm"
-                  showDot={false}
+                <SelectTrigger
+                  size="xs"
+                  variant="ghost"
+                  className="h-auto w-auto min-w-0 gap-1 px-1 py-0 text-sm -ml-1"
                 >
-                  <SelectValue>{formatPriorityDisplay(issue.priority) ?? "Priority"}</SelectValue>
-                </StatusIndicator>
-              </SelectTrigger>
-              <SelectPopup>
-                {ISSUE_PRIORITIES.map((p) => (
-                  <SelectItem key={p.value} value={String(p.value)}>
-                    <StatusIndicator variant={p.variant} size="sm" showDot={false}>
-                      {p.label}
-                    </StatusIndicator>
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
+                  <StatusIndicator
+                    variant={getPriorityVariant(issue.priority)}
+                    size="sm"
+                    showDot={false}
+                  >
+                    <SelectValue>{formatPriorityDisplay(issue.priority) ?? "None"}</SelectValue>
+                  </StatusIndicator>
+                </SelectTrigger>
+                <SelectPopup>
+                  {ISSUE_PRIORITIES.map((p) => (
+                    <SelectItem key={p.value} value={String(p.value)}>
+                      <StatusIndicator variant={p.variant} size="sm" showDot={false}>
+                        {p.label}
+                      </StatusIndicator>
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </MetadataField>
 
-            {issue.owner && <span>Owner: {issue.owner}</span>}
+            {/* Owner */}
+            {issue.owner && (
+              <MetadataField label="Owner">
+                <span className="text-sm text-foreground">{issue.owner}</span>
+              </MetadataField>
+            )}
 
-            {/* Editable assignee */}
-            <AssigneeEditor
-              value={issue.assignee}
-              onSave={(assignee) => void handleFieldUpdate({ assignee })}
-              onClaim={() => void handleFieldUpdate({ claim: true })}
-              saving={updateIssueMutation.isPending}
-            />
-          </div>
+            {/* Assignee */}
+            <MetadataField label="Assignee">
+              <AssigneeEditor
+                value={issue.assignee}
+                onSave={(assignee) => void handleFieldUpdate({ assignee })}
+                onClaim={() => void handleFieldUpdate({ claim: true })}
+                saving={updateIssueMutation.isPending}
+              />
+            </MetadataField>
 
-          {/* Editable description */}
-          <div className="mt-5">
-            <EditableTextArea
-              value={issue.description ?? ""}
-              onSave={(description) => void handleFieldUpdate({ description })}
-              saving={updateIssueMutation.isPending}
-              label="Description"
-            />
-          </div>
-
-          {/* Editable notes */}
-          <div className="mt-5">
-            <EditableTextArea
-              value={issue.notes ?? ""}
-              onSave={(notes) => void handleFieldUpdate({ notes })}
-              saving={updateIssueMutation.isPending}
-              label="Notes"
-              minHeight="min-h-[4rem]"
-            />
-          </div>
-
-          {/* Editable labels */}
-          <LabelEditor
-            labels={[...issue.labels]}
-            onSave={(labels) => void handleFieldUpdate({ labels })}
-            saving={updateIssueMutation.isPending}
-          />
-
-          {/* Dependencies */}
-          {issue.dependencies.length > 0 && (
-            <DependenciesSection
-              dependencies={issue.dependencies}
-              onDependencyClick={(depId) => onSelectIssue(depId)}
-            />
-          )}
-
-          {/* Comments */}
-          {issue.comments.length > 0 && <CommentsSection comments={issue.comments} />}
-
-          {/* History */}
-          {issue.history.length > 0 && <HistorySection history={issue.history} />}
-
-          {/* Comment input */}
-          <div className="mt-6 border-t border-border pt-5">
-            <CommentInput onSubmit={handleComment} isPending={commentIssueMutation.isPending} />
-          </div>
+            {/* Labels */}
+            <div className="border-t border-border/50 pt-4">
+              <LabelEditor
+                labels={[...issue.labels]}
+                onSave={(labels) => void handleFieldUpdate({ labels })}
+                saving={updateIssueMutation.isPending}
+              />
+            </div>
+          </aside>
         </div>
       </div>
     </div>
@@ -720,7 +737,7 @@ function LabelEditor({
   );
 
   return (
-    <div className="mt-5 space-y-1.5">
+    <div className="space-y-1.5">
       <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Labels</h3>
       <div className="flex flex-wrap items-center gap-1.5">
         {labels.map((label) => (
@@ -771,6 +788,21 @@ function LabelEditor({
 }
 
 // ---------------------------------------------------------------------------
+// Metadata field for sidebar layout
+// ---------------------------------------------------------------------------
+
+function MetadataField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </dt>
+      <dd>{children}</dd>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Empty state
 // ---------------------------------------------------------------------------
 
@@ -809,6 +841,11 @@ function DependenciesSection({
   const PREVIEW_LIMIT = 3;
   const visible = expanded ? dependencies : dependencies.slice(0, PREVIEW_LIMIT);
   const hasHidden = dependencies.length > PREVIEW_LIMIT;
+  const grouped = groupDependenciesByCategory(visible);
+  const hasMultipleCategories =
+    [grouped.parents.length > 0, grouped.blockers.length > 0, grouped.other.length > 0].filter(
+      Boolean,
+    ).length > 1;
 
   return (
     <div className="mt-6 space-y-3">
@@ -827,26 +864,114 @@ function DependenciesSection({
           </Button>
         )}
       </div>
+      <div className="space-y-3">
+        {grouped.parents.length > 0 && (
+          <DepCategoryGroup
+            label="Parent links"
+            iconHint="hierarchy"
+            colorClass="text-purple-500"
+            showLabel={hasMultipleCategories}
+            deps={grouped.parents}
+            onDependencyClick={onDependencyClick}
+          />
+        )}
+        {grouped.blockers.length > 0 && (
+          <DepCategoryGroup
+            label="Blocking / ordering"
+            iconHint="block"
+            colorClass="text-red-500"
+            showLabel={hasMultipleCategories}
+            deps={grouped.blockers}
+            onDependencyClick={onDependencyClick}
+          />
+        )}
+        {grouped.other.length > 0 && (
+          <DepCategoryGroup
+            label="Related"
+            iconHint="link"
+            colorClass="text-muted-foreground"
+            showLabel={hasMultipleCategories}
+            deps={grouped.other}
+            onDependencyClick={onDependencyClick}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DepTypeIcon({
+  iconHint,
+  className,
+}: {
+  iconHint: "hierarchy" | "block" | "link";
+  className?: string;
+}) {
+  switch (iconHint) {
+    case "hierarchy":
+      return <GitBranchIcon className={cn("size-3", className)} />;
+    case "block":
+      return <OctagonAlertIcon className={cn("size-3", className)} />;
+    default:
+      return <LinkIcon className={cn("size-3", className)} />;
+  }
+}
+
+function DepCategoryGroup({
+  label,
+  iconHint,
+  colorClass,
+  showLabel,
+  deps,
+  onDependencyClick,
+}: {
+  label: string;
+  iconHint: "hierarchy" | "block" | "link";
+  colorClass: string;
+  showLabel: boolean;
+  deps: BeadsIssueDetailType["dependencies"];
+  onDependencyClick: (id: string) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      {showLabel && (
+        <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+          <DepTypeIcon iconHint={iconHint} className={colorClass} />
+          {label}
+        </div>
+      )}
       <div className="space-y-2">
-        {visible.map((dep) => (
-          <button
-            key={`${dep.id}:${dep.dependencyType}`}
-            type="button"
-            onClick={() => onDependencyClick(dep.id)}
-            className="w-full rounded-lg border border-border/50 bg-muted/20 p-3 text-left transition-colors hover:bg-muted/40"
-          >
-            <div className="flex items-center gap-2 text-sm">
-              <StatusIndicator variant={getStatusVariant(dep.status)} size="sm">
-                {dep.status.replace(/_/g, " ")}
-              </StatusIndicator>
-              <span className="font-medium text-foreground truncate">{dep.title}</span>
-              <span className="shrink-0 text-xs text-muted-foreground">#{dep.id}</span>
-            </div>
-            {dep.description && (
-              <p className="mt-1 text-xs text-muted-foreground line-clamp-1">{dep.description}</p>
-            )}
-          </button>
-        ))}
+        {deps.map((dep) => {
+          const depTypeDef = getDependencyTypeDef(dep.dependencyType);
+          return (
+            <button
+              key={`${dep.id}:${dep.dependencyType}`}
+              type="button"
+              onClick={() => onDependencyClick(dep.id)}
+              className="w-full rounded-lg border border-border/50 bg-muted/20 p-3 text-left transition-colors hover:bg-muted/40"
+            >
+              <div className="flex items-center gap-2 text-sm">
+                <StatusIndicator variant={getStatusVariant(dep.status)} size="sm">
+                  {dep.status.replace(/_/g, " ")}
+                </StatusIndicator>
+                <span className="font-medium text-foreground truncate">{dep.title}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">#{dep.id}</span>
+              </div>
+              <div className="mt-1 flex items-center gap-2 text-xs">
+                <span className={cn("flex items-center gap-1", depTypeDef.colorClass)}>
+                  <DepTypeIcon iconHint={depTypeDef.iconHint} className={depTypeDef.colorClass} />
+                  {depTypeDef.directionLabel}
+                </span>
+                {dep.description && (
+                  <>
+                    <span className="text-muted-foreground/40">·</span>
+                    <span className="text-muted-foreground line-clamp-1">{dep.description}</span>
+                  </>
+                )}
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -929,31 +1054,70 @@ function HistorySection({ history }: { history: BeadsIssueDetailType["history"] 
         )}
       </div>
       <div className="space-y-2">
-        {visible.map((entry) => (
-          <div
-            key={entry.commitHash}
-            className="flex items-start gap-3 rounded border border-border/30 bg-muted/10 p-2"
-          >
-            <Clock3Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-            <div className="min-w-0 flex-1 space-y-1">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <code className="rounded bg-muted/50 px-1 font-mono text-[10px]">
-                  {entry.commitHash.slice(0, 8)}
-                </code>
-                <span>{entry.committer || "Unknown"}</span>
-                <span className="opacity-60">·</span>
-                <span>{formatShortTimestamp(entry.commitDate, settings.timestampFormat)}</span>
+        {visible.map((entry, index) => {
+          // Compare with the next (older) entry to derive what changed
+          const olderEntry = index < history.length - 1 ? (history[index + 1] ?? null) : null;
+          const changeDescription = deriveHistoryChangeDescription(entry, olderEntry);
+
+          return (
+            <div
+              key={entry.commitHash}
+              className="flex items-start gap-3 rounded border border-border/30 bg-muted/10 p-2"
+            >
+              <Clock3Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <code className="rounded bg-muted/50 px-1 font-mono text-[10px]">
+                    {entry.commitHash.slice(0, 8)}
+                  </code>
+                  <span>{entry.committer || "Unknown"}</span>
+                  <span className="opacity-60">·</span>
+                  <span>{formatShortTimestamp(entry.commitDate, settings.timestampFormat)}</span>
+                </div>
+                <p className="text-sm text-foreground">{changeDescription}</p>
+                {entry.status && (
+                  <StatusIndicator variant={getStatusVariant(entry.status)} size="sm">
+                    {entry.status.replace(/_/g, " ")}
+                  </StatusIndicator>
+                )}
               </div>
-              <p className="text-sm text-foreground">{entry.title}</p>
-              {entry.status && (
-                <StatusIndicator variant={getStatusVariant(entry.status)} size="sm">
-                  {entry.status.replace(/_/g, " ")}
-                </StatusIndicator>
-              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
+}
+
+/**
+ * Derive a human-readable description of what changed between two history entries.
+ * Compares the current entry with the older entry to identify status, title changes.
+ */
+function deriveHistoryChangeDescription(
+  entry: BeadsIssueDetailType["history"][0],
+  olderEntry: BeadsIssueDetailType["history"][0] | null,
+): string {
+  const changes: string[] = [];
+
+  if (olderEntry === null) {
+    // This is the oldest entry — it's the creation event
+    return `Created with status "${entry.status.replace(/_/g, " ")}"`;
+  }
+
+  if (entry.status !== olderEntry.status) {
+    changes.push(
+      `Status changed from "${olderEntry.status.replace(/_/g, " ")}" to "${entry.status.replace(/_/g, " ")}"`,
+    );
+  }
+
+  if (entry.title !== olderEntry.title) {
+    changes.push(`Title updated`);
+  }
+
+  if (changes.length === 0) {
+    // Fields we can't see changed (description, priority, labels, etc.)
+    return "Issue updated";
+  }
+
+  return changes.join(". ");
 }

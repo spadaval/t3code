@@ -2,22 +2,23 @@ import { DEFAULT_MODEL_BY_PROVIDER, type ModelSelection, type ThreadId } from "@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { ArrowLeftIcon, ArrowUpRightIcon, ExternalLinkIcon, PlayIcon, XIcon } from "lucide-react";
+import { ArrowLeftIcon, ListTodoIcon, XIcon } from "lucide-react";
 
 import { parseChatRouteSearch, stripRightPaneSearchParams } from "~/chatRouteSearch";
 import { useComposerThreadDraft } from "~/composerDraftStore";
 import {
   beadsIssueDetailOptions,
   beadsQueryIssuesOptions,
-  beadsStartWorkflowMutationOptions,
+  beadsUpdateIssueMutationOptions,
 } from "~/lib/beadsReactQuery";
 import { listIssueLinkedThreads } from "~/issueThreads";
-import { isEpicIssueType } from "~/issuePanel";
 import { getIssuePaneState, useIssuePaneStore, type IssuePaneScope } from "~/issuePaneStore";
 import { useStore } from "~/store";
 import { useThreadProjectContext } from "~/threadProjectContext";
 import { DEFAULT_RUNTIME_MODE } from "~/types";
 import { IssueDetail } from "./issue/IssueDetail";
+import { IssueWorkflowActions, useIssueWorkflowLaunchers } from "./issue/IssueWorkflowActions";
+import type { IssueContextAction } from "./issue/IssueList";
 import { IssueListPanel } from "./issue/IssueListPanel";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
@@ -163,56 +164,49 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
     });
   }, [navigate, project, selectedIssueId]);
 
-  const startWorkflowMutation = useMutation(beadsStartWorkflowMutationOptions({ queryClient }));
-  const startWork = useCallback(async () => {
-    if (!project || !selectedIssueId) {
-      return;
-    }
-    try {
-      const result = await startWorkflowMutation.mutateAsync({
-        cwd: project.cwd,
-        projectId: project.id,
-        issueId: selectedIssueId,
-        workflow: "solve",
-        modelSelection: resolveFallbackModelSelection(
-          composerDraft.modelSelectionByProvider[composerDraft.activeProvider ?? "codex"] ??
-            thread?.modelSelection ??
-            project.defaultModelSelection,
-        ),
-        runtimeMode: composerDraft.runtimeMode ?? thread?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
-      });
-
-      if (!result.created) {
-        toastManager.add({
-          type: "info",
-          title: "Reused linked thread",
-          description: "An existing linked thread was reused for this issue.",
-        });
-      }
-
-      void navigate({
-        to: "/$threadId",
-        params: { threadId: result.threadId },
-        search: () => ({}),
-      });
-    } catch (error) {
-      toastManager.add({
-        type: "error",
-        title: "Unable to start work",
-        description: error instanceof Error ? error.message : "An unknown error occurred.",
-      });
-    }
-  }, [
-    composerDraft.activeProvider,
-    composerDraft.modelSelectionByProvider,
-    composerDraft.runtimeMode,
-    navigate,
-    project,
-    selectedIssueId,
-    startWorkflowMutation,
-    thread?.modelSelection,
-    thread?.runtimeMode,
-  ]);
+  const closeIssueMutation = useMutation(beadsUpdateIssueMutationOptions({ queryClient }));
+  const resolvedModelSelection = useMemo(
+    () =>
+      resolveFallbackModelSelection(
+        composerDraft.modelSelectionByProvider[composerDraft.activeProvider ?? "codex"] ??
+          thread?.modelSelection ??
+          project?.defaultModelSelection,
+      ),
+    [
+      composerDraft.activeProvider,
+      composerDraft.modelSelectionByProvider,
+      project?.defaultModelSelection,
+      thread?.modelSelection,
+    ],
+  );
+  const resolvedRuntimeMode =
+    composerDraft.runtimeMode ?? thread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
+  const workflowLaunchers = useIssueWorkflowLaunchers(
+    project
+      ? {
+          cwd: project.cwd,
+          projectId: project.id,
+          modelSelection: resolvedModelSelection,
+          runtimeMode: resolvedRuntimeMode,
+          onOpenThread: (nextThreadId) => {
+            void navigate({
+              to: "/$threadId",
+              params: { threadId: nextThreadId },
+              search: () => ({}),
+            });
+          },
+        }
+      : {
+          cwd: "",
+          projectId: "" as never,
+          modelSelection: resolvedModelSelection,
+          runtimeMode: resolvedRuntimeMode,
+          onOpenThread: () => {},
+        },
+  );
+  const startBacklogGrooming = useCallback(() => {
+    void workflowLaunchers.startBacklogGrooming();
+  }, [workflowLaunchers]);
 
   const onSelectIssue = useCallback(
     (issueId: string) => {
@@ -246,10 +240,74 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
   }, [navigate, setSelectedIssueId, threadId]);
 
   const selectedIssue = selectedIssueDetailQuery.data ?? null;
-  const startWorkDisabled =
-    selectedIssue === null ||
-    isEpicIssueType(selectedIssue.issueType) ||
-    startWorkflowMutation.isPending;
+  const openCoordinator = useCallback(
+    (epicId: string) => {
+      if (!project) {
+        return;
+      }
+
+      void navigate({
+        to: "/projects/$projectId/issues",
+        params: { projectId: project.id },
+        search: {
+          tab: "coordinator",
+          epicId,
+        },
+      });
+    },
+    [navigate, project],
+  );
+  const handleIssueContextAction = useCallback(
+    async (issueId: string, action: IssueContextAction) => {
+      if (!project) {
+        return;
+      }
+
+      switch (action) {
+        case "implement":
+          await workflowLaunchers.startIssueWorkflow(issueId, "solve");
+          return;
+        case "refine":
+          await workflowLaunchers.startIssueWorkflow(issueId, "refine");
+          return;
+        case "quick_refine":
+          await workflowLaunchers.startEpicQuickRefine(issueId);
+          return;
+        case "planned_refine":
+          await workflowLaunchers.startEpicPlannedRefine(issueId);
+          return;
+        case "open_in_tracker":
+          void navigate({
+            to: "/projects/$projectId/issues",
+            params: { projectId: project.id },
+            search: {
+              tab: "issues",
+              issueId,
+            },
+          });
+          return;
+        case "mark_closed":
+          try {
+            await closeIssueMutation.mutateAsync({
+              cwd: project.cwd,
+              issueId,
+              status: "closed",
+            });
+          } catch (error) {
+            toastManager.add({
+              type: "error",
+              title: "Failed to close issue",
+              description: error instanceof Error ? error.message : "An unknown error occurred.",
+            });
+          }
+          return;
+        case "copy_id":
+        case "copy_title":
+          return;
+      }
+    },
+    [closeIssueMutation, navigate, project, workflowLaunchers],
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
@@ -262,15 +320,28 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
             {project?.name ?? "Project"}
           </div>
         </div>
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          aria-label="Close issue sidebar"
-          onClick={onClose}
-          className="shrink-0"
-        >
-          <XIcon className="size-4" />
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={startBacklogGrooming}
+            disabled={!project || workflowLaunchers.startBacklogGroomingMutation.isPending}
+          >
+            <ListTodoIcon className="size-4" />
+            {workflowLaunchers.startBacklogGroomingMutation.isPending
+              ? "Starting..."
+              : "Groom backlog"}
+          </Button>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Close issue sidebar"
+            onClick={onClose}
+            className="shrink-0"
+          >
+            <XIcon className="size-4" />
+          </Button>
+        </div>
       </header>
 
       {project ? (
@@ -297,29 +368,30 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
                 </div>
               </div>
 
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Button size="xs" variant="outline" onClick={openIssueInTracker}>
-                  <ExternalLinkIcon className="size-3.5" />
-                  Open in tracker
-                </Button>
-                <Button
-                  size="xs"
-                  variant="outline"
-                  disabled={linkedThreads.length === 0}
-                  onClick={openLinkedThread}
-                >
-                  <ArrowUpRightIcon className="size-3.5" />
-                  {linkedThreads.length > 0
-                    ? linkedThreads.length === 1
-                      ? "Open linked thread"
-                      : `Open linked thread (${linkedThreads.length})`
-                    : "Open linked thread"}
-                </Button>
-                <Button size="xs" disabled={startWorkDisabled} onClick={() => void startWork()}>
-                  <PlayIcon className="size-3.5" />
-                  Start work
-                </Button>
-              </div>
+              {selectedIssue ? (
+                <div className="mt-3">
+                  <IssueWorkflowActions
+                    issue={selectedIssue}
+                    cwd={project.cwd}
+                    projectId={project.id}
+                    modelSelection={resolvedModelSelection}
+                    runtimeMode={resolvedRuntimeMode}
+                    linkedThreadCount={linkedThreads.length}
+                    linkedThreadLabel="Open linked thread"
+                    launchers={workflowLaunchers}
+                    onOpenLinkedThread={openLinkedThread}
+                    onOpenInTracker={openIssueInTracker}
+                    onOpenThread={(nextThreadId) => {
+                      void navigate({
+                        to: "/$threadId",
+                        params: { threadId: nextThreadId },
+                        search: () => ({}),
+                      });
+                    }}
+                    onOpenCoordinator={openCoordinator}
+                  />
+                </div>
+              ) : null}
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
@@ -331,6 +403,7 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
                 <IssueDetail
                   issue={selectedIssue}
                   showCompactSections
+                  hideHistory
                   autoFocus
                   onClose={onBackToList}
                   onDependencyClick={onSelectIssue}
@@ -354,6 +427,9 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
               loading={issueListQuery.isPending}
               error={issueListQuery.error?.message ?? null}
               onIssueSelect={onSelectIssue}
+              onIssueContextAction={(issueId, action) =>
+                void handleIssueContextAction(issueId, action)
+              }
               onSearchChange={(value) => setSearch(threadId, value)}
               onScopeChange={(scope) => setScope(threadId, scope)}
               className="h-full"

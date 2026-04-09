@@ -5,12 +5,9 @@ import type {
   BeadsCoordinatorEpicSnapshot,
 } from "@t3tools/contracts";
 import type { IssuePaneScope } from "~/issuePaneStore";
-import {
-  groupIssuesByEpic,
-  partitionCoordinatorSwarms,
-  type EpicGroup,
-  type CoordinatorSwarmSections,
-} from "~/issuePanel";
+import type { IssueTreeForest } from "~/lib/issueTree";
+import { buildIssueTree } from "~/lib/issueTree";
+import { partitionCoordinatorSwarms, type CoordinatorSwarmSections } from "~/issuePanel";
 
 // ── Issue Filtering and Sorting ─────────────────────────────────────────
 
@@ -27,7 +24,7 @@ export interface FilteredIssuesResult {
   issues: readonly BeadsIssueSummary[];
   totalCount: number;
   filteredCount: number;
-  epicGroups: readonly EpicGroup[];
+  issueTree: IssueTreeForest;
   groupedIssues: Map<string, readonly BeadsIssueSummary[]>;
 }
 
@@ -116,14 +113,14 @@ export function filterAndSortIssues(
   });
 
   // Step 5: Generate groupings
-  const epicGroups = groupIssuesByEpic(sorted);
+  const issueTree = buildIssueTree(sorted);
   const groupedIssues = createIssueGroups(sorted, groupBy);
 
   return {
     issues: sorted,
     totalCount: originalCount,
     filteredCount: sorted.length,
-    epicGroups,
+    issueTree,
     groupedIssues,
   };
 }

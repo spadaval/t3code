@@ -131,3 +131,89 @@ export function formatPriorityDisplay(priority: number | null): string | null {
   if (priority === null) return null;
   return `P${priority}`;
 }
+
+// ---------------------------------------------------------------------------
+// Dependency type classification
+// ---------------------------------------------------------------------------
+
+/** Dependency relationship categories — beads uses these dependency_type values */
+export type DependencyCategory = "parent" | "blocker" | "other";
+
+export interface DependencyTypeDef {
+  readonly label: string;
+  readonly category: DependencyCategory;
+  readonly directionLabel: string;
+  readonly colorClass: string;
+  readonly iconHint: "hierarchy" | "block" | "link";
+}
+
+const DEPENDENCY_TYPE_MAP: Record<string, DependencyTypeDef> = {
+  "parent-child": {
+    label: "Parent",
+    category: "parent",
+    directionLabel: "Parent of",
+    colorClass: "text-purple-500",
+    iconHint: "hierarchy",
+  },
+  blocks: {
+    label: "Blocks",
+    category: "blocker",
+    directionLabel: "Blocks",
+    colorClass: "text-red-500",
+    iconHint: "block",
+  },
+  blocked_by: {
+    label: "Blocked by",
+    category: "blocker",
+    directionLabel: "Blocked by",
+    colorClass: "text-red-500",
+    iconHint: "block",
+  },
+  depends_on: {
+    label: "Depends on",
+    category: "blocker",
+    directionLabel: "Depends on",
+    colorClass: "text-orange-500",
+    iconHint: "block",
+  },
+};
+
+const DEFAULT_DEPENDENCY_TYPE: DependencyTypeDef = {
+  label: "Related",
+  category: "other",
+  directionLabel: "Related to",
+  colorClass: "text-muted-foreground",
+  iconHint: "link",
+};
+
+/**
+ * Resolve display metadata for a beads dependency type string.
+ */
+export function getDependencyTypeDef(dependencyType: string): DependencyTypeDef {
+  return DEPENDENCY_TYPE_MAP[dependencyType] ?? DEFAULT_DEPENDENCY_TYPE;
+}
+
+/**
+ * Group dependencies by category for structured display.
+ */
+export function groupDependenciesByCategory<T extends { dependencyType: string }>(
+  dependencies: readonly T[],
+): { parents: T[]; blockers: T[]; other: T[] } {
+  const parents: T[] = [];
+  const blockers: T[] = [];
+  const other: T[] = [];
+  for (const dep of dependencies) {
+    const def = getDependencyTypeDef(dep.dependencyType);
+    switch (def.category) {
+      case "parent":
+        parents.push(dep);
+        break;
+      case "blocker":
+        blockers.push(dep);
+        break;
+      default:
+        other.push(dep);
+    }
+  }
+  return { parents, blockers, other };
+}

@@ -1,24 +1,25 @@
 import type { BeadsIssueSummary } from "@t3tools/contracts";
 import { useMemo, useState, useCallback, useRef, useEffect, type ReactNode } from "react";
-import { ChevronDownIcon, ChevronRightIcon, ZapIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 
 import { filterIssuesForList } from "~/lib/issuePanelLogic";
+import {
+  buildIssueTree,
+  collectIssueTreeBranchIds,
+  countIssueTreeDescendantStatuses,
+  flattenVisibleIssueTree,
+  type IssueTreeDescendantStatusCounts,
+  type IssueTreeNode,
+} from "~/lib/issueTree";
 import { cn } from "~/lib/utils";
-import { IssueCard, EpicIssueCard, IssueTypeIcon } from "./IssueCard";
+import { showContextMenuFallback } from "~/contextMenuFallback";
+import { IssueCard, IssueTypeIcon } from "./IssueCard";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-export interface EpicGroup {
-  readonly key: string;
-  readonly epicId: string | null;
-  readonly epicTitle: string | null;
-  readonly epicIssue: BeadsIssueSummary | null;
-  readonly issues: readonly BeadsIssueSummary[];
-}
 
 export interface IssueListProps {
   issues: readonly BeadsIssueSummary[];
@@ -30,11 +31,62 @@ export interface IssueListProps {
   onSearchChange?: ((search: string) => void) | undefined;
   onScopeChange?: ((scope: "active" | "all" | "closed") => void) | undefined;
   onLabelClick?: ((label: string) => void) | undefined;
+  onIssueContextAction?: ((issueId: string, action: IssueContextAction) => void) | undefined;
   loading?: boolean | undefined;
   emptyMessage?: string | undefined;
   actions?: ReactNode | undefined;
   enableKeyboardNavigation?: boolean | undefined;
   searchDebounceMs?: number | undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Context menu action types
+// ---------------------------------------------------------------------------
+
+export type IssueContextAction =
+  | "implement"
+  | "refine"
+  | "quick_refine"
+  | "planned_refine"
+  | "copy_id"
+  | "copy_title"
+  | "open_in_tracker"
+  | "mark_closed";
+
+export function buildIssueContextMenuItems(issue: BeadsIssueSummary): Array<{
+  id: IssueContextAction;
+  label: string;
+  destructive?: boolean;
+  disabled?: boolean;
+}> {
+  const isEpic = issue.issueType?.toLowerCase() === "epic";
+  const isClosed = issue.status === "closed";
+  const items: Array<{
+    id: IssueContextAction;
+    label: string;
+    destructive?: boolean;
+    disabled?: boolean;
+  }> = [];
+
+  if (!isClosed) {
+    if (isEpic) {
+      items.push({ id: "quick_refine", label: "Quick refine" });
+      items.push({ id: "planned_refine", label: "Planned refine" });
+    } else {
+      items.push({ id: "implement", label: "Implement" });
+      items.push({ id: "refine", label: "Refine" });
+    }
+  }
+
+  items.push({ id: "copy_id", label: "Copy ID" });
+  items.push({ id: "copy_title", label: "Copy title" });
+  items.push({ id: "open_in_tracker", label: "Open in tracker" });
+
+  if (!isClosed) {
+    items.push({ id: "mark_closed", label: "Mark closed", destructive: true });
+  }
+
+  return items;
 }
 
 // ---------------------------------------------------------------------------
@@ -60,6 +112,7 @@ export function IssueList({
   onSearchChange,
   onScopeChange,
   onLabelClick,
+  onIssueContextAction,
   loading = false,
   emptyMessage = "No issues found",
   actions,
@@ -67,6 +120,7 @@ export function IssueList({
 }: IssueListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [focusedIssueIndex, setFocusedIssueIndex] = useState(-1);
+  const [collapsedById, setCollapsedById] = useState<Record<string, boolean>>({});
 
   const filteredIssues = useMemo(() => {
     return filterIssuesForList(issues, {
@@ -75,36 +129,67 @@ export function IssueList({
     });
   }, [issues, scopeFilter, searchValue]);
 
-  const { epicGroups, freeIssues } = useMemo(() => {
-    return partitionIssues(filteredIssues);
+  const issueTree = useMemo(() => {
+    return buildIssueTree(filteredIssues);
   }, [filteredIssues]);
 
-  // Flatten for keyboard navigation
-  const flatIssues = useMemo(() => {
-    const fromEpics = epicGroups.flatMap((g) =>
-      g.epicIssue ? [g.epicIssue, ...g.issues] : g.issues,
-    );
-    return [...fromEpics, ...freeIssues];
-  }, [epicGroups, freeIssues]);
+  const branchIds = useMemo(() => collectIssueTreeBranchIds(issueTree.roots), [issueTree.roots]);
+
+  useEffect(() => {
+    setCollapsedById((previous) => {
+      const next: Record<string, boolean> = {};
+      let changed = false;
+
+      for (const branchId of branchIds) {
+        next[branchId] = previous[branchId] ?? true;
+        if (previous[branchId] === undefined) {
+          changed = true;
+        }
+      }
+
+      if (!changed) {
+        const previousKeys = Object.keys(previous);
+        changed = previousKeys.length !== branchIds.length;
+      }
+
+      return changed ? next : previous;
+    });
+  }, [branchIds]);
+
+  const visibleRows = useMemo(
+    () => flattenVisibleIssueTree(issueTree.roots, collapsedById),
+    [collapsedById, issueTree.roots],
+  );
+
+  const focusedIssueId =
+    focusedIssueIndex >= 0 ? (visibleRows[focusedIssueIndex]?.issue.id ?? null) : null;
+
+  useEffect(() => {
+    if (focusedIssueIndex < visibleRows.length) {
+      return;
+    }
+
+    setFocusedIssueIndex(visibleRows.length === 0 ? -1 : visibleRows.length - 1);
+  }, [focusedIssueIndex, visibleRows.length]);
 
   // Keyboard navigation
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
-      if (!enableKeyboardNavigation || flatIssues.length === 0) return;
+      if (!enableKeyboardNavigation || visibleRows.length === 0) return;
 
       switch (event.key) {
         case "ArrowUp":
           event.preventDefault();
-          setFocusedIssueIndex((prev) => (prev <= 0 ? flatIssues.length - 1 : prev - 1));
+          setFocusedIssueIndex((prev) => (prev <= 0 ? visibleRows.length - 1 : prev - 1));
           break;
         case "ArrowDown":
           event.preventDefault();
-          setFocusedIssueIndex((prev) => (prev >= flatIssues.length - 1 ? 0 : prev + 1));
+          setFocusedIssueIndex((prev) => (prev >= visibleRows.length - 1 ? 0 : prev + 1));
           break;
         case "Enter":
           event.preventDefault();
-          if (focusedIssueIndex >= 0 && flatIssues[focusedIssueIndex]) {
-            onIssueSelect?.(flatIssues[focusedIssueIndex].id);
+          if (focusedIssueIndex >= 0 && visibleRows[focusedIssueIndex]) {
+            onIssueSelect?.(visibleRows[focusedIssueIndex].issue.id);
           }
           break;
         case "Escape":
@@ -113,7 +198,7 @@ export function IssueList({
           break;
       }
     },
-    [enableKeyboardNavigation, flatIssues, focusedIssueIndex, onIssueSelect],
+    [enableKeyboardNavigation, focusedIssueIndex, onIssueSelect, visibleRows],
   );
 
   // Reset focus when filter changes — deps are intentional triggers
@@ -121,6 +206,39 @@ export function IssueList({
   useEffect(() => {
     setFocusedIssueIndex(-1);
   }, [scopeFilter, searchValue]);
+
+  const handleIssueContextMenu = useCallback(
+    (issue: BeadsIssueSummary, event: React.MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      void showContextMenuFallback(buildIssueContextMenuItems(issue), {
+        x: event.clientX,
+        y: event.clientY,
+      }).then((action) => {
+        if (!action) return;
+
+        if (action === "copy_id") {
+          void navigator.clipboard.writeText(issue.id);
+          return;
+        }
+        if (action === "copy_title") {
+          void navigator.clipboard.writeText(issue.title);
+          return;
+        }
+
+        onIssueContextAction?.(issue.id, action);
+      });
+    },
+    [onIssueContextAction],
+  );
+
+  const toggleBranch = useCallback((issueId: string) => {
+    setCollapsedById((previous) => ({
+      ...previous,
+      [issueId]: !(previous[issueId] ?? true),
+    }));
+  }, []);
 
   if (loading) {
     return (
@@ -156,9 +274,7 @@ export function IssueList({
     );
   }
 
-  const hasEpics = epicGroups.length > 0;
-  const hasFree = freeIssues.length > 0;
-  const isEmpty = !hasEpics && !hasFree;
+  const isEmpty = issueTree.roots.length === 0;
 
   return (
     <div
@@ -187,56 +303,21 @@ export function IssueList({
             hasFilter={scopeFilter !== "all"}
           />
         ) : (
-          <>
-            {/* ---- Epic-linked issues ---- */}
-            {hasEpics && (
-              <div>
-                {epicGroups.map((group) => (
-                  <EpicGroupSection
-                    key={group.key}
-                    group={group}
-                    selectedIssueId={selectedIssueId ?? null}
-                    focusedIssueId={
-                      focusedIssueIndex >= 0 ? flatIssues[focusedIssueIndex]?.id : undefined
-                    }
-                    onIssueSelect={onIssueSelect}
-                    onLabelClick={onLabelClick}
-                  />
-                ))}
-              </div>
-            )}
-
-            {/* ---- Separator between grouped and free ---- */}
-            {hasEpics && hasFree && (
-              <div className="flex items-center gap-2 px-4 py-2">
-                <div className="h-px flex-1 bg-border/60" />
-                <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground/60">
-                  Standalone
-                </span>
-                <div className="h-px flex-1 bg-border/60" />
-              </div>
-            )}
-
-            {/* ---- Free-floating issues ---- */}
-            {hasFree && (
-              <div>
-                {freeIssues.map((issue) => (
-                  <IssueCard
-                    key={issue.id}
-                    issue={issue}
-                    selected={selectedIssueId === issue.id}
-                    focused={
-                      focusedIssueIndex >= 0
-                        ? flatIssues[focusedIssueIndex]?.id === issue.id
-                        : false
-                    }
-                    onClick={() => onIssueSelect?.(issue.id)}
-                    onLabelClick={onLabelClick}
-                  />
-                ))}
-              </div>
-            )}
-          </>
+          <div className="py-1">
+            {issueTree.roots.map((node) => (
+              <IssueTreeNodeSection
+                key={node.issue.id}
+                node={node}
+                collapsedById={collapsedById}
+                selectedIssueId={selectedIssueId ?? null}
+                focusedIssueId={focusedIssueId}
+                onToggleBranch={toggleBranch}
+                onIssueSelect={onIssueSelect}
+                onIssueContextMenu={handleIssueContextMenu}
+                onLabelClick={onLabelClick}
+              />
+            ))}
+          </div>
         )}
       </div>
     </div>
@@ -321,40 +402,138 @@ function IssueListHeader({
 }
 
 // ---------------------------------------------------------------------------
-// Epic group section (old-style collapsible group)
+// Issue tree rendering
 // ---------------------------------------------------------------------------
 
-function EpicGroupSection({
-  group,
+function IssueTreeNodeSection({
+  node,
+  collapsedById,
   selectedIssueId,
   focusedIssueId,
+  onToggleBranch,
   onIssueSelect,
+  onIssueContextMenu,
   onLabelClick,
 }: {
-  group: EpicGroup;
+  node: IssueTreeNode;
+  collapsedById: Readonly<Record<string, boolean>>;
   selectedIssueId: string | null;
-  focusedIssueId?: string | undefined;
+  focusedIssueId: string | null;
+  onToggleBranch: (issueId: string) => void;
   onIssueSelect?: ((issueId: string) => void) | undefined;
+  onIssueContextMenu?: ((issue: BeadsIssueSummary, event: React.MouseEvent) => void) | undefined;
   onLabelClick?: ((label: string) => void) | undefined;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
-  const epicIssue = group.epicIssue;
-  const childCount = group.issues.length;
+  const collapsed = node.hasVisibleChildren ? (collapsedById[node.issue.id] ?? true) : false;
+  const indentStyle =
+    node.depth === 0 ? undefined : ({ paddingLeft: `${String(node.depth * 16)}px` } as const);
 
   return (
-    <div className="overflow-hidden">
-      {/* Epic header */}
-      {epicIssue ? (
-        <div
-          className={cn(
-            "flex items-stretch border-b border-border/50",
-            selectedIssueId === epicIssue.id ? "bg-muted/50" : "bg-muted/10",
-          )}
+    <div style={indentStyle}>
+      {node.isEpic && node.hasVisibleChildren ? (
+        <EpicTreeSection
+          node={node}
+          collapsed={collapsed}
+          selected={selectedIssueId === node.issue.id}
+          focused={focusedIssueId === node.issue.id}
+          onToggle={() => onToggleBranch(node.issue.id)}
+          onIssueSelect={onIssueSelect}
+          onIssueContextMenu={onIssueContextMenu}
         >
+          {!collapsed &&
+            node.children.map((child) => (
+              <IssueTreeNodeSection
+                key={child.issue.id}
+                node={child}
+                collapsedById={collapsedById}
+                selectedIssueId={selectedIssueId}
+                focusedIssueId={focusedIssueId}
+                onToggleBranch={onToggleBranch}
+                onIssueSelect={onIssueSelect}
+                onIssueContextMenu={onIssueContextMenu}
+                onLabelClick={onLabelClick}
+              />
+            ))}
+        </EpicTreeSection>
+      ) : node.hasVisibleChildren ? (
+        <>
+          <BranchIssueRow
+            node={node}
+            collapsed={collapsed}
+            selected={selectedIssueId === node.issue.id}
+            focused={focusedIssueId === node.issue.id}
+            onToggle={() => onToggleBranch(node.issue.id)}
+            onIssueSelect={onIssueSelect}
+            onIssueContextMenu={onIssueContextMenu}
+            onLabelClick={onLabelClick}
+          />
+          {!collapsed &&
+            node.children.map((child) => (
+              <IssueTreeNodeSection
+                key={child.issue.id}
+                node={child}
+                collapsedById={collapsedById}
+                selectedIssueId={selectedIssueId}
+                focusedIssueId={focusedIssueId}
+                onToggleBranch={onToggleBranch}
+                onIssueSelect={onIssueSelect}
+                onIssueContextMenu={onIssueContextMenu}
+                onLabelClick={onLabelClick}
+              />
+            ))}
+        </>
+      ) : (
+        <IssueCard
+          issue={node.issue}
+          selected={selectedIssueId === node.issue.id}
+          focused={focusedIssueId === node.issue.id}
+          onClick={() => onIssueSelect?.(node.issue.id)}
+          onContextMenu={(event) => onIssueContextMenu?.(node.issue, event)}
+          onLabelClick={onLabelClick}
+        />
+      )}
+    </div>
+  );
+}
+
+function EpicTreeSection({
+  node,
+  collapsed,
+  selected,
+  focused,
+  onToggle,
+  onIssueSelect,
+  onIssueContextMenu,
+  children,
+}: {
+  node: IssueTreeNode;
+  collapsed: boolean;
+  selected: boolean;
+  focused: boolean;
+  onToggle: () => void;
+  onIssueSelect?: ((issueId: string) => void) | undefined;
+  onIssueContextMenu?: ((issue: BeadsIssueSummary, event: React.MouseEvent) => void) | undefined;
+  children: ReactNode;
+}) {
+  const descendantStatusCounts = useMemo(() => countIssueTreeDescendantStatuses(node), [node]);
+
+  return (
+    <div className="overflow-hidden rounded-md border border-border/40">
+      <div
+        className={cn(
+          "border-b border-border/50",
+          selected ? "bg-muted/50" : "bg-muted/10",
+          focused && "ring-1 ring-ring ring-inset bg-muted/40",
+        )}
+      >
+        <div className="flex items-stretch">
           <button
             type="button"
-            onClick={() => setCollapsed((prev) => !prev)}
-            aria-label={collapsed ? "Expand epic" : "Collapse epic"}
+            onClick={onToggle}
+            tabIndex={-1}
+            aria-label={
+              collapsed ? `Expand epic ${node.issue.id}` : `Collapse epic ${node.issue.id}`
+            }
             className="flex shrink-0 items-center justify-center px-2.5 text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground"
           >
             {collapsed ? (
@@ -365,128 +544,112 @@ function EpicGroupSection({
           </button>
           <button
             type="button"
-            onClick={() => onIssueSelect?.(epicIssue.id)}
-            aria-label={`Select epic ${epicIssue.id}: ${epicIssue.title}`}
+            onClick={() => onIssueSelect?.(node.issue.id)}
+            onContextMenu={(event) => onIssueContextMenu?.(node.issue, event)}
+            tabIndex={focused ? 0 : -1}
+            aria-label={`Select epic ${node.issue.id}: ${node.issue.title}`}
             className="min-w-0 flex-1 px-3 py-2.5 text-left transition-colors hover:bg-muted/30"
           >
             <div className="flex items-center gap-2">
-              <IssueTypeIcon issueType={epicIssue.issueType} />
+              <IssueTypeIcon issueType={node.issue.issueType} />
               <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-                {epicIssue.title}
+                {node.issue.title}
               </p>
-              <span className="shrink-0 text-[11px] text-muted-foreground">
-                {childCount} issue{childCount !== 1 ? "s" : ""}
+            </div>
+            <div className="mt-1.5 flex items-center gap-2 pl-6">
+              <EpicChildProgress counts={descendantStatusCounts} />
+              <span className="text-[10px] text-muted-foreground">
+                {descendantStatusCounts.closed}/{descendantStatusCounts.total} done
               </span>
+              {descendantStatusCounts.inProgress > 0 && (
+                <span className="text-[10px] text-warning-foreground">
+                  {descendantStatusCounts.inProgress} active
+                </span>
+              )}
+              {descendantStatusCounts.blocked > 0 && (
+                <span className="text-[10px] text-destructive-foreground">
+                  {descendantStatusCounts.blocked} blocked
+                </span>
+              )}
             </div>
           </button>
         </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setCollapsed((prev) => !prev)}
-          aria-label={collapsed ? "Expand epic group" : "Collapse epic group"}
-          className="flex w-full items-center gap-1.5 bg-muted/20 px-4 py-1.5 text-left transition-colors hover:bg-muted/40"
-        >
-          {collapsed ? (
-            <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
-          )}
-          <ZapIcon className="size-3.5 shrink-0 text-purple-500" />
-          <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/80">
-            {group.epicTitle ?? group.epicId}
-          </span>
-          <span className="shrink-0 text-[11px] text-muted-foreground">{childCount}</span>
-        </button>
-      )}
-
-      {/* Child issues (indented) */}
-      {!collapsed && childCount > 0 && (
-        <div>
-          {group.issues.map((issue) => (
-            <EpicIssueCard
-              key={issue.id}
-              issue={issue}
-              selected={selectedIssueId === issue.id}
-              focused={focusedIssueId === issue.id}
-              onClick={() => onIssueSelect?.(issue.id)}
-              onLabelClick={onLabelClick}
-            />
-          ))}
-        </div>
-      )}
+      </div>
+      {!collapsed && children}
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Partitioning logic: epic-linked vs free-floating
-// ---------------------------------------------------------------------------
+function BranchIssueRow({
+  node,
+  collapsed,
+  selected,
+  focused,
+  onToggle,
+  onIssueSelect,
+  onIssueContextMenu,
+  onLabelClick,
+}: {
+  node: IssueTreeNode;
+  collapsed: boolean;
+  selected: boolean;
+  focused: boolean;
+  onToggle: () => void;
+  onIssueSelect?: ((issueId: string) => void) | undefined;
+  onIssueContextMenu?: ((issue: BeadsIssueSummary, event: React.MouseEvent) => void) | undefined;
+  onLabelClick?: ((label: string) => void) | undefined;
+}) {
+  return (
+    <div className="flex items-stretch border-border/50 border-b">
+      <button
+        type="button"
+        onClick={onToggle}
+        tabIndex={-1}
+        aria-label={collapsed ? `Expand issue ${node.issue.id}` : `Collapse issue ${node.issue.id}`}
+        className={cn(
+          "flex shrink-0 items-center justify-center px-2.5 text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground",
+          selected && "bg-muted/50",
+          focused && "ring-1 ring-ring ring-inset bg-muted/40",
+        )}
+      >
+        {collapsed ? (
+          <ChevronRightIcon className="size-3.5" />
+        ) : (
+          <ChevronDownIcon className="size-3.5" />
+        )}
+      </button>
+      <div className="min-w-0 flex-1">
+        <IssueCard
+          issue={node.issue}
+          selected={selected}
+          focused={focused}
+          className="border-b-0"
+          onClick={() => onIssueSelect?.(node.issue.id)}
+          onContextMenu={(event) => onIssueContextMenu?.(node.issue, event)}
+          onLabelClick={onLabelClick}
+        />
+      </div>
+    </div>
+  );
+}
 
-function partitionIssues(issues: readonly BeadsIssueSummary[]): {
-  epicGroups: EpicGroup[];
-  freeIssues: BeadsIssueSummary[];
-} {
-  const epicMap = new Map<string, EpicGroup>();
-  const orderedEpics: EpicGroup[] = [];
-  const freeIssues: BeadsIssueSummary[] = [];
+function EpicChildProgress({ counts }: { counts: IssueTreeDescendantStatusCounts }) {
+  if (counts.total === 0) return null;
+  const closedPct = (counts.closed / counts.total) * 100;
+  const inProgressPct = (counts.inProgress / counts.total) * 100;
+  const blockedPct = (counts.blocked / counts.total) * 100;
 
-  for (const issue of issues) {
-    const isEpic = issue.issueType?.toLowerCase() === "epic";
-
-    if (isEpic) {
-      const existing = epicMap.get(issue.id);
-      if (existing) {
-        const updated: EpicGroup = {
-          ...existing,
-          epicTitle: issue.title,
-          epicIssue: issue,
-        };
-        epicMap.set(issue.id, updated);
-        const idx = orderedEpics.findIndex((g) => g.key === existing.key);
-        if (idx >= 0) orderedEpics[idx] = updated;
-      } else {
-        const group: EpicGroup = {
-          key: `epic:${issue.id}`,
-          epicId: issue.id,
-          epicTitle: issue.title,
-          epicIssue: issue,
-          issues: [],
-        };
-        epicMap.set(issue.id, group);
-        orderedEpics.push(group);
-      }
-      continue;
-    }
-
-    const parentId = issue.parent?.id;
-    if (parentId) {
-      const existing = epicMap.get(parentId);
-      if (existing) {
-        const updated: EpicGroup = {
-          ...existing,
-          issues: [...existing.issues, issue],
-        };
-        epicMap.set(parentId, updated);
-        const idx = orderedEpics.findIndex((g) => g.key === existing.key);
-        if (idx >= 0) orderedEpics[idx] = updated;
-      } else {
-        const group: EpicGroup = {
-          key: `epic:${parentId}`,
-          epicId: parentId,
-          epicTitle: issue.parent?.title ?? `Epic ${parentId}`,
-          epicIssue: null,
-          issues: [issue],
-        };
-        epicMap.set(parentId, group);
-        orderedEpics.push(group);
-      }
-    } else {
-      freeIssues.push(issue);
-    }
-  }
-
-  return { epicGroups: orderedEpics, freeIssues };
+  return (
+    <div className="flex h-1.5 w-16 overflow-hidden rounded-full bg-muted" aria-hidden>
+      {closedPct > 0 && <div className="bg-success" style={{ width: `${String(closedPct)}%` }} />}
+      {inProgressPct > 0 && (
+        <div className="bg-warning" style={{ width: `${String(inProgressPct)}%` }} />
+      )}
+      {blockedPct > 0 && (
+        <div className="bg-destructive" style={{ width: `${String(blockedPct)}%` }} />
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------

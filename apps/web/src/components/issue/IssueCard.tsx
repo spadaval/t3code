@@ -66,6 +66,7 @@ export interface IssueCardProps {
   selected?: boolean;
   focused?: boolean;
   onClick?: () => void;
+  onContextMenu?: ((event: React.MouseEvent) => void) | undefined;
   onLabelClick?: ((label: string) => void) | undefined;
   showPriority?: boolean;
   showLabels?: boolean;
@@ -89,6 +90,7 @@ export function IssueCard({
   selected = false,
   focused = false,
   onClick,
+  onContextMenu,
   onLabelClick,
   showPriority = true,
   showLabels = true,
@@ -104,7 +106,7 @@ export function IssueCard({
     <button
       type="button"
       className={cn(
-        "w-full border-b border-border/50 px-4 py-2.5 text-left transition-colors",
+        "group w-full border-b border-border/50 px-4 py-2.5 text-left transition-colors",
         "hover:bg-muted/30",
         selected && "bg-muted/50",
         focused && "ring-1 ring-ring ring-inset bg-muted/40",
@@ -113,6 +115,7 @@ export function IssueCard({
         className,
       )}
       onClick={onClick}
+      onContextMenu={onContextMenu}
       tabIndex={focused ? 0 : -1}
       aria-label={`Select issue: ${issue.title}`}
     >

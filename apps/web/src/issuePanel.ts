@@ -11,6 +11,7 @@ import type {
 import {
   describeSwarmCoordinatorFetchFailure,
   describeSharedWorkspaceProjectConflict as describeSharedWorkspaceProjectConflictMessage,
+  deriveExecutionBlocking,
   deriveEpicSwarmCoordinatorState,
   findConflictingSharedWorkspaceRun as findConflictingSharedWorkspaceRunCore,
   getEpicSwarmCoordinatorPrimaryAction,
@@ -23,14 +24,6 @@ import {
   type SwarmCoordinatorFetchLifecycleKind,
 } from "@t3tools/shared/swarm";
 import { describeProposedPlanFollowUpOutcome as describeProposedPlanFollowUpOutcomeShared } from "@t3tools/shared/plan";
-
-export interface EpicGroup {
-  readonly key: string;
-  readonly epicId: string | null;
-  readonly epicTitle: string | null;
-  readonly epicIssue: BeadsIssueSummary | null;
-  readonly issues: readonly BeadsIssueSummary[];
-}
 
 export interface CoordinatorSwarmSections {
   readonly runningSwarms: ReadonlyArray<BeadsSwarmSummary>;
@@ -173,78 +166,6 @@ export function isEpicIssueType(issueType: string | null | undefined): boolean {
   return issueType?.trim().toLowerCase() === "epic";
 }
 
-export function groupIssuesByEpic(issues: readonly BeadsIssueSummary[]): EpicGroup[] {
-  const epicMap = new Map<string, EpicGroup>();
-  const epicIndexes = new Map<string, number>();
-  const groupedIssues: EpicGroup[] = [];
-
-  for (const issue of issues) {
-    if (isEpicIssueType(issue.issueType)) {
-      const existingEpicGroup = epicMap.get(issue.id);
-      if (existingEpicGroup) {
-        const groupIndex = epicIndexes.get(issue.id)!;
-        const updatedGroup = {
-          ...existingEpicGroup,
-          epicTitle: issue.title,
-          epicIssue: issue,
-        } satisfies EpicGroup;
-        epicMap.set(issue.id, updatedGroup);
-        groupedIssues[groupIndex] = updatedGroup;
-        continue;
-      }
-
-      const epicGroup = {
-        key: `epic:${issue.id}`,
-        epicId: issue.id,
-        epicTitle: issue.title,
-        epicIssue: issue,
-        issues: [],
-      } satisfies EpicGroup;
-      epicMap.set(issue.id, epicGroup);
-      groupedIssues.push(epicGroup);
-      epicIndexes.set(issue.id, groupedIssues.length - 1);
-      continue;
-    }
-
-    const epicId = issue.parent?.id ?? null;
-    if (epicId === null) {
-      groupedIssues.push({
-        key: `issue:${issue.id}`,
-        epicId: null,
-        epicTitle: null,
-        epicIssue: null,
-        issues: [issue],
-      });
-      continue;
-    }
-
-    const existingEpicGroup = epicMap.get(epicId);
-    if (existingEpicGroup) {
-      const groupIndex = epicIndexes.get(epicId)!;
-      const updatedGroup = {
-        ...existingEpicGroup,
-        issues: [...existingEpicGroup.issues, issue],
-      } satisfies EpicGroup;
-      epicMap.set(epicId, updatedGroup);
-      groupedIssues[groupIndex] = updatedGroup;
-      continue;
-    }
-
-    const epicGroup = {
-      key: `epic:${epicId}`,
-      epicId,
-      epicTitle: issue.parent?.title ?? null,
-      epicIssue: null,
-      issues: [issue],
-    } satisfies EpicGroup;
-    epicMap.set(epicId, epicGroup);
-    groupedIssues.push(epicGroup);
-    epicIndexes.set(epicId, groupedIssues.length - 1);
-  }
-
-  return groupedIssues;
-}
-
 export function listEpicChildIssues(input: {
   readonly issues: readonly BeadsIssueSummary[];
   readonly epicId: string | null;
@@ -254,6 +175,36 @@ export function listEpicChildIssues(input: {
   }
 
   return input.issues.filter((issue) => issue.parent?.id === input.epicId);
+}
+
+export function listEpicDescendantIssues(input: {
+  readonly issues: readonly BeadsIssueSummary[];
+  readonly epicId: string | null;
+}): BeadsIssueSummary[] {
+  if (input.epicId === null) {
+    return [];
+  }
+
+  const descendantIds = new Set<string>([input.epicId]);
+  const descendants: BeadsIssueSummary[] = [];
+  let discovered = true;
+
+  while (discovered) {
+    discovered = false;
+
+    for (const issue of input.issues) {
+      const parentId = issue.parent?.id ?? null;
+      if (parentId === null || !descendantIds.has(parentId) || descendantIds.has(issue.id)) {
+        continue;
+      }
+
+      descendantIds.add(issue.id);
+      descendants.push(issue);
+      discovered = true;
+    }
+  }
+
+  return descendants;
 }
 
 export function selectLatestSwarmRun(
@@ -282,7 +233,10 @@ export function deriveEpicCoordinatorState(input: {
 
 export function getEpicCoordinatorPrimaryAction(input: {
   readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
-  readonly status: Pick<BeadsSwarmStatus, "swarm" | "ready" | "active" | "blocked"> | null;
+  readonly status:
+    | (Pick<BeadsSwarmStatus, "swarm" | "ready" | "active" | "blocked"> &
+        Partial<Pick<BeadsSwarmStatus, "blockedBreakdown">>)
+    | null;
   readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm" | "readyFronts"> | null;
   readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
   readonly projectConflict: SharedWorkspaceProjectConflict | null;
@@ -292,6 +246,66 @@ export function getEpicCoordinatorPrimaryAction(input: {
     ...input,
     hasProjectConflict: input.projectConflict !== null,
   });
+}
+
+function summarizeIssueIds(issues: ReadonlyArray<{ readonly id: string }>): string {
+  return issues
+    .slice(0, 3)
+    .map((issue) => issue.id)
+    .join(", ");
+}
+
+export function describeDisabledEpicCoordinatorAction(input: {
+  readonly epic: Pick<
+    BeadsCoordinatorEpicSnapshot,
+    | "primaryAction"
+    | "trackerLoadState"
+    | "trackerLoadDetail"
+    | "coordinationSupported"
+    | "coordinationUnsupportedReason"
+    | "status"
+  > | null;
+  readonly supportReason?: string | null;
+}): string | null {
+  if (input.epic === null) {
+    return "Checking epic status.";
+  }
+
+  if (!input.epic.primaryAction.disabled) {
+    return null;
+  }
+
+  if (input.epic.trackerLoadState !== "ready") {
+    return input.epic.trackerLoadDetail ?? "Checking epic status.";
+  }
+
+  if (!input.epic.coordinationSupported) {
+    return (
+      input.epic.coordinationUnsupportedReason ??
+      input.supportReason ??
+      "Epic coordination is unavailable for this project."
+    );
+  }
+
+  if (input.epic.primaryAction.kind === "run_next_swarm_task") {
+    const executionBlocking = deriveExecutionBlocking(input.epic.status);
+    if (executionBlocking.externalBlockedIssues.length > 0) {
+      return `Externally blocked issues must be resolved before continuing: ${summarizeIssueIds(executionBlocking.externalBlockedIssues)}.`;
+    }
+    if (executionBlocking.unknownBlockedIssues.length > 0) {
+      return `Blocked issues with unknown provenance must be resolved before continuing: ${summarizeIssueIds(executionBlocking.unknownBlockedIssues)}.`;
+    }
+    if ((input.epic.status?.active.length ?? 0) > 0) {
+      return `Beads still reports active work for this epic: ${summarizeIssueIds(input.epic.status?.active ?? [])}.`;
+    }
+    if ((input.epic.status?.blocked.length ?? 0) > 0) {
+      return `Beads still reports blocked work for this epic: ${summarizeIssueIds(input.epic.status?.blocked ?? [])}.`;
+    }
+  }
+
+  return (
+    input.epic.trackerLoadDetail ?? `${input.epic.primaryAction.label} is currently unavailable.`
+  );
 }
 
 export function collectCoordinatorEpics(input: {

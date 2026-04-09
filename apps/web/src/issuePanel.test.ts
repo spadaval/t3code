@@ -9,15 +9,16 @@ import { describe, expect, it } from "vitest";
 
 import {
   collectCoordinatorEpics,
+  describeDisabledEpicCoordinatorAction,
   describeSharedWorkspaceProjectConflict,
   deriveCoordinatorFetchLifecycle,
   deriveEpicCoordinatorState,
   findConflictingSharedWorkspaceRun,
   findLatestTrackerRefinementPlan,
   getEpicCoordinatorPrimaryAction,
-  groupIssuesByEpic,
   isEpicIssueType,
   listEpicChildIssues,
+  listEpicDescendantIssues,
   partitionCoordinatorEpics,
   partitionCoordinatorSwarms,
   selectLatestSwarmRun,
@@ -166,86 +167,6 @@ describe("deriveCoordinatorFetchLifecycle", () => {
   });
 });
 
-describe("groupIssuesByEpic", () => {
-  it("renders epic sections with the epic issue and keeps ungrouped issues flat", () => {
-    const issues = [
-      makeIssue({
-        id: "epic-b",
-        title: "Beta epic",
-        issueType: "epic",
-      }),
-      makeIssue({
-        id: "task-1",
-        title: "Task 1",
-        parent: { id: "epic-b", title: "Beta epic" },
-      }),
-      makeIssue({
-        id: "task-ungrouped",
-        title: "Ungrouped task",
-      }),
-      makeIssue({
-        id: "task-2",
-        title: "Task 2",
-        parent: { id: "epic-a", title: "Alpha epic" },
-      }),
-    ];
-
-    expect(groupIssuesByEpic(issues)).toEqual([
-      {
-        key: "epic:epic-b",
-        epicId: "epic-b",
-        epicTitle: "Beta epic",
-        issues: [issues[1]],
-        epicIssue: issues[0],
-      },
-      {
-        key: "issue:task-ungrouped",
-        epicId: null,
-        epicTitle: null,
-        issues: [issues[2]],
-        epicIssue: null,
-      },
-      {
-        key: "epic:epic-a",
-        epicId: "epic-a",
-        epicTitle: "Alpha epic",
-        issues: [issues[3]],
-        epicIssue: null,
-      },
-    ]);
-  });
-
-  it("anchors a group at the first child when the epic row appears later", () => {
-    const issues = [
-      makeIssue({
-        id: "task-1",
-        title: "Task 1",
-        parent: { id: "epic-a", title: "Alpha epic" },
-      }),
-      makeIssue({
-        id: "epic-a",
-        title: "Alpha epic",
-        issueType: "epic",
-      }),
-      makeIssue({
-        id: "task-2",
-        title: "Task 2",
-        parent: { id: "epic-a", title: "Alpha epic" },
-      }),
-    ];
-
-    expect(groupIssuesByEpic(issues)).toEqual([
-      {
-        key: "epic:epic-a",
-        epicId: "epic-a",
-        epicTitle: "Alpha epic",
-        issues: [issues[0], issues[2]],
-        epicIssue: issues[1],
-      },
-    ]);
-  });
-});
-
 describe("listEpicChildIssues", () => {
   it("returns only children of the selected epic", () => {
     const issues = [
@@ -268,6 +189,40 @@ describe("listEpicChildIssues", () => {
 
     expect(listEpicChildIssues({ issues, epicId: "epic-1" })).toEqual([issues[1]]);
     expect(listEpicChildIssues({ issues, epicId: null })).toEqual([]);
+  });
+});
+
+describe("listEpicDescendantIssues", () => {
+  it("returns recursive descendants of the selected epic", () => {
+    const issues = [
+      makeIssue({
+        id: "epic-1",
+        title: "Epic",
+        issueType: "epic",
+      }),
+      makeIssue({
+        id: "story-1",
+        title: "Story 1",
+        issueType: "feature",
+        parent: { id: "epic-1", title: "Epic" },
+      }),
+      makeIssue({
+        id: "task-1",
+        title: "Task 1",
+        parent: { id: "story-1", title: "Story 1" },
+      }),
+      makeIssue({
+        id: "task-2",
+        title: "Task 2",
+        parent: { id: "epic-1", title: "Epic" },
+      }),
+    ];
+
+    expect(listEpicDescendantIssues({ issues, epicId: "epic-1" })).toEqual([
+      issues[1],
+      issues[2],
+      issues[3],
+    ]);
   });
 });
 
@@ -1203,6 +1158,91 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       busyLabel: "Opening...",
       disabled: false,
     });
+  });
+});
+
+describe("describeDisabledEpicCoordinatorAction", () => {
+  it("returns a loading detail while epic state is still being fetched", () => {
+    expect(
+      describeDisabledEpicCoordinatorAction({
+        epic: null,
+      }),
+    ).toBe("Checking epic status.");
+  });
+
+  it("returns the unsupported coordination reason when epic actions are unavailable", () => {
+    expect(
+      describeDisabledEpicCoordinatorAction({
+        epic: {
+          primaryAction: {
+            kind: "unsupported",
+            label: "Epic coordination unavailable",
+            busyLabel: "Epic coordination unavailable",
+            disabled: true,
+          },
+          trackerLoadState: "ready",
+          trackerLoadDetail: null,
+          coordinationSupported: false,
+          coordinationUnsupportedReason: "Shared workspaces are disabled for this backend.",
+          status: null,
+        },
+      }),
+    ).toBe("Shared workspaces are disabled for this backend.");
+  });
+
+  it("explains why a recoverable blocked run still cannot continue", () => {
+    expect(
+      describeDisabledEpicCoordinatorAction({
+        epic: {
+          primaryAction: {
+            kind: "run_next_swarm_task",
+            label: "Run next task",
+            busyLabel: "Running...",
+            disabled: true,
+          },
+          trackerLoadState: "ready",
+          trackerLoadDetail: null,
+          coordinationSupported: true,
+          coordinationUnsupportedReason: null,
+          status: {
+            epicId: "EPIC-1",
+            epicTitle: "Epic 1",
+            swarm: null,
+            completed: [],
+            active: [],
+            ready: [],
+            blocked: [
+              {
+                id: "TASK-9",
+                title: "Blocked task",
+                status: "blocked",
+                priority: null,
+                issueType: "task",
+                assignee: null,
+                owner: null,
+                parent: null,
+              },
+            ],
+            blockedBreakdown: {
+              internal: [],
+              external: [],
+              unknown: [
+                {
+                  id: "TASK-9",
+                  title: "Blocked task",
+                  status: "blocked",
+                  priority: null,
+                  issueType: "task",
+                  assignee: null,
+                  owner: null,
+                  parent: null,
+                },
+              ],
+            },
+          },
+        },
+      }),
+    ).toBe("Blocked issues with unknown provenance must be resolved before continuing: TASK-9.");
   });
 });
 
