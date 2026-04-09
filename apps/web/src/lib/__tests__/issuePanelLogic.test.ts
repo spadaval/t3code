@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BeadsIssueSummary } from "@t3tools/contracts";
 import {
+  filterIssuesForList,
   filterAndSortIssues,
   searchItems,
   validateIssueState,
@@ -269,6 +270,121 @@ describe("issuePanelLogic", () => {
         // Should not throw and should handle gracefully
         expect(() => filterAndSortIssues(issuesWithBadDates)).not.toThrow();
       });
+    });
+  });
+
+  describe("filterIssuesForList", () => {
+    it("returns scoped issues in original order when search is empty", () => {
+      const result = filterIssuesForList(SAMPLE_ISSUES, {
+        scopeFilter: "active",
+      });
+
+      expect(result.map((issue) => issue.id)).toEqual(["issue-1", "issue-2", "issue-4"]);
+    });
+
+    it("matches issue ids before title matches", () => {
+      const issues = [
+        createMockIssue({
+          id: "task-201",
+          title: "General cleanup",
+        }),
+        createMockIssue({
+          id: "issue-2",
+          title: "Task-201 tracking follow-up",
+        }),
+      ];
+
+      const result = filterIssuesForList(issues, {
+        scopeFilter: "all",
+        searchQuery: "task-201",
+      });
+
+      expect(result.map((issue) => issue.id)).toEqual(["task-201", "issue-2"]);
+    });
+
+    it("matches labels, parent titles, descriptions, and notes", () => {
+      const issues = [
+        createMockIssue({
+          id: "issue-label",
+          title: "Unrelated",
+          labels: ["parser"],
+        }),
+        createMockIssue({
+          id: "issue-parent",
+          title: "Unrelated",
+          parent: { id: "epic-parser", title: "Parser pipeline" },
+        }),
+        createMockIssue({
+          id: "issue-description",
+          title: "Unrelated",
+          description: "Touches the parser worker",
+        }),
+        createMockIssue({
+          id: "issue-notes",
+          title: "Unrelated",
+          notes: "Parser note",
+        }),
+      ];
+
+      expect(
+        filterIssuesForList(issues, {
+          scopeFilter: "all",
+          searchQuery: "parser",
+        }).map((issue) => issue.id),
+      ).toEqual(["issue-label", "issue-parent", "issue-description", "issue-notes"]);
+    });
+
+    it("supports fuzzy typo-tolerant matching", () => {
+      const issues = [
+        createMockIssue({
+          id: "issue-typo",
+          title: "Implement parser pipeline",
+        }),
+      ];
+
+      const result = filterIssuesForList(issues, {
+        scopeFilter: "all",
+        searchQuery: "parsr",
+      });
+
+      expect(result.map((issue) => issue.id)).toEqual(["issue-typo"]);
+    });
+
+    it("ranks title matches above description-only matches", () => {
+      const issues = [
+        createMockIssue({
+          id: "issue-title",
+          title: "Parser improvements",
+          description: "General cleanup",
+        }),
+        createMockIssue({
+          id: "issue-description",
+          title: "General cleanup",
+          description: "Parser improvements",
+        }),
+      ];
+
+      const result = filterIssuesForList(issues, {
+        scopeFilter: "all",
+        searchQuery: "parser",
+      });
+
+      expect(result.map((issue) => issue.id)).toEqual(["issue-title", "issue-description"]);
+    });
+
+    it("treats deferred issues as active", () => {
+      const issues = [
+        createMockIssue({
+          id: "issue-deferred",
+          status: "deferred",
+        }),
+      ];
+
+      const result = filterIssuesForList(issues, {
+        scopeFilter: "active",
+      });
+
+      expect(result.map((issue) => issue.id)).toEqual(["issue-deferred"]);
     });
   });
 

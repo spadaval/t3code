@@ -345,6 +345,254 @@ export function analyzeEpicCoordination(
 
 // ── Search and Filter Utilities ─────────────────────────────────────────
 
+const ACTIVE_ISSUE_LIST_STATUSES = new Set(["open", "in_progress", "blocked", "deferred"]);
+
+const ISSUE_SEARCH_FIELD_WEIGHTS = {
+  id: 1000,
+  title: 700,
+  labels: 450,
+  parentTitle: 450,
+  description: 220,
+  notes: 200,
+} as const;
+
+type IssueSearchField = keyof typeof ISSUE_SEARCH_FIELD_WEIGHTS;
+
+interface SearchableIssueField {
+  readonly key: IssueSearchField;
+  readonly value: string;
+  readonly normalized: string;
+  readonly words: readonly string[];
+}
+
+export interface IssueListSearchOptions {
+  searchQuery?: string;
+  scopeFilter?: IssuePaneScope;
+}
+
+function normalizeSearchValue(value: string | null | undefined): string {
+  return value?.toLowerCase().trim() ?? "";
+}
+
+function tokenizeSearchValue(value: string): readonly string[] {
+  return value.split(/\s+/).filter((token) => token.length > 0);
+}
+
+function splitSearchWords(value: string): readonly string[] {
+  return value.split(/[^a-z0-9]+/).filter((token) => token.length > 0);
+}
+
+function isSubsequenceMatch(query: string, candidate: string): boolean {
+  if (query.length === 0) {
+    return true;
+  }
+
+  let queryIndex = 0;
+  for (let index = 0; index < candidate.length && queryIndex < query.length; index += 1) {
+    if (candidate[index] === query[queryIndex]) {
+      queryIndex += 1;
+    }
+  }
+
+  return queryIndex === query.length;
+}
+
+function computeBoundedEditDistance(left: string, right: string, maxDistance: number): number {
+  if (left === right) {
+    return 0;
+  }
+
+  if (Math.abs(left.length - right.length) > maxDistance) {
+    return maxDistance + 1;
+  }
+
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    let rowMinimum = current[0]!;
+
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const substitutionCost = left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
+      const value = Math.min(
+        previous[rightIndex]! + 1,
+        current[rightIndex - 1]! + 1,
+        previous[rightIndex - 1]! + substitutionCost,
+      );
+      current.push(value);
+      rowMinimum = Math.min(rowMinimum, value);
+    }
+
+    if (rowMinimum > maxDistance) {
+      return maxDistance + 1;
+    }
+
+    previous = current;
+  }
+
+  return previous[right.length]!;
+}
+
+function rankSearchTokenAgainstField(token: string, field: SearchableIssueField): number {
+  if (field.normalized.length === 0) {
+    return 0;
+  }
+
+  const fieldWeight = ISSUE_SEARCH_FIELD_WEIGHTS[field.key];
+
+  if (field.normalized === token) {
+    return fieldWeight + 800;
+  }
+
+  if (field.words.some((word) => word === token)) {
+    return fieldWeight + 700;
+  }
+
+  if (field.normalized.startsWith(token)) {
+    return fieldWeight + 520;
+  }
+
+  if (field.words.some((word) => word.startsWith(token))) {
+    return fieldWeight + 460;
+  }
+
+  if (field.normalized.includes(token)) {
+    return fieldWeight + 380;
+  }
+
+  if (field.words.some((word) => word.includes(token))) {
+    return fieldWeight + 320;
+  }
+
+  for (const word of field.words) {
+    const maxDistance = token.length >= 6 ? 2 : 1;
+    const editDistance = computeBoundedEditDistance(token, word, maxDistance);
+    if (editDistance <= maxDistance) {
+      return fieldWeight + 220 - editDistance * 40;
+    }
+  }
+
+  if (isSubsequenceMatch(token, field.normalized)) {
+    return fieldWeight + 120;
+  }
+
+  return 0;
+}
+
+function buildSearchableIssueFields(issue: BeadsIssueSummary): readonly SearchableIssueField[] {
+  const fields: Array<SearchableIssueField | null> = [
+    {
+      key: "id",
+      value: issue.id,
+      normalized: normalizeSearchValue(issue.id),
+      words: splitSearchWords(normalizeSearchValue(issue.id)),
+    },
+    {
+      key: "title",
+      value: issue.title,
+      normalized: normalizeSearchValue(issue.title),
+      words: splitSearchWords(normalizeSearchValue(issue.title)),
+    },
+    {
+      key: "labels",
+      value: issue.labels.join(" "),
+      normalized: normalizeSearchValue(issue.labels.join(" ")),
+      words: splitSearchWords(normalizeSearchValue(issue.labels.join(" "))),
+    },
+    {
+      key: "parentTitle",
+      value: issue.parent?.title ?? "",
+      normalized: normalizeSearchValue(issue.parent?.title),
+      words: splitSearchWords(normalizeSearchValue(issue.parent?.title)),
+    },
+    {
+      key: "description",
+      value: issue.description ?? "",
+      normalized: normalizeSearchValue(issue.description),
+      words: splitSearchWords(normalizeSearchValue(issue.description)),
+    },
+    {
+      key: "notes",
+      value: issue.notes ?? "",
+      normalized: normalizeSearchValue(issue.notes),
+      words: splitSearchWords(normalizeSearchValue(issue.notes)),
+    },
+  ];
+
+  return fields.filter((field): field is SearchableIssueField => field !== null);
+}
+
+function matchesIssueListScope(issue: BeadsIssueSummary, scopeFilter: IssuePaneScope): boolean {
+  if (scopeFilter === "all") {
+    return true;
+  }
+
+  if (scopeFilter === "closed") {
+    return issue.status === "closed";
+  }
+
+  return ACTIVE_ISSUE_LIST_STATUSES.has(issue.status);
+}
+
+function rankIssueAgainstQuery(issue: BeadsIssueSummary, normalizedQuery: string): number | null {
+  if (normalizedQuery.length === 0) {
+    return 0;
+  }
+
+  const tokens = tokenizeSearchValue(normalizedQuery);
+  if (tokens.length === 0) {
+    return 0;
+  }
+
+  const fields = buildSearchableIssueFields(issue);
+  let score = 0;
+
+  if (normalizeSearchValue(issue.id) === normalizedQuery) {
+    score += 20_000;
+  }
+
+  for (const token of tokens) {
+    let bestTokenScore = 0;
+    for (const field of fields) {
+      bestTokenScore = Math.max(bestTokenScore, rankSearchTokenAgainstField(token, field));
+    }
+
+    if (bestTokenScore <= 0) {
+      return null;
+    }
+
+    score += bestTokenScore;
+  }
+
+  return score;
+}
+
+export function filterIssuesForList(
+  issues: readonly BeadsIssueSummary[],
+  options: IssueListSearchOptions = {},
+): readonly BeadsIssueSummary[] {
+  const scopeFilter = options.scopeFilter ?? "active";
+  const normalizedQuery = normalizeSearchValue(options.searchQuery);
+  const scopedIssues = issues.filter((issue) => matchesIssueListScope(issue, scopeFilter));
+
+  if (normalizedQuery.length === 0) {
+    return scopedIssues;
+  }
+
+  return scopedIssues
+    .map((issue, index) => ({
+      issue,
+      index,
+      score: rankIssueAgainstQuery(issue, normalizedQuery),
+    }))
+    .filter(
+      (entry): entry is { issue: BeadsIssueSummary; index: number; score: number } =>
+        entry.score !== null,
+    )
+    .toSorted((left, right) => right.score - left.score || left.index - right.index)
+    .map((entry) => entry.issue);
+}
+
 export interface SearchResult<T> {
   items: readonly T[];
   query: string;

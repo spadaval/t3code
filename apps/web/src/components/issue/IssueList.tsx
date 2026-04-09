@@ -2,29 +2,13 @@ import type { BeadsIssueSummary } from "@t3tools/contracts";
 import { useMemo, useState, useCallback, useRef, useEffect, type ReactNode } from "react";
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 
+import { filterIssuesForList } from "~/lib/issuePanelLogic";
 import { cn } from "~/lib/utils";
 import { IssueCard, EpicIssueCard } from "./IssueCard";
 import { StatusIndicator } from "../shared/StatusIndicator";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
-
-// Hook for debounced search
-function useDebounced<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
-}
 
 export interface EpicGroup {
   readonly key: string;
@@ -63,7 +47,7 @@ interface CollapsibleEpicSectionProps {
  * IssueList - Enhanced issue list with keyboard navigation and performance optimizations
  *
  * Features:
- * - Debounced search input (300ms default)
+ * - Controlled search input
  * - Keyboard navigation (up/down arrows, enter to select)
  * - Loading skeleton states
  * - Empty state messaging
@@ -79,7 +63,6 @@ interface CollapsibleEpicSectionProps {
  *   searchValue={search}
  *   onSearchChange={setSearch}
  *   enableKeyboardNavigation
- *   searchDebounceMs={300}
  * />
  */
 export function IssueList({
@@ -96,54 +79,16 @@ export function IssueList({
   emptyMessage = "No issues found",
   actions,
   enableKeyboardNavigation = true,
-  searchDebounceMs = 300,
 }: IssueListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [focusedIssueIndex, setFocusedIssueIndex] = useState(-1);
-  const [internalSearchValue, setInternalSearchValue] = useState(searchValue);
-
-  // Debounced search to avoid excessive filtering
-  const debouncedSearchValue = useDebounced(internalSearchValue, searchDebounceMs);
-
-  // Sync debounced value with external search changes
-  useEffect(() => {
-    if (searchValue !== internalSearchValue) {
-      setInternalSearchValue(searchValue);
-    }
-  }, [searchValue, internalSearchValue]);
-
-  // Notify parent of search changes after debounce
-  useEffect(() => {
-    if (debouncedSearchValue !== searchValue) {
-      onSearchChange?.(debouncedSearchValue);
-    }
-  }, [debouncedSearchValue, searchValue, onSearchChange]);
 
   const filteredIssues = useMemo(() => {
-    let filtered = issues;
-
-    // Apply scope filter
-    if (scopeFilter === "active") {
-      filtered = filtered.filter((issue) =>
-        ["open", "in_progress", "blocked"].includes(issue.status),
-      );
-    } else if (scopeFilter === "closed") {
-      filtered = filtered.filter((issue) => issue.status === "closed");
-    }
-
-    // Apply search filter with debounced value
-    if (debouncedSearchValue.trim()) {
-      const searchLower = debouncedSearchValue.toLowerCase().trim();
-      filtered = filtered.filter(
-        (issue) =>
-          issue.title.toLowerCase().includes(searchLower) ||
-          issue.description?.toLowerCase().includes(searchLower) ||
-          issue.labels.some((label) => label.toLowerCase().includes(searchLower)),
-      );
-    }
-
-    return filtered;
-  }, [issues, debouncedSearchValue, scopeFilter]);
+    return filterIssuesForList(issues, {
+      searchQuery: searchValue,
+      scopeFilter,
+    });
+  }, [issues, scopeFilter, searchValue]);
 
   const epicGroups = useMemo(() => {
     return groupIssuesByEpic(filteredIssues);
@@ -191,23 +136,18 @@ export function IssueList({
     [enableKeyboardNavigation, flatIssues, focusedIssueIndex, onIssueSelect],
   );
 
-  // Handle search input changes
-  const handleSearchInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setInternalSearchValue(e.target.value);
-  }, []);
-
   // Reset focus when filtering changes
   useEffect(() => {
     setFocusedIssueIndex(-1);
-  }, [debouncedSearchValue, scopeFilter]);
+  }, [scopeFilter, searchValue]);
 
   if (loading) {
     return (
       <div className={cn("space-y-2", className)}>
         <IssueListHeader
-          searchValue={internalSearchValue}
+          searchValue={searchValue}
           scopeFilter={scopeFilter}
-          onSearchChange={handleSearchInputChange}
+          onSearchChange={onSearchChange}
           onScopeChange={onScopeChange}
           actions={actions}
           totalCount={issues.length}
@@ -249,22 +189,21 @@ export function IssueList({
       aria-label="Issues list"
     >
       <IssueListHeader
-        searchValue={internalSearchValue}
+        searchValue={searchValue}
         scopeFilter={scopeFilter}
-        onSearchChange={handleSearchInputChange}
+        onSearchChange={onSearchChange}
         onScopeChange={onScopeChange}
         actions={actions}
         totalCount={filteredIssues.length}
         originalCount={issues.length}
         loading={loading}
-        isSearching={internalSearchValue !== debouncedSearchValue}
       />
 
       <div className="flex-1 overflow-y-auto">
         {epicGroups.length === 0 ? (
           <EmptyState
             message={emptyMessage}
-            hasSearch={debouncedSearchValue.trim().length > 0}
+            hasSearch={searchValue.trim().length > 0}
             hasFilter={scopeFilter !== "all"}
           />
         ) : (
@@ -303,7 +242,7 @@ function IssueListHeader({
 }: {
   searchValue?: string | undefined;
   scopeFilter?: "active" | "all" | "closed" | undefined;
-  onSearchChange?: ((e: React.ChangeEvent<HTMLInputElement>) => void) | undefined;
+  onSearchChange?: ((search: string) => void) | undefined;
   onScopeChange?: ((scope: "active" | "all" | "closed") => void) | undefined;
   actions?: ReactNode | undefined;
   totalCount: number;
@@ -344,7 +283,7 @@ function IssueListHeader({
             ref={searchInputRef}
             placeholder="Search issues... (Ctrl+F)"
             value={searchValue}
-            onChange={onSearchChange}
+            onChange={(event) => onSearchChange?.(event.target.value)}
             className={cn("pr-8", isSearching && "border-primary/50 ring-1 ring-primary/20")}
             disabled={loading}
           />

@@ -2,8 +2,7 @@ import { DEFAULT_MODEL_BY_PROVIDER, type ModelSelection, type ThreadId } from "@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo } from "react";
-import { useDebouncedValue } from "@tanstack/react-pacer";
-import { ArrowUpRightIcon, ExternalLinkIcon, PlayIcon, XIcon } from "lucide-react";
+import { ArrowLeftIcon, ArrowUpRightIcon, ExternalLinkIcon, PlayIcon, XIcon } from "lucide-react";
 
 import { parseChatRouteSearch, stripRightPaneSearchParams } from "~/chatRouteSearch";
 import { useComposerThreadDraft } from "~/composerDraftStore";
@@ -16,7 +15,7 @@ import { listIssueLinkedThreads } from "~/issueThreads";
 import { isEpicIssueType } from "~/issuePanel";
 import { getIssuePaneState, useIssuePaneStore, type IssuePaneScope } from "~/issuePaneStore";
 import { useStore } from "~/store";
-import { useProjectById, useThreadById } from "~/storeSelectors";
+import { useThreadProjectContext } from "~/threadProjectContext";
 import { DEFAULT_RUNTIME_MODE } from "~/types";
 import { IssueDetail } from "./issue/IssueDetail";
 import { IssueListPanel } from "./issue/IssueListPanel";
@@ -56,8 +55,7 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
     strict: false,
     select: (search) => parseChatRouteSearch(search),
   });
-  const thread = useThreadById(threadId);
-  const project = useProjectById(thread?.projectId);
+  const { project, projectId, thread } = useThreadProjectContext(threadId);
   const composerDraft = useComposerThreadDraft(threadId);
   const threads = useStore((store) => store.threads);
   const paneState = useIssuePaneStore(
@@ -66,7 +64,6 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
   const setSelectedIssueId = useIssuePaneStore((store) => store.setSelectedIssueId);
   const setSearch = useIssuePaneStore((store) => store.setSearch);
   const setScope = useIssuePaneStore((store) => store.setScope);
-  const [debouncedSearch] = useDebouncedValue(paneState.search, { wait: 250 });
 
   const selectedIssueId = routeSearch.issueId ?? paneState.selectedIssueId;
   const initialLinkedIssueId = thread?.issueLink?.issueId ?? null;
@@ -104,7 +101,6 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
   const issueListQuery = useQuery(
     beadsQueryIssuesOptions({
       cwd: project?.cwd ?? "",
-      search: debouncedSearch.trim().length > 0 ? debouncedSearch.trim() : undefined,
       statuses: statusesForScope(paneState.scope),
       sortBy: "updated",
       enabled: project !== undefined,
@@ -124,10 +120,10 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
     () =>
       listIssueLinkedThreads({
         threads,
-        projectId: project?.id ?? null,
+        projectId,
         issueId: selectedIssueId,
       }),
-    [project?.id, selectedIssueId, threads],
+    [projectId, selectedIssueId, threads],
   );
 
   const openLinkedThread = useCallback(() => {
@@ -224,6 +220,19 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
     [navigate, setSelectedIssueId, threadId],
   );
 
+  const onBackToList = useCallback(() => {
+    setSelectedIssueId(threadId, null);
+    void navigate({
+      to: "/$threadId",
+      params: { threadId },
+      replace: true,
+      search: (previous) => ({
+        ...stripRightPaneSearchParams(previous),
+        rightPane: "issues" as const,
+      }),
+    });
+  }, [navigate, setSelectedIssueId, threadId]);
+
   const selectedIssue = selectedIssueDetailQuery.data ?? null;
   const startWorkDisabled =
     selectedIssue === null ||
@@ -253,30 +262,31 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
       </header>
 
       {project ? (
-        <div className="grid min-h-0 flex-1 grid-rows-[minmax(18rem,22rem)_minmax(0,1fr)]">
-          <IssueListPanel
-            threadId={threadId}
-            issues={issueListQuery.data?.issues ?? []}
-            selectedIssueId={selectedIssueId}
-            searchValue={paneState.search}
-            scopeFilter={paneState.scope}
-            loading={issueListQuery.isPending}
-            error={issueListQuery.error?.message ?? null}
-            onIssueSelect={onSelectIssue}
-            onSearchChange={(value) => setSearch(threadId, value)}
-            onScopeChange={(scope) => setScope(threadId, scope)}
-            className="min-h-0 border-b border-border"
-          />
-
-          <section className="min-h-0 overflow-y-auto">
+        selectedIssueId ? (
+          <section className="flex min-h-0 flex-1 flex-col">
             <div className="sticky top-0 z-10 border-b border-border bg-background/95 px-4 py-3 backdrop-blur-sm">
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  size="xs"
-                  variant="outline"
-                  disabled={selectedIssueId === null}
-                  onClick={openIssueInTracker}
-                >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={onBackToList}
+                    className="-ml-2 gap-1.5 px-2"
+                  >
+                    <ArrowLeftIcon className="size-4" />
+                    Back
+                  </Button>
+                  <div className="mt-2 min-w-0">
+                    <div className="truncate text-sm font-medium text-foreground">
+                      {selectedIssue?.title ?? selectedIssueId}
+                    </div>
+                    <div className="text-xs text-muted-foreground">{selectedIssueId}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button size="xs" variant="outline" onClick={openIssueInTracker}>
                   <ExternalLinkIcon className="size-3.5" />
                   Open in tracker
                 </Button>
@@ -300,7 +310,7 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
               </div>
             </div>
 
-            <div className="px-4 py-4">
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
               {selectedIssueDetailQuery.isPending ? (
                 <p className="text-sm text-muted-foreground">Loading issue details...</p>
               ) : selectedIssueDetailQuery.error ? (
@@ -309,18 +319,35 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
                 <IssueDetail
                   issue={selectedIssue}
                   showCompactSections
-                  autoFocus={false}
+                  autoFocus
+                  onClose={onBackToList}
                   onDependencyClick={onSelectIssue}
                   className="pb-6"
                 />
               ) : (
                 <div className="flex min-h-48 items-center justify-center text-center text-sm text-muted-foreground">
-                  Select an issue to inspect it while you work in this thread.
+                  This issue could not be loaded.
                 </div>
               )}
             </div>
           </section>
-        </div>
+        ) : (
+          <div className="min-h-0 flex-1">
+            <IssueListPanel
+              threadId={threadId}
+              issues={issueListQuery.data?.issues ?? []}
+              selectedIssueId={selectedIssueId}
+              searchValue={paneState.search}
+              scopeFilter={paneState.scope}
+              loading={issueListQuery.isPending}
+              error={issueListQuery.error?.message ?? null}
+              onIssueSelect={onSelectIssue}
+              onSearchChange={(value) => setSearch(threadId, value)}
+              onScopeChange={(scope) => setScope(threadId, scope)}
+              className="h-full"
+            />
+          </div>
+        )
       ) : (
         <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
           This thread is not attached to a project with tracker data.
