@@ -2,7 +2,7 @@ import type { ProjectId, ThreadId } from "@t3tools/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback } from "react";
-import { GitBranchIcon, LayoutListIcon } from "lucide-react";
+import { GitBranchIcon, KanbanIcon, LayoutListIcon } from "lucide-react";
 
 import {
   beadsContextOptions,
@@ -16,6 +16,7 @@ import { useProjectById } from "~/storeSelectors";
 import { Button } from "../ui/button";
 import { CoordinatorTab } from "./CoordinatorTab";
 import { IssuesTab } from "./IssuesTab";
+import { KanbanBoard } from "./KanbanBoard";
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -24,6 +25,7 @@ import { IssuesTab } from "./IssuesTab";
 const TABS = [
   { id: "coordinator" as const, label: "Coordinator", icon: GitBranchIcon },
   { id: "issues" as const, label: "Issues", icon: LayoutListIcon },
+  { id: "board" as const, label: "Board", icon: KanbanIcon },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -57,7 +59,7 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
     beadsQueryIssuesOptions({
       cwd: cwd ?? "",
       sortBy: "updated",
-      enabled: cwd !== null && activeTab === "issues",
+      enabled: cwd !== null && (activeTab === "issues" || activeTab === "board"),
     }),
   );
 
@@ -192,6 +194,17 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
             selectedEpicId={search.epicId ?? null}
             onSelectEpic={setSelectedEpicId}
             onOpenEpicIssue={openEpicIssue}
+            onOpenThread={openThread}
+          />
+        ) : activeTab === "board" ? (
+          <KanbanBoard
+            cwd={cwd}
+            projectId={projectId}
+            issues={issuesQuery.data?.issues ?? []}
+            loading={issuesQuery.isPending}
+            error={issuesQuery.error}
+            selectedIssueId={search.issueId ?? null}
+            onSelectIssue={setSelectedIssueId}
             onOpenThread={openThread}
           />
         ) : (

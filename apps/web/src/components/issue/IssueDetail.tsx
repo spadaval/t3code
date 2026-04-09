@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "~/lib/utils";
+import { getStatusVariant, formatStatusDisplay, getPriorityVariant } from "~/lib/issueConstants";
 import { formatShortTimestamp } from "~/timestampFormat";
 import { useSettings } from "~/hooks/useSettings";
 import { StatusIndicator } from "../shared/StatusIndicator";
@@ -389,7 +390,7 @@ function IssueDetailHeader({
   timestampFormat,
 }: {
   issue: BeadsIssueDetail;
-  statusVariant: "success" | "warning" | "info" | "error" | "secondary";
+  statusVariant: "success" | "warning" | "info" | "error" | "secondary" | "primary";
   priorityComponent: ReactNode;
   timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
 }) {
@@ -675,30 +676,9 @@ function IssueTypeIcon({ issueType, className }: { issueType: string; className?
   return <Icon className={cn("size-4 shrink-0", config.className, className)} />;
 }
 
-// Helper functions for semantic status mapping
-function getStatusVariant(status: string): "success" | "warning" | "info" | "error" | "secondary" {
-  switch (status) {
-    case "closed":
-      return "success";
-    case "in_progress":
-      return "warning";
-    case "open":
-      return "info";
-    case "blocked":
-      return "error";
-    case "deferred":
-      return "secondary";
-    default:
-      return "secondary";
-  }
-}
-
-function formatStatusDisplay(status: string): string {
-  return status.replace(/_/g, " ");
-}
-
+// Helper function for priority display
 function getPriorityDisplay(priority: number): ReactNode {
-  const variant = priority <= 1 ? "error" : priority === 2 ? "warning" : "secondary";
+  const variant = getPriorityVariant(priority);
   return (
     <StatusIndicator variant={variant} size="sm" showDot={false}>
       P{priority}

@@ -33,6 +33,7 @@ import {
   BeadsSwarmSupport,
   BeadsSwarmValidation,
   BeadsUpdateIssueInput,
+  BeadsCreateIssueInput,
   BEADS_WS_METHODS,
 } from "./beads";
 import { OpenError, OpenInEditorInput } from "./editor";
@@ -350,6 +351,12 @@ export const WsBeadsUpdateIssueRpc = Rpc.make(BEADS_WS_METHODS.updateIssue, {
   error: BeadsError,
 });
 
+export const WsBeadsCreateIssueRpc = Rpc.make(BEADS_WS_METHODS.createIssue, {
+  payload: BeadsCreateIssueInput,
+  success: BeadsIssueSummary,
+  error: BeadsError,
+});
+
 export const WsBeadsCommentIssueRpc = Rpc.make(BEADS_WS_METHODS.commentIssue, {
   payload: BeadsCommentIssueInput,
   success: BeadsIssueDetail,
@@ -605,6 +612,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsBeadsQueryIssuesRpc,
   WsBeadsGetIssueRpc,
   WsBeadsUpdateIssueRpc,
+  WsBeadsCreateIssueRpc,
   WsBeadsCommentIssueRpc,
   WsBeadsGetSessionActivityRpc,
   WsBeadsStartWorkflowRpc,

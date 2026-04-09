@@ -11,6 +11,11 @@ import {
 } from "lucide-react";
 
 import { cn } from "~/lib/utils";
+import {
+  getStatusVariant,
+  getPriorityVariant,
+  type IssueStatusVariant,
+} from "~/lib/issueConstants";
 import { formatShortTimestamp } from "~/timestampFormat";
 import { useSettings } from "~/hooks/useSettings";
 
@@ -42,37 +47,13 @@ export function IssueTypeIcon({ issueType, className }: { issueType: string; cla
 // Semantic helpers
 // ---------------------------------------------------------------------------
 
-type SemanticVariant = "success" | "warning" | "info" | "error" | "secondary";
-
-function statusVariant(status: string): SemanticVariant {
-  switch (status) {
-    case "closed":
-      return "success";
-    case "in_progress":
-    case "open":
-      return "info";
-    case "blocked":
-      return "error";
-    case "deferred":
-      return "warning";
-    default:
-      return "secondary";
-  }
-}
-
-function priorityVariant(priority: number | null): SemanticVariant {
-  if (priority === null) return "secondary";
-  if (priority <= 1) return "error";
-  if (priority === 2) return "warning";
-  return "secondary";
-}
-
-const SEMANTIC_TEXT_COLOR: Record<SemanticVariant, string> = {
+const SEMANTIC_TEXT_COLOR: Record<IssueStatusVariant, string> = {
   success: "text-success-foreground",
   warning: "text-warning-foreground",
   info: "text-info-foreground",
   error: "text-destructive-foreground",
   secondary: "text-muted-foreground",
+  primary: "text-foreground",
 };
 
 // ---------------------------------------------------------------------------
@@ -115,9 +96,9 @@ export function IssueCard({
   actions,
 }: IssueCardProps) {
   const settings = useSettings();
-  const statusClass = SEMANTIC_TEXT_COLOR[statusVariant(issue.status)];
+  const statusClass = SEMANTIC_TEXT_COLOR[getStatusVariant(issue.status)];
   const priorityClass =
-    issue.priority !== null ? SEMANTIC_TEXT_COLOR[priorityVariant(issue.priority)] : null;
+    issue.priority !== null ? SEMANTIC_TEXT_COLOR[getPriorityVariant(issue.priority)] : null;
 
   return (
     <button

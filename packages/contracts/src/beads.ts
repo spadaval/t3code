@@ -17,6 +17,7 @@ import {
 export const BEADS_WS_METHODS = {
   queryIssues: "beads.queryIssues",
   getIssue: "beads.getIssue",
+  createIssue: "beads.createIssue",
   updateIssue: "beads.updateIssue",
   commentIssue: "beads.commentIssue",
   getSessionActivity: "beads.getSessionActivity",
@@ -372,6 +373,19 @@ export const BeadsUpdateIssueInput = Schema.Struct({
   claim: Schema.optional(Schema.Boolean),
 });
 export type BeadsUpdateIssueInput = typeof BeadsUpdateIssueInput.Type;
+
+export const BeadsCreateIssueInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  title: TrimmedNonEmptyString,
+  description: Schema.optional(Schema.String),
+  issueType: Schema.optional(BeadsIssueType),
+  priority: Schema.optional(NonNegativeInt),
+  assignee: Schema.optional(Schema.String),
+  labels: Schema.optional(Schema.Array(BeadsLabel)),
+  parent: Schema.optional(BeadsIssueId),
+  status: Schema.optional(BeadsIssueStatus),
+});
+export type BeadsCreateIssueInput = typeof BeadsCreateIssueInput.Type;
 
 export const BeadsCommentIssueInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,

@@ -1207,6 +1207,42 @@ const makeBeadsTrackerService = Effect.gen(function* () {
       });
     });
 
+  const createIssue: BeadsTrackerServiceShape["createIssue"] = (input) =>
+    Effect.gen(function* () {
+      const args = ["create", input.title, "--json"];
+
+      if (input.issueType !== undefined) {
+        args.push("--type", input.issueType);
+      }
+      if (input.description !== undefined) {
+        args.push("--description", input.description);
+      }
+      if (input.priority !== undefined) {
+        args.push("--priority", String(input.priority));
+      }
+      if (input.assignee !== undefined) {
+        args.push("--assignee", input.assignee);
+      }
+      if (input.parent !== undefined) {
+        args.push("--parent", input.parent);
+      }
+      if (input.status !== undefined) {
+        args.push("--status", input.status);
+      }
+      if (input.labels !== undefined && input.labels.length > 0) {
+        args.push("--labels", input.labels.join(","));
+      }
+
+      return yield* runBdJson(input.cwd, args, (json) => {
+        const items = Array.isArray(json) ? json : [json];
+        const issue = (items[0] ?? json) as Record<string, unknown> | undefined;
+        if (!issue) {
+          throw new Error("Failed to create issue: no issue returned from bd create.");
+        }
+        return mapIssueSummary(issue);
+      });
+    });
+
   const commentIssue: BeadsTrackerServiceShape["commentIssue"] = (input) =>
     Effect.gen(function* () {
       yield* runBdRaw(input.cwd, ["comment", input.issueId, input.text]);
@@ -1448,6 +1484,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
   return {
     queryIssues,
     getIssue,
+    createIssue,
     updateIssue,
     commentIssue,
     getContext,
@@ -1584,6 +1621,20 @@ const makeBeadsService = Effect.gen(function* () {
 
   const queryIssues: BeadsServiceShape["queryIssues"] = (input) => beadsTracker.queryIssues(input);
   const getIssue: BeadsServiceShape["getIssue"] = (input) => beadsTracker.getIssue(input);
+
+  const createIssue: BeadsServiceShape["createIssue"] = (input) =>
+    Effect.gen(function* () {
+      const created = yield* beadsTracker.createIssue(input);
+      yield* appendSessionActivity({
+        cwd: input.cwd,
+        entry: {
+          kind: "created",
+          issue: created,
+          createdAt: nowIso(),
+        },
+      });
+      return created;
+    });
 
   const updateIssue: BeadsServiceShape["updateIssue"] = (input) =>
     Effect.gen(function* () {
@@ -1911,6 +1962,7 @@ const makeBeadsService = Effect.gen(function* () {
   return {
     queryIssues,
     getIssue,
+    createIssue,
     updateIssue,
     commentIssue,
     getContext,

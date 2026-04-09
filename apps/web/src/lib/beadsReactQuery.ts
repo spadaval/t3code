@@ -1,5 +1,6 @@
 import type {
   BeadsContext,
+  BeadsCreateIssueInput,
   BeadsEpicCoordinatorSnapshot,
   BeadsEpicCoordinatorSnapshotInput,
   BeadsEpicIssueInput,
@@ -253,6 +254,16 @@ export function beadsUpdateIssueMutationOptions(input: { queryClient: QueryClien
               : previous,
         ),
       ]);
+    },
+  });
+}
+
+export function beadsCreateIssueMutationOptions(input: { queryClient: QueryClient }) {
+  return mutationOptions({
+    mutationFn: async (payload: BeadsCreateIssueInput) =>
+      ensureNativeApi().beads.createIssue(payload),
+    onSuccess: async () => {
+      await input.queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
     },
   });
 }

@@ -10,15 +10,13 @@ import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 import {
   ArrowUpRightIcon,
-  CheckIcon,
   CircleDotIcon,
-  Clock3Icon,
   Loader2Icon,
   MessageSquareTextIcon,
-  PencilIcon,
   PlayIcon,
   SendIcon,
   XIcon,
+  Clock3Icon,
 } from "lucide-react";
 
 import {
@@ -27,6 +25,13 @@ import {
   beadsStartWorkflowMutationOptions,
   beadsUpdateIssueMutationOptions,
 } from "~/lib/beadsReactQuery";
+import {
+  CORE_ISSUE_STATUSES,
+  ISSUE_PRIORITIES,
+  getStatusVariant,
+  getPriorityVariant,
+  formatPriorityDisplay,
+} from "~/lib/issueConstants";
 import { resolveDefaultModelSelection } from "~/lib/modelSelection";
 import { isEpicIssueType } from "~/issuePanel";
 import { listIssueLinkedThreads } from "~/issueThreads";
@@ -36,6 +41,8 @@ import { formatShortTimestamp } from "~/timestampFormat";
 import { DEFAULT_RUNTIME_MODE } from "~/types";
 import { useSettings } from "~/hooks/useSettings";
 import { IssueList } from "../issue/IssueList";
+import { CreateIssueDialog } from "../issue/CreateIssueDialog";
+import { EditableTitle, EditableTextArea } from "../issue/EditableField";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -59,14 +66,6 @@ type IssuesTabProps = {
 };
 
 type IssuePaneScope = "active" | "all" | "closed";
-
-const ISSUE_STATUSES = [
-  { value: "open", label: "Open", variant: "info" as const },
-  { value: "in_progress", label: "In Progress", variant: "warning" as const },
-  { value: "blocked", label: "Blocked", variant: "error" as const },
-  { value: "deferred", label: "Deferred", variant: "secondary" as const },
-  { value: "closed", label: "Closed", variant: "success" as const },
-] as const;
 
 const WORKFLOW_OPTIONS: { value: BeadsIssueWorkflowKind; label: string; description: string }[] = [
   { value: "solve", label: "Solve", description: "Implement the issue" },
@@ -115,6 +114,12 @@ export function IssuesTab(props: IssuesTabProps) {
           onSearchChange={setSearchValue}
           onScopeChange={setScopeFilter}
           className="flex-1"
+          actions={
+            <CreateIssueDialog
+              cwd={props.cwd}
+              onCreated={(issueId) => props.onSelectIssue(issueId)}
+            />
+          }
         />
       </div>
 
@@ -198,12 +203,19 @@ function IssueDetailPanel({
     async (fields: {
       title?: string;
       description?: string;
-      priority?: number;
+      notes?: string;
+      priority?: number | null;
       assignee?: string | null;
       labels?: string[];
+      claim?: boolean;
     }) => {
       try {
-        await updateIssueMutation.mutateAsync({ cwd, issueId, ...fields });
+        // Map null priority to undefined for the API (omit rather than send null)
+        const payload: Record<string, unknown> = { cwd, issueId };
+        for (const [key, value] of Object.entries(fields)) {
+          if (value !== undefined) payload[key] = value;
+        }
+        await updateIssueMutation.mutateAsync(payload as any);
       } catch (error) {
         toastManager.add({
           type: "error",
@@ -317,7 +329,7 @@ function IssueDetailPanel({
               </StatusIndicator>
             </SelectTrigger>
             <SelectPopup>
-              {ISSUE_STATUSES.map((s) => (
+              {CORE_ISSUE_STATUSES.map((s) => (
                 <SelectItem key={s.value} value={s.value}>
                   <span className="flex items-center gap-2">
                     <StatusIndicator variant={s.variant} size="sm">
@@ -394,43 +406,82 @@ function IssueDetailPanel({
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
             <span className="font-mono">#{issue.id}</span>
             <span className="capitalize">{issue.issueType}</span>
-            {issue.priority !== null && <span>P{issue.priority}</span>}
-            {issue.owner && <span>Owner: {issue.owner}</span>}
-            {issue.assignee && <span>Assigned: {issue.assignee}</span>}
-          </div>
 
-          {/* Editable description */}
-          <div className="mt-5">
-            <EditableDescription
-              value={issue.description ?? ""}
-              onSave={(description) => void handleFieldUpdate({ description })}
+            {/* Editable priority */}
+            <Select
+              value={issue.priority !== null ? String(issue.priority) : "none"}
+              onValueChange={(value) => {
+                if (!value) return;
+                if (value === "none") {
+                  // Can't unset priority via the API easily, so skip
+                  return;
+                }
+                void handleFieldUpdate({ priority: Number.parseInt(value, 10) });
+              }}
+              disabled={updateIssueMutation.isPending}
+            >
+              <SelectTrigger
+                size="xs"
+                variant="ghost"
+                className="h-auto w-auto min-w-0 gap-1 px-1 py-0 text-xs"
+              >
+                <StatusIndicator
+                  variant={getPriorityVariant(issue.priority)}
+                  size="sm"
+                  showDot={false}
+                >
+                  <SelectValue>{formatPriorityDisplay(issue.priority) ?? "Priority"}</SelectValue>
+                </StatusIndicator>
+              </SelectTrigger>
+              <SelectPopup>
+                {ISSUE_PRIORITIES.map((p) => (
+                  <SelectItem key={p.value} value={String(p.value)}>
+                    <StatusIndicator variant={p.variant} size="sm" showDot={false}>
+                      {p.label}
+                    </StatusIndicator>
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+
+            {issue.owner && <span>Owner: {issue.owner}</span>}
+
+            {/* Editable assignee */}
+            <AssigneeEditor
+              value={issue.assignee}
+              onSave={(assignee) => void handleFieldUpdate({ assignee })}
+              onClaim={() => void handleFieldUpdate({ claim: true })}
               saving={updateIssueMutation.isPending}
             />
           </div>
 
-          {/* Notes (read-only) */}
-          {issue.notes?.trim() && (
-            <div className="mt-5 space-y-1.5">
-              <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Notes
-              </h3>
-              <p className="whitespace-pre-wrap text-sm text-foreground">{issue.notes}</p>
-            </div>
-          )}
+          {/* Editable description */}
+          <div className="mt-5">
+            <EditableTextArea
+              value={issue.description ?? ""}
+              onSave={(description) => void handleFieldUpdate({ description })}
+              saving={updateIssueMutation.isPending}
+              label="Description"
+            />
+          </div>
 
-          {/* Labels */}
-          {issue.labels.length > 0 && (
-            <div className="mt-5 flex flex-wrap gap-1.5">
-              {issue.labels.map((label) => (
-                <span
-                  key={label}
-                  className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
-                >
-                  {label}
-                </span>
-              ))}
-            </div>
-          )}
+          {/* Editable notes */}
+          <div className="mt-5">
+            <EditableTextArea
+              value={issue.notes ?? ""}
+              onSave={(notes) => void handleFieldUpdate({ notes })}
+              saving={updateIssueMutation.isPending}
+              label="Notes"
+              minHeight="min-h-[4rem]"
+            />
+          </div>
+
+          {/* Editable labels */}
+          <LabelEditor
+            labels={[...issue.labels]}
+            onSave={(labels) => void handleFieldUpdate({ labels })}
+            saving={updateIssueMutation.isPending}
+          />
 
           {/* Dependencies */}
           {issue.dependencies.length > 0 && (
@@ -452,193 +503,6 @@ function IssueDetailPanel({
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Editable title
-// ---------------------------------------------------------------------------
-
-function EditableTitle({
-  value,
-  onSave,
-  saving,
-}: {
-  value: string;
-  onSave: (value: string) => void;
-  saving: boolean;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-
-  const handleStartEdit = useCallback(() => {
-    setDraft(value);
-    setEditing(true);
-  }, [value]);
-
-  const handleSave = useCallback(() => {
-    const trimmed = draft.trim();
-    if (trimmed.length > 0 && trimmed !== value) {
-      onSave(trimmed);
-    }
-    setEditing(false);
-  }, [draft, onSave, value]);
-
-  const handleCancel = useCallback(() => {
-    setEditing(false);
-    setDraft(value);
-  }, [value]);
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        handleSave();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        handleCancel();
-      }
-    },
-    [handleSave, handleCancel],
-  );
-
-  if (editing) {
-    return (
-      <div className="flex items-start gap-2">
-        <Input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onBlur={handleSave}
-          autoFocus
-          className="text-xl font-semibold"
-          disabled={saving}
-        />
-        <Button size="icon-sm" variant="ghost" onClick={handleSave} disabled={saving}>
-          <CheckIcon className="size-4" />
-        </Button>
-        <Button size="icon-sm" variant="ghost" onClick={handleCancel}>
-          <XIcon className="size-4" />
-        </Button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="group flex items-start gap-2">
-      <button
-        type="button"
-        className="flex-1 cursor-pointer text-left text-xl font-semibold text-foreground leading-tight hover:text-foreground/80"
-        onClick={handleStartEdit}
-      >
-        {value}
-      </button>
-      <Button
-        size="icon-sm"
-        variant="ghost"
-        onClick={handleStartEdit}
-        className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-        aria-label="Edit title"
-      >
-        <PencilIcon className="size-3.5" />
-      </Button>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Editable description
-// ---------------------------------------------------------------------------
-
-function EditableDescription({
-  value,
-  onSave,
-  saving,
-}: {
-  value: string;
-  onSave: (value: string) => void;
-  saving: boolean;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-
-  const handleStartEdit = useCallback(() => {
-    setDraft(value);
-    setEditing(true);
-  }, [value]);
-
-  const handleSave = useCallback(() => {
-    if (draft !== value) {
-      onSave(draft);
-    }
-    setEditing(false);
-  }, [draft, onSave, value]);
-
-  const handleCancel = useCallback(() => {
-    setEditing(false);
-    setDraft(value);
-  }, [value]);
-
-  if (editing) {
-    return (
-      <div className="space-y-2">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Description
-        </h3>
-        <Textarea
-          value={draft}
-          onChange={(e) => setDraft(e.currentTarget.value)}
-          autoFocus
-          className="min-h-[6rem] text-sm"
-          disabled={saving}
-        />
-        <div className="flex gap-2">
-          <Button size="xs" onClick={handleSave} disabled={saving}>
-            {saving ? <Loader2Icon className="mr-1 size-3 animate-spin" /> : null}
-            Save
-          </Button>
-          <Button size="xs" variant="outline" onClick={handleCancel}>
-            Cancel
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="group space-y-1.5">
-      <div className="flex items-center justify-between">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Description
-        </h3>
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          onClick={handleStartEdit}
-          className="opacity-0 transition-opacity group-hover:opacity-100"
-          aria-label="Edit description"
-        >
-          <PencilIcon className="size-3" />
-        </Button>
-      </div>
-      {value.trim() ? (
-        <button
-          type="button"
-          className="w-full cursor-pointer whitespace-pre-wrap text-left text-sm text-foreground hover:bg-muted/30 rounded-md p-1 -m-1 transition-colors"
-          onClick={handleStartEdit}
-        >
-          {value}
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={handleStartEdit}
-          className="text-sm text-muted-foreground italic hover:text-foreground transition-colors"
-        >
-          Add a description...
-        </button>
-      )}
     </div>
   );
 }
@@ -706,6 +570,207 @@ function CommentInput({
 }
 
 // ---------------------------------------------------------------------------
+// Assignee editor — inline text field with claim button
+// ---------------------------------------------------------------------------
+
+function AssigneeEditor({
+  value,
+  onSave,
+  onClaim,
+  saving,
+}: {
+  value: string | null;
+  onSave: (assignee: string | null) => void;
+  onClaim: () => void;
+  saving: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value ?? "");
+
+  const handleStartEdit = useCallback(() => {
+    setDraft(value ?? "");
+    setEditing(true);
+  }, [value]);
+
+  const handleSave = useCallback(() => {
+    const trimmed = draft.trim();
+    const newValue = trimmed.length > 0 ? trimmed : null;
+    if (newValue !== value) {
+      onSave(newValue);
+    }
+    setEditing(false);
+  }, [draft, onSave, value]);
+
+  const handleCancel = useCallback(() => {
+    setEditing(false);
+    setDraft(value ?? "");
+  }, [value]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleSave();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        handleCancel();
+      }
+    },
+    [handleSave, handleCancel],
+  );
+
+  if (editing) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onBlur={handleSave}
+          autoFocus
+          placeholder="Assignee..."
+          className="h-5 w-24 px-1 text-xs"
+          disabled={saving}
+        />
+      </span>
+    );
+  }
+
+  if (value) {
+    return (
+      <button
+        type="button"
+        onClick={handleStartEdit}
+        className="cursor-pointer hover:text-foreground transition-colors"
+        disabled={saving}
+      >
+        Assigned: {value}
+      </button>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <button
+        type="button"
+        onClick={handleStartEdit}
+        className="cursor-pointer text-muted-foreground/60 hover:text-foreground transition-colors"
+        disabled={saving}
+      >
+        Assign
+      </button>
+      <span className="opacity-30">·</span>
+      <button
+        type="button"
+        onClick={onClaim}
+        className="cursor-pointer text-muted-foreground/60 hover:text-foreground transition-colors"
+        disabled={saving}
+      >
+        Claim
+      </button>
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Label editor — removable chips + inline add input
+// ---------------------------------------------------------------------------
+
+function LabelEditor({
+  labels,
+  onSave,
+  saving,
+}: {
+  labels: string[];
+  onSave: (labels: string[]) => void;
+  saving: boolean;
+}) {
+  const [newLabel, setNewLabel] = useState("");
+  const [isAdding, setIsAdding] = useState(false);
+
+  const handleRemoveLabel = useCallback(
+    (labelToRemove: string) => {
+      onSave(labels.filter((l) => l !== labelToRemove));
+    },
+    [labels, onSave],
+  );
+
+  const handleAddLabel = useCallback(() => {
+    const trimmed = newLabel.trim();
+    if (trimmed.length === 0 || labels.includes(trimmed)) {
+      setNewLabel("");
+      return;
+    }
+    onSave([...labels, trimmed]);
+    setNewLabel("");
+  }, [newLabel, labels, onSave]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleAddLabel();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        setIsAdding(false);
+        setNewLabel("");
+      }
+    },
+    [handleAddLabel],
+  );
+
+  return (
+    <div className="mt-5 space-y-1.5">
+      <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Labels</h3>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {labels.map((label) => (
+          <span
+            key={label}
+            className="group/label inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+          >
+            {label}
+            <button
+              type="button"
+              onClick={() => handleRemoveLabel(label)}
+              disabled={saving}
+              className="opacity-0 group-hover/label:opacity-100 transition-opacity hover:text-destructive-foreground"
+              aria-label={`Remove label ${label}`}
+            >
+              <XIcon className="size-3" />
+            </button>
+          </span>
+        ))}
+
+        {isAdding ? (
+          <Input
+            value={newLabel}
+            onChange={(e) => setNewLabel(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onBlur={() => {
+              if (newLabel.trim()) handleAddLabel();
+              setIsAdding(false);
+            }}
+            autoFocus
+            placeholder="Label..."
+            className="h-5 w-20 px-1 text-xs"
+            disabled={saving}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setIsAdding(true)}
+            className="rounded-md border border-dashed border-border px-1.5 py-0.5 text-xs text-muted-foreground/60 hover:text-foreground hover:border-border transition-colors"
+            disabled={saving}
+          >
+            + Add
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Empty state
 // ---------------------------------------------------------------------------
 
@@ -727,27 +792,6 @@ function EmptyDetailState({ issueCount }: { issueCount: number }) {
       </div>
     </div>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function getStatusVariant(status: string): "success" | "warning" | "info" | "error" | "secondary" {
-  switch (status) {
-    case "closed":
-      return "success";
-    case "in_progress":
-      return "warning";
-    case "open":
-      return "info";
-    case "blocked":
-      return "error";
-    case "deferred":
-      return "secondary";
-    default:
-      return "secondary";
-  }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 export interface IssuesRouteSearch {
-  tab?: "coordinator" | "issues";
+  tab?: "coordinator" | "issues" | "board";
   epicId?: string;
   issueId?: string;
 }
@@ -13,7 +13,7 @@ function normalizeSearchString(value: unknown): string | undefined {
 }
 
 function parseTab(value: unknown): IssuesRouteSearch["tab"] {
-  if (value === "coordinator" || value === "issues") {
+  if (value === "coordinator" || value === "issues" || value === "board") {
     return value;
   }
   return undefined;

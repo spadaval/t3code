@@ -28,6 +28,7 @@ import type {
   BeadsSwarmSupport,
   BeadsSwarmValidation,
   BeadsUpdateIssueInput,
+  BeadsCreateIssueInput,
 } from "./beads";
 import type {
   GitCheckoutInput,
@@ -271,6 +272,7 @@ export interface NativeApi {
   beads: {
     queryIssues: (input: BeadsQueryIssuesInput) => Promise<BeadsQueryIssuesResult>;
     getIssue: (input: BeadsGetIssueInput) => Promise<BeadsIssueDetail>;
+    createIssue: (input: BeadsCreateIssueInput) => Promise<BeadsIssueSummary>;
     updateIssue: (input: BeadsUpdateIssueInput) => Promise<BeadsIssueSummary>;
     commentIssue: (input: BeadsCommentIssueInput) => Promise<BeadsIssueDetail>;
     getContext: (input: BeadsGetContextInput) => Promise<BeadsContext>;

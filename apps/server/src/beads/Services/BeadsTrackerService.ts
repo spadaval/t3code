@@ -1,6 +1,7 @@
 import type {
   BeadsCommentIssueInput,
   BeadsContext,
+  BeadsCreateIssueInput,
   BeadsEpicIssueInput,
   BeadsGetContextInput,
   BeadsGetIssueInput,
@@ -30,6 +31,9 @@ export interface BeadsTrackerServiceShape {
   readonly getIssue: (input: BeadsGetIssueInput) => Effect.Effect<BeadsIssueDetail, BeadsError>;
   readonly updateIssue: (
     input: BeadsUpdateIssueInput,
+  ) => Effect.Effect<BeadsIssueSummary, BeadsError>;
+  readonly createIssue: (
+    input: BeadsCreateIssueInput,
   ) => Effect.Effect<BeadsIssueSummary, BeadsError>;
   readonly commentIssue: (
     input: BeadsCommentIssueInput,
