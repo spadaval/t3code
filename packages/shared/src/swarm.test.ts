@@ -223,24 +223,31 @@ describe("swarm", () => {
     );
   });
 
-  it("selects the first non-empty validation front", () => {
+  it("prefers live status ready issues over validation fronts when they disagree", () => {
     expect(
       selectDeterministicReadyIssue({
-        validation: {
-          readyFronts: [[], [makeIssue("TASK-2", 2), makeIssue("TASK-1", 1)]],
-        },
-        status: { ready: [makeIssue("TASK-9", 0)] },
+        validation: { readyFronts: [[makeIssue("TASK-2", 2)]] },
+        status: { ready: [makeIssue("TASK-1", 1)] },
       })?.id,
     ).toBe("TASK-1");
   });
 
-  it("falls back to swarm status ready issues", () => {
+  it("falls back to validation fronts when status is unavailable", () => {
     expect(
       selectDeterministicReadyIssue({
-        validation: { readyFronts: [] },
-        status: { ready: [makeIssue("TASK-2", 2), makeIssue("TASK-1", 1)] },
+        validation: { readyFronts: [[], [makeIssue("TASK-2", 2), makeIssue("TASK-1", 1)]] },
+        status: null,
       })?.id,
     ).toBe("TASK-1");
+  });
+
+  it("keeps deterministic ordering within status.ready", () => {
+    expect(
+      selectDeterministicReadyIssue({
+        validation: { readyFronts: [[makeIssue("TASK-9", 0)]] },
+        status: { ready: [makeIssue("TASK-2", 2), makeIssue("TASK-1", 2), makeIssue("TASK-3", 1)] },
+      })?.id,
+    ).toBe("TASK-3");
   });
 
   it("selects deterministically from a plain issue list", () => {

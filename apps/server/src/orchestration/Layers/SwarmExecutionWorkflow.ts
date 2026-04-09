@@ -1,4 +1,5 @@
 import {
+  type BeadsSwarmStatus,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_MODEL_BY_PROVIDER,
@@ -42,6 +43,7 @@ const RECONCILIATION_INTERVAL = Duration.seconds(15);
 const WORKER_STOP_POLL_INTERVAL = Duration.millis(250);
 const WORKER_INTERRUPT_CONFIRM_TIMEOUT = Duration.seconds(3);
 const WORKER_SESSION_STOP_CONFIRM_TIMEOUT = Duration.seconds(5);
+const REQUESTED_EXECUTION_TIMEOUT = Duration.seconds(60);
 
 function workflowError(
   operation: string,
@@ -102,10 +104,6 @@ function isNonTerminalRunStatus(status: OrchestrationSwarmRunStatus): boolean {
   return !isTerminalRunStatus(status);
 }
 
-function isResumeBlockedRunStatus(status: OrchestrationSwarmRunStatus): boolean {
-  return status === "failed" || status === "completed";
-}
-
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message;
@@ -146,6 +144,38 @@ function describeRequestedExecutionLaunchFailure(input: {
       ? `Worker thread '${input.workerThreadId}' did not reach an active turn.`
       : "The worker thread was unavailable.",
     input.reason,
+  ].join(" ");
+}
+
+function executionAgeMillis(requestedAt: string): number {
+  const requestedAtMillis = Date.parse(requestedAt);
+  if (Number.isNaN(requestedAtMillis)) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return Date.now() - requestedAtMillis;
+}
+
+function requestedExecutionTimedOut(execution: OrchestrationSwarmTaskExecution): boolean {
+  return (
+    executionAgeMillis(execution.requestedAt) >= Duration.toMillis(REQUESTED_EXECUTION_TIMEOUT)
+  );
+}
+
+function describeRequestedExecutionTimeout(input: {
+  readonly executionId: SwarmTaskExecutionId;
+  readonly issueId: string;
+  readonly workerThreadId: ThreadId | null;
+  readonly sessionStatus: string | null | undefined;
+  readonly latestTurnState: string | null | undefined;
+}): string {
+  return [
+    `Requested swarm task execution '${input.executionId}' for issue '${input.issueId}' timed out while launching.`,
+    input.workerThreadId
+      ? `Worker thread '${input.workerThreadId}' never reached an active turn before timeout.`
+      : "The worker thread was unavailable before launch progress was observed.",
+    `Observed session status: ${input.sessionStatus ?? "missing"}.`,
+    `Observed latest turn state: ${input.latestTurnState ?? "missing"}.`,
+    `Launch made no usable session or turn progress within ${Duration.toSeconds(REQUESTED_EXECUTION_TIMEOUT)} seconds.`,
   ].join(" ");
 }
 
@@ -212,6 +242,13 @@ function describeWorkerFailureRecoveryReason(input: { readonly issueId: string |
   return input.issueId
     ? `Worker execution for issue '${input.issueId}' failed. Resolve the tracker state for this issue, refresh swarm status, then continue the run.`
     : "A swarm worker failed. Resolve the tracker state, refresh swarm status, then continue the run.";
+}
+
+function isIssueCurrentlyLiveReady(
+  status: Pick<BeadsSwarmStatus, "ready"> | null,
+  issueId: string,
+): boolean {
+  return status?.ready.some((issue) => issue.id === issueId) ?? false;
 }
 
 function workerThreadStillHasActiveTurn(input: {
@@ -588,6 +625,23 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         status,
         nextReadyIssue: selectDeterministicReadyIssue({ validation, status }),
       } as const;
+    });
+
+  const resolveLaunchableTrackerState = (input: {
+    readonly projectId: OrchestrationProject["id"];
+    readonly epicIssueId: string;
+  }) =>
+    Effect.gen(function* () {
+      const trackerState = yield* getTrackerState(input);
+      if (trackerState.nextReadyIssue === null) {
+        return trackerState;
+      }
+
+      if (isIssueCurrentlyLiveReady(trackerState.status, trackerState.nextReadyIssue.id)) {
+        return trackerState;
+      }
+
+      return yield* getTrackerState(input);
     });
 
   const getIssueById = (input: {
@@ -1139,7 +1193,7 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
         return invariant.run;
       }
 
-      const trackerState = yield* getTrackerState({
+      const trackerState = yield* resolveLaunchableTrackerState({
         projectId: run.projectId,
         epicIssueId: run.epicIssueId,
       });
@@ -1494,6 +1548,34 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
               reason:
                 thread.value.session?.lastError ??
                 "Worker thread never reported a started turn before reconciliation.",
+            }),
+            500,
+          ),
+        });
+      }
+
+      if (
+        launchWasRequested &&
+        !workerStillRunning &&
+        thread.value.latestTurn === null &&
+        (thread.value.session === null ||
+          thread.value.session.status === "starting" ||
+          thread.value.session.status === "idle") &&
+        requestedExecutionTimedOut(input.execution)
+      ) {
+        return yield* cleanupFailedRequestedExecutionLaunch({
+          run: input.run,
+          project,
+          executionId: input.execution.executionId,
+          issueId: input.execution.issueId,
+          workerThreadId: input.execution.workerThreadId,
+          reason: truncateDetail(
+            describeRequestedExecutionTimeout({
+              executionId: input.execution.executionId,
+              issueId: input.execution.issueId,
+              workerThreadId: input.execution.workerThreadId,
+              sessionStatus: thread.value.session?.status,
+              latestTurnState: null,
             }),
             500,
           ),
@@ -1942,8 +2024,14 @@ const makeSwarmExecutionWorkflow = Effect.gen(function* () {
   const resumeSwarmRun: SwarmExecutionWorkflowShape["resumeSwarmRun"] = (input) =>
     Effect.gen(function* () {
       const run = yield* getRunById(input.runId);
-      if (isResumeBlockedRunStatus(run.status)) {
+      if (run.status === "failed" || run.status === "completed") {
         return asControlResult(run);
+      }
+      if (run.status === "blocked") {
+        return yield* workflowError(
+          "resumeSwarmRun",
+          `Swarm run '${run.runId}' is blocked and must be continued, not resumed.`,
+        );
       }
       if (run.status !== "paused" && run.status !== "cancelled") {
         return yield* workflowError(

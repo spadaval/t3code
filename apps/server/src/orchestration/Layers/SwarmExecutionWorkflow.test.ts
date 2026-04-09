@@ -176,6 +176,18 @@ function makeReadySession(threadId: ThreadId): OrchestrationSession {
   };
 }
 
+function makeIdleSession(threadId: ThreadId): OrchestrationSession {
+  return {
+    threadId,
+    status: "idle",
+    providerName: "codex",
+    runtimeMode: "full-access",
+    activeTurnId: null,
+    lastError: null,
+    updatedAt: now,
+  };
+}
+
 function makeRunningSession(
   threadId: ThreadId,
   activeTurnId = "turn-running",
@@ -733,6 +745,9 @@ describe("SwarmExecutionWorkflow", () => {
     options: HarnessOptions = {},
   ) {
     let trackerState = initialTrackerState;
+    let trackerStateSequence: ReadonlyArray<TrackerState> | null = null;
+    let pendingTrackerStateSnapshot: TrackerState | null = null;
+    let pendingTrackerStateReadsRemaining = 0;
     let createEpicSwarmCallCount = 0;
     let readModel = createEmptyReadModel();
     let readModelCallCount = 0;
@@ -754,6 +769,27 @@ describe("SwarmExecutionWorkflow", () => {
         }),
       ],
     ]);
+
+    const readTrackerStateSnapshot = (): TrackerState => {
+      if (pendingTrackerStateSnapshot !== null) {
+        const snapshot = pendingTrackerStateSnapshot;
+        pendingTrackerStateReadsRemaining -= 1;
+        if (pendingTrackerStateReadsRemaining === 0) {
+          pendingTrackerStateSnapshot = null;
+        }
+        return snapshot;
+      }
+
+      const snapshot = trackerStateSequence?.[0] ?? trackerStateSequence?.at(-1) ?? trackerState;
+
+      if (trackerStateSequence && trackerStateSequence.length > 1) {
+        trackerStateSequence = trackerStateSequence.slice(1);
+      }
+
+      pendingTrackerStateSnapshot = snapshot;
+      pendingTrackerStateReadsRemaining = 2;
+      return snapshot;
+    };
 
     const trackerService: BeadsTrackerServiceShape = {
       queryIssues: () => Effect.fail(beadsError("unexpected queryIssues call")),
@@ -810,14 +846,19 @@ describe("SwarmExecutionWorkflow", () => {
           return Effect.succeed(updated);
         }),
       getContext: () => Effect.fail(beadsError("unexpected getContext call")),
-      getSwarmSupport: () => Effect.succeed(trackerState.support),
+      getSwarmSupport: () => Effect.succeed(readTrackerStateSnapshot().support),
       getIssueGraph: () => Effect.fail(beadsError("unexpected getIssueGraph call")),
-      getEpicSwarm: () => Effect.succeed(trackerState.validation.swarm),
-      validateEpicSwarm: () => Effect.succeed(trackerState.validation),
-      getEpicSwarmStatus: () => Effect.succeed(trackerState.status),
+      getEpicSwarm: () => Effect.succeed(readTrackerStateSnapshot().validation.swarm),
+      validateEpicSwarm: () => Effect.succeed(readTrackerStateSnapshot().validation),
+      getEpicSwarmStatus: () => Effect.succeed(readTrackerStateSnapshot().status),
       listSwarms: () =>
-        Effect.succeed({
-          swarms: trackerState.validation.swarm ? [trackerState.validation.swarm] : [],
+        Effect.sync(() => {
+          const currentTrackerState = readTrackerStateSnapshot();
+          return {
+            swarms: currentTrackerState.validation.swarm
+              ? [currentTrackerState.validation.swarm]
+              : [],
+          };
         }),
       createEpicSwarm: ({ epicIssueId }) =>
         Effect.suspend(() => {
@@ -952,11 +993,29 @@ describe("SwarmExecutionWorkflow", () => {
       },
       setTrackerState: (next: TrackerState) => {
         trackerState = next;
+        trackerStateSequence = null;
+        pendingTrackerStateSnapshot = null;
+        pendingTrackerStateReadsRemaining = 0;
+      },
+      setTrackerStateSequence: (next: ReadonlyArray<TrackerState>) => {
+        trackerStateSequence = next;
+        trackerState = next.at(-1) ?? trackerState;
+        pendingTrackerStateSnapshot = null;
+        pendingTrackerStateReadsRemaining = 0;
       },
       getCreateEpicSwarmCallCount: () => createEpicSwarmCallCount,
       getReadModelCallCount: () => readModelCallCount,
       patchReadModel: (transform: (current: OrchestrationReadModel) => OrchestrationReadModel) => {
         readModel = transform(readModel);
+      },
+      patchExecution: (
+        executionId: SwarmTaskExecutionId,
+        patch: Partial<OrchestrationSwarmTaskExecution>,
+      ) => {
+        readModel = updateExecution(readModel, executionId, (execution) => ({
+          ...execution,
+          ...patch,
+        }));
       },
     };
   }
@@ -1007,7 +1066,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(issue?.comments.at(-1)?.text).toContain("Swarm worker started.");
   });
 
-  it("keeps requested executions pending during reconciliation until worker start is observed", async () => {
+  it("keeps requested execution pending before timeout when launch has been requested but not observed", async () => {
     const harness = await createHarness();
 
     const started = await runtime!.runPromise(
@@ -1020,17 +1079,30 @@ describe("SwarmExecutionWorkflow", () => {
       }),
     );
     await runtime!.runPromise(harness.workflow.drain);
+    const initialSnapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const execution = initialSnapshot.swarmTaskExecutions[0];
+    if (!execution?.workerThreadId) {
+      return;
+    }
+
+    harness.patchThread(execution.workerThreadId, {
+      latestTurn: null,
+      session: null,
+    });
+    harness.patchExecution(execution.executionId, {
+      requestedAt: new Date(Date.now() - Duration.toMillis(Duration.seconds(30))).toISOString(),
+    });
     await runtime!.runPromise(Effect.scoped(harness.workflow.start));
 
     const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
     const run = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
-    const execution = snapshot.swarmTaskExecutions[0];
+    const reconciledExecution = snapshot.swarmTaskExecutions[0];
     const issue = harness.getIssue("TASK-1");
 
     expect(run?.status).toBe("running");
     expect(run?.blockedContext).toBeNull();
-    expect(execution?.status).toBe("requested");
-    expect(execution?.startedAt).toBeNull();
+    expect(reconciledExecution?.status).toBe("requested");
+    expect(reconciledExecution?.startedAt).toBeNull();
     expect(snapshot.swarmTaskExecutions).toHaveLength(1);
     expect(snapshot.threads).toHaveLength(1);
     expect(issue?.status).toBe("in_progress");
@@ -1309,6 +1381,144 @@ describe("SwarmExecutionWorkflow", () => {
     const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
     const run = snapshot.swarmRuns.find((entry) => entry.runId === result.runId);
     expect(run?.status).toBe("blocked");
+  });
+
+  it("starts execution from live ready status when validation exposes extra candidates", async () => {
+    const baseline = makeTrackerState();
+    const harness = await createHarness(
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [[relationIssue("TASK-1", 1), relationIssue("TASK-2", 2)]],
+        },
+        status: {
+          ...baseline.status,
+          ready: [relationIssue("TASK-2", 2)],
+        },
+      }),
+    );
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startSwarmRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const execution = snapshot.swarmTaskExecutions[0];
+    const firstIssue = harness.getIssue("TASK-1");
+    const secondIssue = harness.getIssue("TASK-2");
+
+    expect(started.status).toBe("requested");
+    expect(execution?.issueId).toBe("TASK-2");
+    expect(firstIssue?.status).toBe("open");
+    expect(firstIssue?.assignee).toBeNull();
+    expect(secondIssue?.status).toBe("in_progress");
+    expect(secondIssue?.assignee).toBe(`t3code-swarm/${started.runId}`);
+  });
+
+  it("does not claim validation-only issues after launchable-state recheck", async () => {
+    const baseline = makeTrackerState();
+    const harness = await createHarness();
+    harness.setTrackerStateSequence([
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [[relationIssue("TASK-1", 1)]],
+        },
+        status: {
+          ...baseline.status,
+          ready: [],
+        },
+      }),
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [],
+        },
+        status: {
+          ...baseline.status,
+          ready: [],
+          active: [],
+          blocked: [],
+        },
+      }),
+    ]);
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startSwarmRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const run = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
+    const issue = harness.getIssue("TASK-1");
+
+    expect(snapshot.swarmTaskExecutions).toHaveLength(0);
+    expect(snapshot.threads).toHaveLength(0);
+    expect(run?.status).toBe("completed");
+    expect(issue?.status).toBe("open");
+    expect(issue?.assignee).toBeNull();
+  });
+
+  it("blocks instead of dispatching when ready issue disappears and active or blocked work remains", async () => {
+    const baseline = makeTrackerState();
+    const harness = await createHarness();
+    harness.setTrackerStateSequence([
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [[relationIssue("TASK-1", 1)]],
+        },
+        status: {
+          ...baseline.status,
+          ready: [relationIssue("TASK-1", 1)],
+        },
+      }),
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [],
+        },
+        status: {
+          ...baseline.status,
+          ready: [],
+          blocked: [relationIssue("TASK-9", 2)],
+        },
+      }),
+    ]);
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startSwarmRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const run = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
+    const issue = harness.getIssue("TASK-1");
+
+    expect(snapshot.swarmTaskExecutions).toHaveLength(0);
+    expect(snapshot.threads).toHaveLength(0);
+    expect(run?.status).toBe("blocked");
+    expect(issue?.status).toBe("open");
+    expect(issue?.assignee).toBeNull();
   });
 
   it("rejects continuing a run while an execution is already active", async () => {
@@ -1998,6 +2208,103 @@ describe("SwarmExecutionWorkflow", () => {
     expect(issue?.comments.at(-1)?.text).toContain("Swarm worker failed.");
   });
 
+  it("fails requested execution after timeout when no session or turn progress appears", async () => {
+    const harness = await createHarness(makeTrackerState());
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startSwarmRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const initialSnapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const execution = initialSnapshot.swarmTaskExecutions[0];
+    if (!execution?.workerThreadId) {
+      return;
+    }
+
+    harness.patchThread(execution.workerThreadId, {
+      latestTurn: null,
+      session: null,
+    });
+    harness.patchExecution(execution.executionId, {
+      requestedAt: new Date(Date.now() - Duration.toMillis(Duration.seconds(61))).toISOString(),
+    });
+
+    await runtime!.runPromise(Effect.scoped(harness.workflow.start));
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const run = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
+    const failedExecution = snapshot.swarmTaskExecutions.find(
+      (entry) => entry.executionId === execution.executionId,
+    );
+    const thread = snapshot.threads.find((entry) => entry.id === execution.workerThreadId);
+
+    expect(run?.status).toBe("blocked");
+    expect(run?.blockedContext).toEqual({
+      kind: "worker_failure",
+      issueId: "TASK-1",
+      executionId: execution.executionId,
+      workerThreadId: execution.workerThreadId,
+    });
+    expect(run?.lastError).toContain("timed out while launching");
+    expect(run?.lastError).toContain("never reached an active turn before timeout");
+    expect(failedExecution?.status).toBe("failed");
+    expect(thread?.deletedAt).toBe(now);
+  });
+
+  it("restores issue snapshot on requested execution timeout", async () => {
+    const harness = await createHarness(makeTrackerState());
+    harness.patchIssue("TASK-1", {
+      status: "open",
+      assignee: "issue-owner",
+    });
+
+    await runtime!.runPromise(
+      harness.workflow.startSwarmRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const initialSnapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const execution = initialSnapshot.swarmTaskExecutions[0];
+    if (!execution?.workerThreadId) {
+      return;
+    }
+
+    harness.patchThread(execution.workerThreadId, {
+      latestTurn: null,
+      session: makeIdleSession(execution.workerThreadId),
+    });
+    harness.patchExecution(execution.executionId, {
+      requestedAt: new Date(Date.now() - Duration.toMillis(Duration.seconds(61))).toISOString(),
+    });
+
+    await runtime!.runPromise(Effect.scoped(harness.workflow.start));
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const timedOutExecution = snapshot.swarmTaskExecutions.find(
+      (entry) => entry.executionId === execution.executionId,
+    );
+    const issue = harness.getIssue("TASK-1");
+
+    expect(timedOutExecution?.status).toBe("failed");
+    expect(issue?.status).toBe("open");
+    expect(issue?.assignee).toBe("issue-owner");
+    expect(issue?.comments.at(-1)?.text).toContain("Swarm worker failed.");
+    expect(issue?.comments.at(-1)?.text).toContain("timed out while launching");
+  });
+
   it("fails shared-workspace runs when reconciliation finds multiple non-terminal worker executions", async () => {
     const harness = await createHarness();
 
@@ -2106,6 +2413,42 @@ describe("SwarmExecutionWorkflow", () => {
       executionId: execution.executionId,
       workerThreadId: execution.workerThreadId,
     });
+  });
+
+  it("rejects resume on blocked runs with continue-specific error", async () => {
+    const baseline = makeTrackerState();
+    const harness = await createHarness(
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [],
+        },
+        status: {
+          ...baseline.status,
+          ready: [],
+          blocked: [relationIssue("TASK-9", 2)],
+        },
+      }),
+    );
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startSwarmRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    await expect(
+      runtime!.runPromise(
+        harness.workflow.resumeSwarmRun({
+          runId: started.runId,
+        }),
+      ),
+    ).rejects.toThrow("must be continued, not resumed");
   });
 
   it("fails shared-workspace runs when cancel sees duplicate active worker executions", async () => {

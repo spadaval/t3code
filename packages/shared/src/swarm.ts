@@ -30,6 +30,10 @@ export function selectDeterministicReadyIssue(input: {
   readonly validation: Pick<BeadsSwarmValidation, "readyFronts"> | null;
   readonly status: Pick<BeadsSwarmStatus, "ready"> | null;
 }): BeadsIssueRelationSummary | null {
+  if (input.status) {
+    return selectDeterministicReadyIssueFromList(input.status.ready);
+  }
+
   for (const front of input.validation?.readyFronts ?? []) {
     const issue = selectDeterministicReadyIssueFromList(front);
     if (issue) {
@@ -37,7 +41,7 @@ export function selectDeterministicReadyIssue(input: {
     }
   }
 
-  return selectDeterministicReadyIssueFromList(input.status?.ready ?? []);
+  return null;
 }
 
 export interface SwarmProjectionState {
