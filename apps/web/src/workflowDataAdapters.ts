@@ -181,7 +181,12 @@ export function createEpicEntity(
   threadId?: ThreadId,
 ): WorkflowEntity {
   // Map epic state to workflow state
-  const currentState: IssuePreparationState = epic.stateKind === "ready" ? "ready" : "draft";
+  const currentState: IssuePreparationState =
+    epic.coordinationSupported &&
+    epic.validationState === "valid" &&
+    epic.trackerState !== "completed"
+      ? "ready"
+      : "draft";
   const phase = determineWorkflowPhase("epic", currentState);
 
   return {

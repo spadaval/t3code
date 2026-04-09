@@ -1456,8 +1456,8 @@ layer("BeadsServiceLive", (it) => {
         });
 
         assert.equal(snapshot.epics[0]?.epicId, "EPIC-MISSING");
-        assert.equal(snapshot.epics[0]?.fetchLifecycle.kind, "error");
-        expect(snapshot.epics[0]?.fetchLifecycle.detail).toContain("no issue found matching");
+        assert.equal(snapshot.epics[0]?.trackerLoadState, "error");
+        expect(snapshot.epics[0]?.trackerLoadDetail).toContain("no issue found matching");
         expect(countBdCommandCalls("show EPIC-MISSING --long")).toBe(1);
         expect(countBdCommandCalls("swarm validate EPIC-MISSING")).toBe(0);
         expect(countBdCommandCalls("swarm status EPIC-MISSING")).toBe(0);

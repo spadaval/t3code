@@ -1,4 +1,7 @@
 import type {
+  BeadsCoordinatorTrackerLoadState,
+  BeadsCoordinatorTrackerState,
+  BeadsCoordinatorValidationState,
   BeadsIssueRelationSummary,
   BeadsSwarmStatus,
   BeadsSwarmSupport,
@@ -116,6 +119,13 @@ export function compareSwarmRunsByRequestedAt(
   return left.requestedAt.localeCompare(right.requestedAt) || left.runId.localeCompare(right.runId);
 }
 
+export function compareSwarmRunsByRequestedAtDesc(
+  left: OrchestrationSwarmRun,
+  right: OrchestrationSwarmRun,
+): number {
+  return right.requestedAt.localeCompare(left.requestedAt) || right.runId.localeCompare(left.runId);
+}
+
 export function compareSwarmTaskExecutions(
   left: OrchestrationSwarmTaskExecution,
   right: OrchestrationSwarmTaskExecution,
@@ -133,13 +143,19 @@ export function isNonTerminalSwarmTaskExecutionStatus(
   return status === "requested" || status === "active";
 }
 
-export function compareSwarmRunsByPriority(
+export function isNonTerminalSwarmRunStatus(
+  status: OrchestrationSwarmRun["status"],
+): status is "requested" | "running" | "idle" | "paused" | "blocked" {
+  return NON_TERMINAL_SWARM_RUN_STATUSES.has(status);
+}
+
+export function compareSwarmRunsByAttentionPriority(
   left: OrchestrationSwarmRun,
   right: OrchestrationSwarmRun,
 ): number {
   const nonTerminalDelta =
-    Number(NON_TERMINAL_SWARM_RUN_STATUSES.has(right.status)) -
-    Number(NON_TERMINAL_SWARM_RUN_STATUSES.has(left.status));
+    Number(isNonTerminalSwarmRunStatus(right.status)) -
+    Number(isNonTerminalSwarmRunStatus(left.status));
   if (nonTerminalDelta !== 0) {
     return nonTerminalDelta;
   }
@@ -158,7 +174,7 @@ export function compareSwarmRunsByPriority(
 }
 
 export function isNonTerminalSharedWorkspaceRun(run: OrchestrationSwarmRun): boolean {
-  return run.workspaceMode === "shared" && NON_TERMINAL_SWARM_RUN_STATUSES.has(run.status);
+  return run.workspaceMode === "shared" && isNonTerminalSwarmRunStatus(run.status);
 }
 
 export function formatSwarmRunStatusLabel(status: OrchestrationSwarmRun["status"]): string {
@@ -438,6 +454,160 @@ export interface EpicSwarmCoordinatorPrimaryAction {
   readonly disabled: boolean;
 }
 
+export interface SwarmTrackerLoadStateResult {
+  readonly trackerLoadState: BeadsCoordinatorTrackerLoadState;
+  readonly trackerLoadDetail: string | null;
+}
+
+export interface SwarmProgressState {
+  readonly totalIssueCount: number;
+  readonly completedIssueCount: number;
+  readonly readyIssueCount: number;
+  readonly activeIssueCount: number;
+  readonly blockedIssueCount: number;
+  readonly activeWorkerCount: number;
+  readonly isComplete: boolean;
+}
+
+export function deriveTrackerLoadState(input: {
+  readonly validationError: string | null;
+  readonly statusError: string | null;
+}): SwarmTrackerLoadStateResult {
+  const failures = [
+    input.validationError === null
+      ? null
+      : {
+          source: "validation" as const,
+          message: input.validationError,
+        },
+    input.statusError === null
+      ? null
+      : {
+          source: "status" as const,
+          message: input.statusError,
+        },
+  ].filter(
+    (value): value is { readonly source: "validation" | "status"; readonly message: string } =>
+      value !== null,
+  );
+
+  if (failures.length === 0) {
+    return {
+      trackerLoadState: "ready",
+      trackerLoadDetail: null,
+    };
+  }
+
+  return {
+    trackerLoadState: failures.some((failure) =>
+      isSwarmCoordinatorFetchTimeoutMessage(failure.message),
+    )
+      ? "timeout"
+      : "error",
+    trackerLoadDetail: describeSwarmCoordinatorFetchFailure({
+      failures,
+      stale: false,
+    }),
+  };
+}
+
+export function deriveValidationState(input: {
+  readonly trackerLoadState: BeadsCoordinatorTrackerLoadState;
+  readonly validation: Pick<BeadsSwarmValidation, "valid"> | null;
+}): BeadsCoordinatorValidationState {
+  if (input.trackerLoadState !== "ready" || input.validation === null) {
+    return "unknown";
+  }
+
+  return input.validation.valid ? "valid" : "invalid";
+}
+
+export function deriveSwarmProgress(input: {
+  readonly validation: Pick<BeadsSwarmValidation, "swarm"> | null;
+  readonly status: Pick<
+    BeadsSwarmStatus,
+    "swarm" | "completed" | "ready" | "active" | "blocked"
+  > | null;
+}): SwarmProgressState {
+  const swarm = input.status?.swarm ?? input.validation?.swarm ?? null;
+  const totalIssueCount = swarm?.totalIssueCount ?? 0;
+  const completedIssueCount = swarm?.completedIssueCount ?? input.status?.completed.length ?? 0;
+  const readyIssueCount = swarm?.readyIssueCount ?? input.status?.ready.length ?? 0;
+  const activeIssueCount = swarm?.activeIssueCount ?? input.status?.active.length ?? 0;
+  const blockedIssueCount = swarm?.blockedIssueCount ?? input.status?.blocked.length ?? 0;
+  const activeWorkerCount = swarm?.activeWorkerCount ?? 0;
+
+  return {
+    totalIssueCount,
+    completedIssueCount,
+    readyIssueCount,
+    activeIssueCount,
+    blockedIssueCount,
+    activeWorkerCount,
+    isComplete: totalIssueCount > 0 && completedIssueCount === totalIssueCount,
+  };
+}
+
+export function deriveTrackerState(input: {
+  readonly trackerLoadState: BeadsCoordinatorTrackerLoadState;
+  readonly status: Pick<BeadsSwarmStatus, "active" | "blocked"> | null;
+  readonly progress: Pick<SwarmProgressState, "isComplete">;
+}): BeadsCoordinatorTrackerState {
+  if (input.trackerLoadState !== "ready" || input.status === null) {
+    return "unknown";
+  }
+
+  if (input.progress.isComplete) {
+    return "completed";
+  }
+
+  if (input.status.active.length > 0) {
+    return "in_progress";
+  }
+
+  if (input.status.blocked.length > 0) {
+    return "blocked";
+  }
+
+  return "not_started";
+}
+
+export function findActiveSwarmRuns(
+  swarmRuns: ReadonlyArray<OrchestrationSwarmRun>,
+): OrchestrationSwarmRun[] {
+  return swarmRuns
+    .filter((run) => isNonTerminalSwarmRunStatus(run.status))
+    .toSorted(compareSwarmRunsByRequestedAtDesc);
+}
+
+export function findActiveSwarmRun(
+  swarmRuns: ReadonlyArray<OrchestrationSwarmRun>,
+): OrchestrationSwarmRun | null {
+  return findActiveSwarmRuns(swarmRuns)[0] ?? null;
+}
+
+export function deriveActiveRunId(
+  swarmRuns: ReadonlyArray<OrchestrationSwarmRun>,
+): OrchestrationSwarmRun["runId"] | null {
+  return findActiveSwarmRun(swarmRuns)?.runId ?? null;
+}
+
+export function deriveActiveExecutionId(input: {
+  readonly activeRunId: OrchestrationSwarmRun["runId"] | null;
+  readonly executions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
+}): OrchestrationSwarmTaskExecution["executionId"] | null {
+  if (input.activeRunId === null) {
+    return null;
+  }
+
+  return (
+    deriveSwarmRunExecutionState({
+      runId: input.activeRunId,
+      executions: input.executions,
+    }).activeExecution?.executionId ?? null
+  );
+}
+
 export function deriveEpicSwarmCoordinatorState(input: {
   readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
   readonly status: Pick<BeadsSwarmStatus, "swarm"> | null;
@@ -695,7 +865,7 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
 export function selectLatestSwarmRun(
   swarmRuns: ReadonlyArray<OrchestrationSwarmRun>,
 ): OrchestrationSwarmRun | null {
-  return [...swarmRuns].toSorted(compareSwarmRunsByPriority)[0] ?? null;
+  return [...swarmRuns].toSorted(compareSwarmRunsByRequestedAtDesc)[0] ?? null;
 }
 
 export function findConflictingSharedWorkspaceRun(input: {
@@ -709,12 +879,12 @@ export function findConflictingSharedWorkspaceRun(input: {
         (candidate) =>
           isNonTerminalSharedWorkspaceRun(candidate) && !epicRunIds.has(candidate.runId),
       )
-      .toSorted(compareSwarmRunsByPriority)[0] ?? null
+      .toSorted(compareSwarmRunsByAttentionPriority)[0] ?? null
   );
 }
 
 export function listSwarmRuns(state: SwarmProjectionState): OrchestrationSwarmRun[] {
-  return Object.values(state.swarmRunsById).toSorted(compareSwarmRunsByRequestedAt);
+  return Object.values(state.swarmRunsById).toSorted(compareSwarmRunsByRequestedAtDesc);
 }
 
 export function listSwarmTaskExecutions(

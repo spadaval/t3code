@@ -1,6 +1,5 @@
 import type {
   BeadsCoordinatorEpicSnapshot,
-  BeadsCoordinatorFetchLifecycle,
   BeadsCoordinatorProjectConflict,
   BeadsIssueDetail,
   BeadsIssueSummary,
@@ -15,13 +14,16 @@ import type {
   ProjectId,
 } from "@t3tools/contracts";
 import {
-  describeSwarmCoordinatorFetchFailure,
-  deriveSwarmRunExecutionState,
-  deriveEpicSwarmCoordinatorState,
+  compareSwarmRunsByRequestedAtDesc,
   describeSharedWorkspaceProjectConflict as describeSharedWorkspaceProjectConflictMessage,
+  deriveActiveExecutionId,
+  deriveActiveRunId,
+  deriveSwarmProgress,
+  deriveTrackerLoadState,
+  deriveTrackerState,
+  deriveValidationState,
+  findActiveSwarmRuns,
   findConflictingSharedWorkspaceRun as findConflictingSharedWorkspaceRunCore,
-  getEpicSwarmCoordinatorPrimaryAction,
-  isSwarmCoordinatorFetchTimeoutMessage,
 } from "@t3tools/shared/swarm";
 
 function describeSharedWorkspaceProjectConflict(
@@ -39,43 +41,6 @@ function findConflictingSharedWorkspaceRun(input: {
 }): BeadsCoordinatorProjectConflict | null {
   const run = findConflictingSharedWorkspaceRunCore(input);
   return run ? describeSharedWorkspaceProjectConflict(run) : null;
-}
-
-function deriveFetchLifecycle(input: {
-  readonly validationError: string | null;
-  readonly statusError: string | null;
-}): BeadsCoordinatorFetchLifecycle {
-  const failures = [
-    input.validationError === null
-      ? null
-      : {
-          source: "validation" as const,
-          message: input.validationError,
-        },
-    input.statusError === null
-      ? null
-      : {
-          source: "status" as const,
-          message: input.statusError,
-        },
-  ].filter(
-    (value): value is { readonly source: "validation" | "status"; readonly message: string } =>
-      value !== null,
-  );
-
-  if (failures.length === 0) {
-    return { kind: "ready", detail: null };
-  }
-
-  return {
-    kind: failures.some((failure) => isSwarmCoordinatorFetchTimeoutMessage(failure.message))
-      ? "timeout"
-      : "error",
-    detail: describeSwarmCoordinatorFetchFailure({
-      failures,
-      stale: false,
-    }),
-  };
 }
 
 function toIssueSummary(issue: BeadsIssueDetail | BeadsIssueSummary): BeadsIssueSummary {
@@ -145,6 +110,152 @@ function buildCoordinatorEpicEntries(input: {
   return [...entries.values()];
 }
 
+function deriveEpicPrimaryAction(input: {
+  readonly epicId: string;
+  readonly coordinationSupported: boolean;
+  readonly validationState: BeadsCoordinatorEpicSnapshot["validationState"];
+  readonly trackerLoadState: BeadsCoordinatorEpicSnapshot["trackerLoadState"];
+  readonly trackerState: BeadsCoordinatorEpicSnapshot["trackerState"];
+  readonly projectConflict: BeadsCoordinatorEpicSnapshot["projectConflict"];
+  readonly latestRun: OrchestrationSwarmRun | null;
+  readonly activeRun: OrchestrationSwarmRun | null;
+  readonly status: Pick<BeadsSwarmStatus, "ready" | "active" | "blocked"> | null;
+}): BeadsCoordinatorEpicSnapshot["primaryAction"] {
+  if (input.trackerLoadState === "timeout" || input.trackerLoadState === "error") {
+    return {
+      kind: "refresh_swarm_state",
+      label: "Retry tracker status",
+      busyLabel: "Retrying...",
+      disabled: false,
+    };
+  }
+
+  if (!input.coordinationSupported) {
+    return {
+      kind: "unsupported",
+      label: "Epic coordination unavailable",
+      busyLabel: "Epic coordination unavailable",
+      disabled: true,
+    };
+  }
+
+  if (input.validationState === "invalid") {
+    return {
+      kind: "open_coordination_prep_thread",
+      label: "Open prep thread",
+      busyLabel: "Opening...",
+      disabled: false,
+    };
+  }
+
+  if (input.projectConflict !== null) {
+    return {
+      kind: "open_coordinator",
+      label: "View active epic",
+      busyLabel: "Opening...",
+      disabled: false,
+    };
+  }
+
+  if (input.activeRun !== null) {
+    switch (input.activeRun.status) {
+      case "paused":
+        return {
+          kind: "resume_paused_swarm_run",
+          label: "Resume run",
+          busyLabel: "Resuming...",
+          disabled: false,
+        };
+      case "idle":
+        if (input.activeRun.schedulerMode === "semi-automatic") {
+          return {
+            kind: "run_next_swarm_task",
+            label: "Run next task",
+            busyLabel: "Running...",
+            disabled: false,
+          };
+        }
+        return {
+          kind: "open_coordinator",
+          label: "Open epic",
+          busyLabel: "Opening...",
+          disabled: false,
+        };
+      case "blocked": {
+        const canContinue =
+          input.validationState === "valid" &&
+          ((input.status?.ready.length ?? 0) > 0 ||
+            ((input.status?.active.length ?? 0) === 0 &&
+              (input.status?.blocked.length ?? 0) === 0));
+        if (input.activeRun.blockedContext?.kind === "worker_failure") {
+          return {
+            kind: "run_next_swarm_task",
+            label: "Run next task",
+            busyLabel: "Running...",
+            disabled: !canContinue,
+          };
+        }
+        return {
+          kind: "open_coordinator",
+          label: "Open epic",
+          busyLabel: "Opening...",
+          disabled: false,
+        };
+      }
+      default:
+        return {
+          kind: "open_coordinator",
+          label: "Open epic",
+          busyLabel: "Opening...",
+          disabled: false,
+        };
+    }
+  }
+
+  if (input.validationState === "valid" && input.trackerState !== "completed") {
+    return {
+      kind: "start_swarm",
+      label: "Start run",
+      busyLabel: "Starting...",
+      disabled: false,
+    };
+  }
+
+  return {
+    kind: "open_coordinator",
+    label: input.latestRun === null ? "Completed" : "Open epic",
+    busyLabel: input.latestRun === null ? "Completed" : "Opening...",
+    disabled: input.latestRun === null,
+  };
+}
+
+function deriveIntegrityError(input: {
+  readonly epicId: string;
+  readonly runs: ReadonlyArray<OrchestrationSwarmRun>;
+  readonly executions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
+}): string | null {
+  const activeRuns = findActiveSwarmRuns(input.runs);
+  if (activeRuns.length > 1) {
+    return `Coordinator integrity error for ${input.epicId}: multiple non-terminal runs exist for the same epic.`;
+  }
+
+  const activeRun = activeRuns[0] ?? null;
+  if (activeRun === null) {
+    return null;
+  }
+
+  const nonTerminalExecutions = input.executions.filter(
+    (execution) =>
+      execution.runId === activeRun.runId &&
+      (execution.status === "requested" || execution.status === "active"),
+  );
+  if (nonTerminalExecutions.length > 1) {
+    return `Coordinator integrity error for ${input.epicId}: run '${activeRun.runId}' has multiple non-terminal executions.`;
+  }
+
+  return null;
+}
+
 export function buildCoordinatorEpicSnapshot(input: {
   readonly issue: BeadsIssueSummary | null;
   readonly support: BeadsSwarmSupport;
@@ -158,51 +269,80 @@ export function buildCoordinatorEpicSnapshot(input: {
   readonly fallbackEpicId: string;
   readonly fallbackEpicTitle: string;
 }): BeadsCoordinatorEpicSnapshot {
-  const fetchLifecycle = deriveFetchLifecycle({
+  const runs = [...input.epicSwarmRuns].toSorted(compareSwarmRunsByRequestedAtDesc);
+  const latestRun = runs[0] ?? null;
+  const integrityError = deriveIntegrityError({
+    epicId: input.issue?.id ?? input.fallbackEpicId,
+    runs,
+    executions: input.epicExecutions,
+  });
+
+  const loadState = deriveTrackerLoadState({
     validationError: input.validationError,
     statusError: input.statusError,
   });
+  const trackerLoadState = integrityError === null ? loadState.trackerLoadState : "error";
+  const trackerLoadDetail = integrityError === null ? loadState.trackerLoadDetail : integrityError;
+  const coordinationSupported = input.support.supported;
+  const validationState = deriveValidationState({
+    trackerLoadState,
+    validation: input.validation,
+  });
+  const progress = deriveSwarmProgress({
+    validation: input.validation,
+    status: input.status,
+  });
+  const trackerState = deriveTrackerState({
+    trackerLoadState,
+    status: input.status,
+    progress,
+  });
   const projectConflict = findConflictingSharedWorkspaceRun({
     projectSwarmRuns: input.projectSwarmRuns,
-    epicSwarmRuns: input.epicSwarmRuns,
+    epicSwarmRuns: runs,
   });
-  const coordinatorState = deriveEpicSwarmCoordinatorState({
-    swarmSupport: { supported: input.support.supported },
-    status: input.status,
-    validation: input.validation,
-    swarmRuns: input.epicSwarmRuns,
-    fetchLifecycle,
-  });
-  const activeExecution =
-    coordinatorState.latestRun === null
-      ? null
-      : deriveSwarmRunExecutionState({
-          runId: coordinatorState.latestRun.runId,
+  const activeRunId = integrityError === null ? deriveActiveRunId(runs) : null;
+  const activeRun =
+    activeRunId === null ? null : (runs.find((run) => run.runId === activeRunId) ?? null);
+  const activeExecutionId =
+    integrityError === null
+      ? deriveActiveExecutionId({
+          activeRunId,
           executions: input.epicExecutions,
-        }).activeExecution;
+        })
+      : null;
 
   return {
     epicId: input.issue?.id ?? input.fallbackEpicId,
     epicTitle: input.issue?.title ?? input.fallbackEpicTitle,
     issue: input.issue,
-    fetchLifecycle: coordinatorState.fetchLifecycle,
-    stateKind: coordinatorState.kind,
-    primaryAction: getEpicSwarmCoordinatorPrimaryAction({
-      swarmSupport: { supported: input.support.supported },
+    trackerLoadState,
+    trackerLoadDetail,
+    coordinationSupported,
+    coordinationUnsupportedReason: input.support.reason,
+    validationState,
+    validationErrors: validationState === "invalid" ? (input.validation?.errors ?? []) : [],
+    trackerState,
+    progress,
+    primaryAction: deriveEpicPrimaryAction({
+      epicId: input.issue?.id ?? input.fallbackEpicId,
+      coordinationSupported,
+      validationState,
+      trackerLoadState,
+      trackerState,
+      projectConflict,
+      latestRun,
+      activeRun,
       status: input.status,
-      validation: input.validation,
-      swarmRuns: input.epicSwarmRuns,
-      hasProjectConflict: projectConflict !== null,
-      fetchLifecycle,
     }),
-    latestRun: coordinatorState.latestRun,
+    activeRunId,
+    activeExecutionId,
     projectConflict,
     swarmSummary: input.validation?.swarm ?? input.status?.swarm ?? null,
     validation: input.validation,
     status: input.status,
-    runs: input.epicSwarmRuns,
+    runs,
     executions: input.epicExecutions,
-    activeExecution,
   };
 }
 

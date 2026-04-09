@@ -1,4 +1,5 @@
 import type {
+  BeadsCoordinatorEpicSnapshot,
   BeadsIssueSummary,
   BeadsSwarmStatus,
   BeadsSwarmSummary,
@@ -65,13 +66,6 @@ export interface CoordinatorFetchQueryState {
 export type EpicCoordinatorStateKind = EpicSwarmCoordinatorStateKind;
 export type EpicCoordinatorState = EpicSwarmCoordinatorState;
 export type EpicCoordinatorPrimaryAction = EpicSwarmCoordinatorPrimaryAction;
-
-const ACTIVE_COORDINATOR_STATE_KINDS = new Set<EpicCoordinatorStateKind>(["running"]);
-
-const HISTORY_COORDINATOR_STATE_KINDS = new Set<EpicCoordinatorStateKind>([
-  "cancelled",
-  "completed",
-]);
 
 export function deriveCoordinatorFetchLifecycle(input: {
   readonly support: CoordinatorFetchQueryState;
@@ -338,25 +332,47 @@ export function collectCoordinatorEpics(input: {
   return [...entries.values()];
 }
 
-export function partitionCoordinatorEpics<T extends { stateKind: EpicCoordinatorStateKind }>(
-  items: ReadonlyArray<T>,
-): CoordinatorEpicStateSections<T> {
-  const needsAttention: T[] = [];
-  const active: T[] = [];
-  const history: T[] = [];
+type CoordinatorEpicPartitionable = Pick<
+  BeadsCoordinatorEpicSnapshot,
+  | "trackerLoadState"
+  | "coordinationSupported"
+  | "validationState"
+  | "projectConflict"
+  | "activeRunId"
+  | "trackerState"
+  | "runs"
+>;
+
+export function partitionCoordinatorEpics<T extends object>(
+  items: ReadonlyArray<T & CoordinatorEpicPartitionable>,
+): CoordinatorEpicStateSections<T & CoordinatorEpicPartitionable> {
+  const needsAttention: Array<T & CoordinatorEpicPartitionable> = [];
+  const active: Array<T & CoordinatorEpicPartitionable> = [];
+  const history: Array<T & CoordinatorEpicPartitionable> = [];
 
   for (const item of items) {
-    if (ACTIVE_COORDINATOR_STATE_KINDS.has(item.stateKind)) {
+    const activeRun = item.activeRunId
+      ? (item.runs.find((run) => run.runId === item.activeRunId) ?? null)
+      : null;
+
+    if (
+      item.trackerLoadState !== "ready" ||
+      !item.coordinationSupported ||
+      item.validationState === "invalid" ||
+      item.projectConflict !== null ||
+      activeRun?.status === "blocked" ||
+      activeRun?.status === "failed"
+    ) {
+      needsAttention.push(item);
+      continue;
+    }
+
+    if (item.activeRunId !== null || item.trackerState === "in_progress") {
       active.push(item);
       continue;
     }
 
-    if (HISTORY_COORDINATOR_STATE_KINDS.has(item.stateKind)) {
-      history.push(item);
-      continue;
-    }
-
-    needsAttention.push(item);
+    history.push(item);
   }
 
   return {

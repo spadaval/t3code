@@ -1296,18 +1296,106 @@ describe("partitionCoordinatorEpics", () => {
   it("groups states into needs-attention, active, and history buckets", () => {
     expect(
       partitionCoordinatorEpics([
-        { id: "needs-preparation", stateKind: "needs_preparation" as const },
-        { id: "running", stateKind: "running" as const },
-        { id: "completed", stateKind: "completed" as const },
-        { id: "idle", stateKind: "idle" as const },
+        {
+          id: "invalid",
+          trackerLoadState: "ready" as const,
+          coordinationSupported: true,
+          validationState: "invalid" as const,
+          projectConflict: null,
+          activeRunId: null,
+          trackerState: "not_started" as const,
+          runs: [],
+        },
+        {
+          id: "running",
+          trackerLoadState: "ready" as const,
+          coordinationSupported: true,
+          validationState: "valid" as const,
+          projectConflict: null,
+          activeRunId: "run-1" as never,
+          trackerState: "in_progress" as const,
+          runs: [
+            {
+              ...makeSwarmRun({
+                runId: "run-1" as never,
+                status: "running",
+              }),
+            },
+          ],
+        },
+        {
+          id: "completed",
+          trackerLoadState: "ready" as const,
+          coordinationSupported: true,
+          validationState: "valid" as const,
+          projectConflict: null,
+          activeRunId: null,
+          trackerState: "completed" as const,
+          runs: [],
+        },
+        {
+          id: "idle",
+          trackerLoadState: "ready" as const,
+          coordinationSupported: true,
+          validationState: "valid" as const,
+          projectConflict: null,
+          activeRunId: null,
+          trackerState: "not_started" as const,
+          runs: [],
+        },
       ]),
     ).toEqual({
       needsAttention: [
-        { id: "needs-preparation", stateKind: "needs_preparation" },
-        { id: "idle", stateKind: "idle" },
+        {
+          id: "invalid",
+          trackerLoadState: "ready",
+          coordinationSupported: true,
+          validationState: "invalid",
+          projectConflict: null,
+          activeRunId: null,
+          trackerState: "not_started",
+          runs: [],
+        },
       ],
-      active: [{ id: "running", stateKind: "running" }],
-      history: [{ id: "completed", stateKind: "completed" }],
+      active: [
+        {
+          id: "running",
+          trackerLoadState: "ready",
+          coordinationSupported: true,
+          validationState: "valid",
+          projectConflict: null,
+          activeRunId: "run-1",
+          trackerState: "in_progress",
+          runs: [
+            expect.objectContaining({
+              runId: "run-1",
+              status: "running",
+            }),
+          ],
+        },
+      ],
+      history: [
+        {
+          id: "completed",
+          trackerLoadState: "ready",
+          coordinationSupported: true,
+          validationState: "valid",
+          projectConflict: null,
+          activeRunId: null,
+          trackerState: "completed",
+          runs: [],
+        },
+        {
+          id: "idle",
+          trackerLoadState: "ready",
+          coordinationSupported: true,
+          validationState: "valid",
+          projectConflict: null,
+          activeRunId: null,
+          trackerState: "not_started",
+          runs: [],
+        },
+      ],
     });
   });
 });

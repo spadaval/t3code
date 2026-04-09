@@ -1,6 +1,5 @@
 import type {
   BeadsCoordinatorEpicSnapshot,
-  BeadsCoordinatorEpicStateKind,
   BeadsIssueRelationSummary,
   BeadsProjectCoordinatorSnapshot,
   BeadsSwarmSupport,
@@ -14,7 +13,6 @@ import {
   DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE,
 } from "@t3tools/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { describeCoordinatorEpicState } from "@t3tools/shared/swarm";
 import { type ReactNode, useMemo, useState } from "react";
 import {
   AlertTriangleIcon,
@@ -84,11 +82,17 @@ type CoordinatorActionInput =
 // Status styling (matches CoordinatorPanel sidebar)
 // ---------------------------------------------------------------------------
 
+type CoordinatorStatusCategory = "active" | "ready" | "blocked" | "setup" | "done" | "loading";
+
+type CoordinatorStatusDescription = {
+  readonly label: string;
+  readonly summary: string;
+  readonly category: CoordinatorStatusCategory;
+};
+
 type StatusColor = "red" | "amber" | "green" | "blue" | "gray";
 
-function categoryColor(
-  category: ReturnType<typeof describeCoordinatorEpicState>["category"],
-): StatusColor {
+function categoryColor(category: CoordinatorStatusCategory): StatusColor {
   switch (category) {
     case "active":
       return "blue";
@@ -133,49 +137,62 @@ const CARD_BG_CLASSES: Record<StatusColor, string> = {
 // Sort / rank helpers (matches sidebar CoordinatorPanel)
 // ---------------------------------------------------------------------------
 
-function stateRank(kind: BeadsCoordinatorEpicStateKind): number {
-  switch (kind) {
-    case "error":
-      return 0;
-    case "timeout":
-      return 1;
-    case "stale":
-      return 2;
-    case "failed":
-      return 3;
-    case "blocked":
-      return 4;
-    case "paused":
-      return 5;
-    case "idle":
-      return 6;
-    case "needs_preparation":
-      return 7;
-    case "ready":
-      return 8;
-    case "running":
-      return 9;
-    case "cancelled":
-      return 10;
-    case "completed":
-      return 11;
-    case "unsupported":
-      return 12;
-    case "checking":
-      return 13;
-  }
+function getLatestRun(epic: BeadsCoordinatorEpicSnapshot): OrchestrationSwarmRun | null {
+  return epic.runs[0] ?? null;
+}
+
+function getActiveRun(epic: BeadsCoordinatorEpicSnapshot): OrchestrationSwarmRun | null {
+  return epic.activeRunId
+    ? (epic.runs.find((run) => run.runId === epic.activeRunId) ?? null)
+    : null;
+}
+
+function getActiveExecution(
+  epic: BeadsCoordinatorEpicSnapshot,
+): OrchestrationSwarmTaskExecution | null {
+  return epic.activeExecutionId
+    ? (epic.executions.find((execution) => execution.executionId === epic.activeExecutionId) ??
+        null)
+    : null;
+}
+
+function isNeedsAttention(epic: BeadsCoordinatorEpicSnapshot): boolean {
+  const activeRun = getActiveRun(epic);
+  return (
+    epic.trackerLoadState !== "ready" ||
+    !epic.coordinationSupported ||
+    epic.validationState === "invalid" ||
+    epic.projectConflict !== null ||
+    activeRun?.status === "blocked" ||
+    activeRun?.status === "failed"
+  );
+}
+
+function isActiveEpic(epic: BeadsCoordinatorEpicSnapshot): boolean {
+  return epic.activeRunId !== null || epic.trackerState === "in_progress";
+}
+
+function sectionRank(epic: BeadsCoordinatorEpicSnapshot): number {
+  if (isNeedsAttention(epic)) return 0;
+  if (isActiveEpic(epic)) return 1;
+  return 2;
 }
 
 function compareEpics(
   left: BeadsCoordinatorEpicSnapshot,
   right: BeadsCoordinatorEpicSnapshot,
 ): number {
-  const leftRank = stateRank(left.stateKind);
-  const rightRank = stateRank(right.stateKind);
+  const leftRank = sectionRank(left);
+  const rightRank = sectionRank(right);
   if (leftRank !== rightRank) return leftRank - rightRank;
 
-  const leftTs = left.latestRun?.updatedAt ?? "";
-  const rightTs = right.latestRun?.updatedAt ?? "";
+  const leftActiveRun = getActiveRun(left);
+  const rightActiveRun = getActiveRun(right);
+  if (leftActiveRun !== null && rightActiveRun === null) return -1;
+  if (rightActiveRun !== null && leftActiveRun === null) return 1;
+
+  const leftTs = leftActiveRun?.updatedAt ?? getLatestRun(left)?.requestedAt ?? "";
+  const rightTs = rightActiveRun?.updatedAt ?? getLatestRun(right)?.requestedAt ?? "";
   const tsDelta = rightTs.localeCompare(leftTs);
   if (tsDelta !== 0) return tsDelta;
 
@@ -187,20 +204,138 @@ function compareEpics(
 // ---------------------------------------------------------------------------
 
 function describeEpic(epic: BeadsCoordinatorEpicSnapshot) {
-  return describeCoordinatorEpicState({
-    stateKind: epic.stateKind,
-    lastError: epic.latestRun?.lastError ?? epic.activeExecution?.lastError ?? null,
-    fetchDetail: epic.fetchLifecycle.detail,
-    activeWorkerCount: epic.swarmSummary?.activeWorkerCount ?? 0,
-    completedIssueCount: epic.swarmSummary?.completedIssueCount ?? 0,
-    totalIssueCount: epic.swarmSummary?.totalIssueCount ?? 0,
-  });
+  const activeRun = getActiveRun(epic);
+  const latestRun = getLatestRun(epic);
+  const lastError =
+    activeRun?.lastError ?? latestRun?.lastError ?? getActiveExecution(epic)?.lastError;
+
+  if (epic.trackerLoadState === "timeout") {
+    return {
+      label: "Timed out",
+      summary: epic.trackerLoadDetail ?? "Tracker status request timed out. Retry to refresh.",
+      category: "blocked",
+    } satisfies CoordinatorStatusDescription;
+  }
+
+  if (epic.trackerLoadState === "error") {
+    return {
+      label: "Unavailable",
+      summary: epic.trackerLoadDetail ?? "Could not load tracker status. Retry to refresh.",
+      category: "blocked",
+    } satisfies CoordinatorStatusDescription;
+  }
+
+  if (!epic.coordinationSupported) {
+    return {
+      label: "Unavailable",
+      summary:
+        epic.coordinationUnsupportedReason ?? "This backend does not support epic coordination.",
+      category: "done",
+    } satisfies CoordinatorStatusDescription;
+  }
+
+  if (epic.validationState === "invalid") {
+    return {
+      label: "Invalid",
+      summary: epic.validationErrors[0] ?? "Epic is not currently valid to start.",
+      category: "setup",
+    } satisfies CoordinatorStatusDescription;
+  }
+
+  if (activeRun !== null) {
+    switch (activeRun.status) {
+      case "requested":
+      case "running":
+        return {
+          label: "Run Active",
+          summary:
+            epic.progress.activeWorkerCount > 0
+              ? `${epic.progress.activeWorkerCount} worker${epic.progress.activeWorkerCount !== 1 ? "s" : ""} active, ${epic.progress.completedIssueCount}/${epic.progress.totalIssueCount} issues done`
+              : `${epic.progress.completedIssueCount}/${epic.progress.totalIssueCount} issues done`,
+          category: "active",
+        } satisfies CoordinatorStatusDescription;
+      case "idle":
+        return {
+          label: "Waiting",
+          summary: "Run is idle and waiting for the next issue.",
+          category: "active",
+        } satisfies CoordinatorStatusDescription;
+      case "paused":
+        return {
+          label: "Paused",
+          summary: "Run is paused. Resume to continue.",
+          category: "active",
+        } satisfies CoordinatorStatusDescription;
+      case "blocked":
+        return {
+          label: "Blocked",
+          summary: lastError ?? "Run needs manual intervention before it can continue.",
+          category: "blocked",
+        } satisfies CoordinatorStatusDescription;
+      case "failed":
+        return {
+          label: "Failed",
+          summary: lastError ?? "The latest run failed.",
+          category: "blocked",
+        } satisfies CoordinatorStatusDescription;
+      case "cancelled":
+      case "completed":
+        break;
+    }
+  }
+
+  switch (epic.trackerState) {
+    case "completed":
+      return {
+        label: "Completed",
+        summary:
+          epic.progress.totalIssueCount > 0
+            ? `All ${epic.progress.totalIssueCount} issues completed.`
+            : "All tracked work is complete.",
+        category: "done",
+      } satisfies CoordinatorStatusDescription;
+    case "in_progress":
+      return {
+        label: "In Progress",
+        summary:
+          epic.progress.activeIssueCount > 0
+            ? `${epic.progress.activeIssueCount} active issue${epic.progress.activeIssueCount !== 1 ? "s" : ""} in Beads`
+            : `${epic.progress.completedIssueCount}/${epic.progress.totalIssueCount} issues done`,
+        category: "active",
+      } satisfies CoordinatorStatusDescription;
+    case "blocked":
+      return {
+        label: "Blocked",
+        summary:
+          epic.progress.blockedIssueCount > 0
+            ? `${epic.progress.blockedIssueCount} blocked issue${epic.progress.blockedIssueCount !== 1 ? "s" : ""} in Beads`
+            : "Tracker reports blocked work.",
+        category: "blocked",
+      } satisfies CoordinatorStatusDescription;
+    case "not_started":
+      return {
+        label: "Not Started",
+        summary:
+          latestRun?.status === "cancelled"
+            ? "The latest run was cancelled. Start a new run to continue."
+            : latestRun?.status === "completed"
+              ? "The latest run completed. Start a new run if more work remains."
+              : "Tracker is ready for a run.",
+        category: "ready",
+      } satisfies CoordinatorStatusDescription;
+    case "unknown":
+      return {
+        label: "Unavailable",
+        summary: epic.trackerLoadDetail ?? "Tracker state is unavailable.",
+        category: "loading",
+      } satisfies CoordinatorStatusDescription;
+  }
 }
 
 function progressPercent(epic: BeadsCoordinatorEpicSnapshot): number | null {
-  const total = epic.swarmSummary?.totalIssueCount ?? 0;
+  const total = epic.progress.totalIssueCount;
   if (total === 0) return null;
-  return Math.round(((epic.swarmSummary?.completedIssueCount ?? 0) / total) * 100);
+  return Math.round((epic.progress.completedIssueCount / total) * 100);
 }
 
 function formatRunStatus(status: OrchestrationSwarmRun["status"]): string {
@@ -637,11 +772,14 @@ function EpicDetail(props: {
   const { epic } = props;
   const desc = describeEpic(epic);
   const color = categoryColor(desc.category);
-  const summary = epic.swarmSummary;
+  const summary = epic.progress;
   const status = epic.status;
   const validation = epic.validation;
   const runs = epic.runs ?? [];
   const executions = epic.executions ?? [];
+  const activeExecution = getActiveExecution(epic);
+  const activeRun = getActiveRun(epic);
+  const latestRun = getLatestRun(epic);
 
   return (
     <div className="space-y-6 p-5">
@@ -661,6 +799,37 @@ function EpicDetail(props: {
               <span className={cn("text-sm font-medium", LABEL_CLASSES[color])}>{desc.label}</span>
               <span className="text-sm text-muted-foreground">{desc.summary}</span>
             </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Badge
+                variant={
+                  color === "red"
+                    ? "error"
+                    : color === "amber"
+                      ? "warning"
+                      : color === "blue"
+                        ? "info"
+                        : color === "green"
+                          ? "success"
+                          : "neutral"
+                }
+                size="sm"
+              >
+                Tracker: {desc.label}
+              </Badge>
+              {activeRun ? (
+                <Badge variant={runStatusBadgeVariant(activeRun.status)} size="sm">
+                  Active run: {formatRunStatus(activeRun.status)}
+                </Badge>
+              ) : latestRun ? (
+                <Badge variant={runStatusBadgeVariant(latestRun.status)} size="sm">
+                  Latest run: {formatRunStatus(latestRun.status)}
+                </Badge>
+              ) : (
+                <Badge variant="neutral" size="sm">
+                  No runs
+                </Badge>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -672,8 +841,22 @@ function EpicDetail(props: {
         onSelectEpic={props.onSelectEpic}
       />
 
+      {epic.validationState === "invalid" ? (
+        <div className="space-y-2 rounded-lg border border-warning/25 bg-warning/5 px-3 py-2.5">
+          <div className="text-sm font-medium text-foreground">Invalid to start</div>
+          <div className="space-y-1 text-sm text-muted-foreground">
+            {(epic.validationErrors.length > 0
+              ? epic.validationErrors
+              : ["This epic is not currently valid to start."]
+            ).map((message) => (
+              <p key={message}>{message}</p>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {/* Progress bar */}
-      {summary && summary.totalIssueCount > 0 ? (
+      {summary.totalIssueCount > 0 ? (
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
             <span className="font-medium text-foreground">Progress</span>
@@ -719,8 +902,8 @@ function EpicDetail(props: {
       ) : null}
 
       {/* Active worker card */}
-      {epic.activeExecution ? (
-        <ActiveWorkerCard execution={epic.activeExecution} onOpenThread={props.onOpenThread} />
+      {activeExecution ? (
+        <ActiveWorkerCard execution={activeExecution} onOpenThread={props.onOpenThread} />
       ) : null}
 
       {/* Project conflict warning */}
@@ -732,9 +915,9 @@ function EpicDetail(props: {
       ) : null}
 
       {/* Latest run error */}
-      {epic.latestRun?.lastError && desc.category === "blocked" ? (
+      {latestRun?.lastError && desc.category === "blocked" ? (
         <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
-          {epic.latestRun.lastError}
+          {latestRun.lastError}
         </div>
       ) : null}
 
@@ -752,7 +935,13 @@ function EpicDetail(props: {
       ) : null}
 
       {/* Run history */}
-      {runs.length > 0 ? <RunHistory runs={runs} /> : null}
+      {runs.length > 0 ? (
+        <RunHistory runs={runs} activeRunId={epic.activeRunId} />
+      ) : (
+        <DetailSection title="Runs">
+          <p className="text-sm text-muted-foreground">No runs yet.</p>
+        </DetailSection>
+      )}
 
       {/* Execution log */}
       {executions.length > 0 ? (
@@ -779,7 +968,8 @@ function CoordinatorActionBar(props: {
   onSelectEpic: (epicId: string | null) => void;
 }) {
   const { epic } = props;
-  const run = epic.latestRun;
+  const run = getActiveRun(epic);
+  const activeExecution = getActiveExecution(epic);
   const primaryAction = epic.primaryAction;
   const retryableExecution =
     epic.executions
@@ -866,7 +1056,6 @@ function CoordinatorActionBar(props: {
         });
       }
       break;
-    case "checking":
     case "unsupported":
       break;
   }
@@ -891,10 +1080,10 @@ function CoordinatorActionBar(props: {
     });
   }
 
-  if (run?.status === "running" && epic.activeExecution === null) {
+  if (run?.status === "running" && activeExecution === null) {
     actions.push({
       key: `pause:${run.runId}`,
-      label: "Pause epic",
+      label: "Pause run",
       busyLabel: "Pausing...",
       variant: "outline",
       icon: <PauseIcon className="size-3" />,
@@ -902,10 +1091,10 @@ function CoordinatorActionBar(props: {
     });
   }
 
-  if (run && run.status !== "cancelled" && run.status !== "completed" && run.status !== "failed") {
+  if (run) {
     actions.push({
       key: `cancel:${run.runId}`,
-      label: "Cancel epic",
+      label: "Cancel run",
       busyLabel: "Cancelling...",
       variant: "destructive-outline",
       icon: <XIcon className="size-3" />,
@@ -946,19 +1135,19 @@ function describeCoordinatorActionError(actionKind: CoordinatorActionInput["kind
     case "open_coordination_prep_thread":
       return "Unable to open prep thread";
     case "start_swarm":
-      return "Unable to start epic";
+      return "Unable to start run";
     case "run_next_swarm_task":
-      return "Unable to run the next epic task";
+      return "Unable to run the next task";
     case "resume_paused_swarm_run":
-      return "Unable to resume the paused epic";
+      return "Unable to resume the paused run";
     case "retry_swarm_task_execution":
-      return "Unable to retry the epic task";
+      return "Unable to retry the task";
     case "pause_swarm":
-      return "Unable to pause epic";
+      return "Unable to pause run";
     case "cancel_swarm":
-      return "Unable to cancel epic";
+      return "Unable to cancel run";
     case "refresh_swarm_state":
-      return "Unable to refresh epic status";
+      return "Unable to refresh tracker status";
     default:
       return "Unable to run coordinator action";
   }
@@ -1165,10 +1354,15 @@ function ValidationMessages(props: {
 // Run history table
 // ---------------------------------------------------------------------------
 
-function RunHistory(props: { runs: ReadonlyArray<OrchestrationSwarmRun> }) {
-  // Sort by most recent first
+function RunHistory(props: {
+  runs: ReadonlyArray<OrchestrationSwarmRun>;
+  activeRunId: OrchestrationSwarmRun["runId"] | null;
+}) {
   const sorted = useMemo(
-    () => [...props.runs].toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    () =>
+      [...props.runs].toSorted(
+        (a, b) => b.requestedAt.localeCompare(a.requestedAt) || b.runId.localeCompare(a.runId),
+      ),
     [props.runs],
   );
 
@@ -1179,6 +1373,7 @@ function RunHistory(props: { runs: ReadonlyArray<OrchestrationSwarmRun> }) {
           <thead>
             <tr className="border-b border-border/50 text-left text-muted-foreground">
               <th className="pb-2 pr-3 font-medium">Status</th>
+              <th className="pb-2 pr-3 font-medium">Run</th>
               <th className="pb-2 pr-3 font-medium">Mode</th>
               <th className="pb-2 pr-3 font-medium">Started</th>
               <th className="pb-2 pr-3 font-medium">Updated</th>
@@ -1192,6 +1387,9 @@ function RunHistory(props: { runs: ReadonlyArray<OrchestrationSwarmRun> }) {
                   <Badge variant={runStatusBadgeVariant(run.status)} size="sm">
                     {formatRunStatus(run.status)}
                   </Badge>
+                </td>
+                <td className="py-2 pr-3 text-muted-foreground">
+                  {run.runId === props.activeRunId ? "Active" : "History"}
                 </td>
                 <td className="py-2 pr-3 text-muted-foreground">{run.schedulerMode}</td>
                 <td className="py-2 pr-3 tabular-nums text-muted-foreground">

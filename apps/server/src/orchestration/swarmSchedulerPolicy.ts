@@ -6,7 +6,7 @@ import type {
   SwarmTaskExecutionId,
 } from "@t3tools/contracts";
 import {
-  compareSwarmRunsByPriority,
+  compareSwarmRunsByAttentionPriority,
   deriveSwarmRunExecutionState,
   isNonTerminalSharedWorkspaceRun,
   selectDeterministicReadyIssueFromList,
@@ -46,7 +46,7 @@ export function evaluateSharedWorkspaceProjectInvariant(
 } {
   const candidates = runs
     .filter((run) => isNonTerminalSharedWorkspaceRun(run))
-    .toSorted(compareSwarmRunsByPriority);
+    .toSorted(compareSwarmRunsByAttentionPriority);
 
   return {
     winner: candidates[0] ?? null,

@@ -36,46 +36,62 @@ function renderCoordinatorTab() {
               epicId: "EPIC-1",
               epicTitle: "Epic 1",
               issue: null,
-              fetchLifecycle: { kind: "ready", detail: null },
-              stateKind: "cancelled",
+              trackerLoadState: "ready",
+              trackerLoadDetail: null,
+              coordinationSupported: true,
+              coordinationUnsupportedReason: null,
+              validationState: "valid",
+              validationErrors: [],
+              trackerState: "not_started",
+              progress: {
+                totalIssueCount: 1,
+                completedIssueCount: 0,
+                readyIssueCount: 1,
+                activeIssueCount: 0,
+                blockedIssueCount: 0,
+                activeWorkerCount: 0,
+                isComplete: false,
+              },
               primaryAction: {
-                kind: "resume_paused_swarm_run",
-                label: "Resume epic",
-                busyLabel: "Resuming...",
+                kind: "start_swarm",
+                label: "Start run",
+                busyLabel: "Starting...",
                 disabled: false,
               },
-              latestRun: {
-                runId: "run-1" as never,
-                projectId: "project-1" as never,
-                epicIssueId: "EPIC-1",
-                status: "cancelled",
-                schedulerMode: "automatic",
-                workspaceMode: "shared",
-                provider: "codex",
-                model: "gpt-5.4",
-                modelOptions: null,
-                providerOptions: null,
-                assistantDeliveryMode: null,
-                runtimeMode: "full-access",
-                lastError: null,
-                requestedAt: "2026-04-08T00:00:00.000Z",
-                startedAt: "2026-04-08T00:00:01.000Z",
-                idledAt: null,
-                pausedAt: null,
-                blockedAt: null,
-                blockedContext: null,
-                failedAt: null,
-                cancelledAt: "2026-04-08T00:00:02.000Z",
-                completedAt: null,
-                updatedAt: "2026-04-08T00:00:02.000Z",
-              },
+              activeRunId: null,
+              activeExecutionId: null,
               projectConflict: null,
               swarmSummary: null,
               validation: null,
               status: null,
-              runs: [],
+              runs: [
+                {
+                  runId: "run-1" as never,
+                  projectId: "project-1" as never,
+                  epicIssueId: "EPIC-1",
+                  status: "cancelled",
+                  schedulerMode: "automatic",
+                  workspaceMode: "shared",
+                  provider: "codex",
+                  model: "gpt-5.4",
+                  modelOptions: null,
+                  providerOptions: null,
+                  assistantDeliveryMode: null,
+                  runtimeMode: "full-access",
+                  lastError: null,
+                  requestedAt: "2026-04-08T00:00:00.000Z",
+                  startedAt: "2026-04-08T00:00:01.000Z",
+                  idledAt: null,
+                  pausedAt: null,
+                  blockedAt: null,
+                  blockedContext: null,
+                  failedAt: null,
+                  cancelledAt: "2026-04-08T00:00:02.000Z",
+                  completedAt: null,
+                  updatedAt: "2026-04-08T00:00:02.000Z",
+                },
+              ],
               executions: [],
-              activeExecution: null,
             },
           ],
         }}
@@ -91,10 +107,11 @@ function renderCoordinatorTab() {
 }
 
 describe("CoordinatorTab actions", () => {
-  it("renders a resume action for cancelled epics", () => {
+  it("renders latest run history separately from tracker state", () => {
     const markup = renderCoordinatorTab();
 
-    expect(markup).toContain("Actions");
-    expect(markup).toContain("Resume epic");
+    expect(markup).toContain("Tracker: Not Started");
+    expect(markup).toContain("Latest run: Cancelled");
+    expect(markup).toContain("Start run");
   });
 });

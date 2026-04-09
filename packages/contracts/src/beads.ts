@@ -4,6 +4,8 @@ import {
   IsoDateTime,
   NonNegativeInt,
   ProjectId,
+  SwarmRunId,
+  SwarmTaskExecutionId,
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas";
@@ -208,42 +210,34 @@ export const BeadsSwarmStatus = Schema.Struct({
 });
 export type BeadsSwarmStatus = typeof BeadsSwarmStatus.Type;
 
-export const BeadsCoordinatorFetchLifecycleKind = Schema.Literals([
-  "ready",
-  "loading",
-  "timeout",
-  "stale",
-  "error",
-]);
-export type BeadsCoordinatorFetchLifecycleKind = typeof BeadsCoordinatorFetchLifecycleKind.Type;
+export const BeadsCoordinatorTrackerLoadState = Schema.Literals(["ready", "timeout", "error"]);
+export type BeadsCoordinatorTrackerLoadState = typeof BeadsCoordinatorTrackerLoadState.Type;
 
-export const BeadsCoordinatorFetchLifecycle = Schema.Struct({
-  kind: BeadsCoordinatorFetchLifecycleKind,
-  detail: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
-});
-export type BeadsCoordinatorFetchLifecycle = typeof BeadsCoordinatorFetchLifecycle.Type;
+export const BeadsCoordinatorValidationState = Schema.Literals(["unknown", "valid", "invalid"]);
+export type BeadsCoordinatorValidationState = typeof BeadsCoordinatorValidationState.Type;
 
-export const BeadsCoordinatorEpicStateKind = Schema.Literals([
-  "checking",
-  "timeout",
-  "stale",
-  "error",
-  "unsupported",
-  "needs_preparation",
-  "ready",
-  "running",
-  "idle",
-  "paused",
+export const BeadsCoordinatorTrackerState = Schema.Literals([
+  "unknown",
+  "not_started",
+  "in_progress",
   "blocked",
-  "failed",
-  "cancelled",
   "completed",
 ]);
-export type BeadsCoordinatorEpicStateKind = typeof BeadsCoordinatorEpicStateKind.Type;
+export type BeadsCoordinatorTrackerState = typeof BeadsCoordinatorTrackerState.Type;
+
+export const BeadsCoordinatorProgress = Schema.Struct({
+  totalIssueCount: NonNegativeInt,
+  completedIssueCount: NonNegativeInt,
+  readyIssueCount: NonNegativeInt,
+  activeIssueCount: NonNegativeInt,
+  blockedIssueCount: NonNegativeInt,
+  activeWorkerCount: NonNegativeInt,
+  isComplete: Schema.Boolean,
+});
+export type BeadsCoordinatorProgress = typeof BeadsCoordinatorProgress.Type;
 
 export const BeadsCoordinatorPrimaryAction = Schema.Struct({
   kind: Schema.Literals([
-    "checking",
     "unsupported",
     "open_coordination_prep_thread",
     "refresh_swarm_state",
@@ -268,10 +262,23 @@ export const BeadsCoordinatorEpicSnapshot = Schema.Struct({
   epicId: BeadsIssueId,
   epicTitle: TrimmedNonEmptyString,
   issue: Schema.NullOr(BeadsIssueSummary).pipe(Schema.withDecodingDefault(() => null)),
-  fetchLifecycle: BeadsCoordinatorFetchLifecycle,
-  stateKind: BeadsCoordinatorEpicStateKind,
+  trackerLoadState: BeadsCoordinatorTrackerLoadState,
+  trackerLoadDetail: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  coordinationSupported: Schema.Boolean,
+  coordinationUnsupportedReason: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  validationState: BeadsCoordinatorValidationState,
+  validationErrors: Schema.Array(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => [])),
+  trackerState: BeadsCoordinatorTrackerState,
+  progress: BeadsCoordinatorProgress,
   primaryAction: BeadsCoordinatorPrimaryAction,
-  latestRun: Schema.NullOr(OrchestrationSwarmRun).pipe(Schema.withDecodingDefault(() => null)),
+  activeRunId: Schema.NullOr(SwarmRunId).pipe(Schema.withDecodingDefault(() => null)),
+  activeExecutionId: Schema.NullOr(SwarmTaskExecutionId).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   projectConflict: Schema.NullOr(BeadsCoordinatorProjectConflict).pipe(
     Schema.withDecodingDefault(() => null),
   ),
@@ -281,9 +288,6 @@ export const BeadsCoordinatorEpicSnapshot = Schema.Struct({
   runs: Schema.Array(OrchestrationSwarmRun).pipe(Schema.withDecodingDefault(() => [])),
   executions: Schema.Array(OrchestrationSwarmTaskExecution).pipe(
     Schema.withDecodingDefault(() => []),
-  ),
-  activeExecution: Schema.NullOr(OrchestrationSwarmTaskExecution).pipe(
-    Schema.withDecodingDefault(() => null),
   ),
 });
 export type BeadsCoordinatorEpicSnapshot = typeof BeadsCoordinatorEpicSnapshot.Type;

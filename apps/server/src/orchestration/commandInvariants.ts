@@ -13,7 +13,11 @@ import type {
   SwarmTaskExecutionId,
   ThreadId,
 } from "@t3tools/contracts";
-import { deriveSwarmRunExecutionState } from "@t3tools/shared/swarm";
+import {
+  deriveSwarmRunExecutionState,
+  isNonTerminalSharedWorkspaceRun,
+  isNonTerminalSwarmRunStatus,
+} from "@t3tools/shared/swarm";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
@@ -299,6 +303,70 @@ export function requireSwarmRunAbsent(input: {
     invariantError(
       input.command.type,
       `Swarm run '${input.runId}' already exists and cannot be created twice.`,
+    ),
+  );
+}
+
+export function findNonTerminalRunForEpic(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly projectId: ProjectId;
+  readonly epicIssueId: string;
+}): OrchestrationSwarmRun | undefined {
+  return input.readModel.swarmRuns.find(
+    (run) =>
+      run.projectId === input.projectId &&
+      run.epicIssueId === input.epicIssueId &&
+      isNonTerminalSwarmRunStatus(run.status),
+  );
+}
+
+export function requireNoNonTerminalRunForEpic(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly projectId: ProjectId;
+  readonly epicIssueId: string;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  const existingRun = findNonTerminalRunForEpic(input);
+  if (!existingRun) {
+    return Effect.void;
+  }
+
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Epic '${input.epicIssueId}' in project '${input.projectId}' already has non-terminal run '${existingRun.runId}' in status '${existingRun.status}'.`,
+    ),
+  );
+}
+
+export function findConflictingSharedWorkspaceRunForProject(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly projectId: ProjectId;
+}): OrchestrationSwarmRun | undefined {
+  return input.readModel.swarmRuns.find(
+    (run) => run.projectId === input.projectId && isNonTerminalSharedWorkspaceRun(run),
+  );
+}
+
+export function requireNoConflictingSharedWorkspaceRun(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly projectId: ProjectId;
+  readonly workspaceMode: OrchestrationSwarmRun["workspaceMode"];
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (input.workspaceMode !== "shared") {
+    return Effect.void;
+  }
+
+  const conflictingRun = findConflictingSharedWorkspaceRunForProject(input);
+  if (!conflictingRun) {
+    return Effect.void;
+  }
+
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Project '${input.projectId}' already has non-terminal shared-workspace run '${conflictingRun.runId}' for epic '${conflictingRun.epicIssueId}' in status '${conflictingRun.status}'.`,
     ),
   );
 }

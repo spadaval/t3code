@@ -8,6 +8,8 @@ import { Effect } from "effect";
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
   requireActionableProposedPlan,
+  requireNoConflictingSharedWorkspaceRun,
+  requireNoNonTerminalRunForEpic,
   requireCurrentSwarmTaskExecutionForRunInAllowedStatus,
   requirePlanImplementationLaunch,
   requirePlanImplementationLaunchAbsent,
@@ -837,6 +839,18 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         readModel,
         command,
         projectId: command.projectId,
+      });
+      yield* requireNoNonTerminalRunForEpic({
+        readModel,
+        command,
+        projectId: command.projectId,
+        epicIssueId: command.epicIssueId,
+      });
+      yield* requireNoConflictingSharedWorkspaceRun({
+        readModel,
+        command,
+        projectId: command.projectId,
+        workspaceMode: command.workspaceMode,
       });
       return {
         ...withEventBase({

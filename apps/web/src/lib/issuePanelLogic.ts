@@ -322,13 +322,27 @@ export function analyzeEpicCoordination(
 
   // Prioritize epics based on activity and state
   const prioritizedEpics = [...epics].toSorted((a, b) => {
-    // Running epics first
-    if (a.stateKind === "running" && b.stateKind !== "running") return -1;
-    if (b.stateKind === "running" && a.stateKind !== "running") return 1;
+    // Epics with active runs first.
+    if (a.activeRunId !== null && b.activeRunId === null) return -1;
+    if (b.activeRunId !== null && a.activeRunId === null) return 1;
 
-    // Then ready epics
-    if (a.stateKind === "ready" && b.stateKind !== "ready") return -1;
-    if (b.stateKind === "ready" && a.stateKind !== "ready") return 1;
+    // Then tracker work already in progress.
+    if (a.trackerState === "in_progress" && b.trackerState !== "in_progress") return -1;
+    if (b.trackerState === "in_progress" && a.trackerState !== "in_progress") return 1;
+
+    // Then epics that are valid to start.
+    const aReady =
+      a.coordinationSupported &&
+      a.validationState === "valid" &&
+      a.trackerState !== "completed" &&
+      a.activeRunId === null;
+    const bReady =
+      b.coordinationSupported &&
+      b.validationState === "valid" &&
+      b.trackerState !== "completed" &&
+      b.activeRunId === null;
+    if (aReady && !bReady) return -1;
+    if (bReady && !aReady) return 1;
 
     // Then by title alphabetically
     return a.epicTitle.localeCompare(b.epicTitle);

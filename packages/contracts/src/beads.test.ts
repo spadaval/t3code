@@ -181,11 +181,22 @@ it.effect("defaults coordinator snapshot collections", () =>
       epic: {
         epicId: "epic-1",
         epicTitle: "Epic",
-        fetchLifecycle: { kind: "ready" },
-        stateKind: "ready",
+        trackerLoadState: "ready",
+        coordinationSupported: true,
+        validationState: "valid",
+        trackerState: "not_started",
+        progress: {
+          totalIssueCount: 0,
+          completedIssueCount: 0,
+          readyIssueCount: 0,
+          activeIssueCount: 0,
+          blockedIssueCount: 0,
+          activeWorkerCount: 0,
+          isComplete: false,
+        },
         primaryAction: {
           kind: "start_swarm",
-          label: "Start swarm",
+          label: "Start run",
           busyLabel: "Starting...",
           disabled: false,
         },
@@ -196,6 +207,7 @@ it.effect("defaults coordinator snapshot collections", () =>
     assert.strictEqual(epic.epic.issue, null);
     assert.deepStrictEqual(epic.epic.runs, []);
     assert.deepStrictEqual(epic.epic.executions, []);
-    assert.strictEqual(epic.epic.activeExecution, null);
+    assert.strictEqual(epic.epic.activeRunId, null);
+    assert.strictEqual(epic.epic.activeExecutionId, null);
   }),
 );

@@ -46,7 +46,7 @@ function makeSwarmRun(overrides: Partial<OrchestrationSwarmRun> = {}): Orchestra
 }
 
 describe("buildCoordinatorEpicSnapshot", () => {
-  it("returns Retry swarm for failed runs when the swarm is still valid", () => {
+  it("keeps tracker state separate from terminal run history", () => {
     const failedRun = makeSwarmRun({
       status: "failed",
       lastError: "boom",
@@ -96,16 +96,19 @@ describe("buildCoordinatorEpicSnapshot", () => {
       fallbackEpicTitle: "Epic",
     });
 
-    expect(snapshot.stateKind).toBe("failed");
+    expect(snapshot.validationState).toBe("valid");
+    expect(snapshot.trackerState).toBe("not_started");
+    expect(snapshot.runs[0]?.status).toBe("failed");
+    expect(snapshot.activeRunId).toBeNull();
     expect(snapshot.primaryAction).toEqual({
       kind: "start_swarm",
-      label: "Retry swarm",
-      busyLabel: "Retrying...",
+      label: "Start run",
+      busyLabel: "Starting...",
       disabled: false,
     });
   });
 
-  it("returns Open prep thread for failed runs when validation is broken", () => {
+  it("surfaces invalid tracker state separately from run history", () => {
     const failedRun = makeSwarmRun({
       status: "failed",
       lastError: "boom",
@@ -155,7 +158,8 @@ describe("buildCoordinatorEpicSnapshot", () => {
       fallbackEpicTitle: "Epic",
     });
 
-    expect(snapshot.stateKind).toBe("failed");
+    expect(snapshot.validationState).toBe("invalid");
+    expect(snapshot.validationErrors).toEqual(["broken"]);
     expect(snapshot.primaryAction).toEqual({
       kind: "open_coordination_prep_thread",
       label: "Open prep thread",
@@ -179,10 +183,9 @@ describe("buildCoordinatorEpicSnapshot", () => {
       fallbackEpicTitle: "Missing epic",
     });
 
-    expect(snapshot.fetchLifecycle).toEqual({
-      kind: "error",
-      detail: "Swarm validation and status request failed: Issue 'EPIC-404' was not found.",
-    });
-    expect(snapshot.stateKind).toBe("error");
+    expect(snapshot.trackerLoadState).toBe("error");
+    expect(snapshot.trackerLoadDetail).toBe(
+      "Swarm validation and status request failed: Issue 'EPIC-404' was not found.",
+    );
   });
 });
