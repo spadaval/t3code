@@ -115,7 +115,7 @@ describe("CoordinatorTab actions", () => {
   it("renders latest run history separately from tracker state", () => {
     const markup = renderCoordinatorTab();
 
-    expect(markup).toContain("Tracker: Not Started");
+    expect(markup).toContain("Tracker: Ready");
     expect(markup).toContain("Latest run: Cancelled");
     expect(markup).toContain("Start run");
   });

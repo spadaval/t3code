@@ -308,7 +308,7 @@ function describeEpic(epic: BeadsCoordinatorEpicSnapshot) {
         } satisfies CoordinatorStatusDescription;
       }
       return {
-        label: "Not Started",
+        label: "Ready",
         summary:
           latestRun?.status === "cancelled"
             ? "The latest run was cancelled. Start a new run to continue."
