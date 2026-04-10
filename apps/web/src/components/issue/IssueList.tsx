@@ -15,10 +15,10 @@ import {
   type IssueTreeNode,
 } from "~/lib/issueTree";
 import { cn } from "~/lib/utils";
-import { showContextMenuFallback } from "~/contextMenuFallback";
 import { IssueCard, IssueTypeIcon } from "./IssueCard";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { type IssueContextAction, useIssueContextMenu } from "./issueContextMenu";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,56 +42,6 @@ export interface IssueListProps {
   actions?: ReactNode | undefined;
   enableKeyboardNavigation?: boolean | undefined;
   searchDebounceMs?: number | undefined;
-}
-
-// ---------------------------------------------------------------------------
-// Context menu action types
-// ---------------------------------------------------------------------------
-
-export type IssueContextAction =
-  | "implement"
-  | "refine"
-  | "quick_refine"
-  | "planned_refine"
-  | "copy_id"
-  | "copy_title"
-  | "open_in_tracker"
-  | "mark_closed";
-
-export function buildIssueContextMenuItems(issue: BeadsIssueSummary): Array<{
-  id: IssueContextAction;
-  label: string;
-  destructive?: boolean;
-  disabled?: boolean;
-}> {
-  const isEpic = issue.issueType?.toLowerCase() === "epic";
-  const isClosed = issue.status === "closed";
-  const items: Array<{
-    id: IssueContextAction;
-    label: string;
-    destructive?: boolean;
-    disabled?: boolean;
-  }> = [];
-
-  if (!isClosed) {
-    if (isEpic) {
-      items.push({ id: "quick_refine", label: "Quick refine" });
-      items.push({ id: "planned_refine", label: "Planned refine" });
-    } else {
-      items.push({ id: "implement", label: "Implement" });
-      items.push({ id: "refine", label: "Refine" });
-    }
-  }
-
-  items.push({ id: "copy_id", label: "Copy ID" });
-  items.push({ id: "copy_title", label: "Copy title" });
-  items.push({ id: "open_in_tracker", label: "Open in tracker" });
-
-  if (!isClosed) {
-    items.push({ id: "mark_closed", label: "Mark closed", destructive: true });
-  }
-
-  return items;
 }
 
 // ---------------------------------------------------------------------------
@@ -218,31 +168,7 @@ export function IssueList({
     setFocusedIssueIndex(-1);
   }, [showClosed, sortBy, searchValue]);
 
-  const handleIssueContextMenu = useCallback(
-    (issue: BeadsIssueSummary, event: React.MouseEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-
-      void showContextMenuFallback(buildIssueContextMenuItems(issue), {
-        x: event.clientX,
-        y: event.clientY,
-      }).then((action) => {
-        if (!action) return;
-
-        if (action === "copy_id") {
-          void navigator.clipboard.writeText(issue.id);
-          return;
-        }
-        if (action === "copy_title") {
-          void navigator.clipboard.writeText(issue.title);
-          return;
-        }
-
-        onIssueContextAction?.(issue.id, action);
-      });
-    },
-    [onIssueContextAction],
-  );
+  const handleIssueContextMenu = useIssueContextMenu(onIssueContextAction);
 
   const toggleBranch = useCallback((issueId: string) => {
     setCollapsedById((previous) => ({

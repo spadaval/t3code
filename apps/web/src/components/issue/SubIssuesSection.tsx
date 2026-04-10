@@ -1,4 +1,5 @@
 import type { BeadsIssueRelationSummary } from "@t3tools/contracts";
+import type { MouseEvent } from "react";
 
 import { cn } from "~/lib/utils";
 import {
@@ -9,6 +10,7 @@ import {
   isIssueDoneStatus,
 } from "~/lib/issueConstants";
 import { IssueTypeIcon } from "./IssueCard";
+import { type IssueContextAction, useIssueContextMenu } from "./issueContextMenu";
 
 // ---------------------------------------------------------------------------
 // Semantic text color map (mirrors IssueCard)
@@ -32,6 +34,9 @@ export interface SubIssuesSectionProps {
   subIssues: readonly BeadsIssueRelationSummary[];
   /** Called when the user clicks a child row to navigate to it. */
   onIssueSelect?: ((issueId: string) => void) | undefined;
+  onIssueContextAction?:
+    | ((issueId: string, action: Exclude<IssueContextAction, "copy_id" | "copy_title">) => void)
+    | undefined;
   className?: string;
 }
 
@@ -41,7 +46,14 @@ export interface SubIssuesSectionProps {
  * (IssuesTab) to surface deeply nested issues that would otherwise be invisible
  * after the sidebar tree was restricted to epic-only nesting.
  */
-export function SubIssuesSection({ subIssues, onIssueSelect, className }: SubIssuesSectionProps) {
+export function SubIssuesSection({
+  subIssues,
+  onIssueSelect,
+  onIssueContextAction,
+  className,
+}: SubIssuesSectionProps) {
+  const handleIssueContextMenu = useIssueContextMenu(onIssueContextAction);
+
   if (subIssues.length === 0) return null;
 
   return (
@@ -56,6 +68,7 @@ export function SubIssuesSection({ subIssues, onIssueSelect, className }: SubIss
             child={child}
             isLast={index === subIssues.length - 1}
             onIssueSelect={onIssueSelect}
+            onIssueContextMenu={handleIssueContextMenu}
           />
         ))}
       </div>
@@ -71,10 +84,12 @@ function SubIssueRow({
   child,
   isLast,
   onIssueSelect,
+  onIssueContextMenu,
 }: {
   child: BeadsIssueRelationSummary;
   isLast: boolean;
   onIssueSelect?: ((issueId: string) => void) | undefined;
+  onIssueContextMenu?: (issue: BeadsIssueRelationSummary, event: MouseEvent) => void;
 }) {
   const statusClass =
     SEMANTIC_TEXT_COLOR[getStatusVariant(child.status)] ?? "text-muted-foreground";
@@ -88,6 +103,7 @@ function SubIssueRow({
     <button
       type="button"
       onClick={() => onIssueSelect?.(child.id)}
+      onContextMenu={(event) => onIssueContextMenu?.(child, event)}
       className={cn(
         "group w-full px-3 py-2 text-left transition-colors hover:bg-muted/30",
         !isLast && "border-b border-border/40",

@@ -5,6 +5,7 @@ import { useCallback } from "react";
 import { GitBranchIcon, KanbanIcon, LayoutListIcon } from "lucide-react";
 
 import {
+  ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
   beadsContextOptions,
   beadsProjectCoordinatorSnapshotOptions,
   beadsQueryIssuesOptions,
@@ -64,6 +65,8 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
       statuses: issueStatusesForVisibility(showClosed),
       sortBy,
       enabled: cwd !== null && (activeTab === "issues" || activeTab === "board"),
+      refetchIntervalMs: ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
+      refetchOnWindowFocus: "always",
     }),
   );
 

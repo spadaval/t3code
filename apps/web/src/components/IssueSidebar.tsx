@@ -7,6 +7,7 @@ import { ArrowLeftIcon, ListTodoIcon, XIcon } from "lucide-react";
 import { parseChatRouteSearch, stripRightPaneSearchParams } from "~/chatRouteSearch";
 import { useComposerThreadDraft } from "~/composerDraftStore";
 import {
+  ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
   beadsIssueGraphOptions,
   beadsQueryIssuesOptions,
   beadsUpdateIssueMutationOptions,
@@ -21,8 +22,8 @@ import { useThreadProjectContext } from "~/threadProjectContext";
 import { DEFAULT_RUNTIME_MODE } from "~/types";
 import { IssueDetail } from "./issue/IssueDetail";
 import { IssueWorkflowActions, useIssueWorkflowLaunchers } from "./issue/IssueWorkflowActions";
-import type { IssueContextAction } from "./issue/IssueList";
 import { IssueListPanel } from "./issue/IssueListPanel";
+import type { IssueContextAction } from "./issue/issueContextMenu";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
 import { toastManager } from "./ui/toast";
@@ -107,6 +108,8 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
       statuses: issueStatusesForVisibility(paneState.showClosed),
       sortBy: paneState.sortBy,
       enabled: project !== undefined,
+      refetchIntervalMs: ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
+      refetchOnWindowFocus: "always",
     }),
   );
 
@@ -115,6 +118,8 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
       ? beadsIssueGraphOptions({
           cwd: project.cwd,
           epicIssueId: selectedIssueId,
+          refetchIntervalMs: ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
+          refetchOnWindowFocus: "always",
         })
       : beadsIssueGraphOptions(null),
   );
@@ -411,6 +416,9 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
                   onClose={onBackToList}
                   onDependencyClick={onSelectIssue}
                   onSubIssueClick={onSelectIssue}
+                  onSubIssueContextAction={(childIssueId, action) =>
+                    void handleIssueContextAction(childIssueId, action)
+                  }
                   className="pb-6"
                 />
               ) : (

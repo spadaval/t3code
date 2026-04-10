@@ -21,6 +21,7 @@ import {
 } from "./IssueRelationships";
 import { SubIssuesSection } from "./SubIssuesSection";
 import { IssueTypeIcon } from "./IssueCard";
+import type { IssueContextAction } from "./issueContextMenu";
 
 export interface IssueDetailProps {
   issue: BeadsIssueDetail;
@@ -31,6 +32,9 @@ export interface IssueDetailProps {
   className?: string;
   onDependencyClick?: ((dependencyId: string) => void) | undefined;
   onSubIssueClick?: ((issueId: string) => void) | undefined;
+  onSubIssueContextAction?:
+    | ((issueId: string, action: Exclude<IssueContextAction, "copy_id" | "copy_title">) => void)
+    | undefined;
   onLabelClick?: ((label: string) => void) | undefined;
   showCompactSections?: boolean;
   // Enhanced interaction props
@@ -76,6 +80,7 @@ export function IssueDetail({
   className,
   onDependencyClick,
   onSubIssueClick,
+  onSubIssueContextAction,
   onLabelClick,
   showCompactSections = false,
   loading = false,
@@ -209,7 +214,11 @@ export function IssueDetail({
 
       {/* Sub-issues (children of this issue) */}
       {subIssues && subIssues.length > 0 && (
-        <SubIssuesSection subIssues={subIssues} onIssueSelect={onSubIssueClick} />
+        <SubIssuesSection
+          subIssues={subIssues}
+          onIssueSelect={onSubIssueClick}
+          onIssueContextAction={onSubIssueContextAction}
+        />
       )}
 
       {/* Secondary: Labels */}

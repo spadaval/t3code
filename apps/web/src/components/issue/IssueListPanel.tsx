@@ -2,7 +2,8 @@ import type { BeadsIssueSortBy, BeadsIssueSummary, ThreadId } from "@t3tools/con
 import { type ReactNode, useCallback } from "react";
 
 import { cn } from "~/lib/utils";
-import { IssueList, type IssueContextAction } from "./IssueList";
+import { IssueList } from "./IssueList";
+import type { IssueContextAction } from "./issueContextMenu";
 import { NavigationTabs, NavigationTab } from "../shared/NavigationTabs";
 import { ErrorDisplay } from "../shared/ErrorDisplay";
 import { LoadingSkeleton } from "../shared/LoadingSpinner";

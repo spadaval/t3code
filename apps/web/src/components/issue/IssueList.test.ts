@@ -3,7 +3,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { IssueList, buildIssueContextMenuItems } from "./IssueList";
+import { IssueList } from "./IssueList";
+import { buildIssueContextMenuItems } from "./issueContextMenu";
 
 function makeIssue(input: Partial<BeadsIssueSummary> & Pick<BeadsIssueSummary, "id" | "title">) {
   const { id, title, ...rest } = input;

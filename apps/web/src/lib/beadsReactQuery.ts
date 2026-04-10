@@ -31,6 +31,8 @@ import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react
 
 import { ensureNativeApi } from "~/nativeApi";
 
+export const ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS = 15_000;
+
 export const beadsQueryKeys = {
   all: ["beads"] as const,
   issues: (input: BeadsQueryIssuesInput) =>
@@ -77,12 +79,21 @@ export const beadsQueryKeys = {
     ["beads", "issue-graph", cwd, issueId] as const,
 };
 
-export function beadsQueryIssuesOptions(input: BeadsQueryIssuesInput & { enabled?: boolean }) {
-  return queryOptions({
-    queryKey: beadsQueryKeys.issues(input),
-    queryFn: async () => ensureNativeApi().beads.queryIssues(input),
-    enabled: (input.enabled ?? true) && input.cwd.length > 0,
+export function beadsQueryIssuesOptions(
+  input: BeadsQueryIssuesInput & {
+    enabled?: boolean;
+    refetchIntervalMs?: number | false;
+    refetchOnWindowFocus?: boolean | "always";
+  },
+) {
+  const { enabled, refetchIntervalMs, refetchOnWindowFocus, ...queryInput } = input;
+  return queryOptions<BeadsQueryIssuesResult>({
+    queryKey: beadsQueryKeys.issues(queryInput),
+    queryFn: async () => ensureNativeApi().beads.queryIssues(queryInput),
+    enabled: (enabled ?? true) && input.cwd.length > 0,
     staleTime: 10_000,
+    ...(refetchIntervalMs !== undefined ? { refetchInterval: refetchIntervalMs } : {}),
+    ...(refetchOnWindowFocus !== undefined ? { refetchOnWindowFocus } : {}),
   });
 }
 
@@ -117,17 +128,29 @@ export function beadsIssueDetailOptions(input: BeadsGetIssueInput | null) {
   });
 }
 
-export function beadsIssueGraphOptions(input: BeadsEpicIssueInput | null) {
+export function beadsIssueGraphOptions(
+  input:
+    | (BeadsEpicIssueInput & {
+        refetchIntervalMs?: number | false;
+        refetchOnWindowFocus?: boolean | "always";
+      })
+    | null,
+) {
+  const queryInput = input ? { cwd: input.cwd, epicIssueId: input.epicIssueId } : null;
   return queryOptions<BeadsIssueGraph>({
-    queryKey: beadsQueryKeys.issueGraph(input?.cwd ?? null, input?.epicIssueId ?? null),
+    queryKey: beadsQueryKeys.issueGraph(queryInput?.cwd ?? null, queryInput?.epicIssueId ?? null),
     queryFn: async () => {
-      if (!input) {
+      if (!queryInput) {
         throw new Error("Issue graph is unavailable.");
       }
-      return ensureNativeApi().beads.getIssueGraph(input);
+      return ensureNativeApi().beads.getIssueGraph(queryInput);
     },
     enabled: input !== null,
     staleTime: 5_000,
+    ...(input?.refetchIntervalMs !== undefined ? { refetchInterval: input.refetchIntervalMs } : {}),
+    ...(input?.refetchOnWindowFocus !== undefined
+      ? { refetchOnWindowFocus: input.refetchOnWindowFocus }
+      : {}),
   });
 }
 

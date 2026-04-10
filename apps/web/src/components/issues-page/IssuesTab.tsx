@@ -11,6 +11,7 @@ import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { CircleDotIcon, Loader2Icon, MessageSquareTextIcon, SendIcon, XIcon } from "lucide-react";
 
 import {
+  ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
   beadsCommentIssueMutationOptions,
   beadsIssueGraphOptions,
   beadsUpdateIssueMutationOptions,
@@ -31,7 +32,7 @@ import { useProjectById } from "~/storeSelectors";
 import { formatShortTimestamp } from "~/timestampFormat";
 import { DEFAULT_RUNTIME_MODE } from "~/types";
 import { useSettings } from "~/hooks/useSettings";
-import { IssueList, type IssueContextAction } from "../issue/IssueList";
+import { IssueList } from "../issue/IssueList";
 import { CreateIssueDialog } from "../issue/CreateIssueDialog";
 import { EditableTitle, EditableTextArea } from "../issue/EditableField";
 import {
@@ -48,6 +49,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Textarea } from "../ui/textarea";
 import { StatusIndicator } from "../shared/StatusIndicator";
 import { toastManager } from "../ui/toast";
+import type { IssueContextAction } from "../issue/issueContextMenu";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -221,7 +223,14 @@ function IssueDetailPanel({
   const navigate = useNavigate();
   const threads = useStore((store) => store.threads);
 
-  const issueDetailQuery = useQuery(beadsIssueGraphOptions({ cwd, epicIssueId: issueId }));
+  const issueDetailQuery = useQuery(
+    beadsIssueGraphOptions({
+      cwd,
+      epicIssueId: issueId,
+      refetchIntervalMs: ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
+      refetchOnWindowFocus: "always",
+    }),
+  );
   const issue = issueDetailQuery.data?.epic ?? null;
   const parent = issueDetailQuery.data?.parent ?? null;
   const subIssues = issueDetailQuery.data?.children ?? [];
@@ -297,6 +306,47 @@ function IssueDetailPanel({
       }
     },
     [cwd, issueId, commentIssueMutation],
+  );
+
+  const handleIssueContextAction = useCallback(
+    async (targetIssueId: string, action: IssueContextAction) => {
+      switch (action) {
+        case "implement":
+          await workflowLaunchers.startIssueWorkflow(targetIssueId, "solve");
+          return;
+        case "refine":
+          await workflowLaunchers.startIssueWorkflow(targetIssueId, "refine");
+          return;
+        case "quick_refine":
+          await workflowLaunchers.startEpicQuickRefine(targetIssueId);
+          return;
+        case "planned_refine":
+          await workflowLaunchers.startEpicPlannedRefine(targetIssueId);
+          return;
+        case "open_in_tracker":
+          onSelectIssue(targetIssueId);
+          return;
+        case "mark_closed":
+          try {
+            await updateIssueMutation.mutateAsync({
+              cwd,
+              issueId: targetIssueId,
+              status: "closed",
+            });
+          } catch (error) {
+            toastManager.add({
+              type: "error",
+              title: "Failed to close issue",
+              description: error instanceof Error ? error.message : "An unknown error occurred.",
+            });
+          }
+          return;
+        case "copy_id":
+        case "copy_title":
+          return;
+      }
+    },
+    [cwd, onSelectIssue, updateIssueMutation, workflowLaunchers],
   );
 
   const openLinkedThread = useCallback(() => {
@@ -446,7 +496,13 @@ function IssueDetailPanel({
             {/* Sub-issues */}
             {subIssues.length > 0 && (
               <div className="mt-5">
-                <SubIssuesSection subIssues={subIssues} onIssueSelect={onSelectIssue} />
+                <SubIssuesSection
+                  subIssues={subIssues}
+                  onIssueSelect={onSelectIssue}
+                  onIssueContextAction={(childIssueId, action) =>
+                    void handleIssueContextAction(childIssueId, action)
+                  }
+                />
               </div>
             )}
 
