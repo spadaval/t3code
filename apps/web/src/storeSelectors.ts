@@ -24,3 +24,19 @@ export function useSidebarThreadSummaryById(
   const selector = useMemo(() => selectSidebarThreadSummaryById(threadId), [threadId]);
   return useStore(selector);
 }
+
+/**
+ * Select a worker thread's activities and session state by its thread ID.
+ * Returns undefined if the thread is not found in the store.
+ */
+export function useWorkerThreadState(threadId: ThreadId | null | undefined) {
+  const thread = useThreadById(threadId);
+  return useMemo(() => {
+    if (!thread) return undefined;
+    return {
+      activities: thread.activities,
+      session: thread.session,
+      turnDiffSummaries: thread.turnDiffSummaries,
+    };
+  }, [thread]);
+}

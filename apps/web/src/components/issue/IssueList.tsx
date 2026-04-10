@@ -310,20 +310,41 @@ export function IssueList({
           />
         ) : (
           <div className="py-1">
-            {issueTree.roots.map((node) => (
-              <IssueTreeNodeSection
-                key={node.issue.id}
-                node={node}
-                collapsedById={collapsedById}
-                selectedIssueId={selectedIssueId ?? null}
-                focusedIssueId={focusedIssueId}
-                onToggleBranch={toggleBranch}
-                onIssueSelect={onIssueSelect}
-                onIssueContextMenu={handleIssueContextMenu}
-                onLabelClick={onLabelClick}
-                progressNodesById={fullTreeNodesById}
-              />
-            ))}
+            {issueTree.roots
+              .filter((node) => node.isEpic)
+              .map((node) => (
+                <IssueTreeNodeSection
+                  key={node.issue.id}
+                  node={node}
+                  collapsedById={collapsedById}
+                  selectedIssueId={selectedIssueId ?? null}
+                  focusedIssueId={focusedIssueId}
+                  onToggleBranch={toggleBranch}
+                  onIssueSelect={onIssueSelect}
+                  onIssueContextMenu={handleIssueContextMenu}
+                  onLabelClick={onLabelClick}
+                  progressNodesById={fullTreeNodesById}
+                />
+              ))}
+            {issueTree.roots.some((n) => n.isEpic) && issueTree.roots.some((n) => !n.isEpic) && (
+              <SectionDivider label="Issues" />
+            )}
+            {issueTree.roots
+              .filter((node) => !node.isEpic)
+              .map((node) => (
+                <IssueTreeNodeSection
+                  key={node.issue.id}
+                  node={node}
+                  collapsedById={collapsedById}
+                  selectedIssueId={selectedIssueId ?? null}
+                  focusedIssueId={focusedIssueId}
+                  onToggleBranch={toggleBranch}
+                  onIssueSelect={onIssueSelect}
+                  onIssueContextMenu={handleIssueContextMenu}
+                  onLabelClick={onLabelClick}
+                  progressNodesById={fullTreeNodesById}
+                />
+              ))}
           </div>
         )}
       </div>
@@ -440,7 +461,7 @@ function IssueTreeNodeSection({
 
   return (
     <div style={indentStyle}>
-      {node.isEpic && node.hasVisibleChildren ? (
+      {node.isEpic ? (
         <EpicTreeSection
           node={node}
           collapsed={collapsed}
@@ -534,32 +555,37 @@ function EpicTreeSection({
     () => countIssueTreeDescendantStatuses(progressNode),
     [progressNode],
   );
+  const hasChildren = node.hasVisibleChildren;
 
   return (
     <div className="overflow-hidden rounded-md border border-border/40">
       <div
         className={cn(
-          "border-b border-border/50",
+          hasChildren && "border-b border-border/50",
           selected ? "bg-muted/50" : "bg-muted/10",
           focused && "ring-1 ring-ring ring-inset bg-muted/40",
         )}
       >
         <div className="flex items-stretch">
-          <button
-            type="button"
-            onClick={onToggle}
-            tabIndex={-1}
-            aria-label={
-              collapsed ? `Expand epic ${node.issue.id}` : `Collapse epic ${node.issue.id}`
-            }
-            className="flex shrink-0 items-center justify-center px-2.5 text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground"
-          >
-            {collapsed ? (
-              <ChevronRightIcon className="size-3.5" />
-            ) : (
-              <ChevronDownIcon className="size-3.5" />
-            )}
-          </button>
+          {hasChildren ? (
+            <button
+              type="button"
+              onClick={onToggle}
+              tabIndex={-1}
+              aria-label={
+                collapsed ? `Expand epic ${node.issue.id}` : `Collapse epic ${node.issue.id}`
+              }
+              className="flex shrink-0 items-center justify-center px-2.5 text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground"
+            >
+              {collapsed ? (
+                <ChevronRightIcon className="size-3.5" />
+              ) : (
+                <ChevronDownIcon className="size-3.5" />
+              )}
+            </button>
+          ) : (
+            <div className="w-[34px] shrink-0" aria-hidden />
+          )}
           <button
             type="button"
             onClick={() => onIssueSelect?.(node.issue.id)}
@@ -666,6 +692,22 @@ function EpicChildProgress({ counts }: { counts: IssueTreeDescendantStatusCounts
       {blockedPct > 0 && (
         <div className="bg-destructive" style={{ width: `${String(blockedPct)}%` }} />
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section divider
+// ---------------------------------------------------------------------------
+
+function SectionDivider({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-2">
+      <div className="h-px flex-1 bg-border/50" />
+      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        {label}
+      </span>
+      <div className="h-px flex-1 bg-border/50" />
     </div>
   );
 }

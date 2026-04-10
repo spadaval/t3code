@@ -7,7 +7,7 @@ import { ArrowLeftIcon, ListTodoIcon, XIcon } from "lucide-react";
 import { parseChatRouteSearch, stripRightPaneSearchParams } from "~/chatRouteSearch";
 import { useComposerThreadDraft } from "~/composerDraftStore";
 import {
-  beadsIssueDetailOptions,
+  beadsIssueGraphOptions,
   beadsQueryIssuesOptions,
   beadsUpdateIssueMutationOptions,
 } from "~/lib/beadsReactQuery";
@@ -121,11 +121,11 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
 
   const selectedIssueDetailQuery = useQuery(
     project && selectedIssueId
-      ? beadsIssueDetailOptions({
+      ? beadsIssueGraphOptions({
           cwd: project.cwd,
-          issueId: selectedIssueId,
+          epicIssueId: selectedIssueId,
         })
-      : beadsIssueDetailOptions(null),
+      : beadsIssueGraphOptions(null),
   );
 
   const linkedThreads = useMemo(
@@ -239,7 +239,8 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
     });
   }, [navigate, setSelectedIssueId, threadId]);
 
-  const selectedIssue = selectedIssueDetailQuery.data ?? null;
+  const selectedIssue = selectedIssueDetailQuery.data?.epic ?? null;
+  const selectedIssueSubIssues = selectedIssueDetailQuery.data?.children ?? [];
   const openCoordinator = useCallback(
     (epicId: string) => {
       if (!project) {
@@ -402,10 +403,12 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
               ) : selectedIssue ? (
                 <IssueDetail
                   issue={selectedIssue}
+                  subIssues={selectedIssueSubIssues}
                   showCompactSections
                   autoFocus
                   onClose={onBackToList}
                   onDependencyClick={onSelectIssue}
+                  onSubIssueClick={onSelectIssue}
                   className="pb-6"
                 />
               ) : (

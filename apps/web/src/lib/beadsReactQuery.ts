@@ -7,6 +7,7 @@ import type {
   BeadsGetIssueInput,
   BeadsGetIssuesInput,
   BeadsGetContextInput,
+  BeadsIssueGraph,
   BeadsIssueSummary,
   BeadsGetSessionActivityInput,
   BeadsProjectCoordinatorSnapshot,
@@ -72,6 +73,8 @@ export const beadsQueryKeys = {
     ] as const,
   sessionActivity: (input: BeadsGetSessionActivityInput) =>
     ["beads", "session-activity", input.cwd] as const,
+  issueGraph: (cwd: string | null, issueId: string | null) =>
+    ["beads", "issue-graph", cwd, issueId] as const,
 };
 
 export function beadsQueryIssuesOptions(input: BeadsQueryIssuesInput & { enabled?: boolean }) {
@@ -108,6 +111,20 @@ export function beadsIssueDetailOptions(input: BeadsGetIssueInput | null) {
         throw new Error("Issue detail is unavailable.");
       }
       return ensureNativeApi().beads.getIssue(input);
+    },
+    enabled: input !== null,
+    staleTime: 5_000,
+  });
+}
+
+export function beadsIssueGraphOptions(input: BeadsEpicIssueInput | null) {
+  return queryOptions<BeadsIssueGraph>({
+    queryKey: beadsQueryKeys.issueGraph(input?.cwd ?? null, input?.epicIssueId ?? null),
+    queryFn: async () => {
+      if (!input) {
+        throw new Error("Issue graph is unavailable.");
+      }
+      return ensureNativeApi().beads.getIssueGraph(input);
     },
     enabled: input !== null,
     staleTime: 5_000,

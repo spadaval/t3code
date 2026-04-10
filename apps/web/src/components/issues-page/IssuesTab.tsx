@@ -20,7 +20,7 @@ import {
 
 import {
   beadsCommentIssueMutationOptions,
-  beadsIssueDetailOptions,
+  beadsIssueGraphOptions,
   beadsUpdateIssueMutationOptions,
 } from "~/lib/beadsReactQuery";
 import { cn } from "~/lib/utils";
@@ -44,6 +44,7 @@ import { IssueList, type IssueContextAction } from "../issue/IssueList";
 import { CreateIssueDialog } from "../issue/CreateIssueDialog";
 import { EditableTitle, EditableTextArea } from "../issue/EditableField";
 import { IssueWorkflowActions, useIssueWorkflowLaunchers } from "../issue/IssueWorkflowActions";
+import { SubIssuesSection } from "../issue/SubIssuesSection";
 import { LoadingSpinner } from "../shared/LoadingSpinner";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -221,8 +222,9 @@ function IssueDetailPanel({
   const navigate = useNavigate();
   const threads = useStore((store) => store.threads);
 
-  const issueDetailQuery = useQuery(beadsIssueDetailOptions({ cwd, issueId }));
-  const issue = issueDetailQuery.data ?? null;
+  const issueDetailQuery = useQuery(beadsIssueGraphOptions({ cwd, epicIssueId: issueId }));
+  const issue = issueDetailQuery.data?.epic ?? null;
+  const subIssues = issueDetailQuery.data?.children ?? [];
 
   const linkedThreads = useMemo(
     () =>
@@ -424,6 +426,13 @@ function IssueDetailPanel({
                 minHeight="min-h-[4rem]"
               />
             </div>
+
+            {/* Sub-issues */}
+            {subIssues.length > 0 && (
+              <div className="mt-5">
+                <SubIssuesSection subIssues={subIssues} onIssueSelect={onSelectIssue} />
+              </div>
+            )}
 
             {/* Dependencies */}
             {issue.dependencies.length > 0 && (

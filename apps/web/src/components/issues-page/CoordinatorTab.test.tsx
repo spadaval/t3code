@@ -334,3 +334,45 @@ describe("WorkGraph integration", () => {
     expect(markup).toContain("#1");
   });
 });
+
+describe("Activity log integration", () => {
+  it("renders Activity section when runs exist", () => {
+    const markup = renderCoordinatorTab();
+    expect(markup).toContain("Activity");
+    // Should contain run lifecycle entries.
+    expect(markup).toContain("Run requested");
+    expect(markup).toContain("Run cancelled");
+  });
+
+  it("does not render Activity section when no runs or executions", () => {
+    const markup = renderCoordinatorTab({ runs: [], executions: [] });
+    expect(markup).not.toContain("Run requested");
+  });
+
+  it("renders execution entries in the activity log", () => {
+    const markup = renderCoordinatorTab({
+      runs: [BASE_EPIC.runs[0]!],
+      executions: [
+        {
+          executionId: "exec-1" as never,
+          runId: "run-1" as never,
+          issueId: "ISSUE-A",
+          workerThreadId: null,
+          sequenceNumber: 1,
+          status: "completed",
+          originalStatus: "open",
+          originalAssignee: null,
+          lastError: null,
+          requestedAt: "2026-04-08T00:00:02.000Z",
+          startedAt: "2026-04-08T00:00:03.000Z",
+          completedAt: "2026-04-08T00:00:10.000Z",
+          failedAt: null,
+          cancelledAt: null,
+          updatedAt: "2026-04-08T00:00:10.000Z",
+        },
+      ],
+    });
+    expect(markup).toContain("Task #1 started: ISSUE-A");
+    expect(markup).toContain("Task #1 completed: ISSUE-A");
+  });
+});

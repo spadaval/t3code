@@ -36,6 +36,8 @@ import { cn } from "~/lib/utils";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { Badge } from "../ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
+import { ExecutionDiffSummary } from "./ExecutionDiffSummary";
+import { WorkerActivityFeed } from "./WorkerActivityFeed";
 
 // ---------------------------------------------------------------------------
 // Format helpers
@@ -768,36 +770,62 @@ function WorkGraphRowDetail(props: {
           </p>
           <div className="space-y-1">
             {node.executions.map((exec) => (
-              <div
-                key={exec.executionId}
-                className="flex items-center gap-2 rounded border border-border/30 px-2 py-1.5 text-xs"
-              >
-                <Badge variant={executionStatusBadgeVariant(exec.status)} size="sm">
-                  #{exec.sequenceNumber}
-                </Badge>
-                <span className="text-muted-foreground">{formatExecutionStatus(exec.status)}</span>
-                {exec.startedAt ? (
-                  <span className="flex items-center gap-1 tabular-nums text-muted-foreground">
-                    <ClockIcon className="size-2.5" />
-                    {formatRelativeTimeLabel(exec.startedAt)}
+              <div key={exec.executionId} className="space-y-1">
+                <div className="flex items-center gap-2 rounded border border-border/30 px-2 py-1.5 text-xs">
+                  <Badge variant={executionStatusBadgeVariant(exec.status)} size="sm">
+                    #{exec.sequenceNumber}
+                  </Badge>
+                  <span className="text-muted-foreground">
+                    {formatExecutionStatus(exec.status)}
                   </span>
-                ) : null}
-                {exec.lastError ? (
-                  <span className="min-w-0 flex-1 truncate text-destructive">{exec.lastError}</span>
-                ) : null}
-                {exec.workerThreadId ? (
-                  <button
-                    type="button"
-                    className="ml-auto flex shrink-0 items-center gap-1 text-muted-foreground transition-colors hover:text-foreground"
-                    onClick={() => props.onOpenThread(exec.workerThreadId!)}
-                  >
-                    <ExternalLinkIcon className="size-3" />
-                    <span>Thread</span>
-                  </button>
+                  {exec.startedAt ? (
+                    <span className="flex items-center gap-1 tabular-nums text-muted-foreground">
+                      <ClockIcon className="size-2.5" />
+                      {formatRelativeTimeLabel(exec.startedAt)}
+                    </span>
+                  ) : null}
+                  {exec.lastError ? (
+                    <span className="min-w-0 flex-1 truncate text-destructive">
+                      {exec.lastError}
+                    </span>
+                  ) : null}
+                  {exec.workerThreadId ? (
+                    <button
+                      type="button"
+                      className="ml-auto flex shrink-0 items-center gap-1 text-muted-foreground transition-colors hover:text-foreground"
+                      onClick={() => props.onOpenThread(exec.workerThreadId!)}
+                    >
+                      <ExternalLinkIcon className="size-3" />
+                      <span>Thread</span>
+                    </button>
+                  ) : null}
+                </div>
+                {/* Diff summary for settled executions */}
+                {exec.workerThreadId &&
+                (exec.status === "completed" || exec.status === "failed") ? (
+                  <div className="pl-2">
+                    <ExecutionDiffSummary execution={exec} onOpenThread={props.onOpenThread} />
+                  </div>
                 ) : null}
               </div>
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {/* Live worker activity for active execution */}
+      {node.isActiveWorker && node.latestExecution?.workerThreadId ? (
+        <div>
+          <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
+            Worker Activity
+          </p>
+          <WorkerActivityFeed
+            workerThreadId={node.latestExecution.workerThreadId}
+            execution={node.latestExecution}
+            onOpenThread={props.onOpenThread}
+            compact
+            maxEntries={8}
+          />
         </div>
       ) : null}
 

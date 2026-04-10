@@ -1,4 +1,4 @@
-import type { BeadsIssueDetail } from "@t3tools/contracts";
+import type { BeadsIssueDetail, BeadsIssueRelationSummary } from "@t3tools/contracts";
 import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import {
   BugIcon,
@@ -27,11 +27,15 @@ import { useSettings } from "~/hooks/useSettings";
 import { StatusIndicator } from "../shared/StatusIndicator";
 import { LabelGroup } from "../shared/LabelGroup";
 import { Button } from "../ui/button";
+import { SubIssuesSection } from "./SubIssuesSection";
 
 export interface IssueDetailProps {
   issue: BeadsIssueDetail;
+  /** Direct child issues. When provided, renders a sub-issues section. */
+  subIssues?: readonly BeadsIssueRelationSummary[] | undefined;
   className?: string;
   onDependencyClick?: ((dependencyId: string) => void) | undefined;
+  onSubIssueClick?: ((issueId: string) => void) | undefined;
   onLabelClick?: ((label: string) => void) | undefined;
   showCompactSections?: boolean;
   // Enhanced interaction props
@@ -72,8 +76,10 @@ export interface IssueDetailProps {
  */
 export function IssueDetail({
   issue,
+  subIssues,
   className,
   onDependencyClick,
+  onSubIssueClick,
   onLabelClick,
   showCompactSections = false,
   loading = false,
@@ -211,6 +217,11 @@ export function IssueDetail({
 
       {/* Secondary: Description and Notes */}
       <IssueDetailContent issue={issue} />
+
+      {/* Sub-issues (children of this issue) */}
+      {subIssues && subIssues.length > 0 && (
+        <SubIssuesSection subIssues={subIssues} onIssueSelect={onSubIssueClick} />
+      )}
 
       {/* Secondary: Labels */}
       {issue.labels.length > 0 && (
