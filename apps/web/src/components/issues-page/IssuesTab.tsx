@@ -7,31 +7,19 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
-import {
-  CircleDotIcon,
-  GitBranchIcon,
-  LinkIcon,
-  Loader2Icon,
-  MessageSquareTextIcon,
-  OctagonAlertIcon,
-  SendIcon,
-  XIcon,
-} from "lucide-react";
+import { CircleDotIcon, Loader2Icon, MessageSquareTextIcon, SendIcon, XIcon } from "lucide-react";
 
 import {
   beadsCommentIssueMutationOptions,
   beadsIssueGraphOptions,
   beadsUpdateIssueMutationOptions,
 } from "~/lib/beadsReactQuery";
-import { cn } from "~/lib/utils";
 import {
   CORE_ISSUE_STATUSES,
   ISSUE_PRIORITIES,
   getStatusVariant,
   getPriorityVariant,
   formatPriorityDisplay,
-  getDependencyTypeDef,
-  groupDependenciesByCategory,
 } from "~/lib/issueConstants";
 import { resolveDefaultModelSelection } from "~/lib/modelSelection";
 import { listIssueLinkedThreads } from "~/issueThreads";
@@ -43,6 +31,11 @@ import { useSettings } from "~/hooks/useSettings";
 import { IssueList, type IssueContextAction } from "../issue/IssueList";
 import { CreateIssueDialog } from "../issue/CreateIssueDialog";
 import { EditableTitle, EditableTextArea } from "../issue/EditableField";
+import {
+  IssueParentLink,
+  IssueRelationshipSummaryBar,
+  IssueRelationshipsSection,
+} from "../issue/IssueRelationships";
 import { IssueWorkflowActions, useIssueWorkflowLaunchers } from "../issue/IssueWorkflowActions";
 import { SubIssuesSection } from "../issue/SubIssuesSection";
 import { LoadingSpinner } from "../shared/LoadingSpinner";
@@ -224,7 +217,9 @@ function IssueDetailPanel({
 
   const issueDetailQuery = useQuery(beadsIssueGraphOptions({ cwd, epicIssueId: issueId }));
   const issue = issueDetailQuery.data?.epic ?? null;
+  const parent = issueDetailQuery.data?.parent ?? null;
   const subIssues = issueDetailQuery.data?.children ?? [];
+  const dependents = issueDetailQuery.data?.dependents ?? [];
 
   const linkedThreads = useMemo(
     () =>
@@ -406,6 +401,16 @@ function IssueDetailPanel({
               saving={updateIssueMutation.isPending}
             />
 
+            <IssueParentLink parent={parent} onClick={onSelectIssue} className="mt-3" />
+
+            <IssueRelationshipSummaryBar
+              parent={parent}
+              subIssues={subIssues}
+              dependencies={issue.dependencies}
+              dependents={dependents}
+              className="mt-4"
+            />
+
             {/* Editable description */}
             <div className="mt-5">
               <EditableTextArea
@@ -434,13 +439,16 @@ function IssueDetailPanel({
               </div>
             )}
 
-            {/* Dependencies */}
-            {issue.dependencies.length > 0 && (
-              <DependenciesSection
+            <div className="mt-6">
+              <IssueRelationshipsSection
+                parent={parent}
+                subIssues={subIssues}
                 dependencies={issue.dependencies}
-                onDependencyClick={(depId) => onSelectIssue(depId)}
+                dependents={dependents}
+                onIssueSelect={onSelectIssue}
+                showEmptyStates
               />
-            )}
+            </div>
 
             {/* Comments */}
             {issue.comments.length > 0 && <CommentsSection comments={issue.comments} />}
@@ -826,157 +834,6 @@ function EmptyDetailState({ issueCount }: { issueCount: number }) {
             ? "Choose an issue from the list to view details and take action."
             : "No issues found in this project."}
         </p>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Dependencies section
-// ---------------------------------------------------------------------------
-
-function DependenciesSection({
-  dependencies,
-  onDependencyClick,
-}: {
-  dependencies: BeadsIssueDetailType["dependencies"];
-  onDependencyClick: (id: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const PREVIEW_LIMIT = 3;
-  const visible = expanded ? dependencies : dependencies.slice(0, PREVIEW_LIMIT);
-  const hasHidden = dependencies.length > PREVIEW_LIMIT;
-  const grouped = groupDependenciesByCategory(visible);
-  const hasMultipleCategories =
-    [grouped.parents.length > 0, grouped.blockers.length > 0, grouped.other.length > 0].filter(
-      Boolean,
-    ).length > 1;
-
-  return (
-    <div className="mt-6 space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Dependencies ({dependencies.length})
-        </h3>
-        {hasHidden && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setExpanded(!expanded)}
-            className="h-auto p-0 text-xs text-muted-foreground hover:text-foreground hover:bg-transparent"
-          >
-            {expanded ? "Show less" : `Show ${dependencies.length - PREVIEW_LIMIT} more`}
-          </Button>
-        )}
-      </div>
-      <div className="space-y-3">
-        {grouped.parents.length > 0 && (
-          <DepCategoryGroup
-            label="Parent links"
-            iconHint="hierarchy"
-            colorClass="text-purple-500"
-            showLabel={hasMultipleCategories}
-            deps={grouped.parents}
-            onDependencyClick={onDependencyClick}
-          />
-        )}
-        {grouped.blockers.length > 0 && (
-          <DepCategoryGroup
-            label="Blocking / ordering"
-            iconHint="block"
-            colorClass="text-red-500"
-            showLabel={hasMultipleCategories}
-            deps={grouped.blockers}
-            onDependencyClick={onDependencyClick}
-          />
-        )}
-        {grouped.other.length > 0 && (
-          <DepCategoryGroup
-            label="Related"
-            iconHint="link"
-            colorClass="text-muted-foreground"
-            showLabel={hasMultipleCategories}
-            deps={grouped.other}
-            onDependencyClick={onDependencyClick}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function DepTypeIcon({
-  iconHint,
-  className,
-}: {
-  iconHint: "hierarchy" | "block" | "link";
-  className?: string;
-}) {
-  switch (iconHint) {
-    case "hierarchy":
-      return <GitBranchIcon className={cn("size-3", className)} />;
-    case "block":
-      return <OctagonAlertIcon className={cn("size-3", className)} />;
-    default:
-      return <LinkIcon className={cn("size-3", className)} />;
-  }
-}
-
-function DepCategoryGroup({
-  label,
-  iconHint,
-  colorClass,
-  showLabel,
-  deps,
-  onDependencyClick,
-}: {
-  label: string;
-  iconHint: "hierarchy" | "block" | "link";
-  colorClass: string;
-  showLabel: boolean;
-  deps: BeadsIssueDetailType["dependencies"];
-  onDependencyClick: (id: string) => void;
-}) {
-  return (
-    <div className="space-y-1.5">
-      {showLabel && (
-        <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
-          <DepTypeIcon iconHint={iconHint} className={colorClass} />
-          {label}
-        </div>
-      )}
-      <div className="space-y-2">
-        {deps.map((dep) => {
-          const depTypeDef = getDependencyTypeDef(dep.dependencyType);
-          return (
-            <button
-              key={`${dep.id}:${dep.dependencyType}`}
-              type="button"
-              onClick={() => onDependencyClick(dep.id)}
-              className="w-full rounded-lg border border-border/50 bg-muted/20 p-3 text-left transition-colors hover:bg-muted/40"
-            >
-              <div className="flex items-center gap-2 text-sm">
-                <StatusIndicator variant={getStatusVariant(dep.status)} size="sm">
-                  {dep.status.replace(/_/g, " ")}
-                </StatusIndicator>
-                <span className="font-medium text-foreground truncate">{dep.title}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">#{dep.id}</span>
-              </div>
-              <div className="mt-1 flex items-center gap-2 text-xs">
-                <span className={cn("flex items-center gap-1", depTypeDef.colorClass)}>
-                  <DepTypeIcon iconHint={depTypeDef.iconHint} className={depTypeDef.colorClass} />
-                  {depTypeDef.directionLabel}
-                </span>
-                {dep.description && (
-                  <>
-                    <span className="text-muted-foreground/40">·</span>
-                    <span className="text-muted-foreground line-clamp-1">{dep.description}</span>
-                  </>
-                )}
-              </div>
-            </button>
-          );
-        })}
       </div>
     </div>
   );

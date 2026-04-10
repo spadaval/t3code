@@ -240,7 +240,9 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
   }, [navigate, setSelectedIssueId, threadId]);
 
   const selectedIssue = selectedIssueDetailQuery.data?.epic ?? null;
+  const selectedIssueParent = selectedIssueDetailQuery.data?.parent ?? null;
   const selectedIssueSubIssues = selectedIssueDetailQuery.data?.children ?? [];
+  const selectedIssueDependents = selectedIssueDetailQuery.data?.dependents ?? [];
   const openCoordinator = useCallback(
     (epicId: string) => {
       if (!project) {
@@ -403,7 +405,9 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
               ) : selectedIssue ? (
                 <IssueDetail
                   issue={selectedIssue}
+                  parent={selectedIssueParent}
                   subIssues={selectedIssueSubIssues}
+                  dependents={selectedIssueDependents}
                   showCompactSections
                   autoFocus
                   onClose={onBackToList}

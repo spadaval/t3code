@@ -217,3 +217,46 @@ export function groupDependenciesByCategory<T extends { dependencyType: string }
   }
   return { parents, blockers, other };
 }
+
+/**
+ * Group dependencies by their exact beads dependency_type value so the UI can
+ * preserve the semantic differences between prerequisites, blockers, and
+ * downstream impact.
+ */
+export function groupDependenciesByType<T extends { dependencyType: string }>(
+  dependencies: readonly T[],
+): {
+  parentChild: T[];
+  blockedBy: T[];
+  dependsOn: T[];
+  blocks: T[];
+  other: T[];
+} {
+  const parentChild: T[] = [];
+  const blockedBy: T[] = [];
+  const dependsOn: T[] = [];
+  const blocks: T[] = [];
+  const other: T[] = [];
+
+  for (const dependency of dependencies) {
+    switch (dependency.dependencyType) {
+      case "parent-child":
+        parentChild.push(dependency);
+        break;
+      case "blocked_by":
+        blockedBy.push(dependency);
+        break;
+      case "depends_on":
+        dependsOn.push(dependency);
+        break;
+      case "blocks":
+        blocks.push(dependency);
+        break;
+      default:
+        other.push(dependency);
+        break;
+    }
+  }
+
+  return { parentChild, blockedBy, dependsOn, blocks, other };
+}

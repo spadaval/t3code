@@ -1,38 +1,28 @@
 import type { BeadsIssueDetail, BeadsIssueRelationSummary } from "@t3tools/contracts";
 import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
-import {
-  BugIcon,
-  CheckSquare2Icon,
-  CircleDotIcon,
-  GitBranchIcon,
-  LightbulbIcon,
-  LinkIcon,
-  MessageSquareTextIcon,
-  OctagonAlertIcon,
-  ScaleIcon,
-  WrenchIcon,
-  ZapIcon,
-} from "lucide-react";
+import { MessageSquareTextIcon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
-import {
-  getStatusVariant,
-  formatStatusDisplay,
-  getPriorityVariant,
-  getDependencyTypeDef,
-  groupDependenciesByCategory,
-} from "~/lib/issueConstants";
+import { getStatusVariant, formatStatusDisplay, getPriorityVariant } from "~/lib/issueConstants";
 import { formatShortTimestamp } from "~/timestampFormat";
 import { useSettings } from "~/hooks/useSettings";
 import { StatusIndicator } from "../shared/StatusIndicator";
 import { LabelGroup } from "../shared/LabelGroup";
 import { Button } from "../ui/button";
+import {
+  IssueParentLink,
+  IssueRelationshipSummaryBar,
+  IssueRelationshipsSection,
+} from "./IssueRelationships";
 import { SubIssuesSection } from "./SubIssuesSection";
+import { IssueTypeIcon } from "./IssueCard";
 
 export interface IssueDetailProps {
   issue: BeadsIssueDetail;
+  parent?: BeadsIssueRelationSummary | null;
   /** Direct child issues. When provided, renders a sub-issues section. */
   subIssues?: readonly BeadsIssueRelationSummary[] | undefined;
+  dependents?: readonly BeadsIssueRelationSummary[] | undefined;
   className?: string;
   onDependencyClick?: ((dependencyId: string) => void) | undefined;
   onSubIssueClick?: ((issueId: string) => void) | undefined;
@@ -63,7 +53,6 @@ export interface IssueDetailProps {
  * Keyboard shortcuts:
  * - Escape: Close detail view (if onClose provided)
  * - C: Toggle comments section
- * - D: Toggle dependencies section
  *
  * @example
  * <IssueDetail
@@ -76,7 +65,9 @@ export interface IssueDetailProps {
  */
 export function IssueDetail({
   issue,
+  parent = null,
   subIssues,
+  dependents = [],
   className,
   onDependencyClick,
   onSubIssueClick,
@@ -90,7 +81,6 @@ export function IssueDetail({
   const settings = useSettings();
   const containerRef = useRef<HTMLDivElement>(null);
   const [commentsExpanded, setCommentsExpanded] = useState(false);
-  const [dependenciesExpanded, setDependenciesExpanded] = useState(false);
 
   const statusVariant = getStatusVariant(issue.status);
   const priorityComponent = issue.priority !== null ? getPriorityDisplay(issue.priority) : null;
@@ -117,13 +107,6 @@ export function IssueDetail({
             setCommentsExpanded((prev) => !prev);
           }
           break;
-        case "d":
-        case "D":
-          if (issue.dependencies.length > 0 && !event.ctrlKey && !event.metaKey) {
-            event.preventDefault();
-            setDependenciesExpanded((prev) => !prev);
-          }
-          break;
       }
     };
 
@@ -146,20 +129,12 @@ export function IssueDetail({
   const visibleComments = commentsExpanded
     ? issue.comments
     : issue.comments.slice(0, PREVIEW_LIMIT);
-  const visibleDependencies = dependenciesExpanded
-    ? issue.dependencies
-    : issue.dependencies.slice(0, PREVIEW_LIMIT);
 
   const hasHiddenComments = issue.comments.length > PREVIEW_LIMIT;
-  const hasHiddenDependencies = issue.dependencies.length > PREVIEW_LIMIT;
 
   const handleToggleComments = useCallback(() => {
     setCommentsExpanded(!commentsExpanded);
   }, [commentsExpanded]);
-
-  const handleToggleDependencies = useCallback(() => {
-    setDependenciesExpanded(!dependenciesExpanded);
-  }, [dependenciesExpanded]);
 
   if (loading) {
     return (
@@ -210,9 +185,18 @@ export function IssueDetail({
       {/* Primary: Status and Metadata */}
       <IssueDetailHeader
         issue={issue}
+        parent={parent}
+        onParentClick={onDependencyClick}
         statusVariant={statusVariant}
         priorityComponent={priorityComponent}
         timestampFormat={settings.timestampFormat}
+      />
+
+      <IssueRelationshipSummaryBar
+        parent={parent}
+        subIssues={subIssues ?? []}
+        dependencies={issue.dependencies}
+        dependents={dependents}
       />
 
       {/* Secondary: Description and Notes */}
@@ -241,21 +225,14 @@ export function IssueDetail({
 
       {/* Tertiary: Progressive Disclosure Sections */}
       <div className="space-y-6">
-        {/* Dependencies — grouped by type */}
-        {issue.dependencies.length > 0 && (
-          <DependenciesGroupedSection
-            dependencies={issue.dependencies}
-            expanded={dependenciesExpanded}
-            onToggle={handleToggleDependencies}
-            hasHidden={hasHiddenDependencies}
-            hiddenCount={issue.dependencies.length - PREVIEW_LIMIT}
-            compact={showCompactSections}
-            loading={sectionsLoading.dependencies ?? false}
-            visibleDependencies={visibleDependencies}
-            onDependencyClick={onDependencyClick}
-            timestampFormat={settings.timestampFormat}
-          />
-        )}
+        <IssueRelationshipsSection
+          parent={parent}
+          subIssues={subIssues ?? []}
+          dependencies={issue.dependencies}
+          dependents={dependents}
+          onIssueSelect={onDependencyClick}
+          compact={showCompactSections}
+        />
 
         {/* Comments */}
         {issue.comments.length > 0 && (
@@ -271,8 +248,8 @@ export function IssueDetail({
           >
             {sectionsLoading.comments ? (
               <div className="space-y-3">
-                {Array.from({ length: 2 }).map((_, i) => (
-                  <div key={i} className="animate-pulse">
+                {["comment-skeleton-1", "comment-skeleton-2"].map((key) => (
+                  <div key={key} className="animate-pulse">
                     <div className="flex gap-2 mb-2">
                       <div className="w-4 h-4 bg-muted rounded" />
                       <div className="w-20 h-4 bg-muted rounded" />
@@ -315,11 +292,6 @@ export function IssueDetail({
                   <kbd className="px-1 py-0.5 bg-muted rounded text-xs">C</kbd> Comments
                 </span>
               )}
-              {issue.dependencies.length > 0 && (
-                <span>
-                  <kbd className="px-1 py-0.5 bg-muted rounded text-xs">D</kbd> Dependencies
-                </span>
-              )}
             </div>
           </div>
         </div>
@@ -331,11 +303,15 @@ export function IssueDetail({
 // Header component with primary information
 function IssueDetailHeader({
   issue,
+  parent,
+  onParentClick,
   statusVariant,
   priorityComponent,
   timestampFormat,
 }: {
   issue: BeadsIssueDetail;
+  parent: BeadsIssueRelationSummary | null;
+  onParentClick?: ((issueId: string) => void) | undefined;
   statusVariant: "success" | "warning" | "info" | "error" | "secondary" | "primary";
   priorityComponent: ReactNode;
   timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
@@ -356,6 +332,8 @@ function IssueDetailHeader({
 
   return (
     <div className="space-y-3">
+      <IssueParentLink parent={parent} onClick={onParentClick} />
+
       {/* Status and Priority Row */}
       <div className="flex items-center gap-3">
         <IssueTypeIcon issueType={issue.issueType} />
@@ -500,205 +478,6 @@ function ProgressiveSection({
   );
 }
 
-// Dependency type icon helper
-function DependencyTypeIcon({
-  iconHint,
-  className,
-}: {
-  iconHint: "hierarchy" | "block" | "link";
-  className?: string;
-}) {
-  switch (iconHint) {
-    case "hierarchy":
-      return <GitBranchIcon className={cn("size-3", className)} />;
-    case "block":
-      return <OctagonAlertIcon className={cn("size-3", className)} />;
-    default:
-      return <LinkIcon className={cn("size-3", className)} />;
-  }
-}
-
-// Grouped dependencies section — separates parent links from blocking/ordering deps
-function DependenciesGroupedSection({
-  dependencies,
-  expanded,
-  onToggle,
-  hasHidden,
-  hiddenCount,
-  compact,
-  loading,
-  visibleDependencies,
-  onDependencyClick,
-  timestampFormat,
-}: {
-  dependencies: BeadsIssueDetail["dependencies"];
-  expanded: boolean;
-  onToggle: () => void;
-  hasHidden: boolean;
-  hiddenCount: number;
-  compact?: boolean;
-  loading: boolean;
-  visibleDependencies: BeadsIssueDetail["dependencies"];
-  onDependencyClick?: ((dependencyId: string) => void) | undefined;
-  timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
-}) {
-  const grouped = groupDependenciesByCategory(visibleDependencies);
-  const hasMultipleCategories =
-    [grouped.parents.length > 0, grouped.blockers.length > 0, grouped.other.length > 0].filter(
-      Boolean,
-    ).length > 1;
-
-  return (
-    <ProgressiveSection
-      title={`Dependencies (${dependencies.length})`}
-      expanded={expanded}
-      onToggle={onToggle}
-      hasHidden={hasHidden}
-      hiddenCount={hiddenCount}
-      compact={compact ?? false}
-      loading={loading}
-      shortcut="D"
-    >
-      {loading ? (
-        <div className="space-y-2">
-          <div className="h-20 bg-muted/50 rounded-lg border animate-pulse" />
-          <div className="h-20 bg-muted/50 rounded-lg border animate-pulse" />
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {grouped.parents.length > 0 && (
-            <DependencyCategoryGroup
-              label="Parent links"
-              iconHint="hierarchy"
-              colorClass="text-purple-500"
-              showLabel={hasMultipleCategories}
-              dependencies={grouped.parents}
-              onDependencyClick={onDependencyClick}
-              timestampFormat={timestampFormat}
-            />
-          )}
-          {grouped.blockers.length > 0 && (
-            <DependencyCategoryGroup
-              label="Blocking / ordering"
-              iconHint="block"
-              colorClass="text-red-500"
-              showLabel={hasMultipleCategories}
-              dependencies={grouped.blockers}
-              onDependencyClick={onDependencyClick}
-              timestampFormat={timestampFormat}
-            />
-          )}
-          {grouped.other.length > 0 && (
-            <DependencyCategoryGroup
-              label="Related"
-              iconHint="link"
-              colorClass="text-muted-foreground"
-              showLabel={hasMultipleCategories}
-              dependencies={grouped.other}
-              onDependencyClick={onDependencyClick}
-              timestampFormat={timestampFormat}
-            />
-          )}
-        </div>
-      )}
-    </ProgressiveSection>
-  );
-}
-
-function DependencyCategoryGroup({
-  label,
-  iconHint,
-  colorClass,
-  showLabel,
-  dependencies,
-  onDependencyClick,
-  timestampFormat,
-}: {
-  label: string;
-  iconHint: "hierarchy" | "block" | "link";
-  colorClass: string;
-  showLabel: boolean;
-  dependencies: BeadsIssueDetail["dependencies"];
-  onDependencyClick?: ((dependencyId: string) => void) | undefined;
-  timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
-}) {
-  return (
-    <div className="space-y-1.5">
-      {showLabel && (
-        <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
-          <DependencyTypeIcon iconHint={iconHint} className={colorClass} />
-          {label}
-        </div>
-      )}
-      <div className="space-y-2">
-        {dependencies.map((dependency) => (
-          <DependencyItem
-            key={`${dependency.id}:${dependency.dependencyType}`}
-            dependency={dependency}
-            onClick={onDependencyClick ? () => onDependencyClick(dependency.id) : undefined}
-            timestampFormat={timestampFormat}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Individual item components
-function DependencyItem({
-  dependency,
-  onClick,
-}: {
-  dependency: BeadsIssueDetail["dependencies"][0];
-  onClick?: (() => void) | undefined;
-  timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
-}) {
-  const statusVariant = getStatusVariant(dependency.status);
-  const priorityComponent =
-    dependency.priority !== null ? getPriorityDisplay(dependency.priority) : null;
-  const depTypeDef = getDependencyTypeDef(dependency.dependencyType);
-
-  const content = (
-    <div className="flex items-start justify-between gap-3 p-3 rounded-lg border border-border/50 bg-muted/20">
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex items-center gap-2">
-          <IssueTypeIcon issueType={dependency.issueType} className="size-3.5" />
-          <span className="font-medium text-sm text-foreground truncate">{dependency.title}</span>
-        </div>
-        <div className="flex items-center gap-2 text-xs">
-          <StatusIndicator variant={statusVariant} size="sm">
-            {formatStatusDisplay(dependency.status)}
-          </StatusIndicator>
-          {priorityComponent && <span className="text-muted-foreground">{priorityComponent}</span>}
-          <span className="text-muted-foreground">#{dependency.id}</span>
-          <span className="text-muted-foreground opacity-60">·</span>
-          <span className={cn("flex items-center gap-1", depTypeDef.colorClass)}>
-            <DependencyTypeIcon iconHint={depTypeDef.iconHint} className={depTypeDef.colorClass} />
-            {depTypeDef.directionLabel}
-          </span>
-        </div>
-        {dependency.description && (
-          <p className="text-xs text-muted-foreground line-clamp-2">{dependency.description}</p>
-        )}
-      </div>
-    </div>
-  );
-
-  if (!onClick) {
-    return content;
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full text-left transition-colors hover:bg-muted/40 rounded-lg"
-    >
-      {content}
-    </button>
-  );
-}
-
 function CommentItem({
   comment,
   timestampFormat,
@@ -723,14 +502,6 @@ function CommentItem({
   );
 }
 
-// Issue type icon component
-function IssueTypeIcon({ issueType, className }: { issueType: string; className?: string }) {
-  const config = ISSUE_TYPE_ICONS[issueType.toLowerCase()] || DEFAULT_ISSUE_TYPE_ICON;
-  const Icon = config.icon;
-
-  return <Icon className={cn("size-4 shrink-0", config.className, className)} />;
-}
-
 // Helper function for priority display
 function getPriorityDisplay(priority: number): ReactNode {
   const variant = getPriorityVariant(priority);
@@ -740,21 +511,6 @@ function getPriorityDisplay(priority: number): ReactNode {
     </StatusIndicator>
   );
 }
-
-// Configuration for issue type icons
-const ISSUE_TYPE_ICONS: Record<
-  string,
-  { icon: React.ComponentType<{ className?: string }>; className: string }
-> = {
-  bug: { icon: BugIcon, className: "text-red-500" },
-  feature: { icon: LightbulbIcon, className: "text-green-500" },
-  task: { icon: CheckSquare2Icon, className: "text-blue-500" },
-  epic: { icon: ZapIcon, className: "text-purple-500" },
-  chore: { icon: WrenchIcon, className: "text-muted-foreground" },
-  decision: { icon: ScaleIcon, className: "text-amber-500" },
-};
-
-const DEFAULT_ISSUE_TYPE_ICON = { icon: CircleDotIcon, className: "text-muted-foreground" };
 
 // Export specialized variants for different contexts
 export const CompactIssueDetail = (props: Omit<IssueDetailProps, "showCompactSections">) => (
