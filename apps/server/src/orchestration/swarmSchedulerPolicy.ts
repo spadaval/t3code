@@ -1,17 +1,17 @@
 import type {
   BeadsIssueRelationSummary,
   OrchestrationSwarmSchedulerMode,
-  OrchestrationSwarmRun,
   OrchestrationSwarmTaskExecution,
   SwarmRunId,
   SwarmTaskExecutionId,
 } from "@t3tools/contracts";
-import {
-  compareSwarmRunsByAttentionPriority,
-  deriveSwarmRunExecutionState,
-  isNonTerminalSharedWorkspaceRun,
-  selectDeterministicReadyIssueFromList,
-} from "@t3tools/shared/swarm";
+import { selectDeterministicReadyIssueFromList } from "@t3tools/shared/swarm";
+
+export {
+  describeSharedWorkspaceProjectInvariantViolation,
+  evaluateRunExecutionInvariant,
+  evaluateSharedWorkspaceProjectInvariant,
+} from "./EpicRunAdmissionPolicy.ts";
 
 export type SwarmSchedulerTrigger =
   | "startup_reconcile"
@@ -37,49 +37,6 @@ export function getAttemptedIssueIds(
   executions: ReadonlyArray<OrchestrationSwarmTaskExecution>,
 ): ReadonlySet<string> {
   return new Set(executions.map((execution) => execution.issueId));
-}
-
-export function evaluateSharedWorkspaceProjectInvariant(
-  runs: ReadonlyArray<OrchestrationSwarmRun>,
-): {
-  readonly winner: OrchestrationSwarmRun | null;
-  readonly losers: ReadonlyArray<OrchestrationSwarmRun>;
-} {
-  const candidates = runs
-    .filter((run) => isNonTerminalSharedWorkspaceRun(run))
-    .toSorted(compareSwarmRunsByAttentionPriority);
-
-  return {
-    winner: candidates[0] ?? null,
-    losers: candidates.slice(1),
-  };
-}
-
-export function evaluateRunExecutionInvariant(input: {
-  readonly runId: SwarmRunId;
-  readonly executions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
-}): ReturnType<typeof deriveSwarmRunExecutionState> & {
-  readonly violationReason: string | null;
-} {
-  const state = deriveSwarmRunExecutionState(input);
-  if (state.nonTerminalExecutions.length <= 1) {
-    return {
-      ...state,
-      violationReason: null,
-    };
-  }
-
-  const detail = state.nonTerminalExecutions
-    .map(
-      (execution) =>
-        `${execution.executionId} [status=${execution.status}, issue=${execution.issueId}, worker=${execution.workerThreadId ?? "none"}]`,
-    )
-    .join("; ");
-
-  return {
-    ...state,
-    violationReason: `Shared-workspace swarm run '${input.runId}' has multiple non-terminal task executions. Expected at most one active worker execution, found: ${detail}.`,
-  };
 }
 
 export function selectLaunchableReadyIssue(input: {
@@ -112,18 +69,6 @@ export function countLaunchableReadyIssues(input: {
   }
 
   return input.readyIssues.filter((issue) => !input.attemptedIssueIds.has(issue.id)).length;
-}
-
-export function describeSharedWorkspaceProjectInvariantViolation(input: {
-  readonly projectId: string;
-  readonly winner: OrchestrationSwarmRun;
-  readonly loser: OrchestrationSwarmRun;
-}): string {
-  return [
-    `Shared-workspace swarm scheduling invariant failed in project '${input.projectId}'.`,
-    `Run '${input.winner.runId}' for epic '${input.winner.epicIssueId}' remains schedulable with status '${input.winner.status}'.`,
-    `Run '${input.loser.runId}' for epic '${input.loser.epicIssueId}' was also non-terminal with status '${input.loser.status}' and must be failed.`,
-  ].join(" ");
 }
 
 export function describeReadyIssueExhaustion(input: {
