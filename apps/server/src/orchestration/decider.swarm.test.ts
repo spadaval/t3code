@@ -1,8 +1,8 @@
 import {
   CommandId,
   ProjectId,
-  SwarmRunId,
-  SwarmTaskExecutionId,
+  EpicRunId,
+  EpicIssueExecutionId,
   type OrchestrationReadModel,
 } from "@t3tools/contracts";
 import { Effect } from "effect";
@@ -28,9 +28,9 @@ function makeReadModel(): OrchestrationReadModel {
         deletedAt: null,
       },
     ],
-    swarmRuns: [
+    epicRuns: [
       {
-        runId: SwarmRunId.makeUnsafe("run-1"),
+        runId: EpicRunId.makeUnsafe("run-1"),
         projectId: ProjectId.makeUnsafe("project-1"),
         epicIssueId: "EPIC-1",
         status: "running",
@@ -50,10 +50,10 @@ function makeReadModel(): OrchestrationReadModel {
         updatedAt: now,
       },
     ],
-    swarmTaskExecutions: [
+    epicIssueExecutions: [
       {
-        executionId: SwarmTaskExecutionId.makeUnsafe("execution-1"),
-        runId: SwarmRunId.makeUnsafe("run-1"),
+        executionId: EpicIssueExecutionId.makeUnsafe("execution-1"),
+        runId: EpicRunId.makeUnsafe("run-1"),
         issueId: "TASK-1",
         workerThreadId: null,
         sequenceNumber: 1,
@@ -81,7 +81,7 @@ describe("decider swarm invariants", () => {
           command: {
             type: "swarm-run.complete",
             commandId: CommandId.makeUnsafe("cmd-run-complete"),
-            runId: SwarmRunId.makeUnsafe("run-1"),
+            runId: EpicRunId.makeUnsafe("run-1"),
             createdAt: now,
           },
           readModel: makeReadModel(),
@@ -97,8 +97,8 @@ describe("decider swarm invariants", () => {
           command: {
             type: "swarm-task-execution.request",
             commandId: CommandId.makeUnsafe("cmd-execution-request-2"),
-            executionId: SwarmTaskExecutionId.makeUnsafe("execution-2"),
-            runId: SwarmRunId.makeUnsafe("run-1"),
+            executionId: EpicIssueExecutionId.makeUnsafe("execution-2"),
+            runId: EpicRunId.makeUnsafe("run-1"),
             issueId: "TASK-2",
             workerThreadId: "thread-2" as never,
             sequenceNumber: 2,
@@ -115,11 +115,11 @@ describe("decider swarm invariants", () => {
   it("rejects stale execution commands when another execution became current", async () => {
     const readModel = {
       ...makeReadModel(),
-      swarmTaskExecutions: [
-        ...makeReadModel().swarmTaskExecutions,
+      epicIssueExecutions: [
+        ...makeReadModel().epicIssueExecutions,
         {
-          executionId: SwarmTaskExecutionId.makeUnsafe("execution-2"),
-          runId: SwarmRunId.makeUnsafe("run-1"),
+          executionId: EpicIssueExecutionId.makeUnsafe("execution-2"),
+          runId: EpicRunId.makeUnsafe("run-1"),
           issueId: "TASK-2",
           workerThreadId: null,
           sequenceNumber: 2,
@@ -144,8 +144,8 @@ describe("decider swarm invariants", () => {
           command: {
             type: "swarm-task-execution.start",
             commandId: CommandId.makeUnsafe("cmd-execution-start-stale"),
-            executionId: SwarmTaskExecutionId.makeUnsafe("execution-1"),
-            runId: SwarmRunId.makeUnsafe("run-1"),
+            executionId: EpicIssueExecutionId.makeUnsafe("execution-1"),
+            runId: EpicRunId.makeUnsafe("run-1"),
             createdAt: now,
           },
           readModel,

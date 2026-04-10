@@ -1,7 +1,7 @@
 import type {
   BeadsCoordinatorEpicSnapshot,
   ModelSelection,
-  OrchestrationSwarmRun,
+  OrchestrationEpicRun,
   ProjectId,
   RuntimeMode,
   ThreadId,
@@ -20,20 +20,20 @@ import { toastManager } from "~/components/ui/toast";
 
 export type CoordinatorActionInput =
   | { kind: "open_coordination_prep_thread"; epicIssueId: string }
-  | { kind: "start_swarm"; epicIssueId: string }
-  | { kind: "stop_swarm"; runId: OrchestrationSwarmRun["runId"] }
-  | { kind: "refresh_swarm_state"; epicIssueId: string }
+  | { kind: "start_epic_run"; epicIssueId: string }
+  | { kind: "stop_epic_run"; runId: OrchestrationEpicRun["runId"] }
+  | { kind: "refresh_epic_status"; epicIssueId: string }
   | { kind: "open_coordinator"; epicIssueId: string };
 
 export function getCoordinatorActionBusyKey(action: CoordinatorActionInput): string {
   switch (action.kind) {
     case "open_coordination_prep_thread":
       return `prep:${action.epicIssueId}`;
-    case "start_swarm":
+    case "start_epic_run":
       return `start:${action.epicIssueId}`;
-    case "stop_swarm":
+    case "stop_epic_run":
       return `stop:${action.runId}`;
-    case "refresh_swarm_state":
+    case "refresh_epic_status":
       return `refresh:${action.epicIssueId}`;
     case "open_coordinator":
       return `open:${action.epicIssueId}`;
@@ -47,9 +47,9 @@ export function getCoordinatorPrimaryActionInput(
     kind:
       | "unsupported"
       | "open_coordination_prep_thread"
-      | "refresh_swarm_state"
-      | "start_swarm"
-      | "stop_swarm"
+      | "refresh_epic_status"
+      | "start_epic_run"
+      | "stop_epic_run"
       | "open_coordinator";
   };
   const activeRun = epic.activeRunId
@@ -62,21 +62,21 @@ export function getCoordinatorPrimaryActionInput(
         kind: "open_coordination_prep_thread",
         epicIssueId: epic.epicId,
       };
-    case "start_swarm":
+    case "start_epic_run":
       return {
-        kind: "start_swarm",
+        kind: "start_epic_run",
         epicIssueId: epic.epicId,
       };
-    case "stop_swarm":
+    case "stop_epic_run":
       return activeRun
         ? {
-            kind: "stop_swarm",
+            kind: "stop_epic_run",
             runId: activeRun.runId,
           }
         : null;
-    case "refresh_swarm_state":
+    case "refresh_epic_status":
       return {
-        kind: "refresh_swarm_state",
+        kind: "refresh_epic_status",
         epicIssueId: epic.epicId,
       };
     case "open_coordinator":
@@ -93,11 +93,11 @@ export function describeCoordinatorActionError(actionKind: CoordinatorActionInpu
   switch (actionKind) {
     case "open_coordination_prep_thread":
       return "Unable to open prep thread";
-    case "start_swarm":
+    case "start_epic_run":
       return "Unable to start run";
-    case "stop_swarm":
+    case "stop_epic_run":
       return "Unable to stop run";
-    case "refresh_swarm_state":
+    case "refresh_epic_status":
       return "Unable to refresh tracker status";
     case "open_coordinator":
       return "Unable to open coordinator";
@@ -139,12 +139,12 @@ export function useEpicCoordinatorActionRunner(input: {
             modelSelection: input.modelSelection,
             runtimeMode: input.runtimeMode,
           });
-        case "start_swarm":
+        case "start_epic_run":
           if (!input.projectId) {
             throw new Error("Project context is unavailable.");
           }
 
-          await api.orchestration.startSwarmRun({
+          await api.orchestration.startEpicRun({
             projectId: input.projectId,
             epicIssueId: action.epicIssueId,
             schedulerMode: DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE,
@@ -152,10 +152,10 @@ export function useEpicCoordinatorActionRunner(input: {
             runtimeMode: input.runtimeMode,
           });
           return null;
-        case "stop_swarm":
-          await api.orchestration.cancelSwarmRun({ runId: action.runId });
+        case "stop_epic_run":
+          await api.orchestration.stopEpicRun({ runId: action.runId });
           return null;
-        case "refresh_swarm_state":
+        case "refresh_epic_status":
           return null;
         case "open_coordinator":
           return null;

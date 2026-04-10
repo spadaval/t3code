@@ -2,8 +2,8 @@ import type {
   OrchestrationSwarmSchedulerMode,
   OrchestrationSwarmWorkspaceMode,
   OrchestrationThreadIssueLink,
-  SwarmRunId,
-  SwarmTaskExecutionId,
+  EpicRunId,
+  EpicIssueExecutionId,
   ThreadId,
 } from "@t3tools/contracts";
 import path from "node:path";
@@ -39,8 +39,8 @@ export function buildSwarmWorkerPrompt(input: {
   issueId: string;
   issueTitle: string;
   epicIssueId: string;
-  runId: SwarmRunId;
-  executionId: SwarmTaskExecutionId;
+  runId: EpicRunId;
+  executionId: EpicIssueExecutionId;
   schedulerMode: OrchestrationSwarmSchedulerMode;
   workspaceMode: OrchestrationSwarmWorkspaceMode;
   sequenceNumber: number;
@@ -82,8 +82,8 @@ export function buildSwarmWorkerPrompt(input: {
 export function buildSwarmExecutionComment(input: {
   phase: "started" | "completed" | "failed" | "cancelled";
   epicIssueId: string;
-  runId: SwarmRunId;
-  executionId: SwarmTaskExecutionId;
+  runId: EpicRunId;
+  executionId: EpicIssueExecutionId;
   workerThreadId: ThreadId;
   schedulerMode: OrchestrationSwarmSchedulerMode;
   workspaceMode: OrchestrationSwarmWorkspaceMode;

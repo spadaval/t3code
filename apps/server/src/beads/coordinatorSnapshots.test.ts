@@ -1,4 +1,4 @@
-import { ProjectId, SwarmRunId, type OrchestrationSwarmRun } from "@t3tools/contracts";
+import { ProjectId, EpicRunId, type OrchestrationEpicRun } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
 import { buildCoordinatorEpicSnapshot } from "./coordinatorSnapshots";
@@ -16,9 +16,9 @@ const SWARM_SUPPORT = {
   },
 } as const;
 
-function makeSwarmRun(overrides: Partial<OrchestrationSwarmRun> = {}): OrchestrationSwarmRun {
+function makeSwarmRun(overrides: Partial<OrchestrationEpicRun> = {}): OrchestrationEpicRun {
   return {
-    runId: SwarmRunId.makeUnsafe("run-1"),
+    runId: EpicRunId.makeUnsafe("run-1"),
     projectId: ProjectId.makeUnsafe("project-1"),
     epicIssueId: "EPIC-1",
     status: "running",
@@ -37,7 +37,7 @@ function makeSwarmRun(overrides: Partial<OrchestrationSwarmRun> = {}): Orchestra
     completedAt: null,
     updatedAt: "2026-01-01T00:02:00.000Z",
     ...overrides,
-  } satisfies OrchestrationSwarmRun;
+  } satisfies OrchestrationEpicRun;
 }
 
 describe("buildCoordinatorEpicSnapshot", () => {
@@ -107,7 +107,7 @@ describe("buildCoordinatorEpicSnapshot", () => {
     expect(snapshot.runs[0]?.status).toBe("failed");
     expect(snapshot.activeRunId).toBeNull();
     expect(snapshot.primaryAction).toEqual({
-      kind: "start_swarm",
+      kind: "start_epic_run",
       label: "Start run",
       busyLabel: "Starting...",
       disabled: false,
@@ -202,7 +202,7 @@ describe("buildCoordinatorEpicSnapshot", () => {
 
     expect(snapshot.trackerLoadState).toBe("error");
     expect(snapshot.trackerLoadDetail).toBe(
-      "Swarm validation and status request failed: Issue 'EPIC-404' was not found.",
+      "Epic validation and status request failed: Issue 'EPIC-404' was not found.",
     );
   });
 
@@ -268,7 +268,7 @@ describe("buildCoordinatorEpicSnapshot", () => {
     });
 
     expect(snapshot.primaryAction).toEqual({
-      kind: "start_swarm",
+      kind: "start_epic_run",
       label: "Start run",
       busyLabel: "Starting...",
       disabled: false,

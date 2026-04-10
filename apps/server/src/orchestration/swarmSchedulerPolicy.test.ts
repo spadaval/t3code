@@ -2,13 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import type {
   BeadsIssueRelationSummary,
-  OrchestrationSwarmRun,
-  OrchestrationSwarmTaskExecution,
+  OrchestrationEpicRun,
+  OrchestrationEpicIssueExecution,
 } from "@t3tools/contracts";
 import {
   countLaunchableReadyIssues,
   describeReadyIssueExhaustion,
-  describeRetryIssueNotLiveReady,
   evaluateRunExecutionInvariant,
   evaluateSharedWorkspaceProjectInvariant,
   selectLaunchableReadyIssue,
@@ -28,7 +27,7 @@ function issue(id: string, priority: number | null): BeadsIssueRelationSummary {
   };
 }
 
-function run(runId: string, overrides: Partial<OrchestrationSwarmRun> = {}): OrchestrationSwarmRun {
+function run(runId: string, overrides: Partial<OrchestrationEpicRun> = {}): OrchestrationEpicRun {
   return {
     runId: runId as never,
     projectId: "project-1" as never,
@@ -54,8 +53,8 @@ function run(runId: string, overrides: Partial<OrchestrationSwarmRun> = {}): Orc
 
 function execution(
   executionId: string,
-  overrides: Partial<OrchestrationSwarmTaskExecution> = {},
-): OrchestrationSwarmTaskExecution {
+  overrides: Partial<OrchestrationEpicIssueExecution> = {},
+): OrchestrationEpicIssueExecution {
   return {
     executionId: executionId as never,
     runId: "run-1" as never,
@@ -78,7 +77,7 @@ function execution(
 }
 
 describe("swarmSchedulerPolicy", () => {
-  it("chooses the highest-attention non-terminal shared-workspace run as the project winner", () => {
+  it("ignores terminal shared-workspace runs when choosing the project winner", () => {
     const winner = run("run-2", {
       status: "running",
       updatedAt: "2026-04-06T00:00:10.000Z",
@@ -97,7 +96,7 @@ describe("swarmSchedulerPolicy", () => {
 
     expect(evaluateSharedWorkspaceProjectInvariant([loser, winner])).toEqual({
       winner,
-      losers: [loser],
+      losers: [],
     });
   });
 
@@ -140,18 +139,6 @@ describe("swarmSchedulerPolicy", () => {
     );
   });
 
-  it("prefers retry issue selection over general ready ordering", () => {
-    const readyIssues = [issue("TASK-2", 2), issue("TASK-1", 1)];
-
-    expect(
-      selectLaunchableReadyIssue({
-        readyIssues,
-        attemptedIssueIds: new Set(["TASK-1"]),
-        retryIssueId: "TASK-1",
-      }),
-    ).toEqual(issue("TASK-1", 1));
-  });
-
   it("skips attempted ready issues and counts only launchable work", () => {
     const readyIssues = [issue("TASK-2", 2), issue("TASK-1", 1), issue("TASK-9", null)];
 
@@ -186,24 +173,13 @@ describe("swarmSchedulerPolicy", () => {
         readyIssues: [issue("TASK-1", 1), issue("TASK-9", null)],
       }),
     ).toContain("Previously attempted ready issues: TASK-1, TASK-9.");
-  });
-
-  it("describes retry selection failure when the requested issue is no longer ready", () => {
     expect(
-      describeRetryIssueNotLiveReady({
+      describeReadyIssueExhaustion({
         runId: "run-1" as never,
-        retryIssueId: "TASK-1",
-        readyIssues: [issue("TASK-2", 2), issue("TASK-9", null)],
+        attemptedIssueIds: new Set(["TASK-1", "TASK-9"]),
+        readyIssues: [issue("TASK-1", 1), issue("TASK-9", null)],
       }),
-    ).toContain("cannot retry issue 'TASK-1' because it is not currently live-ready");
-
-    expect(
-      describeRetryIssueNotLiveReady({
-        runId: "run-1" as never,
-        retryIssueId: "TASK-1",
-        readyIssues: [issue("TASK-2", 2), issue("TASK-9", null)],
-      }),
-    ).toContain("Ready issues: TASK-2, TASK-9.");
+    ).toContain("Stop the run, fix the tracker or code state, then start a new run when ready.");
   });
 
   it("idles semi-automatic runs only after non-manual settle/background triggers", () => {
@@ -226,14 +202,6 @@ describe("swarmSchedulerPolicy", () => {
         trigger: "periodic_reconcile",
       }),
     ).toBe(true);
-
-    expect(
-      shouldIdleSemiAutomaticRun({
-        schedulerMode: "semi-automatic",
-        latestExecution,
-        trigger: "manual_run_next",
-      }),
-    ).toBe(false);
 
     expect(
       shouldIdleSemiAutomaticRun({

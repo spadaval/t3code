@@ -8,19 +8,17 @@ import {
   type BeadsSwarmValidation,
   CommandId,
   ProjectId,
-  SwarmTaskExecutionId,
+  EpicIssueExecutionId,
   ThreadId,
   type OrchestrationCommand,
   type OrchestrationLatestTurn,
   type OrchestrationReadModel,
-  type OrchestrationResumePausedSwarmRunInput,
-  type OrchestrationRetrySwarmTaskExecutionInput,
   type OrchestrationSession,
-  type OrchestrationStartSwarmRunInput,
-  type OrchestrationSwarmRunControlResult,
-  type OrchestrationSwarmRun,
-  type OrchestrationSwarmTaskExecution,
-  type SwarmRunId,
+  type OrchestrationStartEpicRunInput,
+  type OrchestrationEpicRunControlResult,
+  type OrchestrationEpicRun,
+  type OrchestrationEpicIssueExecution,
+  type EpicRunId,
   TurnId,
 } from "@t3tools/contracts";
 import { createSwarmFailureContext } from "@t3tools/shared/swarm";
@@ -280,8 +278,8 @@ function createEmptyReadModel(): OrchestrationReadModel {
     projects: [],
     threads: [],
     planImplementationLaunches: [],
-    swarmRuns: [],
-    swarmTaskExecutions: [],
+    epicRuns: [],
+    epicIssueExecutions: [],
     updatedAt: now,
   };
 }
@@ -289,22 +287,22 @@ function createEmptyReadModel(): OrchestrationReadModel {
 function updateRun(
   readModel: OrchestrationReadModel,
   runId: string,
-  transform: (run: OrchestrationSwarmRun) => OrchestrationSwarmRun,
+  transform: (run: OrchestrationEpicRun) => OrchestrationEpicRun,
 ): OrchestrationReadModel {
   return {
     ...readModel,
-    swarmRuns: readModel.swarmRuns.map((run) => (run.runId === runId ? transform(run) : run)),
+    epicRuns: readModel.epicRuns.map((run) => (run.runId === runId ? transform(run) : run)),
   };
 }
 
 function updateExecution(
   readModel: OrchestrationReadModel,
   executionId: string,
-  transform: (execution: OrchestrationSwarmTaskExecution) => OrchestrationSwarmTaskExecution,
+  transform: (execution: OrchestrationEpicIssueExecution) => OrchestrationEpicIssueExecution,
 ): OrchestrationReadModel {
   return {
     ...readModel,
-    swarmTaskExecutions: readModel.swarmTaskExecutions.map((execution) =>
+    epicIssueExecutions: readModel.epicIssueExecutions.map((execution) =>
       execution.executionId === executionId ? transform(execution) : execution,
     ),
   };
@@ -442,8 +440,8 @@ export function applyCommand(
         ...readModel,
         snapshotSequence: sequence,
         updatedAt: command.createdAt,
-        swarmRuns: [
-          ...readModel.swarmRuns,
+        epicRuns: [
+          ...readModel.epicRuns,
           {
             runId: command.runId,
             projectId: command.projectId,
@@ -631,8 +629,8 @@ export function applyCommand(
             updatedAt: command.createdAt,
           }),
         ),
-        swarmTaskExecutions: [
-          ...readModel.swarmTaskExecutions,
+        epicIssueExecutions: [
+          ...readModel.epicIssueExecutions,
           {
             executionId: command.executionId,
             runId: command.runId,
@@ -769,18 +767,10 @@ type SwarmExecutionWorkflowTestHarness = {
   ) => Promise<A>;
   startSchedulerService: () => Promise<void>;
   startRun: (
-    input?: Partial<OrchestrationStartSwarmRunInput>,
-  ) => Promise<OrchestrationSwarmRunControlResult>;
+    input?: Partial<OrchestrationStartEpicRunInput>,
+  ) => Promise<OrchestrationEpicRunControlResult>;
   drainScheduler: () => Promise<void>;
-  pauseRun: (runId: SwarmRunId) => Promise<OrchestrationSwarmRunControlResult>;
-  resumeRun: (
-    input: Pick<OrchestrationResumePausedSwarmRunInput, "runId">,
-  ) => Promise<OrchestrationSwarmRunControlResult>;
-  continueRun: (runId: SwarmRunId) => Promise<OrchestrationSwarmRunControlResult>;
-  cancelRun: (runId: SwarmRunId) => Promise<OrchestrationSwarmRunControlResult>;
-  retryExecution: (
-    input: Pick<OrchestrationRetrySwarmTaskExecutionInput, "runId" | "executionId">,
-  ) => Promise<OrchestrationSwarmRunControlResult>;
+  cancelRun: (runId: EpicRunId) => Promise<OrchestrationEpicRunControlResult>;
   getSnapshot: () => Promise<OrchestrationReadModel>;
   getIssue: (issueId: string) => BeadsIssueDetail | null;
   patchIssue: (
@@ -809,10 +799,10 @@ type SwarmExecutionWorkflowTestHarness = {
   getReadModelCallCount: () => number;
   patchReadModel: (transform: (current: OrchestrationReadModel) => OrchestrationReadModel) => void;
   patchExecution: (
-    executionId: SwarmTaskExecutionId,
-    patch: Partial<OrchestrationSwarmTaskExecution>,
+    executionId: EpicIssueExecutionId,
+    patch: Partial<OrchestrationEpicIssueExecution>,
   ) => void;
-  injectExecutionDrift: (execution: OrchestrationSwarmTaskExecution) => void;
+  injectExecutionDrift: (execution: OrchestrationEpicIssueExecution) => void;
 };
 
 export type SwarmExecutionWorkflowHarnessRuntime = {
@@ -1087,7 +1077,7 @@ export async function createSwarmExecutionWorkflowHarness(
     startSchedulerService: () => runPromise(Effect.scoped(workflow.start)),
     startRun: (input = {}) =>
       runPromise(
-        workflow.startSwarmRun({
+        workflow.startEpicRun({
           projectId,
           epicIssueId: "EPIC-1",
           schedulerMode: "automatic",
@@ -1097,11 +1087,7 @@ export async function createSwarmExecutionWorkflowHarness(
         }),
       ),
     drainScheduler: () => runPromise(workflow.drain),
-    pauseRun: (runId) => runPromise(workflow.pauseSwarmRun({ runId: runId as never })),
-    resumeRun: (input) => runPromise(workflow.resumePausedSwarmRun(input)),
-    continueRun: (runId) => runPromise(workflow.runNextSwarmTask({ runId: runId as never })),
-    cancelRun: (runId) => runPromise(workflow.cancelSwarmRun({ runId: runId as never })),
-    retryExecution: (input) => runPromise(workflow.retrySwarmTaskExecution(input)),
+    cancelRun: (runId) => runPromise(workflow.stopEpicRun({ runId: runId as never })),
     getSnapshot: () => runPromise(engine.getReadModel()),
     getIssue: (issueId: string) => issues.get(issueId) ?? null,
     patchIssue: (issueId, patch) => {
@@ -1162,7 +1148,7 @@ export async function createSwarmExecutionWorkflowHarness(
     injectExecutionDrift: (execution) => {
       readModel = {
         ...readModel,
-        swarmTaskExecutions: [...readModel.swarmTaskExecutions, execution],
+        epicIssueExecutions: [...readModel.epicIssueExecutions, execution],
       };
     },
   };

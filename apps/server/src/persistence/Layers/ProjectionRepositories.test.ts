@@ -1,4 +1,4 @@
-import { ProjectId, SwarmRunId, SwarmTaskExecutionId, ThreadId } from "@t3tools/contracts";
+import { ProjectId, EpicRunId, EpicIssueExecutionId, ThreadId } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
@@ -142,11 +142,11 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
 
   it.effect("stores JSON for swarm run provider options and links active execution ids", () =>
     Effect.gen(function* () {
-      const swarmRuns = yield* ProjectionSwarmRunRepository;
+      const epicRuns = yield* ProjectionSwarmRunRepository;
       const sql = yield* SqlClient.SqlClient;
 
-      yield* swarmRuns.upsert({
-        runId: SwarmRunId.makeUnsafe("run-json-options"),
+      yield* epicRuns.upsert({
+        runId: EpicRunId.makeUnsafe("run-json-options"),
         projectId: ProjectId.makeUnsafe("project-null-options"),
         epicIssueId: "EPIC-1",
         status: "running",
@@ -208,8 +208,8 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         }),
       );
 
-      const persisted = yield* swarmRuns.getById({
-        runId: SwarmRunId.makeUnsafe("run-json-options"),
+      const persisted = yield* epicRuns.getById({
+        runId: EpicRunId.makeUnsafe("run-json-options"),
       });
       assert.deepStrictEqual(Option.getOrNull(persisted)?.providerOptions, {
         codex: {
@@ -225,8 +225,8 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       const executions = yield* ProjectionSwarmTaskExecutionRepository;
 
       yield* executions.upsert({
-        executionId: SwarmTaskExecutionId.makeUnsafe("execution-1"),
-        runId: SwarmRunId.makeUnsafe("run-json-options"),
+        executionId: EpicIssueExecutionId.makeUnsafe("execution-1"),
+        runId: EpicRunId.makeUnsafe("run-json-options"),
         issueId: "TASK-1",
         workerThreadId: null,
         sequenceNumber: 1,
@@ -244,11 +244,11 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
       });
 
       const persisted = yield* executions.getById({
-        executionId: SwarmTaskExecutionId.makeUnsafe("execution-1"),
+        executionId: EpicIssueExecutionId.makeUnsafe("execution-1"),
       });
       assert.deepStrictEqual(Option.getOrNull(persisted), {
-        executionId: SwarmTaskExecutionId.makeUnsafe("execution-1"),
-        runId: SwarmRunId.makeUnsafe("run-json-options"),
+        executionId: EpicIssueExecutionId.makeUnsafe("execution-1"),
+        runId: EpicRunId.makeUnsafe("run-json-options"),
         issueId: "TASK-1",
         workerThreadId: null,
         sequenceNumber: 1,

@@ -111,8 +111,8 @@ const makeDefaultOrchestrationReadModel = () => {
     snapshotSequence: 0,
     updatedAt: now,
     planImplementationLaunches: [],
-    swarmRuns: [],
-    swarmTaskExecutions: [],
+    epicRuns: [],
+    epicIssueExecutions: [],
     projects: [
       {
         id: defaultProjectId,
@@ -541,32 +541,12 @@ const buildAppUnderTest = (options?: {
         Layer.mock(SwarmScheduler)({
           start: Effect.void,
           drain: Effect.void,
-          startSwarmRun: () =>
+          startEpicRun: () =>
             Effect.succeed({
               runId: "run-1" as any,
               status: "running",
             }),
-          pauseSwarmRun: () =>
-            Effect.succeed({
-              runId: "run-1" as any,
-              status: "stopped",
-            }),
-          resumePausedSwarmRun: () =>
-            Effect.succeed({
-              runId: "run-1" as any,
-              status: "running",
-            }),
-          runNextSwarmTask: () =>
-            Effect.succeed({
-              runId: "run-1" as any,
-              status: "running",
-            }),
-          retrySwarmTaskExecution: () =>
-            Effect.succeed({
-              runId: "run-1" as any,
-              status: "running",
-            }),
-          cancelSwarmRun: () =>
+          stopEpicRun: () =>
             Effect.succeed({
               runId: "run-1" as any,
               status: "stopped",
@@ -2082,8 +2062,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         snapshotSequence: 1,
         updatedAt: now,
         planImplementationLaunches: [],
-        swarmRuns: [],
-        swarmTaskExecutions: [],
+        epicRuns: [],
+        epicIssueExecutions: [],
         projects: [
           {
             id: ProjectId.makeUnsafe("project-a"),

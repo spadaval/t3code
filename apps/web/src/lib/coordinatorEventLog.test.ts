@@ -1,4 +1,4 @@
-import type { OrchestrationSwarmRun, OrchestrationSwarmTaskExecution } from "@t3tools/contracts";
+import type { OrchestrationEpicRun, OrchestrationEpicIssueExecution } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
 import { deriveCoordinatorEventLog } from "./coordinatorEventLog";
@@ -26,7 +26,7 @@ const BASE_RUN = {
   failedAt: null,
   completedAt: "2026-04-08T00:05:00.000Z",
   updatedAt: "2026-04-08T00:05:00.000Z",
-} as unknown as OrchestrationSwarmRun;
+} as unknown as OrchestrationEpicRun;
 
 const BASE_EXECUTION = {
   executionId: "exec-1" as never,
@@ -45,7 +45,7 @@ const BASE_EXECUTION = {
   completedAt: "2026-04-08T00:02:00.000Z",
   failedAt: null,
   updatedAt: "2026-04-08T00:02:00.000Z",
-} as unknown as OrchestrationSwarmTaskExecution;
+} as unknown as OrchestrationEpicIssueExecution;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -101,7 +101,7 @@ describe("deriveCoordinatorEventLog", () => {
   });
 
   it("produces error-toned entries for failed runs", () => {
-    const blockedRun: OrchestrationSwarmRun = {
+    const blockedRun: OrchestrationEpicRun = {
       ...BASE_RUN,
       status: "failed",
       completedAt: null,
@@ -113,7 +113,7 @@ describe("deriveCoordinatorEventLog", () => {
         executionId: "exec-1" as never,
         workerThreadId: "thread-1" as never,
       },
-    } as unknown as OrchestrationSwarmRun;
+    } as unknown as OrchestrationEpicRun;
     const entries = deriveCoordinatorEventLog([blockedRun], []);
     const blocked = entries.find((e) => e.kind === "run.failed");
     expect(blocked?.tone).toBe("error");
@@ -122,7 +122,7 @@ describe("deriveCoordinatorEventLog", () => {
   });
 
   it("produces error-toned entries for failed executions", () => {
-    const failedExec: OrchestrationSwarmTaskExecution = {
+    const failedExec: OrchestrationEpicIssueExecution = {
       ...BASE_EXECUTION,
       status: "failed",
       completedAt: null,
@@ -134,7 +134,7 @@ describe("deriveCoordinatorEventLog", () => {
         executionId: "exec-1" as never,
         workerThreadId: "thread-1" as never,
       },
-    } as unknown as OrchestrationSwarmTaskExecution;
+    } as unknown as OrchestrationEpicIssueExecution;
     const entries = deriveCoordinatorEventLog([], [failedExec]);
     const failed = entries.find((e) => e.kind === "execution.failed");
     expect(failed?.tone).toBe("error");
@@ -142,19 +142,19 @@ describe("deriveCoordinatorEventLog", () => {
   });
 
   it("produces warning-toned entries for stopped runs", () => {
-    const cancelledRun: OrchestrationSwarmRun = {
+    const cancelledRun: OrchestrationEpicRun = {
       ...BASE_RUN,
       status: "stopped",
       completedAt: null,
       stoppedAt: "2026-04-08T00:03:00.000Z",
-    } as unknown as OrchestrationSwarmRun;
+    } as unknown as OrchestrationEpicRun;
     const entries = deriveCoordinatorEventLog([cancelledRun], []);
     const cancelled = entries.find((e) => e.kind === "run.stopped");
     expect(cancelled?.tone).toBe("warning");
   });
 
   it("handles multiple runs and executions", () => {
-    const run2: OrchestrationSwarmRun = {
+    const run2: OrchestrationEpicRun = {
       ...BASE_RUN,
       runId: "run-2" as never,
       requestedAt: "2026-04-08T01:00:00.000Z",
@@ -162,7 +162,7 @@ describe("deriveCoordinatorEventLog", () => {
       completedAt: "2026-04-08T01:05:00.000Z",
       updatedAt: "2026-04-08T01:05:00.000Z",
     };
-    const exec2: OrchestrationSwarmTaskExecution = {
+    const exec2: OrchestrationEpicIssueExecution = {
       ...BASE_EXECUTION,
       executionId: "exec-2" as never,
       runId: "run-2" as never,
@@ -181,12 +181,12 @@ describe("deriveCoordinatorEventLog", () => {
   });
 
   it("omits entries for null timestamps", () => {
-    const requestedOnlyRun: OrchestrationSwarmRun = {
+    const requestedOnlyRun: OrchestrationEpicRun = {
       ...BASE_RUN,
       status: "pending",
       startedAt: null,
       completedAt: null,
-    } as unknown as OrchestrationSwarmRun;
+    } as unknown as OrchestrationEpicRun;
     const entries = deriveCoordinatorEventLog([requestedOnlyRun], []);
     expect(entries).toHaveLength(1);
     expect(entries[0]?.kind).toBe("run.requested");

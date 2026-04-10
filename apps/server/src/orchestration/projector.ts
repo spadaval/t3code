@@ -1,8 +1,8 @@
 import type {
   OrchestrationEvent,
   OrchestrationReadModel,
-  OrchestrationSwarmRun,
-  OrchestrationSwarmTaskExecution,
+  OrchestrationEpicRun,
+  OrchestrationEpicIssueExecution,
   ThreadId,
 } from "@t3tools/contracts";
 import {
@@ -109,10 +109,10 @@ function updateLaunch(
 }
 
 function updateSwarmRun(
-  runs: ReadonlyArray<OrchestrationSwarmRun>,
-  runId: OrchestrationSwarmRun["runId"],
-  updater: ((run: OrchestrationSwarmRun) => OrchestrationSwarmRun) | Partial<OrchestrationSwarmRun>,
-): OrchestrationSwarmRun[] {
+  runs: ReadonlyArray<OrchestrationEpicRun>,
+  runId: OrchestrationEpicRun["runId"],
+  updater: ((run: OrchestrationEpicRun) => OrchestrationEpicRun) | Partial<OrchestrationEpicRun>,
+): OrchestrationEpicRun[] {
   return runs.map((run) =>
     run.runId === runId
       ? typeof updater === "function"
@@ -123,12 +123,12 @@ function updateSwarmRun(
 }
 
 function updateSwarmTaskExecution(
-  executions: ReadonlyArray<OrchestrationSwarmTaskExecution>,
-  executionId: OrchestrationSwarmTaskExecution["executionId"],
+  executions: ReadonlyArray<OrchestrationEpicIssueExecution>,
+  executionId: OrchestrationEpicIssueExecution["executionId"],
   updater:
-    | ((execution: OrchestrationSwarmTaskExecution) => OrchestrationSwarmTaskExecution)
-    | Partial<OrchestrationSwarmTaskExecution>,
-): OrchestrationSwarmTaskExecution[] {
+    | ((execution: OrchestrationEpicIssueExecution) => OrchestrationEpicIssueExecution)
+    | Partial<OrchestrationEpicIssueExecution>,
+): OrchestrationEpicIssueExecution[] {
   return executions.map((execution) =>
     execution.executionId === executionId
       ? typeof updater === "function"
@@ -254,8 +254,8 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
     projects: [],
     threads: [],
     planImplementationLaunches: [],
-    swarmRuns: [],
-    swarmTaskExecutions: [],
+    epicRuns: [],
+    epicIssueExecutions: [],
     updatedAt: nowIso,
   };
 }
@@ -962,8 +962,8 @@ export function projectEvent(
 
           return {
             ...nextBase,
-            swarmRuns: [
-              ...nextBase.swarmRuns.filter((entry) => entry.runId !== payload.runId),
+            epicRuns: [
+              ...nextBase.epicRuns.filter((entry) => entry.runId !== payload.runId),
               run,
             ].toSorted(compareSwarmRunsByRequestedAt),
           };
@@ -974,7 +974,7 @@ export function projectEvent(
       return decodeForEvent(SwarmRunStartedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, (run) =>
+          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
             applySwarmRunLifecycleEvent(run, { ...event, payload }),
           ),
         })),
@@ -984,7 +984,7 @@ export function projectEvent(
       return decodeForEvent(SwarmRunIdledPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, (run) =>
+          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
             applySwarmRunLifecycleEvent(run, { ...event, payload }),
           ),
         })),
@@ -994,7 +994,7 @@ export function projectEvent(
       return decodeForEvent(SwarmRunPausedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, (run) =>
+          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
             applySwarmRunLifecycleEvent(run, { ...event, payload }),
           ),
         })),
@@ -1004,7 +1004,7 @@ export function projectEvent(
       return decodeForEvent(SwarmRunResumedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, (run) =>
+          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
             applySwarmRunLifecycleEvent(run, { ...event, payload }),
           ),
         })),
@@ -1014,7 +1014,7 @@ export function projectEvent(
       return decodeForEvent(SwarmRunBlockedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, (run) =>
+          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
             applySwarmRunLifecycleEvent(run, { ...event, payload }),
           ),
         })),
@@ -1024,7 +1024,7 @@ export function projectEvent(
       return decodeForEvent(SwarmRunFailedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, (run) =>
+          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
             applySwarmRunLifecycleEvent(run, { ...event, payload }),
           ),
         })),
@@ -1034,7 +1034,7 @@ export function projectEvent(
       return decodeForEvent(SwarmRunCancelledPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, (run) =>
+          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
             applySwarmRunLifecycleEvent(run, { ...event, payload }),
           ),
         })),
@@ -1044,7 +1044,7 @@ export function projectEvent(
       return decodeForEvent(SwarmRunCompletedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, (run) =>
+          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
             applySwarmRunLifecycleEvent(run, { ...event, payload }),
           ),
         })),
@@ -1062,11 +1062,11 @@ export function projectEvent(
 
           return {
             ...nextBase,
-            swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
+            epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, {
               updatedAt: payload.updatedAt,
             }),
-            swarmTaskExecutions: [
-              ...nextBase.swarmTaskExecutions.filter(
+            epicIssueExecutions: [
+              ...nextBase.epicIssueExecutions.filter(
                 (entry) => entry.executionId !== payload.executionId,
               ),
               execution,
@@ -1084,7 +1084,7 @@ export function projectEvent(
       ).pipe(
         Effect.map((payload) => {
           const existingExecution =
-            nextBase.swarmTaskExecutions.find(
+            nextBase.epicIssueExecutions.find(
               (entry) => entry.executionId === payload.executionId,
             ) ?? null;
           const execution = materializeStartedSwarmTaskExecution({
@@ -1094,11 +1094,11 @@ export function projectEvent(
 
           return {
             ...nextBase,
-            swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
+            epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, {
               updatedAt: payload.updatedAt,
             }),
-            swarmTaskExecutions: [
-              ...nextBase.swarmTaskExecutions.filter(
+            epicIssueExecutions: [
+              ...nextBase.epicIssueExecutions.filter(
                 (entry) => entry.executionId !== payload.executionId,
               ),
               execution,
@@ -1116,11 +1116,11 @@ export function projectEvent(
       ).pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
+          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, {
             updatedAt: payload.updatedAt,
           }),
-          swarmTaskExecutions: updateSwarmTaskExecution(
-            nextBase.swarmTaskExecutions,
+          epicIssueExecutions: updateSwarmTaskExecution(
+            nextBase.epicIssueExecutions,
             payload.executionId,
             (execution) => applySwarmTaskExecutionLifecycleEvent(execution, { ...event, payload }),
           ),
@@ -1136,11 +1136,11 @@ export function projectEvent(
       ).pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
+          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, {
             updatedAt: payload.updatedAt,
           }),
-          swarmTaskExecutions: updateSwarmTaskExecution(
-            nextBase.swarmTaskExecutions,
+          epicIssueExecutions: updateSwarmTaskExecution(
+            nextBase.epicIssueExecutions,
             payload.executionId,
             (execution) => applySwarmTaskExecutionLifecycleEvent(execution, { ...event, payload }),
           ),
@@ -1156,11 +1156,11 @@ export function projectEvent(
       ).pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          swarmRuns: updateSwarmRun(nextBase.swarmRuns, payload.runId, {
+          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, {
             updatedAt: payload.updatedAt,
           }),
-          swarmTaskExecutions: updateSwarmTaskExecution(
-            nextBase.swarmTaskExecutions,
+          epicIssueExecutions: updateSwarmTaskExecution(
+            nextBase.epicIssueExecutions,
             payload.executionId,
             (execution) => applySwarmTaskExecutionLifecycleEvent(execution, { ...event, payload }),
           ),

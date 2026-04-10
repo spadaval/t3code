@@ -14,8 +14,8 @@ import {
   OrchestrationCommandReceiptStatus,
   PlanImplementationLaunchId,
   ProjectId,
-  SwarmRunId,
-  SwarmTaskExecutionId,
+  EpicRunId,
+  EpicIssueExecutionId,
   ThreadId,
 } from "@t3tools/contracts";
 import { Option, Schema, ServiceMap } from "effect";
@@ -30,8 +30,8 @@ export const OrchestrationCommandReceipt = Schema.Struct({
     ProjectId,
     ThreadId,
     PlanImplementationLaunchId,
-    SwarmRunId,
-    SwarmTaskExecutionId,
+    EpicRunId,
+    EpicIssueExecutionId,
   ]),
   acceptedAt: IsoDateTime,
   resultSequence: NonNegativeInt,

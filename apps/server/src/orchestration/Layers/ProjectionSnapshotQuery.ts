@@ -21,8 +21,8 @@ import {
   type OrchestrationProposedPlan,
   type OrchestrationProject,
   type OrchestrationSession,
-  type OrchestrationSwarmRun,
-  type OrchestrationSwarmTaskExecution,
+  type OrchestrationEpicRun,
+  type OrchestrationEpicIssueExecution,
   type OrchestrationThread,
   type OrchestrationThreadActivity,
   OrchestrationThreadIssueLink,
@@ -169,8 +169,8 @@ const REQUIRED_SNAPSHOT_PROJECTORS = [
   ORCHESTRATION_PROJECTOR_NAMES.projects,
   ORCHESTRATION_PROJECTOR_NAMES.threads,
   ORCHESTRATION_PROJECTOR_NAMES.planImplementationLaunches,
-  ORCHESTRATION_PROJECTOR_NAMES.swarmRuns,
-  ORCHESTRATION_PROJECTOR_NAMES.swarmTaskExecutions,
+  ORCHESTRATION_PROJECTOR_NAMES.epicRuns,
+  ORCHESTRATION_PROJECTOR_NAMES.epicIssueExecutions,
   ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
   ORCHESTRATION_PROJECTOR_NAMES.threadProposedPlans,
   ORCHESTRATION_PROJECTOR_NAMES.threadActivities,
@@ -466,7 +466,16 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           status,
           workspace_key AS "workspaceKey",
           workspace_path AS "workspacePath",
-          failure_context_json AS "failureContext",
+          CASE
+            WHEN failure_kind IS NULL OR failure_message IS NULL THEN NULL
+            ELSE json_object(
+              'kind', failure_kind,
+              'message', failure_message,
+              'issueId', failure_issue_id,
+              'executionId', failure_execution_id,
+              'workerThreadId', failure_worker_thread_id
+            )
+          END AS "failureContext",
           requested_at AS "requestedAt",
           started_at AS "startedAt",
           stop_requested_at AS "stopRequestedAt",
@@ -951,7 +960,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               updatedAt: row.updatedAt,
             }));
 
-          const swarmRuns: Array<OrchestrationSwarmRun> = swarmRunRows.map((row) => ({
+          const epicRuns: Array<OrchestrationEpicRun> = swarmRunRows.map((row) => ({
             runId: row.runId,
             projectId: row.projectId,
             epicIssueId: row.epicIssueId,
@@ -972,7 +981,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             updatedAt: row.updatedAt,
           }));
 
-          const swarmTaskExecutions: Array<OrchestrationSwarmTaskExecution> =
+          const epicIssueExecutions: Array<OrchestrationEpicIssueExecution> =
             swarmTaskExecutionRows.map((row) => ({
               executionId: row.executionId,
               runId: row.runId,
@@ -997,8 +1006,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             projects,
             threads,
             planImplementationLaunches,
-            swarmRuns,
-            swarmTaskExecutions,
+            epicRuns,
+            epicIssueExecutions,
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           };
 

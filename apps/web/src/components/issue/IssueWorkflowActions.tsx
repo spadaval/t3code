@@ -274,7 +274,7 @@ export function IssueWorkflowActions(props: {
 
   const retryCoordinatorStatus = useCallback(() => {
     void epicActionRunner.runAction({
-      kind: "refresh_swarm_state",
+      kind: "refresh_epic_status",
       epicIssueId: props.issue.id,
     });
   }, [epicActionRunner, props.issue.id]);
@@ -352,7 +352,7 @@ export function IssueWorkflowActions(props: {
               <Button
                 size="xs"
                 variant={
-                  coordinatorPrimaryAction.kind === "refresh_swarm_state" ? "outline" : "default"
+                  coordinatorPrimaryAction.kind === "refresh_epic_status" ? "outline" : "default"
                 }
                 disabled={coordinatorBusy || coordinatorActionInput === null}
                 onClick={startCoordinatorAction}

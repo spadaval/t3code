@@ -1,7 +1,6 @@
 import type {
   OrchestrationLatestTurnState,
-  OrchestrationSessionStatus,
-  OrchestrationSwarmTaskExecution,
+  OrchestrationEpicIssueExecution,
   OrchestrationThread,
   TurnId,
 } from "@t3tools/contracts";
@@ -39,29 +38,9 @@ export function workerThreadLaunchWasObserved(input: WorkerObservationInput): bo
   return input.latestTurnState != null || input.sessionActiveTurnId != null;
 }
 
-export function workerThreadTurnWasRequested(
-  thread: Pick<OrchestrationThread, "messages">,
-): boolean {
-  return thread.messages.some((message) => message.role === "user");
-}
-
-function isLaunchFailureSessionStatus(
-  status: OrchestrationSessionStatus | null | undefined,
-): boolean {
-  return (
-    status === "ready" || status === "stopped" || status === "interrupted" || status === "error"
-  );
-}
-
-function isPendingLaunchSessionStatus(
-  status: OrchestrationSessionStatus | null | undefined,
-): boolean {
-  return status === undefined || status === null || status === "starting" || status === "idle";
-}
-
 function defaultWorkerError(
   thread: Pick<OrchestrationThread, "session">,
-  workerThreadId: OrchestrationSwarmTaskExecution["workerThreadId"],
+  workerThreadId: OrchestrationEpicIssueExecution["workerThreadId"],
   latestTurnState: OrchestrationLatestTurnState | null | undefined,
 ): string {
   if (thread.session?.lastError) {
@@ -80,7 +59,7 @@ function defaultWorkerError(
 }
 
 export function decideReconcileRequestedExecution(input: {
-  readonly execution: OrchestrationSwarmTaskExecution;
+  readonly execution: OrchestrationEpicIssueExecution;
   readonly thread: OrchestrationThread | null;
   readonly nowMs: number;
   readonly launchTimeoutMs: number;
@@ -109,29 +88,10 @@ export function decideReconcileRequestedExecution(input: {
     };
   }
 
-  const launchWasRequested = workerThreadTurnWasRequested(input.thread);
   const workerStillRunning = workerThreadStillHasActiveTurn({
     latestTurnState: input.thread.latestTurn?.state,
     sessionActiveTurnId: input.thread.session?.activeTurnId,
   });
-
-  if (
-    !launchWasRequested &&
-    !workerThreadLaunchWasObserved({
-      latestTurnState: input.thread.latestTurn?.state,
-      sessionActiveTurnId: input.thread.session?.activeTurnId,
-    })
-  ) {
-    return {
-      type: "cleanup_failed_launch",
-      reason: describeRequestedExecutionLaunchFailure({
-        executionId: input.execution.executionId,
-        issueId: input.execution.issueId,
-        workerThreadId: input.execution.workerThreadId,
-        reason: "Worker thread never received the swarm turn-start request before reconciliation.",
-      }),
-    };
-  }
 
   if (input.thread.latestTurn?.state === "completed") {
     return { type: "complete" };
@@ -161,25 +121,6 @@ export function decideReconcileRequestedExecution(input: {
 
   if (
     input.thread.latestTurn === null &&
-    isLaunchFailureSessionStatus(input.thread.session?.status)
-  ) {
-    return {
-      type: "cleanup_failed_launch",
-      reason: describeRequestedExecutionLaunchFailure({
-        executionId: input.execution.executionId,
-        issueId: input.execution.issueId,
-        workerThreadId: input.execution.workerThreadId,
-        reason:
-          input.thread.session?.lastError ??
-          "Worker thread never reported a started turn before reconciliation.",
-      }),
-    };
-  }
-
-  if (
-    launchWasRequested &&
-    input.thread.latestTurn === null &&
-    isPendingLaunchSessionStatus(input.thread.session?.status) &&
     isRequestedExecutionTimedOut({
       requestedAt: input.execution.requestedAt,
       nowMs: input.nowMs,
@@ -203,7 +144,7 @@ export function decideReconcileRequestedExecution(input: {
 }
 
 export function decideReconcileCurrentExecution(input: {
-  readonly execution: OrchestrationSwarmTaskExecution;
+  readonly execution: OrchestrationEpicIssueExecution;
   readonly thread: OrchestrationThread | null;
 }): CurrentExecutionDecision {
   if (input.execution.status === "launching") {
@@ -235,18 +176,7 @@ export function decideReconcileCurrentExecution(input: {
     };
   }
 
-  const workerStillRunning = workerThreadStillHasActiveTurn({
-    latestTurnState: input.thread.latestTurn?.state,
-    sessionActiveTurnId: input.thread.session?.activeTurnId,
-  });
-
-  if (
-    input.thread.latestTurn?.state === "interrupted" ||
-    (!workerStillRunning &&
-      (input.thread.session?.status === "interrupted" ||
-        input.thread.session?.status === "stopped" ||
-        input.thread.session?.status === "error"))
-  ) {
+  if (input.thread.latestTurn?.state === "interrupted") {
     return {
       type: "fail_execution",
       reason: defaultWorkerError(

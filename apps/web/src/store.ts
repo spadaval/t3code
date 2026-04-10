@@ -615,8 +615,8 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
       ...launch,
     })),
     swarmProjection: createSwarmProjectionState({
-      swarmRuns: readModel.swarmRuns.map((run) => ({ ...run })),
-      swarmTaskExecutions: readModel.swarmTaskExecutions.map((execution) => ({ ...execution })),
+      epicRuns: readModel.epicRuns.map((run) => ({ ...run })),
+      epicIssueExecutions: readModel.epicIssueExecutions.map((execution) => ({ ...execution })),
     }),
     threadsHydrated: true,
   };

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
-import { SwarmRunId, SwarmTaskExecutionId } from "./baseSchemas";
+import { EpicRunId, EpicIssueExecutionId } from "./baseSchemas";
 import {
   DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE,
   DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT,
@@ -15,10 +15,10 @@ import {
   OrchestrationGetTurnDiffInput,
   OrchestrationLatestTurn,
   OrchestrationLaunchPlanImplementationInput,
-  OrchestrationRunNextSwarmTaskInput,
-  OrchestrationStartSwarmRunInput,
-  OrchestrationSwarmRun,
-  OrchestrationSwarmTaskExecution,
+  OrchestrationStopEpicRunInput,
+  OrchestrationStartEpicRunInput,
+  OrchestrationEpicRun,
+  OrchestrationEpicIssueExecution,
   ProjectCreatedPayload,
   ProjectMetaUpdatedPayload,
   OrchestrationProposedPlan,
@@ -32,10 +32,10 @@ import {
   ThreadTurnStartRequestedPayload,
 } from "./orchestration";
 
-const decodeSwarmRunId = Schema.decodeUnknownEffect(SwarmRunId);
-const decodeSwarmTaskExecutionId = Schema.decodeUnknownEffect(SwarmTaskExecutionId);
-const encodeSwarmRunId = Schema.encodeSync(SwarmRunId);
-const encodeSwarmTaskExecutionId = Schema.encodeSync(SwarmTaskExecutionId);
+const decodeSwarmRunId = Schema.decodeUnknownEffect(EpicRunId);
+const decodeSwarmTaskExecutionId = Schema.decodeUnknownEffect(EpicIssueExecutionId);
+const encodeSwarmRunId = Schema.encodeSync(EpicRunId);
+const encodeSwarmTaskExecutionId = Schema.encodeSync(EpicIssueExecutionId);
 const decodeTurnDiffInput = Schema.decodeUnknownEffect(OrchestrationGetTurnDiffInput);
 const decodeThreadTurnDiff = Schema.decodeUnknownEffect(ThreadTurnDiff);
 const decodeProjectCreateCommand = Schema.decodeUnknownEffect(ProjectCreateCommand);
@@ -59,14 +59,14 @@ const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationComma
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
 const decodeThreadMetaUpdatedPayload = Schema.decodeUnknownEffect(ThreadMetaUpdatedPayload);
 const decodeOrchestrationStartSwarmRunInput = Schema.decodeUnknownEffect(
-  OrchestrationStartSwarmRunInput,
+  OrchestrationStartEpicRunInput,
 );
-const decodeOrchestrationRunNextSwarmTaskInput = Schema.decodeUnknownEffect(
-  OrchestrationRunNextSwarmTaskInput,
+const decodeOrchestrationStopEpicRunInput = Schema.decodeUnknownEffect(
+  OrchestrationStopEpicRunInput,
 );
-const decodeOrchestrationSwarmRun = Schema.decodeUnknownEffect(OrchestrationSwarmRun);
+const decodeOrchestrationSwarmRun = Schema.decodeUnknownEffect(OrchestrationEpicRun);
 const decodeOrchestrationSwarmTaskExecution = Schema.decodeUnknownEffect(
-  OrchestrationSwarmTaskExecution,
+  OrchestrationEpicIssueExecution,
 );
 
 it.effect("parses turn diff input when fromTurnCount <= toTurnCount", () =>
@@ -695,9 +695,9 @@ it.effect("decodes swarm lifecycle commands", () =>
   }),
 );
 
-it.effect("decodes swarm run control input", () =>
+it.effect("decodes epic run control input", () =>
   Effect.gen(function* () {
-    const parsed = yield* decodeOrchestrationRunNextSwarmTaskInput({
+    const parsed = yield* decodeOrchestrationStopEpicRunInput({
       runId: "run-1",
     });
     assert.strictEqual(parsed.runId, "run-1");

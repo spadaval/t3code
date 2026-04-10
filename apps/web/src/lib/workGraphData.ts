@@ -5,8 +5,8 @@ import type {
   BeadsIssueRelationSummary,
   BeadsSwarmStatus,
   BeadsSwarmValidation,
-  OrchestrationSwarmRun,
-  OrchestrationSwarmTaskExecution,
+  OrchestrationEpicRun,
+  OrchestrationEpicIssueExecution,
 } from "@t3tools/contracts";
 
 import { type CoordinatorLogEntry, executionEntries, runEntries } from "./coordinatorEventLog";
@@ -30,9 +30,9 @@ export type WorkGraphIssueNode = {
   /** Wave index (0-based) from readyFronts, or null for completed/unscheduled issues. */
   readonly waveIndex: number | null;
   /** Executions for this issue **scoped to the parent run section**. Sorted by sequenceNumber descending. */
-  readonly executions: readonly OrchestrationSwarmTaskExecution[];
+  readonly executions: readonly OrchestrationEpicIssueExecution[];
   /** Most recent execution for this issue within the parent run section. */
-  readonly latestExecution: OrchestrationSwarmTaskExecution | null;
+  readonly latestExecution: OrchestrationEpicIssueExecution | null;
   /** True if this issue currently has the active execution (is being worked on right now). */
   readonly isActiveWorker: boolean;
   /** Block classification from blocked breakdown (only set when status is "blocked"). */
@@ -68,7 +68,7 @@ export type WorkGraphRunSectionSummary = {
 /** A run section in the work graph -- groups all issues associated with a run. */
 export type WorkGraphRunSection = {
   /** The run, or null for the "pending" section. */
-  readonly run: OrchestrationSwarmRun | null;
+  readonly run: OrchestrationEpicRun | null;
   /** Section kind. */
   readonly kind: "active" | "historical" | "unscheduled";
   /** Display label for the section header. */
@@ -86,11 +86,11 @@ export type WorkGraphData = {
   /** Run sections in chronological order (oldest historical first, then pending, then active/current). */
   readonly sections: readonly WorkGraphRunSection[];
   /** The currently active run, if any. */
-  readonly activeRun: OrchestrationSwarmRun | null;
+  readonly activeRun: OrchestrationEpicRun | null;
   /** The most recent run (active or historical). */
-  readonly latestRun: OrchestrationSwarmRun | null;
+  readonly latestRun: OrchestrationEpicRun | null;
   /** All runs for this epic. */
-  readonly runs: readonly OrchestrationSwarmRun[];
+  readonly runs: readonly OrchestrationEpicRun[];
   /** True when wave data is available (validation.readyFronts is non-empty). */
   readonly hasWaveData: boolean;
   /** Total number of waves from validation, or 0 if no wave data. */
@@ -110,9 +110,9 @@ export type WorkGraphData = {
  * with executions sorted by sequenceNumber descending within each run.
  */
 function buildRunExecutionMap(
-  executions: readonly OrchestrationSwarmTaskExecution[],
-): Map<string, OrchestrationSwarmTaskExecution[]> {
-  const map = new Map<string, OrchestrationSwarmTaskExecution[]>();
+  executions: readonly OrchestrationEpicIssueExecution[],
+): Map<string, OrchestrationEpicIssueExecution[]> {
+  const map = new Map<string, OrchestrationEpicIssueExecution[]>();
   for (const exec of executions) {
     const list = map.get(exec.runId);
     if (list !== undefined) {
@@ -132,9 +132,9 @@ function buildRunExecutionMap(
  * with executions sorted by sequenceNumber descending.
  */
 function buildIssueExecutionMap(
-  executions: readonly OrchestrationSwarmTaskExecution[],
-): Map<string, OrchestrationSwarmTaskExecution[]> {
-  const map = new Map<string, OrchestrationSwarmTaskExecution[]>();
+  executions: readonly OrchestrationEpicIssueExecution[],
+): Map<string, OrchestrationEpicIssueExecution[]> {
+  const map = new Map<string, OrchestrationEpicIssueExecution[]>();
   for (const exec of executions) {
     const list = map.get(exec.issueId);
     if (list !== undefined) {
@@ -316,7 +316,7 @@ function buildGroups(
   return groups;
 }
 
-function formatRunLabel(run: OrchestrationSwarmRun, isActive: boolean): string {
+function formatRunLabel(run: OrchestrationEpicRun, isActive: boolean): string {
   const status = run.status.charAt(0).toUpperCase() + run.status.slice(1);
   return isActive ? `Current Run \u00B7 ${status}` : `Run \u00B7 ${status}`;
 }

@@ -63,8 +63,8 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   projects: "projection.projects",
   threads: "projection.threads",
   planImplementationLaunches: "projection.plan-implementation-launches",
-  swarmRuns: "projection.swarm-runs",
-  swarmTaskExecutions: "projection.swarm-task-executions",
+  epicRuns: "projection.swarm-runs",
+  epicIssueExecutions: "projection.swarm-task-executions",
   threadMessages: "projection.thread-messages",
   threadProposedPlans: "projection.thread-proposed-plans",
   threadActivities: "projection.thread-activities",
@@ -1661,11 +1661,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         apply: applyPlanImplementationLaunchesProjection,
       },
       {
-        name: ORCHESTRATION_PROJECTOR_NAMES.swarmRuns,
+        name: ORCHESTRATION_PROJECTOR_NAMES.epicRuns,
         apply: applySwarmRunsProjection,
       },
       {
-        name: ORCHESTRATION_PROJECTOR_NAMES.swarmTaskExecutions,
+        name: ORCHESTRATION_PROJECTOR_NAMES.epicIssueExecutions,
         apply: applySwarmTaskExecutionsProjection,
       },
       {

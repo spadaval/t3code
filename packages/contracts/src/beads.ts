@@ -4,15 +4,15 @@ import {
   IsoDateTime,
   NonNegativeInt,
   ProjectId,
-  SwarmRunId,
-  SwarmTaskExecutionId,
+  EpicRunId,
+  EpicIssueExecutionId,
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas";
 import {
   ModelSelection,
-  OrchestrationSwarmRun,
-  OrchestrationSwarmTaskExecution,
+  OrchestrationEpicRun,
+  OrchestrationEpicIssueExecution,
   RuntimeMode,
 } from "./orchestration";
 
@@ -249,9 +249,9 @@ export const BeadsCoordinatorPrimaryAction = Schema.Struct({
   kind: Schema.Literals([
     "unsupported",
     "open_coordination_prep_thread",
-    "refresh_swarm_state",
-    "start_swarm",
-    "stop_swarm",
+    "refresh_epic_status",
+    "start_epic_run",
+    "stop_epic_run",
     "open_coordinator",
   ]),
   label: TrimmedNonEmptyString,
@@ -261,7 +261,7 @@ export const BeadsCoordinatorPrimaryAction = Schema.Struct({
 export type BeadsCoordinatorPrimaryAction = typeof BeadsCoordinatorPrimaryAction.Type;
 
 export const BeadsCoordinatorProjectConflict = Schema.Struct({
-  run: OrchestrationSwarmRun,
+  run: OrchestrationEpicRun,
   message: TrimmedNonEmptyString,
 });
 export type BeadsCoordinatorProjectConflict = typeof BeadsCoordinatorProjectConflict.Type;
@@ -283,8 +283,8 @@ export const BeadsCoordinatorEpicSnapshot = Schema.Struct({
   trackerState: BeadsCoordinatorTrackerState,
   progress: BeadsCoordinatorProgress,
   primaryAction: BeadsCoordinatorPrimaryAction,
-  activeRunId: Schema.NullOr(SwarmRunId).pipe(Schema.withDecodingDefault(() => null)),
-  activeExecutionId: Schema.NullOr(SwarmTaskExecutionId).pipe(
+  activeRunId: Schema.NullOr(EpicRunId).pipe(Schema.withDecodingDefault(() => null)),
+  activeExecutionId: Schema.NullOr(EpicIssueExecutionId).pipe(
     Schema.withDecodingDefault(() => null),
   ),
   projectConflict: Schema.NullOr(BeadsCoordinatorProjectConflict).pipe(
@@ -293,8 +293,8 @@ export const BeadsCoordinatorEpicSnapshot = Schema.Struct({
   swarmSummary: Schema.NullOr(BeadsSwarmSummary).pipe(Schema.withDecodingDefault(() => null)),
   validation: Schema.NullOr(BeadsSwarmValidation).pipe(Schema.withDecodingDefault(() => null)),
   status: Schema.NullOr(BeadsSwarmStatus).pipe(Schema.withDecodingDefault(() => null)),
-  runs: Schema.Array(OrchestrationSwarmRun).pipe(Schema.withDecodingDefault(() => [])),
-  executions: Schema.Array(OrchestrationSwarmTaskExecution).pipe(
+  runs: Schema.Array(OrchestrationEpicRun).pipe(Schema.withDecodingDefault(() => [])),
+  executions: Schema.Array(OrchestrationEpicIssueExecution).pipe(
     Schema.withDecodingDefault(() => []),
   ),
 });

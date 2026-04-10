@@ -1,4 +1,4 @@
-import type { OrchestrationSwarmTaskExecution, ThreadId } from "@t3tools/contracts";
+import type { OrchestrationEpicIssueExecution, ThreadId } from "@t3tools/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { ChevronDownIcon, ChevronRightIcon, FileIcon } from "lucide-react";
@@ -13,7 +13,7 @@ import type { TurnDiffSummary } from "~/types";
 // ---------------------------------------------------------------------------
 
 type ExecutionDiffSummaryProps = {
-  execution: OrchestrationSwarmTaskExecution;
+  execution: OrchestrationEpicIssueExecution;
   onOpenThread: (threadId: ThreadId) => void;
 };
 

@@ -111,7 +111,7 @@ const readModel: OrchestrationReadModel = {
     },
   ],
   planImplementationLaunches: [],
-  swarmRuns: [
+  epicRuns: [
     {
       runId: "run-1" as never,
       projectId: ProjectId.makeUnsafe("project-a"),
@@ -159,7 +159,7 @@ const readModel: OrchestrationReadModel = {
       updatedAt: now,
     },
   ],
-  swarmTaskExecutions: [
+  epicIssueExecutions: [
     {
       executionId: "execution-1" as never,
       runId: "run-1" as never,
@@ -452,10 +452,17 @@ describe("commandInvariants", () => {
   });
 
   it("rejects run commands while a non-terminal swarm task execution still exists", async () => {
+    const readModelWithRunningRun: OrchestrationReadModel = {
+      ...readModel,
+      epicRuns: readModel.epicRuns.map((run) =>
+        run.runId === ("run-1" as never) ? { ...run, status: "running" } : run,
+      ),
+    };
+
     await expect(
       Effect.runPromise(
         requireSwarmRunWithoutCurrentExecution({
-          readModel,
+          readModel: readModelWithRunningRun,
           command: {
             type: "swarm-run.complete",
             commandId: CommandId.makeUnsafe("cmd-run-complete-stale"),
@@ -471,11 +478,11 @@ describe("commandInvariants", () => {
   it("rejects stale swarm task execution commands when another execution is current", async () => {
     const readModelWithNewerExecution: OrchestrationReadModel = {
       ...readModel,
-      swarmRuns: readModel.swarmRuns.map((run) =>
+      epicRuns: readModel.epicRuns.map((run) =>
         run.runId === ("run-1" as never) ? { ...run, status: "running" } : run,
       ),
-      swarmTaskExecutions: [
-        ...readModel.swarmTaskExecutions,
+      epicIssueExecutions: [
+        ...readModel.epicIssueExecutions,
         {
           executionId: "execution-3" as never,
           runId: "run-1" as never,
@@ -518,7 +525,7 @@ describe("commandInvariants", () => {
   it("rejects requested executions even when the run itself is otherwise manually advanceable", async () => {
     const readModelWithPendingRun: OrchestrationReadModel = {
       ...readModel,
-      swarmRuns: readModel.swarmRuns.map((run) =>
+      epicRuns: readModel.epicRuns.map((run) =>
         run.runId === ("run-1" as never) ? { ...run, status: "pending" } : run,
       ),
     };
@@ -542,7 +549,7 @@ describe("commandInvariants", () => {
   it("rejects scheduler execution commands from stopped runs", async () => {
     const readModelWithStoppedRun: OrchestrationReadModel = {
       ...readModel,
-      swarmRuns: readModel.swarmRuns.map((run) =>
+      epicRuns: readModel.epicRuns.map((run) =>
         run.runId === ("run-1" as never) ? { ...run, status: "stopped" } : run,
       ),
     };

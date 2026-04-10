@@ -257,7 +257,7 @@ it.effect("defaults coordinator snapshot collections", () =>
           isComplete: false,
         },
         primaryAction: {
-          kind: "start_swarm",
+          kind: "start_epic_run",
           label: "Start run",
           busyLabel: "Starting...",
           disabled: false,

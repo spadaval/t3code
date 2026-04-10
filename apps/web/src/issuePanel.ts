@@ -5,7 +5,7 @@ import type {
   BeadsSwarmSummary,
   BeadsSwarmSupport,
   BeadsSwarmValidation,
-  OrchestrationSwarmRun,
+  OrchestrationEpicRun,
   ThreadId,
 } from "@t3tools/contracts";
 import {
@@ -43,7 +43,7 @@ export interface CoordinatorEpicStateSections<T> {
 }
 
 export interface SharedWorkspaceProjectConflict {
-  readonly run: OrchestrationSwarmRun;
+  readonly run: OrchestrationEpicRun;
   readonly message: string;
 }
 
@@ -136,7 +136,7 @@ export function deriveCoordinatorFetchLifecycle(input: {
     return {
       kind: hasSwarmData ? "stale" : "loading",
       detail: hasSwarmData
-        ? "Showing the last known swarm state while the latest refresh completes."
+        ? "Showing the last known epic-run state while the latest refresh completes."
         : null,
     };
   }
@@ -148,7 +148,7 @@ export function deriveCoordinatorFetchLifecycle(input: {
 }
 
 export function describeSharedWorkspaceProjectConflict(
-  run: OrchestrationSwarmRun,
+  run: OrchestrationEpicRun,
 ): SharedWorkspaceProjectConflict {
   return {
     run,
@@ -208,14 +208,14 @@ export function listEpicDescendantIssues(input: {
 }
 
 export function selectLatestSwarmRun(
-  swarmRuns: ReadonlyArray<OrchestrationSwarmRun>,
-): OrchestrationSwarmRun | null {
-  return selectLatestSwarmRunCore(swarmRuns);
+  epicRuns: ReadonlyArray<OrchestrationEpicRun>,
+): OrchestrationEpicRun | null {
+  return selectLatestSwarmRunCore(epicRuns);
 }
 
 export function findConflictingSharedWorkspaceRun(input: {
-  readonly projectSwarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
-  readonly epicSwarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
+  readonly projectSwarmRuns: ReadonlyArray<OrchestrationEpicRun>;
+  readonly epicSwarmRuns: ReadonlyArray<OrchestrationEpicRun>;
 }): SharedWorkspaceProjectConflict | null {
   const run = findConflictingSharedWorkspaceRunCore(input);
   return run ? describeSharedWorkspaceProjectConflict(run) : null;
@@ -225,7 +225,7 @@ export function deriveEpicCoordinatorState(input: {
   readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
   readonly status: Pick<BeadsSwarmStatus, "swarm"> | null;
   readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm"> | null;
-  readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
+  readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
   readonly fetchLifecycle: CoordinatorFetchLifecycle;
 }): EpicCoordinatorState {
   return deriveEpicSwarmCoordinatorState(input);
@@ -238,7 +238,7 @@ export function getEpicCoordinatorPrimaryAction(input: {
         Partial<Pick<BeadsSwarmStatus, "blockedBreakdown">>)
     | null;
   readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm" | "readyFronts"> | null;
-  readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
+  readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
   readonly projectConflict: SharedWorkspaceProjectConflict | null;
   readonly fetchLifecycle: CoordinatorFetchLifecycle;
 }): EpicCoordinatorPrimaryAction {
@@ -287,7 +287,7 @@ export function describeDisabledEpicCoordinatorAction(input: {
     );
   }
 
-  if (input.epic.primaryAction.kind === "stop_swarm") {
+  if (input.epic.primaryAction.kind === "stop_epic_run") {
     const executionBlocking = deriveExecutionBlocking(input.epic.status);
     if ((input.epic.status?.active.length ?? 0) > 0) {
       return `Wait for Beads to reconcile active work for this epic: ${summarizeIssueIds(input.epic.status?.active ?? [])}.`;
@@ -308,7 +308,7 @@ export function describeDisabledEpicCoordinatorAction(input: {
 export function collectCoordinatorEpics(input: {
   readonly epicIssues: ReadonlyArray<BeadsIssueSummary>;
   readonly swarms: ReadonlyArray<BeadsSwarmSummary>;
-  readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
+  readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
 }): CoordinatorEpicEntry[] {
   const entries = new Map<string, CoordinatorEpicEntry>();
 
@@ -330,7 +330,7 @@ export function collectCoordinatorEpics(input: {
     }
   }
 
-  for (const run of input.swarmRuns) {
+  for (const run of input.epicRuns) {
     if (!entries.has(run.epicIssueId)) {
       entries.set(run.epicIssueId, {
         epicId: run.epicIssueId,

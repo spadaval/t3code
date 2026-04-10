@@ -1,11 +1,7 @@
 import type {
-  OrchestrationCancelSwarmRunInput,
-  OrchestrationPauseSwarmRunInput,
-  OrchestrationResumePausedSwarmRunInput,
-  OrchestrationRetrySwarmTaskExecutionInput,
-  OrchestrationRunNextSwarmTaskInput,
-  OrchestrationStartSwarmRunInput,
-  OrchestrationSwarmRunControlResult,
+  OrchestrationStopEpicRunInput,
+  OrchestrationStartEpicRunInput,
+  OrchestrationEpicRunControlResult,
 } from "@t3tools/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Scope } from "effect";
@@ -15,24 +11,12 @@ import type { SwarmSchedulerError } from "../Errors.ts";
 export interface SwarmSchedulerShape {
   readonly start: Effect.Effect<void, never, Scope.Scope>;
   readonly drain: Effect.Effect<void>;
-  readonly startSwarmRun: (
-    input: OrchestrationStartSwarmRunInput,
-  ) => Effect.Effect<OrchestrationSwarmRunControlResult, SwarmSchedulerError>;
-  readonly pauseSwarmRun: (
-    input: OrchestrationPauseSwarmRunInput,
-  ) => Effect.Effect<OrchestrationSwarmRunControlResult, SwarmSchedulerError>;
-  readonly resumePausedSwarmRun: (
-    input: OrchestrationResumePausedSwarmRunInput,
-  ) => Effect.Effect<OrchestrationSwarmRunControlResult, SwarmSchedulerError>;
-  readonly runNextSwarmTask: (
-    input: OrchestrationRunNextSwarmTaskInput,
-  ) => Effect.Effect<OrchestrationSwarmRunControlResult, SwarmSchedulerError>;
-  readonly retrySwarmTaskExecution: (
-    input: OrchestrationRetrySwarmTaskExecutionInput,
-  ) => Effect.Effect<OrchestrationSwarmRunControlResult, SwarmSchedulerError>;
-  readonly cancelSwarmRun: (
-    input: OrchestrationCancelSwarmRunInput,
-  ) => Effect.Effect<OrchestrationSwarmRunControlResult, SwarmSchedulerError>;
+  readonly startEpicRun: (
+    input: OrchestrationStartEpicRunInput,
+  ) => Effect.Effect<OrchestrationEpicRunControlResult, SwarmSchedulerError>;
+  readonly stopEpicRun: (
+    input: OrchestrationStopEpicRunInput,
+  ) => Effect.Effect<OrchestrationEpicRunControlResult, SwarmSchedulerError>;
 }
 
 export class SwarmScheduler extends ServiceMap.Service<SwarmScheduler, SwarmSchedulerShape>()(

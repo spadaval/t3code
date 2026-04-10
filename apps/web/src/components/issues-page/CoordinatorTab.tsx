@@ -2,8 +2,8 @@ import type {
   BeadsCoordinatorEpicSnapshot,
   BeadsProjectCoordinatorSnapshot,
   BeadsSwarmSupport,
-  OrchestrationSwarmRun,
-  OrchestrationSwarmTaskExecution,
+  OrchestrationEpicRun,
+  OrchestrationEpicIssueExecution,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -116,11 +116,11 @@ const CARD_BG_CLASSES: Record<StatusColor, string> = {
 // Sort / rank helpers (matches sidebar CoordinatorPanel)
 // ---------------------------------------------------------------------------
 
-function getLatestRun(epic: BeadsCoordinatorEpicSnapshot): OrchestrationSwarmRun | null {
+function getLatestRun(epic: BeadsCoordinatorEpicSnapshot): OrchestrationEpicRun | null {
   return epic.runs[0] ?? null;
 }
 
-function getActiveRun(epic: BeadsCoordinatorEpicSnapshot): OrchestrationSwarmRun | null {
+function getActiveRun(epic: BeadsCoordinatorEpicSnapshot): OrchestrationEpicRun | null {
   return epic.activeRunId
     ? (epic.runs.find((run) => run.runId === epic.activeRunId) ?? null)
     : null;
@@ -128,7 +128,7 @@ function getActiveRun(epic: BeadsCoordinatorEpicSnapshot): OrchestrationSwarmRun
 
 function getActiveExecution(
   epic: BeadsCoordinatorEpicSnapshot,
-): OrchestrationSwarmTaskExecution | null {
+): OrchestrationEpicIssueExecution | null {
   return epic.activeExecutionId
     ? (epic.executions.find((execution) => execution.executionId === epic.activeExecutionId) ??
         null)
@@ -326,7 +326,7 @@ function progressPercent(epic: BeadsCoordinatorEpicSnapshot): number | null {
   return Math.round((epic.progress.completedIssueCount / total) * 100);
 }
 
-function formatRunStatus(status: OrchestrationSwarmRun["status"]): string {
+function formatRunStatus(status: OrchestrationEpicRun["status"]): string {
   switch (status) {
     case "pending":
       return "Pending";
@@ -344,7 +344,7 @@ function formatRunStatus(status: OrchestrationSwarmRun["status"]): string {
 }
 
 function runStatusBadgeVariant(
-  status: OrchestrationSwarmRun["status"],
+  status: OrchestrationEpicRun["status"],
 ): "success" | "error" | "warning" | "info" | "neutral" {
   switch (status) {
     case "completed":
@@ -815,9 +815,9 @@ function CoordinatorActionBar(props: {
       | "checking"
       | "unsupported"
       | "open_coordination_prep_thread"
-      | "refresh_swarm_state"
-      | "start_swarm"
-      | "stop_swarm"
+      | "refresh_epic_status"
+      | "start_epic_run"
+      | "stop_epic_run"
       | "open_coordinator";
   };
   const actions: CoordinatorAction[] = [];
@@ -834,17 +834,17 @@ function CoordinatorActionBar(props: {
           props.onRunAction({ kind: "open_coordination_prep_thread", epicIssueId: epic.epicId }),
       });
       break;
-    case "start_swarm":
+    case "start_epic_run":
       actions.push({
         key: `start:${epic.epicId}`,
         label: primaryAction.label,
         busyLabel: primaryAction.busyLabel,
         disabled: primaryAction.disabled,
         icon: <PlayIcon className="size-3" />,
-        onClick: () => props.onRunAction({ kind: "start_swarm", epicIssueId: epic.epicId }),
+        onClick: () => props.onRunAction({ kind: "start_epic_run", epicIssueId: epic.epicId }),
       });
       break;
-    case "stop_swarm":
+    case "stop_epic_run":
       if (run) {
         actions.push({
           key: `stop:${run.runId}`,
@@ -853,11 +853,11 @@ function CoordinatorActionBar(props: {
           disabled: primaryAction.disabled,
           variant: "destructive-outline",
           icon: <XIcon className="size-3" />,
-          onClick: () => props.onRunAction({ kind: "stop_swarm", runId: run.runId }),
+          onClick: () => props.onRunAction({ kind: "stop_epic_run", runId: run.runId }),
         });
       }
       break;
-    case "refresh_swarm_state":
+    case "refresh_epic_status":
       actions.push({
         key: `refresh:${epic.epicId}`,
         label: primaryAction.label,
@@ -865,7 +865,7 @@ function CoordinatorActionBar(props: {
         disabled: primaryAction.disabled,
         variant: "outline",
         icon: <RefreshCwIcon className="size-3" />,
-        onClick: () => props.onRunAction({ kind: "refresh_swarm_state", epicIssueId: epic.epicId }),
+        onClick: () => props.onRunAction({ kind: "refresh_epic_status", epicIssueId: epic.epicId }),
       });
       break;
     case "open_coordinator":

@@ -5,8 +5,8 @@ import type {
   OrchestrationProposedPlanFollowUpOutcome,
   OrchestrationProposedPlanId,
   OrchestrationSessionStatus,
-  OrchestrationSwarmRun,
-  OrchestrationSwarmTaskExecution,
+  OrchestrationEpicRun,
+  OrchestrationEpicIssueExecution,
   OrchestrationThreadIssueLink,
   OrchestrationThreadActivity,
   ProjectScript as ContractProjectScript,
@@ -29,8 +29,8 @@ export const DEFAULT_THREAD_TERMINAL_ID = "default";
 export const MAX_TERMINALS_PER_GROUP = 4;
 export type ProjectScript = ContractProjectScript;
 export type PlanImplementationLaunch = OrchestrationPlanImplementationLaunch;
-export type SwarmRun = OrchestrationSwarmRun;
-export type SwarmTaskExecution = OrchestrationSwarmTaskExecution;
+export type SwarmRun = OrchestrationEpicRun;
+export type SwarmTaskExecution = OrchestrationEpicIssueExecution;
 
 export interface ThreadTerminalGroup {
   id: string;

@@ -1,25 +1,51 @@
 import type {
-  OrchestrationSwarmRun,
-  OrchestrationSwarmTaskExecution,
-  SwarmRunId,
+  OrchestrationEpicRun,
+  OrchestrationEpicIssueExecution,
+  EpicRunId,
 } from "@t3tools/contracts";
 import {
-  compareSwarmRunsByAttentionPriority,
+  compareSwarmRunsByRequestedAt,
   deriveSwarmRunExecutionState,
   isNonTerminalSharedWorkspaceRun,
 } from "@t3tools/shared/swarm";
 
 import { describeExecutionInvariantViolation } from "./FailurePolicy.ts";
 
+function sharedWorkspaceProjectStatusPriority(run: OrchestrationEpicRun): number {
+  switch (run.status) {
+    case "running":
+      return 0;
+    case "stopping":
+      return 1;
+    case "pending":
+      return 2;
+    default:
+      return 3;
+  }
+}
+
+function compareSharedWorkspaceProjectCandidates(
+  left: OrchestrationEpicRun,
+  right: OrchestrationEpicRun,
+): number {
+  const priorityDelta =
+    sharedWorkspaceProjectStatusPriority(left) - sharedWorkspaceProjectStatusPriority(right);
+  if (priorityDelta !== 0) {
+    return priorityDelta;
+  }
+
+  return compareSwarmRunsByRequestedAt(left, right);
+}
+
 export function evaluateSharedWorkspaceProjectInvariant(
-  runs: ReadonlyArray<OrchestrationSwarmRun>,
+  runs: ReadonlyArray<OrchestrationEpicRun>,
 ): {
-  readonly winner: OrchestrationSwarmRun | null;
-  readonly losers: ReadonlyArray<OrchestrationSwarmRun>;
+  readonly winner: OrchestrationEpicRun | null;
+  readonly losers: ReadonlyArray<OrchestrationEpicRun>;
 } {
   const candidates = runs
     .filter((run) => isNonTerminalSharedWorkspaceRun(run))
-    .toSorted(compareSwarmRunsByAttentionPriority);
+    .toSorted(compareSharedWorkspaceProjectCandidates);
 
   return {
     winner: candidates[0] ?? null,
@@ -28,8 +54,8 @@ export function evaluateSharedWorkspaceProjectInvariant(
 }
 
 export function evaluateRunExecutionInvariant(input: {
-  readonly runId: SwarmRunId;
-  readonly executions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
+  readonly runId: EpicRunId;
+  readonly executions: ReadonlyArray<OrchestrationEpicIssueExecution>;
 }): ReturnType<typeof deriveSwarmRunExecutionState> & {
   readonly violationReason: string | null;
 } {
@@ -52,8 +78,8 @@ export function evaluateRunExecutionInvariant(input: {
 
 export function describeSharedWorkspaceProjectInvariantViolation(input: {
   readonly projectId: string;
-  readonly winner: OrchestrationSwarmRun;
-  readonly loser: OrchestrationSwarmRun;
+  readonly winner: OrchestrationEpicRun;
+  readonly loser: OrchestrationEpicRun;
 }): string {
   return [
     `Shared-workspace swarm scheduling invariant failed in project '${input.projectId}'.`,

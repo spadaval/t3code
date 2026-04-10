@@ -9,8 +9,8 @@ import type {
   BeadsSwarmSupport,
   BeadsSwarmValidation,
   OrchestrationReadModel,
-  OrchestrationSwarmRun,
-  OrchestrationSwarmTaskExecution,
+  OrchestrationEpicRun,
+  OrchestrationEpicIssueExecution,
   ProjectId,
 } from "@t3tools/contracts";
 import {
@@ -28,7 +28,7 @@ import {
 } from "@t3tools/shared/swarm";
 
 function describeSharedWorkspaceProjectConflict(
-  run: OrchestrationSwarmRun,
+  run: OrchestrationEpicRun,
 ): BeadsCoordinatorProjectConflict {
   return {
     run,
@@ -37,8 +37,8 @@ function describeSharedWorkspaceProjectConflict(
 }
 
 function findConflictingSharedWorkspaceRun(input: {
-  readonly projectSwarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
-  readonly epicSwarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
+  readonly projectSwarmRuns: ReadonlyArray<OrchestrationEpicRun>;
+  readonly epicSwarmRuns: ReadonlyArray<OrchestrationEpicRun>;
 }): BeadsCoordinatorProjectConflict | null {
   const run = findConflictingSharedWorkspaceRunCore(input);
   return run ? describeSharedWorkspaceProjectConflict(run) : null;
@@ -69,7 +69,7 @@ function toIssueSummary(issue: BeadsIssueDetail | BeadsIssueSummary): BeadsIssue
 function buildCoordinatorEpicEntries(input: {
   readonly epicIssues: ReadonlyArray<BeadsIssueSummary>;
   readonly swarms: ReadonlyArray<BeadsSwarmSummary>;
-  readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
+  readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
 }) {
   const entries = new Map<
     string,
@@ -98,7 +98,7 @@ function buildCoordinatorEpicEntries(input: {
     }
   }
 
-  for (const run of input.swarmRuns) {
+  for (const run of input.epicRuns) {
     if (!entries.has(run.epicIssueId)) {
       entries.set(run.epicIssueId, {
         epicId: run.epicIssueId,
@@ -118,8 +118,8 @@ function deriveEpicPrimaryAction(input: {
   readonly trackerLoadState: BeadsCoordinatorEpicSnapshot["trackerLoadState"];
   readonly trackerState: BeadsCoordinatorEpicSnapshot["trackerState"];
   readonly projectConflict: BeadsCoordinatorEpicSnapshot["projectConflict"];
-  readonly latestRun: OrchestrationSwarmRun | null;
-  readonly activeRun: OrchestrationSwarmRun | null;
+  readonly latestRun: OrchestrationEpicRun | null;
+  readonly activeRun: OrchestrationEpicRun | null;
   readonly status: Pick<
     BeadsSwarmStatus,
     "ready" | "active" | "blocked" | "blockedBreakdown"
@@ -129,7 +129,7 @@ function deriveEpicPrimaryAction(input: {
 
   if (input.trackerLoadState === "timeout" || input.trackerLoadState === "error") {
     return {
-      kind: "refresh_swarm_state",
+      kind: "refresh_epic_status",
       label: "Retry tracker status",
       busyLabel: "Retrying...",
       disabled: false,
@@ -167,7 +167,7 @@ function deriveEpicPrimaryAction(input: {
     switch (input.activeRun.status) {
       case "running":
         return {
-          kind: "stop_swarm",
+          kind: "stop_epic_run",
           label: "Stop run",
           busyLabel: "Stopping...",
           disabled: false,
@@ -198,7 +198,7 @@ function deriveEpicPrimaryAction(input: {
     !executionBlocking.hasExecutionBlockingIssues
   ) {
     return {
-      kind: "start_swarm",
+      kind: "start_epic_run",
       label: "Start run",
       busyLabel: "Starting...",
       disabled: false,
@@ -224,8 +224,8 @@ function deriveEpicPrimaryAction(input: {
 
 function deriveIntegrityError(input: {
   readonly epicId: string;
-  readonly runs: ReadonlyArray<OrchestrationSwarmRun>;
-  readonly executions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
+  readonly runs: ReadonlyArray<OrchestrationEpicRun>;
+  readonly executions: ReadonlyArray<OrchestrationEpicIssueExecution>;
 }): string | null {
   const activeRuns = findActiveSwarmRuns(input.runs);
   if (activeRuns.length > 1) {
@@ -258,9 +258,9 @@ export function buildCoordinatorEpicSnapshot(input: {
   readonly status: BeadsSwarmStatus | null;
   readonly validationError: string | null;
   readonly statusError: string | null;
-  readonly projectSwarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
-  readonly epicSwarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
-  readonly epicExecutions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
+  readonly projectSwarmRuns: ReadonlyArray<OrchestrationEpicRun>;
+  readonly epicSwarmRuns: ReadonlyArray<OrchestrationEpicRun>;
+  readonly epicExecutions: ReadonlyArray<OrchestrationEpicIssueExecution>;
   readonly fallbackEpicId: string;
   readonly fallbackEpicTitle: string;
 }): BeadsCoordinatorEpicSnapshot {
@@ -357,16 +357,16 @@ export function buildProjectCoordinatorSnapshot(input: {
     }
   >;
 }): BeadsProjectCoordinatorSnapshot {
-  const projectSwarmRuns = input.readModel.swarmRuns.filter(
+  const projectSwarmRuns = input.readModel.epicRuns.filter(
     (run) => run.projectId === input.projectId,
   );
   const projectRunIds = new Set(projectSwarmRuns.map((run) => run.runId));
   const executionsByRunId = new Map<
-    OrchestrationSwarmRun["runId"],
-    OrchestrationSwarmTaskExecution[]
+    OrchestrationEpicRun["runId"],
+    OrchestrationEpicIssueExecution[]
   >();
 
-  for (const execution of input.readModel.swarmTaskExecutions) {
+  for (const execution of input.readModel.epicIssueExecutions) {
     if (!projectRunIds.has(execution.runId)) {
       continue;
     }
@@ -382,7 +382,7 @@ export function buildProjectCoordinatorSnapshot(input: {
   const epics = buildCoordinatorEpicEntries({
     epicIssues: input.epicIssues,
     swarms: input.swarms,
-    swarmRuns: projectSwarmRuns,
+    epicRuns: projectSwarmRuns,
   }).map((epic) => {
     const epicSwarmRuns = projectSwarmRuns.filter((run) => run.epicIssueId === epic.epicId);
     const epicExecutions = epicSwarmRuns.flatMap((run) => executionsByRunId.get(run.runId) ?? []);
@@ -421,12 +421,12 @@ export function buildSingleEpicCoordinatorSnapshot(input: {
   readonly readModel: OrchestrationReadModel;
 }): BeadsCoordinatorEpicSnapshot {
   const issueSummary = toIssueSummary(input.issue);
-  const projectSwarmRuns = input.readModel.swarmRuns.filter(
+  const projectSwarmRuns = input.readModel.epicRuns.filter(
     (run) => run.projectId === input.projectId,
   );
   const epicSwarmRuns = projectSwarmRuns.filter((run) => run.epicIssueId === issueSummary.id);
   const epicRunIds = new Set(epicSwarmRuns.map((run) => run.runId));
-  const epicExecutions = input.readModel.swarmTaskExecutions.filter((execution) =>
+  const epicExecutions = input.readModel.epicIssueExecutions.filter((execution) =>
     epicRunIds.has(execution.runId),
   );
 

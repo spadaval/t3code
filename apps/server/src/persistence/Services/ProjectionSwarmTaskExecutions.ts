@@ -4,8 +4,8 @@ import {
   NonNegativeInt,
   OrchestrationSwarmFailureContext,
   OrchestrationSwarmTaskExecutionStatus,
-  SwarmRunId,
-  SwarmTaskExecutionId,
+  EpicRunId,
+  EpicIssueExecutionId,
   ThreadId,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
@@ -15,8 +15,8 @@ import type { Effect } from "effect";
 import type { ProjectionRepositoryError } from "../Errors.ts";
 
 export const ProjectionSwarmTaskExecution = Schema.Struct({
-  executionId: SwarmTaskExecutionId,
-  runId: SwarmRunId,
+  executionId: EpicIssueExecutionId,
+  runId: EpicRunId,
   issueId: TrimmedNonEmptyString,
   workerThreadId: Schema.NullOr(ThreadId),
   sequenceNumber: NonNegativeInt,
@@ -37,7 +37,7 @@ export const ProjectionSwarmTaskExecution = Schema.Struct({
 export type ProjectionSwarmTaskExecution = typeof ProjectionSwarmTaskExecution.Type;
 
 export const GetProjectionSwarmTaskExecutionInput = Schema.Struct({
-  executionId: SwarmTaskExecutionId,
+  executionId: EpicIssueExecutionId,
 });
 export type GetProjectionSwarmTaskExecutionInput = typeof GetProjectionSwarmTaskExecutionInput.Type;
 

@@ -1,6 +1,6 @@
 import type {
-  OrchestrationSwarmRun,
-  OrchestrationSwarmTaskExecution,
+  OrchestrationEpicRun,
+  OrchestrationEpicIssueExecution,
   ThreadId,
 } from "@t3tools/contracts";
 
@@ -53,7 +53,7 @@ function formatDuration(startIso: string, endIso: string): string {
 // Run lifecycle entries
 // ---------------------------------------------------------------------------
 
-export function runEntries(run: OrchestrationSwarmRun): CoordinatorLogEntry[] {
+export function runEntries(run: OrchestrationEpicRun): CoordinatorLogEntry[] {
   const entries: CoordinatorLogEntry[] = [];
   const base = { runId: run.runId };
 
@@ -133,7 +133,7 @@ export function runEntries(run: OrchestrationSwarmRun): CoordinatorLogEntry[] {
 // Execution lifecycle entries
 // ---------------------------------------------------------------------------
 
-export function executionEntries(exec: OrchestrationSwarmTaskExecution): CoordinatorLogEntry[] {
+export function executionEntries(exec: OrchestrationEpicIssueExecution): CoordinatorLogEntry[] {
   const entries: CoordinatorLogEntry[] = [];
   const base = {
     runId: exec.runId,
@@ -211,8 +211,8 @@ export function executionEntries(exec: OrchestrationSwarmTaskExecution): Coordin
  * Pure function — no side effects, no store access.
  */
 export function deriveCoordinatorEventLog(
-  runs: readonly OrchestrationSwarmRun[],
-  executions: readonly OrchestrationSwarmTaskExecution[],
+  runs: readonly OrchestrationEpicRun[],
+  executions: readonly OrchestrationEpicIssueExecution[],
 ): CoordinatorLogEntry[] {
   const entries: CoordinatorLogEntry[] = [];
 

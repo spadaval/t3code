@@ -80,7 +80,7 @@ import type {
 } from "./terminal";
 import type { ServerUpsertKeybindingInput } from "./server";
 import type {
-  OrchestrationCancelSwarmRunInput,
+  OrchestrationStopEpicRunInput,
   ClientOrchestrationCommand,
   OrchestrationCancelPlanImplementationLaunchInput,
   OrchestrationCancelPlanImplementationLaunchResult,
@@ -91,14 +91,10 @@ import type {
   OrchestrationEvent,
   OrchestrationLaunchPlanImplementationInput,
   OrchestrationLaunchPlanImplementationResult,
-  OrchestrationPauseSwarmRunInput,
   OrchestrationReadModel,
   OrchestrationRetryPlanImplementationLaunchInput,
-  OrchestrationResumePausedSwarmRunInput,
-  OrchestrationRetrySwarmTaskExecutionInput,
-  OrchestrationRunNextSwarmTaskInput,
-  OrchestrationStartSwarmRunInput,
-  OrchestrationSwarmRunControlResult,
+  OrchestrationStartEpicRunInput,
+  OrchestrationEpicRunControlResult,
 } from "./orchestration";
 import { EditorId } from "./editor";
 import { ServerSettings, ServerSettingsPatch } from "./settings";
@@ -251,24 +247,12 @@ export interface NativeApi {
     retryPlanImplementationLaunch: (
       input: OrchestrationRetryPlanImplementationLaunchInput,
     ) => Promise<OrchestrationLaunchPlanImplementationResult>;
-    startSwarmRun: (
-      input: OrchestrationStartSwarmRunInput,
-    ) => Promise<OrchestrationSwarmRunControlResult>;
-    pauseSwarmRun: (
-      input: OrchestrationPauseSwarmRunInput,
-    ) => Promise<OrchestrationSwarmRunControlResult>;
-    resumePausedSwarmRun: (
-      input: OrchestrationResumePausedSwarmRunInput,
-    ) => Promise<OrchestrationSwarmRunControlResult>;
-    runNextSwarmTask: (
-      input: OrchestrationRunNextSwarmTaskInput,
-    ) => Promise<OrchestrationSwarmRunControlResult>;
-    retrySwarmTaskExecution: (
-      input: OrchestrationRetrySwarmTaskExecutionInput,
-    ) => Promise<OrchestrationSwarmRunControlResult>;
-    cancelSwarmRun: (
-      input: OrchestrationCancelSwarmRunInput,
-    ) => Promise<OrchestrationSwarmRunControlResult>;
+    startEpicRun: (
+      input: OrchestrationStartEpicRunInput,
+    ) => Promise<OrchestrationEpicRunControlResult>;
+    stopEpicRun: (
+      input: OrchestrationStopEpicRunInput,
+    ) => Promise<OrchestrationEpicRunControlResult>;
     onDomainEvent: (
       callback: (event: OrchestrationEvent) => void,
       options?: {

@@ -3,8 +3,8 @@ import type {
   BeadsIssueDetail,
   BeadsIssueRelationSummary,
   BeadsSwarmStatus,
-  OrchestrationSwarmRun,
-  OrchestrationSwarmTaskExecution,
+  OrchestrationEpicRun,
+  OrchestrationEpicIssueExecution,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -37,7 +37,7 @@ function makeExecution(
   issueId: string,
   seq: number,
   overrides?: Record<string, unknown>,
-): OrchestrationSwarmTaskExecution {
+): OrchestrationEpicIssueExecution {
   return {
     executionId: id as never,
     runId: "run-1" as never,
@@ -56,14 +56,14 @@ function makeExecution(
     failedAt: null,
     updatedAt: "2026-04-08T00:00:10.000Z",
     ...overrides,
-  } as unknown as OrchestrationSwarmTaskExecution;
+  } as unknown as OrchestrationEpicIssueExecution;
 }
 
 function makeRun(
   id: string,
-  status: OrchestrationSwarmRun["status"],
+  status: OrchestrationEpicRun["status"],
   overrides?: Record<string, unknown>,
-): OrchestrationSwarmRun {
+): OrchestrationEpicRun {
   return {
     runId: id as never,
     projectId: "project-1" as never,
@@ -84,7 +84,7 @@ function makeRun(
     completedAt: null,
     updatedAt: "2026-04-08T00:00:01.000Z",
     ...overrides,
-  } as unknown as OrchestrationSwarmRun;
+  } as unknown as OrchestrationEpicRun;
 }
 
 function makeStatus(
@@ -132,7 +132,7 @@ const BASE_EPIC: BeadsCoordinatorEpicSnapshot = {
     isComplete: false,
   },
   primaryAction: {
-    kind: "start_swarm",
+    kind: "start_epic_run",
     label: "Start",
     busyLabel: "Starting...",
     disabled: false,

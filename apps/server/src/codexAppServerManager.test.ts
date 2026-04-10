@@ -944,6 +944,47 @@ describe("collab child conversation routing", () => {
     expect(updateSession).not.toHaveBeenCalled();
   });
 
+  it("suppresses child error notifications before parent ingestion", () => {
+    const { manager, context, emitEvent, updateSession } = createCollabNotificationHarness();
+
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "item/completed",
+      params: {
+        item: {
+          type: "collabAgentToolCall",
+          id: "call_collab_1",
+          receiverThreadIds: ["child_provider_1"],
+        },
+        threadId: "provider_parent",
+        turnId: "turn_parent",
+      },
+    });
+    emitEvent.mockClear();
+    updateSession.mockClear();
+
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "error",
+      params: {
+        threadId: "child_provider_1",
+        turnId: "turn_child_1",
+        error: {
+          message: "child runtime exploded",
+        },
+      },
+    });
+
+    expect(emitEvent).not.toHaveBeenCalled();
+    expect(updateSession).not.toHaveBeenCalled();
+  });
+
   it("rewrites child approval requests onto the parent turn", () => {
     const { manager, context, emitEvent } = createCollabNotificationHarness();
 

@@ -1,9 +1,9 @@
 import {
   ProjectId,
-  SwarmRunId,
+  EpicRunId,
   ThreadId,
   type BeadsIssueSummary,
-  type OrchestrationSwarmRun,
+  type OrchestrationEpicRun,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -49,9 +49,9 @@ function makeIssue(
   } satisfies BeadsIssueSummary;
 }
 
-function makeSwarmRun(overrides: Record<string, unknown> = {}): OrchestrationSwarmRun {
+function makeSwarmRun(overrides: Record<string, unknown> = {}): OrchestrationEpicRun {
   return {
-    runId: SwarmRunId.makeUnsafe("run-1"),
+    runId: EpicRunId.makeUnsafe("run-1"),
     projectId: ProjectId.makeUnsafe("project-1"),
     epicIssueId: "EPIC-1",
     status: "running",
@@ -70,7 +70,7 @@ function makeSwarmRun(overrides: Record<string, unknown> = {}): OrchestrationSwa
     completedAt: null,
     updatedAt: "2026-01-01T00:02:00.000Z",
     ...overrides,
-  } as unknown as OrchestrationSwarmRun;
+  } as unknown as OrchestrationEpicRun;
 }
 
 const READY_FETCH_LIFECYCLE = {
@@ -80,12 +80,12 @@ const READY_FETCH_LIFECYCLE = {
 
 const STALE_FETCH_LIFECYCLE = {
   kind: "stale",
-  detail: "Showing the last known swarm state while the latest refresh completes.",
+  detail: "Showing the last known epic-run state while the latest refresh completes.",
 } as const;
 
 const TIMEOUT_FETCH_LIFECYCLE = {
   kind: "timeout",
-  detail: "Swarm validation and status request timed out: Beads command timed out.",
+  detail: "Epic validation and status request timed out: Beads command timed out.",
 } as const;
 
 describe("deriveCoordinatorFetchLifecycle", () => {
@@ -123,7 +123,7 @@ describe("deriveCoordinatorFetchLifecycle", () => {
     ).toEqual({
       kind: "stale",
       detail:
-        "Showing the last known swarm validation because the latest refresh failed: backend exploded",
+        "Showing the last known epic validation because the latest refresh failed: backend exploded",
     });
   });
 
@@ -146,7 +146,7 @@ describe("deriveCoordinatorFetchLifecycle", () => {
     ).toEqual({
       kind: "error",
       detail:
-        "Swarm validation request failed: Issue 'EPIC-404' was not found. Swarm status request failed: Swarm 'swarm-404' was not found.",
+        "Epic validation request failed: Issue 'EPIC-404' was not found. Tracker status request failed: Swarm 'swarm-404' was not found.",
     });
   });
 
@@ -236,7 +236,7 @@ describe("deriveEpicCoordinatorState", () => {
         swarmSupport: null,
         status: null,
         validation: null,
-        swarmRuns: [],
+        epicRuns: [],
         fetchLifecycle: { kind: "loading", detail: null },
       }),
     ).toEqual({
@@ -252,7 +252,7 @@ describe("deriveEpicCoordinatorState", () => {
         swarmSupport: { supported: true },
         status: null,
         validation: null,
-        swarmRuns: [],
+        epicRuns: [],
         fetchLifecycle: TIMEOUT_FETCH_LIFECYCLE,
       }),
     ).toEqual({
@@ -265,7 +265,7 @@ describe("deriveEpicCoordinatorState", () => {
   it("returns stale when cached swarm state is being refreshed", () => {
     const run = makeSwarmRun({
       status: "running",
-      runId: SwarmRunId.makeUnsafe("run-stale"),
+      runId: EpicRunId.makeUnsafe("run-stale"),
     });
 
     expect(
@@ -273,7 +273,7 @@ describe("deriveEpicCoordinatorState", () => {
         swarmSupport: { supported: true },
         status: null,
         validation: null,
-        swarmRuns: [run],
+        epicRuns: [run],
         fetchLifecycle: STALE_FETCH_LIFECYCLE,
       }),
     ).toEqual({
@@ -289,7 +289,7 @@ describe("deriveEpicCoordinatorState", () => {
         swarmSupport: { supported: false },
         status: null,
         validation: null,
-        swarmRuns: [],
+        epicRuns: [],
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
@@ -305,7 +305,7 @@ describe("deriveEpicCoordinatorState", () => {
         swarmSupport: { supported: true },
         status: { swarm: null },
         validation: { valid: false, swarm: null },
-        swarmRuns: [],
+        epicRuns: [],
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
@@ -346,7 +346,7 @@ describe("deriveEpicCoordinatorState", () => {
             activeWorkerCount: 0,
           },
         },
-        swarmRuns: [],
+        epicRuns: [],
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
@@ -375,7 +375,7 @@ describe("deriveEpicCoordinatorState", () => {
             activeWorkerCount: 1,
           },
         },
-        swarmRuns: [],
+        epicRuns: [],
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
@@ -391,7 +391,7 @@ describe("deriveEpicCoordinatorState", () => {
         swarmSupport: { supported: true },
         status: { swarm: null },
         validation: { valid: true, swarm: null },
-        swarmRuns: [],
+        epicRuns: [],
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
@@ -403,12 +403,12 @@ describe("deriveEpicCoordinatorState", () => {
 
   it("prefers a non-terminal run over newer historical runs", () => {
     const runningRun = makeSwarmRun({
-      runId: SwarmRunId.makeUnsafe("run-running"),
+      runId: EpicRunId.makeUnsafe("run-running"),
       status: "running",
       updatedAt: "2026-01-02T00:00:00.000Z",
     });
     const completedRun = makeSwarmRun({
-      runId: SwarmRunId.makeUnsafe("run-completed"),
+      runId: EpicRunId.makeUnsafe("run-completed"),
       status: "completed",
       updatedAt: "2026-01-03T00:00:00.000Z",
       completedAt: "2026-01-03T00:00:00.000Z",
@@ -432,7 +432,7 @@ describe("deriveEpicCoordinatorState", () => {
             activeWorkerCount: 1,
           },
         },
-        swarmRuns: [completedRun, runningRun],
+        epicRuns: [completedRun, runningRun],
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
@@ -486,7 +486,7 @@ describe("deriveEpicCoordinatorState", () => {
             activeWorkerCount: 1,
           },
         },
-        swarmRuns: [run],
+        epicRuns: [run],
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
@@ -500,12 +500,12 @@ describe("deriveEpicCoordinatorState", () => {
 describe("selectLatestSwarmRun", () => {
   it("returns the latest non-terminal run before newer terminal history", () => {
     const runningRun = makeSwarmRun({
-      runId: SwarmRunId.makeUnsafe("run-running"),
+      runId: EpicRunId.makeUnsafe("run-running"),
       status: "running",
       updatedAt: "2026-01-03T00:00:00.000Z",
     });
     const completedRun = makeSwarmRun({
-      runId: SwarmRunId.makeUnsafe("run-completed"),
+      runId: EpicRunId.makeUnsafe("run-completed"),
       status: "completed",
       updatedAt: "2026-01-04T00:00:00.000Z",
       completedAt: "2026-01-04T00:00:00.000Z",
@@ -522,7 +522,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         swarmSupport: null,
         status: null,
         validation: null,
-        swarmRuns: [],
+        epicRuns: [],
         projectConflict: null,
         fetchLifecycle: { kind: "loading", detail: null },
       }),
@@ -540,12 +540,12 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         swarmSupport: { supported: true },
         status: null,
         validation: null,
-        swarmRuns: [],
+        epicRuns: [],
         projectConflict: null,
         fetchLifecycle: TIMEOUT_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "refresh_swarm_state",
+      kind: "refresh_epic_status",
       label: "Retry epic status",
       busyLabel: "Retrying...",
       disabled: false,
@@ -558,7 +558,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         swarmSupport: { supported: true },
         status: { swarm: null, ready: [], active: [], blocked: [] },
         validation: { valid: false, swarm: null, readyFronts: [] },
-        swarmRuns: [],
+        epicRuns: [],
         projectConflict: null,
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
@@ -605,7 +605,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           },
           readyFronts: [],
         },
-        swarmRuns: [],
+        epicRuns: [],
         projectConflict: null,
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
@@ -637,12 +637,12 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           },
           readyFronts: [],
         },
-        swarmRuns: [],
+        epicRuns: [],
         projectConflict: null,
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "start_swarm",
+      kind: "start_epic_run",
       label: "Start epic",
       busyLabel: "Starting...",
       disabled: false,
@@ -669,7 +669,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           },
           readyFronts: [],
         },
-        swarmRuns: [makeSwarmRun({ status: "completed" })],
+        epicRuns: [makeSwarmRun({ status: "completed" })],
         projectConflict: null,
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
@@ -701,7 +701,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           },
           readyFronts: [],
         },
-        swarmRuns: [
+        epicRuns: [
           makeSwarmRun({
             status: "running",
           }),
@@ -710,7 +710,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "stop_swarm",
+      kind: "stop_epic_run",
       label: "Stop run",
       busyLabel: "Stopping...",
       disabled: false,
@@ -735,7 +735,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           },
           readyFronts: [],
         },
-        swarmRuns: [
+        epicRuns: [
           makeSwarmRun({
             status: "stopped",
             stoppedAt: "2026-01-01T00:02:00.000Z",
@@ -772,7 +772,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           },
           readyFronts: [],
         },
-        swarmRuns: [
+        epicRuns: [
           makeSwarmRun({
             status: "stopping",
             stopRequestedAt: "2026-01-01T00:02:00.000Z",
@@ -824,7 +824,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           },
           readyFronts: [],
         },
-        swarmRuns: [makeSwarmRun({ status: "failed", lastError: "boom" })],
+        epicRuns: [makeSwarmRun({ status: "failed", lastError: "boom" })],
         projectConflict: null,
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
@@ -871,7 +871,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           },
           readyFronts: [],
         },
-        swarmRuns: [makeSwarmRun({ status: "failed", lastError: "boom" })],
+        epicRuns: [makeSwarmRun({ status: "failed", lastError: "boom" })],
         projectConflict: null,
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
@@ -889,7 +889,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         swarmSupport: { supported: true },
         status: { swarm: null, ready: [], active: [], blocked: [] },
         validation: { valid: false, swarm: null, readyFronts: [] },
-        swarmRuns: [makeSwarmRun({ status: "failed", lastError: "boom" })],
+        epicRuns: [makeSwarmRun({ status: "failed", lastError: "boom" })],
         projectConflict: null,
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
@@ -901,7 +901,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     });
   });
 
-  it("returns Continue swarm for recoverable blocked worker failures when tracker state can advance", () => {
+  it("keeps Open epic for recoverable worker failures when tracker state can advance", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -960,12 +960,12 @@ describe("getEpicCoordinatorPrimaryAction", () => {
             ],
           ],
         },
-        swarmRuns: [
+        epicRuns: [
           makeSwarmRun({
-            status: "blocked",
-            blockedAt: "2026-01-01T00:02:00.000Z",
-            blockedContext: {
+            status: "failed",
+            failureContext: {
               kind: "worker_failure",
+              message: "worker exited",
               issueId: "TASK-1",
               executionId: "execution-1" as never,
               workerThreadId: ThreadId.makeUnsafe("thread-worker"),
@@ -976,14 +976,14 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "run_next_swarm_task",
-      label: "Run next task",
-      busyLabel: "Running...",
+      kind: "open_coordinator",
+      label: "Open epic",
+      busyLabel: "Opening...",
       disabled: false,
     });
   });
 
-  it("disables Run next task while tracker state is still blocked after a worker failure", () => {
+  it("keeps Open epic while tracker state is still blocked after a worker failure", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -1029,12 +1029,12 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           },
           readyFronts: [],
         },
-        swarmRuns: [
+        epicRuns: [
           makeSwarmRun({
-            status: "blocked",
-            blockedAt: "2026-01-01T00:02:00.000Z",
-            blockedContext: {
+            status: "failed",
+            failureContext: {
               kind: "worker_failure",
+              message: "worker exited",
               issueId: "TASK-1",
               executionId: "execution-1" as never,
               workerThreadId: ThreadId.makeUnsafe("thread-worker"),
@@ -1045,10 +1045,10 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "run_next_swarm_task",
-      label: "Run next task",
-      busyLabel: "Running...",
-      disabled: true,
+      kind: "open_coordinator",
+      label: "Open epic",
+      busyLabel: "Opening...",
+      disabled: false,
     });
   });
 
@@ -1098,12 +1098,12 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           },
           readyFronts: [],
         },
-        swarmRuns: [
+        epicRuns: [
           makeSwarmRun({
-            status: "blocked",
-            blockedAt: "2026-01-01T00:02:00.000Z",
-            blockedContext: {
-              kind: "tracker_waiting",
+            status: "failed",
+            failureContext: {
+              kind: "environment_failure",
+              message: "blocked by tracker state",
               issueId: null,
               executionId: null,
               workerThreadId: null,
@@ -1141,10 +1141,10 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           },
           readyFronts: [],
         },
-        swarmRuns: [],
+        epicRuns: [],
         projectConflict: describeSharedWorkspaceProjectConflict(
           makeSwarmRun({
-            runId: SwarmRunId.makeUnsafe("run-blocking"),
+            runId: EpicRunId.makeUnsafe("run-blocking"),
             epicIssueId: "EPIC-OTHER",
             status: "running",
           }),
@@ -1189,15 +1189,15 @@ describe("describeDisabledEpicCoordinatorAction", () => {
     ).toBe("Shared workspaces are disabled for this backend.");
   });
 
-  it("explains why a recoverable blocked run still cannot continue", () => {
+  it("keeps the generic open-epic explanation for blocked tracker state", () => {
     expect(
       describeDisabledEpicCoordinatorAction({
         epic: {
           primaryAction: {
-            kind: "stop_swarm",
-            label: "Stop run",
-            busyLabel: "Stopping...",
-            disabled: true,
+            kind: "open_coordinator",
+            label: "Open epic",
+            busyLabel: "Opening...",
+            disabled: false,
           },
           trackerLoadState: "ready",
           trackerLoadDetail: null,
@@ -1241,20 +1241,20 @@ describe("describeDisabledEpicCoordinatorAction", () => {
           },
         },
       }),
-    ).toBe("Blocked issues with unknown provenance must be resolved before continuing: TASK-9.");
+    ).toBeNull();
   });
 });
 
 describe("findConflictingSharedWorkspaceRun", () => {
   it("returns the latest conflicting shared-workspace run from the same project", () => {
     const blockingRun = makeSwarmRun({
-      runId: SwarmRunId.makeUnsafe("run-blocking"),
+      runId: EpicRunId.makeUnsafe("run-blocking"),
       epicIssueId: "EPIC-BLOCKING",
       status: "running",
       updatedAt: "2026-01-03T00:00:00.000Z",
     });
     const currentEpicRun = makeSwarmRun({
-      runId: SwarmRunId.makeUnsafe("run-current"),
+      runId: EpicRunId.makeUnsafe("run-current"),
       epicIssueId: "EPIC-1",
       status: "completed",
       completedAt: "2026-01-04T00:00:00.000Z",
@@ -1305,7 +1305,7 @@ describe("collectCoordinatorEpics", () => {
             activeWorkerCount: 0,
           },
         ],
-        swarmRuns: [
+        epicRuns: [
           makeSwarmRun({
             epicIssueId: "EPIC-3",
           }),

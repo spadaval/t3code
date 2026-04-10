@@ -1,8 +1,8 @@
 import type {
   BeadsCoordinatorEpicSnapshot,
   BeadsIssueDetail,
-  OrchestrationSwarmRun,
-  OrchestrationSwarmTaskExecution,
+  OrchestrationEpicRun,
+  OrchestrationEpicIssueExecution,
   ThreadId,
 } from "@t3tools/contracts";
 import { useQuery } from "@tanstack/react-query";
@@ -44,7 +44,7 @@ import { WorkerActivityFeed } from "./WorkerActivityFeed";
 // Format helpers
 // ---------------------------------------------------------------------------
 
-function formatRunStatus(status: OrchestrationSwarmRun["status"]): string {
+function formatRunStatus(status: OrchestrationEpicRun["status"]): string {
   switch (status) {
     case "pending":
       return "Pending";
@@ -61,7 +61,7 @@ function formatRunStatus(status: OrchestrationSwarmRun["status"]): string {
   }
 }
 
-function formatExecutionStatus(status: OrchestrationSwarmTaskExecution["status"]): string {
+function formatExecutionStatus(status: OrchestrationEpicIssueExecution["status"]): string {
   switch (status) {
     case "launching":
       return "Launching";
@@ -79,7 +79,7 @@ function formatExecutionStatus(status: OrchestrationSwarmTaskExecution["status"]
 }
 
 function runStatusBadgeVariant(
-  status: OrchestrationSwarmRun["status"],
+  status: OrchestrationEpicRun["status"],
 ): "success" | "error" | "warning" | "info" | "neutral" {
   switch (status) {
     case "completed":
@@ -97,7 +97,7 @@ function runStatusBadgeVariant(
 }
 
 function executionStatusBadgeVariant(
-  status: OrchestrationSwarmTaskExecution["status"],
+  status: OrchestrationEpicIssueExecution["status"],
 ): "success" | "error" | "warning" | "info" | "neutral" {
   switch (status) {
     case "completed":
@@ -268,8 +268,8 @@ function WorkGraphGlobalBar(props: { data: WorkGraphData }) {
 // ---------------------------------------------------------------------------
 
 function RunHistoryPopover(props: {
-  runs: readonly OrchestrationSwarmRun[];
-  activeRunId: OrchestrationSwarmRun["runId"] | null;
+  runs: readonly OrchestrationEpicRun[];
+  activeRunId: OrchestrationEpicRun["runId"] | null;
 }) {
   const sorted = useMemo(
     () =>

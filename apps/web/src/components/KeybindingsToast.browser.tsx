@@ -149,8 +149,8 @@ function createMinimalSnapshot(): OrchestrationReadModel {
       },
     ],
     planImplementationLaunches: [],
-    swarmRuns: [],
-    swarmTaskExecutions: [],
+    epicRuns: [],
+    epicIssueExecutions: [],
     updatedAt: NOW_ISO,
   };
 }

@@ -1462,7 +1462,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       method === "turn/completed" ||
       method === "turn/aborted" ||
       method === "turn/plan/updated" ||
-      method === "item/plan/delta"
+      method === "item/plan/delta" ||
+      method === "error"
     );
   }
 

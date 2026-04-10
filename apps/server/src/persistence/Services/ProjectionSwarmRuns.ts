@@ -1,16 +1,16 @@
-import { OrchestrationSwarmRun, SwarmRunId } from "@t3tools/contracts";
+import { OrchestrationEpicRun, EpicRunId } from "@t3tools/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
 
 export const ProjectionSwarmRun = Schema.Struct({
-  ...OrchestrationSwarmRun.fields,
+  ...OrchestrationEpicRun.fields,
 });
 export type ProjectionSwarmRun = typeof ProjectionSwarmRun.Type;
 
 export const GetProjectionSwarmRunInput = Schema.Struct({
-  runId: SwarmRunId,
+  runId: EpicRunId,
 });
 export type GetProjectionSwarmRunInput = typeof GetProjectionSwarmRunInput.Type;
 

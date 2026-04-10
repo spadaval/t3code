@@ -156,8 +156,8 @@ function makeReadModel(thread: OrchestrationReadModel["threads"][number]): Orche
     ],
     threads: [thread],
     planImplementationLaunches: [],
-    swarmRuns: [],
-    swarmTaskExecutions: [],
+    epicRuns: [],
+    epicIssueExecutions: [],
   };
 }
 
@@ -266,7 +266,7 @@ describe("store read model sync", () => {
     const initialState = makeState(makeThread());
     const next = syncServerReadModel(initialState, {
       ...makeReadModel(makeReadModelThread({})),
-      swarmRuns: [
+      epicRuns: [
         {
           runId: "run-1" as never,
           projectId: ProjectId.makeUnsafe("project-1"),
@@ -287,14 +287,14 @@ describe("store read model sync", () => {
           completedAt: null,
           updatedAt: "2026-04-06T00:00:02.000Z",
         } as unknown as typeof makeReadModel extends (...args: any[]) => infer R
-          ? R extends { swarmRuns: infer Runs }
+          ? R extends { epicRuns: infer Runs }
             ? Runs extends ReadonlyArray<infer Run>
               ? Run
               : never
             : never
           : never,
       ],
-      swarmTaskExecutions: [
+      epicIssueExecutions: [
         {
           executionId: "execution-1" as never,
           runId: "run-1" as never,
@@ -313,7 +313,7 @@ describe("store read model sync", () => {
           failedAt: null,
           updatedAt: "2026-04-06T00:00:02.000Z",
         } as unknown as typeof makeReadModel extends (...args: any[]) => infer R
-          ? R extends { swarmTaskExecutions: infer Executions }
+          ? R extends { epicIssueExecutions: infer Executions }
             ? Executions extends ReadonlyArray<infer Execution>
               ? Execution
               : never
@@ -388,8 +388,8 @@ describe("store read model sync", () => {
       ],
       threads: [],
       planImplementationLaunches: [],
-      swarmRuns: [],
-      swarmTaskExecutions: [],
+      epicRuns: [],
+      epicIssueExecutions: [],
     };
 
     const next = syncServerReadModel(initialState, readModel);
@@ -678,19 +678,25 @@ describe("incremental orchestration updates", () => {
       expect.objectContaining({
         runId: "run-1",
         status: "failed",
-        lastError: "worker exited",
+        failureContext: expect.objectContaining({
+          kind: "worker_failure",
+          message: "worker exited",
+        }),
       }),
     ]);
     expect(selectSwarmTaskExecutions(next)).toEqual([
       expect.objectContaining({
         executionId: "execution-1",
         status: "failed",
-        lastError: "worker exited",
+        failureContext: expect.objectContaining({
+          kind: "worker_failure",
+          message: "worker exited",
+        }),
       }),
     ]);
   });
 
-  it("stores blocked worker-failure context and clears it when the run resumes", () => {
+  it("stores failed worker-failure context and clears it when the run resumes", () => {
     const state = makeState(makeThread());
 
     const blocked = applyOrchestrationEvents(state, [
@@ -727,10 +733,10 @@ describe("incremental orchestration updates", () => {
     expect(selectSwarmRuns(blocked)).toEqual([
       expect.objectContaining({
         runId: "run-1",
-        status: "blocked",
-        lastError: "worker exited",
-        blockedContext: {
+        status: "failed",
+        failureContext: {
           kind: "worker_failure",
+          message: "worker exited",
           issueId: "TASK-1",
           executionId: "execution-1",
           workerThreadId: ThreadId.makeUnsafe("thread-1"),
@@ -751,7 +757,7 @@ describe("incremental orchestration updates", () => {
       expect.objectContaining({
         runId: "run-1",
         status: "running",
-        blockedContext: null,
+        failureContext: null,
       }),
     ]);
   });

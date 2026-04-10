@@ -146,16 +146,8 @@ export interface WsRpcClient {
     readonly retryPlanImplementationLaunch: RpcUnaryMethod<
       typeof ORCHESTRATION_WS_METHODS.retryPlanImplementationLaunch
     >;
-    readonly startSwarmRun: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.startSwarmRun>;
-    readonly pauseSwarmRun: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.pauseSwarmRun>;
-    readonly resumePausedSwarmRun: RpcUnaryMethod<
-      typeof ORCHESTRATION_WS_METHODS.resumePausedSwarmRun
-    >;
-    readonly runNextSwarmTask: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.runNextSwarmTask>;
-    readonly retrySwarmTaskExecution: RpcUnaryMethod<
-      typeof ORCHESTRATION_WS_METHODS.retrySwarmTaskExecution
-    >;
-    readonly cancelSwarmRun: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.cancelSwarmRun>;
+    readonly startEpicRun: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.startEpicRun>;
+    readonly stopEpicRun: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.stopEpicRun>;
     readonly onDomainEvent: RpcStreamMethod<typeof WS_METHODS.subscribeOrchestrationDomainEvents>;
   };
 }
@@ -351,20 +343,10 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport.request((client) =>
           client[ORCHESTRATION_WS_METHODS.retryPlanImplementationLaunch](input),
         ),
-      startSwarmRun: (input) =>
-        transport.request((client) => client[ORCHESTRATION_WS_METHODS.startSwarmRun](input)),
-      pauseSwarmRun: (input) =>
-        transport.request((client) => client[ORCHESTRATION_WS_METHODS.pauseSwarmRun](input)),
-      resumePausedSwarmRun: (input) =>
-        transport.request((client) => client[ORCHESTRATION_WS_METHODS.resumePausedSwarmRun](input)),
-      runNextSwarmTask: (input) =>
-        transport.request((client) => client[ORCHESTRATION_WS_METHODS.runNextSwarmTask](input)),
-      retrySwarmTaskExecution: (input) =>
-        transport.request((client) =>
-          client[ORCHESTRATION_WS_METHODS.retrySwarmTaskExecution](input),
-        ),
-      cancelSwarmRun: (input) =>
-        transport.request((client) => client[ORCHESTRATION_WS_METHODS.cancelSwarmRun](input)),
+      startEpicRun: (input) =>
+        transport.request((client) => client[ORCHESTRATION_WS_METHODS.startEpicRun](input)),
+      stopEpicRun: (input) =>
+        transport.request((client) => client[ORCHESTRATION_WS_METHODS.stopEpicRun](input)),
       onDomainEvent: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeOrchestrationDomainEvents]({}),

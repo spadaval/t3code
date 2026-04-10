@@ -348,12 +348,8 @@ export const makeOrchestrationIntegrationHarness = (
         Layer.succeed(SwarmExecutionWorkflow, {
           start: Effect.void,
           drain: Effect.void,
-          startSwarmRun: () => Effect.die("unused"),
-          pauseSwarmRun: () => Effect.die("unused"),
-          resumePausedSwarmRun: () => Effect.die("unused"),
-          runNextSwarmTask: () => Effect.die("unused"),
-          retrySwarmTaskExecution: () => Effect.die("unused"),
-          cancelSwarmRun: () => Effect.die("unused"),
+          startEpicRun: () => Effect.die("unused"),
+          stopEpicRun: () => Effect.die("unused"),
         }),
       ),
     );

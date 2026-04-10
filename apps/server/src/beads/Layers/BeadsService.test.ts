@@ -1,7 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import {
   ProjectId,
-  SwarmRunId,
+  EpicRunId,
   ThreadId,
   type OrchestrationReadModel,
   type OrchestrationThread,
@@ -24,8 +24,8 @@ function makeEmptyReadModel(): OrchestrationReadModel {
     snapshotSequence: 0,
     updatedAt: new Date().toISOString(),
     planImplementationLaunches: [],
-    swarmRuns: [],
-    swarmTaskExecutions: [],
+    epicRuns: [],
+    epicIssueExecutions: [],
     projects: [],
     threads: [],
   };
@@ -1767,9 +1767,9 @@ layer("BeadsServiceLive", (it) => {
             snapshotSequence: 0,
             updatedAt: now,
             planImplementationLaunches: [],
-            swarmRuns: [
+            epicRuns: [
               {
-                runId: SwarmRunId.makeUnsafe("run-1"),
+                runId: EpicRunId.makeUnsafe("run-1"),
                 projectId: ProjectId.makeUnsafe("project-1"),
                 epicIssueId: "EPIC-MISSING",
                 status: "running",
@@ -1789,7 +1789,7 @@ layer("BeadsServiceLive", (it) => {
                 updatedAt: now,
               },
             ],
-            swarmTaskExecutions: [],
+            epicIssueExecutions: [],
             projects: [],
             threads: [],
           }),
@@ -2205,8 +2205,8 @@ layer("BeadsServiceLive", (it) => {
           snapshotSequence: 0,
           updatedAt: now,
           planImplementationLaunches: [],
-          swarmRuns: [],
-          swarmTaskExecutions: [],
+          epicRuns: [],
+          epicIssueExecutions: [],
           projects: [],
           threads: [
             makeLinkedThreadFixture({
@@ -2267,8 +2267,8 @@ layer("BeadsServiceLive", (it) => {
           snapshotSequence: 0,
           updatedAt: now,
           planImplementationLaunches: [],
-          swarmRuns: [],
-          swarmTaskExecutions: [],
+          epicRuns: [],
+          epicIssueExecutions: [],
           projects: [],
           threads: [
             makeLinkedThreadFixture({
@@ -2330,8 +2330,8 @@ layer("BeadsServiceLive", (it) => {
           snapshotSequence: 0,
           updatedAt: now,
           planImplementationLaunches: [],
-          swarmRuns: [],
-          swarmTaskExecutions: [],
+          epicRuns: [],
+          epicIssueExecutions: [],
           projects: [],
           threads: [
             makeLinkedThreadFixture({

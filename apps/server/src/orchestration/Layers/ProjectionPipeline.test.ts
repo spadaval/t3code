@@ -313,7 +313,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       assert.deepEqual(runRows, [
         {
           runId: "run-1",
-          status: "requested",
+          status: "pending",
         },
       ]);
 
@@ -321,13 +321,13 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         readonly executionId: string;
         readonly status: string;
         readonly requestedAt: string;
-        readonly lastError: string | null;
+        readonly failureMessage: string | null;
       }>`
         SELECT
           execution_id AS "executionId",
           status,
           requested_at AS "requestedAt",
-          last_error AS "lastError"
+          failure_message AS "failureMessage"
         FROM projection_swarm_task_executions
       `;
       assert.deepEqual(executionRows, [
@@ -335,7 +335,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           executionId: "execution-1",
           status: "failed",
           requestedAt,
-          lastError: "worker crashed",
+          failureMessage: "worker crashed",
         },
       ]);
     }),

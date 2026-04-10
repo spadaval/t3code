@@ -111,12 +111,8 @@ const rpcClientMock = {
     launchPlanImplementation: vi.fn(),
     cancelPlanImplementationLaunch: vi.fn(),
     retryPlanImplementationLaunch: vi.fn(),
-    startSwarmRun: vi.fn(),
-    pauseSwarmRun: vi.fn(),
-    resumePausedSwarmRun: vi.fn(),
-    runNextSwarmTask: vi.fn(),
-    retrySwarmTaskExecution: vi.fn(),
-    cancelSwarmRun: vi.fn(),
+    startEpicRun: vi.fn(),
+    stopEpicRun: vi.fn(),
     onDomainEvent: vi.fn((listener: (event: OrchestrationEvent) => void) =>
       registerListener(orchestrationEventListeners, listener),
     ),
@@ -446,65 +442,33 @@ describe("wsNativeApi", () => {
     });
   });
 
-  it("forwards swarm control requests to the RPC client", async () => {
-    rpcClientMock.orchestration.startSwarmRun = vi
+  it("forwards epic run control requests to the RPC client", async () => {
+    rpcClientMock.orchestration.startEpicRun = vi
       .fn()
       .mockResolvedValue({ runId: "run-1", status: "requested" });
-    rpcClientMock.orchestration.pauseSwarmRun = vi
-      .fn()
-      .mockResolvedValue({ runId: "run-1", status: "paused" });
-    rpcClientMock.orchestration.resumePausedSwarmRun = vi
-      .fn()
-      .mockResolvedValue({ runId: "run-1", status: "running" });
-    rpcClientMock.orchestration.runNextSwarmTask = vi
-      .fn()
-      .mockResolvedValue({ runId: "run-1", status: "running" });
-    rpcClientMock.orchestration.retrySwarmTaskExecution = vi
-      .fn()
-      .mockResolvedValue({ runId: "run-1", status: "running" });
-    rpcClientMock.orchestration.cancelSwarmRun = vi
+    rpcClientMock.orchestration.stopEpicRun = vi
       .fn()
       .mockResolvedValue({ runId: "run-1", status: "cancelled" });
     const { createWsNativeApi } = await import("./wsNativeApi");
 
     const api = createWsNativeApi();
-    await api.orchestration.startSwarmRun({
+    await api.orchestration.startEpicRun({
       projectId: ProjectId.makeUnsafe("project-1"),
       epicIssueId: "EPIC-1",
       schedulerMode: "semi-automatic",
       workspaceMode: "shared",
       runtimeMode: "full-access",
     });
-    await api.orchestration.pauseSwarmRun({ runId: "run-1" as never });
-    await api.orchestration.resumePausedSwarmRun({ runId: "run-1" as never });
-    await api.orchestration.runNextSwarmTask({ runId: "run-1" as never });
-    await api.orchestration.retrySwarmTaskExecution({
-      runId: "run-1" as never,
-      executionId: "exec-1" as never,
-    });
-    await api.orchestration.cancelSwarmRun({ runId: "run-1" as never });
+    await api.orchestration.stopEpicRun({ runId: "run-1" as never });
 
-    expect(rpcClientMock.orchestration.startSwarmRun).toHaveBeenCalledWith({
+    expect(rpcClientMock.orchestration.startEpicRun).toHaveBeenCalledWith({
       projectId: "project-1",
       epicIssueId: "EPIC-1",
       schedulerMode: "semi-automatic",
       workspaceMode: "shared",
       runtimeMode: "full-access",
     });
-    expect(rpcClientMock.orchestration.pauseSwarmRun).toHaveBeenCalledWith({
-      runId: "run-1",
-    });
-    expect(rpcClientMock.orchestration.resumePausedSwarmRun).toHaveBeenCalledWith({
-      runId: "run-1",
-    });
-    expect(rpcClientMock.orchestration.runNextSwarmTask).toHaveBeenCalledWith({
-      runId: "run-1",
-    });
-    expect(rpcClientMock.orchestration.retrySwarmTaskExecution).toHaveBeenCalledWith({
-      runId: "run-1",
-      executionId: "exec-1",
-    });
-    expect(rpcClientMock.orchestration.cancelSwarmRun).toHaveBeenCalledWith({
+    expect(rpcClientMock.orchestration.stopEpicRun).toHaveBeenCalledWith({
       runId: "run-1",
     });
   });

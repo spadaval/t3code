@@ -503,84 +503,28 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             ),
           { "rpc.aggregate": "orchestration" },
         ),
-      [ORCHESTRATION_WS_METHODS.startSwarmRun]: (input) =>
+      [ORCHESTRATION_WS_METHODS.startEpicRun]: (input) =>
         observeRpcEffect(
-          ORCHESTRATION_WS_METHODS.startSwarmRun,
-          swarmScheduler.startSwarmRun(input).pipe(
+          ORCHESTRATION_WS_METHODS.startEpicRun,
+          swarmScheduler.startEpicRun(input).pipe(
             Effect.mapError(
               (cause) =>
                 new OrchestrationDispatchCommandError({
-                  message: "Failed to start swarm run",
+                  message: "Failed to start epic run",
                   cause,
                 }),
             ),
           ),
           { "rpc.aggregate": "orchestration" },
         ),
-      [ORCHESTRATION_WS_METHODS.pauseSwarmRun]: (input) =>
+      [ORCHESTRATION_WS_METHODS.stopEpicRun]: (input) =>
         observeRpcEffect(
-          ORCHESTRATION_WS_METHODS.pauseSwarmRun,
-          swarmScheduler.pauseSwarmRun(input).pipe(
+          ORCHESTRATION_WS_METHODS.stopEpicRun,
+          swarmScheduler.stopEpicRun(input).pipe(
             Effect.mapError(
               (cause) =>
                 new OrchestrationDispatchCommandError({
-                  message: "Failed to pause swarm run",
-                  cause,
-                }),
-            ),
-          ),
-          { "rpc.aggregate": "orchestration" },
-        ),
-      [ORCHESTRATION_WS_METHODS.resumePausedSwarmRun]: (input) =>
-        observeRpcEffect(
-          ORCHESTRATION_WS_METHODS.resumePausedSwarmRun,
-          swarmScheduler.resumePausedSwarmRun(input).pipe(
-            Effect.mapError(
-              (cause) =>
-                new OrchestrationDispatchCommandError({
-                  message: "Failed to resume paused swarm run",
-                  cause,
-                }),
-            ),
-          ),
-          { "rpc.aggregate": "orchestration" },
-        ),
-      [ORCHESTRATION_WS_METHODS.runNextSwarmTask]: (input) =>
-        observeRpcEffect(
-          ORCHESTRATION_WS_METHODS.runNextSwarmTask,
-          swarmScheduler.runNextSwarmTask(input).pipe(
-            Effect.mapError(
-              (cause) =>
-                new OrchestrationDispatchCommandError({
-                  message: "Failed to run next swarm task",
-                  cause,
-                }),
-            ),
-          ),
-          { "rpc.aggregate": "orchestration" },
-        ),
-      [ORCHESTRATION_WS_METHODS.retrySwarmTaskExecution]: (input) =>
-        observeRpcEffect(
-          ORCHESTRATION_WS_METHODS.retrySwarmTaskExecution,
-          swarmScheduler.retrySwarmTaskExecution(input).pipe(
-            Effect.mapError(
-              (cause) =>
-                new OrchestrationDispatchCommandError({
-                  message: "Failed to retry swarm task execution",
-                  cause,
-                }),
-            ),
-          ),
-          { "rpc.aggregate": "orchestration" },
-        ),
-      [ORCHESTRATION_WS_METHODS.cancelSwarmRun]: (input) =>
-        observeRpcEffect(
-          ORCHESTRATION_WS_METHODS.cancelSwarmRun,
-          swarmScheduler.cancelSwarmRun(input).pipe(
-            Effect.mapError(
-              (cause) =>
-                new OrchestrationDispatchCommandError({
-                  message: "Failed to cancel swarm run",
+                  message: "Failed to stop epic run",
                   cause,
                 }),
             ),

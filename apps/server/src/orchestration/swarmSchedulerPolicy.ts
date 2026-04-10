@@ -1,9 +1,8 @@
 import type {
   BeadsIssueRelationSummary,
   OrchestrationSwarmSchedulerMode,
-  OrchestrationSwarmTaskExecution,
-  SwarmRunId,
-  SwarmTaskExecutionId,
+  OrchestrationEpicIssueExecution,
+  EpicRunId,
 } from "@t3tools/contracts";
 import { selectDeterministicReadyIssueFromList } from "@t3tools/shared/swarm";
 
@@ -17,16 +16,12 @@ export type SwarmSchedulerTrigger =
   | "startup_reconcile"
   | "periodic_reconcile"
   | "manual_start"
-  | "manual_resume_paused"
-  | "manual_run_next"
-  | "manual_retry_execution"
   | "execution_settled"
   | "worker_state_changed";
 
 export interface SwarmDriveRequest {
-  readonly runId: SwarmRunId;
+  readonly runId: EpicRunId;
   readonly trigger: SwarmSchedulerTrigger;
-  readonly retryExecutionId?: SwarmTaskExecutionId;
 }
 
 export function isBackgroundSwarmSchedulerTrigger(trigger: SwarmSchedulerTrigger): boolean {
@@ -34,7 +29,7 @@ export function isBackgroundSwarmSchedulerTrigger(trigger: SwarmSchedulerTrigger
 }
 
 export function getAttemptedIssueIds(
-  executions: ReadonlyArray<OrchestrationSwarmTaskExecution>,
+  executions: ReadonlyArray<OrchestrationEpicIssueExecution>,
 ): ReadonlySet<string> {
   return new Set(executions.map((execution) => execution.issueId));
 }
@@ -42,16 +37,7 @@ export function getAttemptedIssueIds(
 export function selectLaunchableReadyIssue(input: {
   readonly readyIssues: ReadonlyArray<BeadsIssueRelationSummary>;
   readonly attemptedIssueIds: ReadonlySet<string>;
-  readonly retryIssueId?: string;
 }): BeadsIssueRelationSummary | null {
-  if (input.retryIssueId) {
-    return (
-      selectDeterministicReadyIssueFromList(
-        input.readyIssues.filter((issue) => issue.id === input.retryIssueId),
-      ) ?? null
-    );
-  }
-
   return (
     selectDeterministicReadyIssueFromList(
       input.readyIssues.filter((issue) => !input.attemptedIssueIds.has(issue.id)),
@@ -62,17 +48,12 @@ export function selectLaunchableReadyIssue(input: {
 export function countLaunchableReadyIssues(input: {
   readonly readyIssues: ReadonlyArray<BeadsIssueRelationSummary>;
   readonly attemptedIssueIds: ReadonlySet<string>;
-  readonly retryIssueId?: string;
 }): number {
-  if (input.retryIssueId) {
-    return input.readyIssues.filter((issue) => issue.id === input.retryIssueId).length;
-  }
-
   return input.readyIssues.filter((issue) => !input.attemptedIssueIds.has(issue.id)).length;
 }
 
 export function describeReadyIssueExhaustion(input: {
-  readonly runId: SwarmRunId;
+  readonly runId: EpicRunId;
   readonly attemptedIssueIds: ReadonlySet<string>;
   readonly readyIssues: ReadonlyArray<BeadsIssueRelationSummary>;
 }): string {
@@ -90,30 +71,13 @@ export function describeReadyIssueExhaustion(input: {
         .join(", ") || "none"
     }.`,
     `Previously attempted ready issues: ${attemptedReadyIssueIds.join(", ") || "none"}.`,
-    "Use retrySwarmTaskExecution to rerun a previous issue explicitly.",
-  ].join(" ");
-}
-
-export function describeRetryIssueNotLiveReady(input: {
-  readonly runId: SwarmRunId;
-  readonly retryIssueId: string;
-  readonly readyIssues: ReadonlyArray<BeadsIssueRelationSummary>;
-}): string {
-  return [
-    `Swarm run '${input.runId}' cannot retry issue '${input.retryIssueId}' because it is not currently live-ready.`,
-    `Ready issues: ${
-      input.readyIssues
-        .map((issue) => issue.id)
-        .toSorted()
-        .join(", ") || "none"
-    }.`,
-    "Wait for that issue to return to the ready set before retrying its execution.",
+    "Stop the run, fix the tracker or code state, then start a new run when ready.",
   ].join(" ");
 }
 
 export function shouldIdleSemiAutomaticRun(input: {
   readonly schedulerMode?: OrchestrationSwarmSchedulerMode | null;
-  readonly latestExecution: OrchestrationSwarmTaskExecution | null;
+  readonly latestExecution: OrchestrationEpicIssueExecution | null;
   readonly trigger: SwarmSchedulerTrigger;
 }): boolean {
   if (input.schedulerMode !== "semi-automatic") {
@@ -124,9 +88,5 @@ export function shouldIdleSemiAutomaticRun(input: {
     return false;
   }
 
-  return (
-    input.trigger !== "manual_run_next" &&
-    input.trigger !== "manual_retry_execution" &&
-    input.trigger !== "manual_start"
-  );
+  return input.trigger !== "manual_start";
 }

@@ -1,4 +1,4 @@
-import type { OrchestrationSwarmTaskExecution, ThreadId } from "@t3tools/contracts";
+import type { OrchestrationEpicIssueExecution, ThreadId } from "@t3tools/contracts";
 import { useMemo, useRef } from "react";
 import {
   AlertTriangleIcon,
@@ -25,7 +25,7 @@ import { cn } from "~/lib/utils";
 
 type WorkerActivityFeedProps = {
   workerThreadId: ThreadId;
-  execution: OrchestrationSwarmTaskExecution;
+  execution: OrchestrationEpicIssueExecution;
   onOpenThread: (threadId: ThreadId) => void;
   /** Maximum entries to show. Defaults to 20. */
   maxEntries?: number;

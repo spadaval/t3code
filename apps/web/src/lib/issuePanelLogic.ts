@@ -2,7 +2,7 @@ import type {
   BeadsIssueSortBy,
   BeadsIssueSummary,
   BeadsSwarmSummary,
-  OrchestrationSwarmRun,
+  OrchestrationEpicRun,
   BeadsCoordinatorEpicSnapshot,
 } from "@t3tools/contracts";
 import type { IssueTreeForest, IssueTreeNode } from "~/lib/issueTree";
@@ -282,7 +282,7 @@ export interface EpicCoordinationResult {
   prioritizedEpics: readonly BeadsCoordinatorEpicSnapshot[];
   epicById: Map<string, BeadsCoordinatorEpicSnapshot>;
   epicSwarmMap: Map<string, BeadsSwarmSummary>;
-  runsByEpic: Map<string, readonly OrchestrationSwarmRun[]>;
+  runsByEpic: Map<string, readonly OrchestrationEpicRun[]>;
 }
 
 /**
@@ -292,7 +292,7 @@ export interface EpicCoordinationResult {
 export function analyzeEpicCoordination(
   epics: readonly BeadsCoordinatorEpicSnapshot[],
   swarms: readonly BeadsSwarmSummary[],
-  swarmRuns: readonly OrchestrationSwarmRun[],
+  epicRuns: readonly OrchestrationEpicRun[],
 ): EpicCoordinationResult {
   // Create lookup maps
   const epicById = new Map<string, BeadsCoordinatorEpicSnapshot>();
@@ -306,15 +306,15 @@ export function analyzeEpicCoordination(
   }
 
   // Group runs by epic
-  const runsByEpic = new Map<string, OrchestrationSwarmRun[]>();
-  for (const run of swarmRuns) {
+  const runsByEpic = new Map<string, OrchestrationEpicRun[]>();
+  for (const run of epicRuns) {
     const epicId = run.epicIssueId;
     const existing = runsByEpic.get(epicId) || [];
     runsByEpic.set(epicId, [...existing, run]);
   }
 
   // Convert to readonly maps
-  const readonlyRunsByEpic = new Map<string, readonly OrchestrationSwarmRun[]>();
+  const readonlyRunsByEpic = new Map<string, readonly OrchestrationEpicRun[]>();
   for (const [key, value] of runsByEpic) {
     readonlyRunsByEpic.set(key, value);
   }
@@ -891,7 +891,7 @@ export function validateIssueState(
 export function validateCoordinatorState(
   swarms: readonly BeadsSwarmSummary[],
   epics: readonly BeadsCoordinatorEpicSnapshot[],
-  runs: readonly OrchestrationSwarmRun[],
+  runs: readonly OrchestrationEpicRun[],
 ): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -904,7 +904,7 @@ export function validateCoordinatorState(
     }
   }
 
-  // Check for inconsistent run data - OrchestrationSwarmRun uses epicIssueId instead of swarmId
+  // Check for inconsistent run data - OrchestrationEpicRun uses epicIssueId instead of swarmId
   const swarmEpicIds = new Set(swarms.map((s) => s.epicId));
   for (const run of runs) {
     if (!swarmEpicIds.has(run.epicIssueId)) {

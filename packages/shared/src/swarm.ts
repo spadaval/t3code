@@ -8,9 +8,9 @@ import type {
   BeadsSwarmValidation,
   OrchestrationEvent,
   OrchestrationSwarmFailureKind,
-  OrchestrationSwarmRun,
-  OrchestrationSwarmTaskExecution,
-  SwarmTaskExecutionId,
+  OrchestrationEpicRun,
+  OrchestrationEpicIssueExecution,
+  EpicIssueExecutionId,
   ThreadId,
 } from "@t3tools/contracts";
 
@@ -106,7 +106,7 @@ export function inferSwarmFailureKind(reason: string): OrchestrationSwarmFailure
 export function createSwarmFailureContext(input: {
   readonly reason: string;
   readonly issueId?: string | null;
-  readonly executionId?: SwarmTaskExecutionId | null;
+  readonly executionId?: EpicIssueExecutionId | null;
   readonly workerThreadId?: ThreadId | null;
 }) {
   return {
@@ -119,8 +119,8 @@ export function createSwarmFailureContext(input: {
 }
 
 export interface SwarmProjectionState {
-  readonly swarmRunsById: Readonly<Record<string, OrchestrationSwarmRun>>;
-  readonly swarmTaskExecutionsById: Readonly<Record<string, OrchestrationSwarmTaskExecution>>;
+  readonly swarmRunsById: Readonly<Record<string, OrchestrationEpicRun>>;
+  readonly swarmTaskExecutionsById: Readonly<Record<string, OrchestrationEpicIssueExecution>>;
 }
 
 type SwarmRunRequestedEvent = Extract<OrchestrationEvent, { type: "swarm-run.requested" }>;
@@ -156,7 +156,7 @@ type SwarmTaskExecutionLifecycleEvent = Extract<
   }
 >;
 
-const NON_TERMINAL_SWARM_RUN_STATUSES = new Set<OrchestrationSwarmRun["status"]>([
+const NON_TERMINAL_SWARM_RUN_STATUSES = new Set<OrchestrationEpicRun["status"]>([
   "pending",
   "running",
   "stopping",
@@ -170,34 +170,34 @@ export function createEmptySwarmProjectionState(): SwarmProjectionState {
 }
 
 export function createSwarmProjectionState(input: {
-  readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
-  readonly swarmTaskExecutions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
+  readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
+  readonly epicIssueExecutions: ReadonlyArray<OrchestrationEpicIssueExecution>;
 }): SwarmProjectionState {
   return {
-    swarmRunsById: Object.fromEntries(input.swarmRuns.map((run) => [run.runId, run])),
+    swarmRunsById: Object.fromEntries(input.epicRuns.map((run) => [run.runId, run])),
     swarmTaskExecutionsById: Object.fromEntries(
-      input.swarmTaskExecutions.map((execution) => [execution.executionId, execution]),
+      input.epicIssueExecutions.map((execution) => [execution.executionId, execution]),
     ),
   };
 }
 
 export function compareSwarmRunsByRequestedAt(
-  left: OrchestrationSwarmRun,
-  right: OrchestrationSwarmRun,
+  left: OrchestrationEpicRun,
+  right: OrchestrationEpicRun,
 ): number {
   return left.requestedAt.localeCompare(right.requestedAt) || left.runId.localeCompare(right.runId);
 }
 
 export function compareSwarmRunsByRequestedAtDesc(
-  left: OrchestrationSwarmRun,
-  right: OrchestrationSwarmRun,
+  left: OrchestrationEpicRun,
+  right: OrchestrationEpicRun,
 ): number {
   return right.requestedAt.localeCompare(left.requestedAt) || right.runId.localeCompare(left.runId);
 }
 
 export function compareSwarmTaskExecutions(
-  left: OrchestrationSwarmTaskExecution,
-  right: OrchestrationSwarmTaskExecution,
+  left: OrchestrationEpicIssueExecution,
+  right: OrchestrationEpicIssueExecution,
 ): number {
   return (
     left.runId.localeCompare(right.runId) ||
@@ -207,20 +207,20 @@ export function compareSwarmTaskExecutions(
 }
 
 export function isNonTerminalSwarmTaskExecutionStatus(
-  status: OrchestrationSwarmTaskExecution["status"],
+  status: OrchestrationEpicIssueExecution["status"],
 ): status is "launching" | "running" | "stopping" {
   return status === "launching" || status === "running" || status === "stopping";
 }
 
 export function isNonTerminalSwarmRunStatus(
-  status: OrchestrationSwarmRun["status"],
+  status: OrchestrationEpicRun["status"],
 ): status is "pending" | "running" | "stopping" {
   return NON_TERMINAL_SWARM_RUN_STATUSES.has(status);
 }
 
 export function compareSwarmRunsByAttentionPriority(
-  left: OrchestrationSwarmRun,
-  right: OrchestrationSwarmRun,
+  left: OrchestrationEpicRun,
+  right: OrchestrationEpicRun,
 ): number {
   const nonTerminalDelta =
     Number(isNonTerminalSwarmRunStatus(right.status)) -
@@ -242,11 +242,11 @@ export function compareSwarmRunsByAttentionPriority(
   return right.runId.localeCompare(left.runId);
 }
 
-export function isNonTerminalSharedWorkspaceRun(run: OrchestrationSwarmRun): boolean {
+export function isNonTerminalSharedWorkspaceRun(run: OrchestrationEpicRun): boolean {
   return isNonTerminalSwarmRunStatus(run.status);
 }
 
-export function formatSwarmRunStatusLabel(status: OrchestrationSwarmRun["status"]): string {
+export function formatSwarmRunStatusLabel(status: OrchestrationEpicRun["status"]): string {
   return status.replace(/_/g, " ");
 }
 
@@ -262,7 +262,14 @@ export function isSwarmCoordinatorFetchTimeoutMessage(message: string): boolean 
 }
 
 function formatSwarmCoordinatorFetchSource(source: SwarmCoordinatorFetchSource): string {
-  return `swarm ${source}`;
+  switch (source) {
+    case "support":
+      return "epic-run support";
+    case "validation":
+      return "epic validation";
+    case "status":
+      return "tracker status";
+  }
 }
 
 function formatSwarmCoordinatorFetchSources(
@@ -271,7 +278,7 @@ function formatSwarmCoordinatorFetchSources(
   const [first, second] = sources;
 
   if (sources.length === 0) {
-    return "swarm state";
+    return "epic-run state";
   }
 
   if (sources.length === 1) {
@@ -282,7 +289,7 @@ function formatSwarmCoordinatorFetchSources(
     return `${formatSwarmCoordinatorFetchSource(first!)} and ${second!}`;
   }
 
-  return "swarm support, validation, and status";
+  return "epic-run support, validation, and tracker status";
 }
 
 function describeSingleSwarmCoordinatorFetchFailure(input: {
@@ -305,8 +312,8 @@ export function describeSwarmCoordinatorFetchFailure(input: {
 
   if (failures.length === 0) {
     return input.stale
-      ? "Showing the last known swarm state because the latest refresh failed."
-      : "Swarm state request failed.";
+      ? "Showing the last known epic-run state because the latest refresh failed."
+      : "Epic-run state request failed.";
   }
 
   if (failures.length === 1) {
@@ -339,7 +346,7 @@ export function describeSwarmCoordinatorFetchFailure(input: {
     )
     .join(" ");
   return input.stale
-    ? `Showing the last known swarm state because the latest refresh failed. ${detail}`
+    ? `Showing the last known epic-run state because the latest refresh failed. ${detail}`
     : detail;
 }
 
@@ -366,7 +373,7 @@ export interface CoordinatorStateDescription {
 
 /**
  * Maps every coordinator state kind + context into a clean, human-readable
- * description suitable for direct display. No more "Swarm unknown" fallbacks.
+ * description suitable for direct display. No more vague coordination fallbacks.
  */
 export function describeCoordinatorEpicState(input: {
   readonly stateKind: EpicSwarmCoordinatorStateKind;
@@ -458,8 +465,8 @@ export function describeCoordinatorEpicState(input: {
   }
 }
 
-export function describeSharedWorkspaceProjectConflict(run: OrchestrationSwarmRun): string {
-  return `Shared workspace is already busy with ${run.epicIssueId} (${formatSwarmRunStatusLabel(run.status)}). Finish or stop that epic before starting another epic in this project.`;
+export function describeSharedWorkspaceProjectConflict(run: OrchestrationEpicRun): string {
+  return `This project already has an active epic run for ${run.epicIssueId} (${formatSwarmRunStatusLabel(run.status)}). Finish or stop that run before starting another epic in this project.`;
 }
 
 export type SwarmCoordinatorFetchLifecycleKind =
@@ -490,7 +497,7 @@ export type EpicSwarmCoordinatorStateKind =
 
 export interface EpicSwarmCoordinatorState {
   readonly kind: EpicSwarmCoordinatorStateKind;
-  readonly latestRun: OrchestrationSwarmRun | null;
+  readonly latestRun: OrchestrationEpicRun | null;
   readonly fetchLifecycle: SwarmCoordinatorFetchLifecycle;
 }
 
@@ -499,9 +506,9 @@ export interface EpicSwarmCoordinatorPrimaryAction {
     | "checking"
     | "unsupported"
     | "open_coordination_prep_thread"
-    | "refresh_swarm_state"
-    | "start_swarm"
-    | "stop_swarm"
+    | "refresh_epic_status"
+    | "start_epic_run"
+    | "stop_epic_run"
     | "open_coordinator";
   readonly label: string;
   readonly busyLabel: string;
@@ -639,29 +646,29 @@ export function deriveTrackerState(input: {
 }
 
 export function findActiveSwarmRuns(
-  swarmRuns: ReadonlyArray<OrchestrationSwarmRun>,
-): OrchestrationSwarmRun[] {
-  return swarmRuns
+  epicRuns: ReadonlyArray<OrchestrationEpicRun>,
+): OrchestrationEpicRun[] {
+  return epicRuns
     .filter((run) => isNonTerminalSwarmRunStatus(run.status))
     .toSorted(compareSwarmRunsByRequestedAtDesc);
 }
 
 export function findActiveSwarmRun(
-  swarmRuns: ReadonlyArray<OrchestrationSwarmRun>,
-): OrchestrationSwarmRun | null {
-  return findActiveSwarmRuns(swarmRuns)[0] ?? null;
+  epicRuns: ReadonlyArray<OrchestrationEpicRun>,
+): OrchestrationEpicRun | null {
+  return findActiveSwarmRuns(epicRuns)[0] ?? null;
 }
 
 export function deriveActiveRunId(
-  swarmRuns: ReadonlyArray<OrchestrationSwarmRun>,
-): OrchestrationSwarmRun["runId"] | null {
-  return findActiveSwarmRun(swarmRuns)?.runId ?? null;
+  epicRuns: ReadonlyArray<OrchestrationEpicRun>,
+): OrchestrationEpicRun["runId"] | null {
+  return findActiveSwarmRun(epicRuns)?.runId ?? null;
 }
 
 export function deriveActiveExecutionId(input: {
-  readonly activeRunId: OrchestrationSwarmRun["runId"] | null;
-  readonly executions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
-}): OrchestrationSwarmTaskExecution["executionId"] | null {
+  readonly activeRunId: OrchestrationEpicRun["runId"] | null;
+  readonly executions: ReadonlyArray<OrchestrationEpicIssueExecution>;
+}): OrchestrationEpicIssueExecution["executionId"] | null {
   if (input.activeRunId === null) {
     return null;
   }
@@ -678,10 +685,10 @@ export function deriveEpicSwarmCoordinatorState(input: {
   readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
   readonly status: Pick<BeadsSwarmStatus, "swarm"> | null;
   readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm"> | null;
-  readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
+  readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
   readonly fetchLifecycle: SwarmCoordinatorFetchLifecycle;
 }): EpicSwarmCoordinatorState {
-  const latestRun = selectLatestSwarmRun(input.swarmRuns);
+  const latestRun = selectLatestSwarmRun(input.epicRuns);
 
   if (input.fetchLifecycle.kind === "loading") {
     return {
@@ -761,7 +768,7 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
         Partial<Pick<BeadsSwarmStatus, "blockedBreakdown">>)
     | null;
   readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm" | "readyFronts"> | null;
-  readonly swarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
+  readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
   readonly hasProjectConflict: boolean;
   readonly fetchLifecycle: SwarmCoordinatorFetchLifecycle;
 }): EpicSwarmCoordinatorPrimaryAction {
@@ -778,21 +785,21 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
       };
     case "timeout":
       return {
-        kind: "refresh_swarm_state",
+        kind: "refresh_epic_status",
         label: "Retry epic status",
         busyLabel: "Retrying...",
         disabled: false,
       };
     case "stale":
       return {
-        kind: "refresh_swarm_state",
+        kind: "refresh_epic_status",
         label: "Refresh epic status",
         busyLabel: "Refreshing...",
         disabled: false,
       };
     case "error":
       return {
-        kind: "refresh_swarm_state",
+        kind: "refresh_epic_status",
         label: "Retry epic status",
         busyLabel: "Retrying...",
         disabled: false,
@@ -829,14 +836,14 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
         };
       }
       return {
-        kind: "start_swarm",
+        kind: "start_epic_run",
         label: "Start epic",
         busyLabel: "Starting...",
         disabled: false,
       };
     case "running":
       return {
-        kind: "stop_swarm",
+        kind: "stop_epic_run",
         label: "Stop run",
         busyLabel: "Stopping...",
         disabled: false,
@@ -873,15 +880,15 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
 }
 
 export function selectLatestSwarmRun(
-  swarmRuns: ReadonlyArray<OrchestrationSwarmRun>,
-): OrchestrationSwarmRun | null {
-  return [...swarmRuns].toSorted(compareSwarmRunsByRequestedAtDesc)[0] ?? null;
+  epicRuns: ReadonlyArray<OrchestrationEpicRun>,
+): OrchestrationEpicRun | null {
+  return [...epicRuns].toSorted(compareSwarmRunsByRequestedAtDesc)[0] ?? null;
 }
 
 export function findConflictingSharedWorkspaceRun(input: {
-  readonly projectSwarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
-  readonly epicSwarmRuns: ReadonlyArray<OrchestrationSwarmRun>;
-}): OrchestrationSwarmRun | null {
+  readonly projectSwarmRuns: ReadonlyArray<OrchestrationEpicRun>;
+  readonly epicSwarmRuns: ReadonlyArray<OrchestrationEpicRun>;
+}): OrchestrationEpicRun | null {
   const epicRunIds = new Set(input.epicSwarmRuns.map((run) => run.runId));
   return (
     input.projectSwarmRuns
@@ -893,19 +900,19 @@ export function findConflictingSharedWorkspaceRun(input: {
   );
 }
 
-export function listSwarmRuns(state: SwarmProjectionState): OrchestrationSwarmRun[] {
+export function listSwarmRuns(state: SwarmProjectionState): OrchestrationEpicRun[] {
   return Object.values(state.swarmRunsById).toSorted(compareSwarmRunsByRequestedAtDesc);
 }
 
 export function listSwarmTaskExecutions(
   state: SwarmProjectionState,
-): OrchestrationSwarmTaskExecution[] {
+): OrchestrationEpicIssueExecution[] {
   return Object.values(state.swarmTaskExecutionsById).toSorted(compareSwarmTaskExecutions);
 }
 
 export function createRequestedSwarmRun(
   payload: SwarmRunRequestedEvent["payload"],
-): OrchestrationSwarmRun {
+): OrchestrationEpicRun {
   return {
     runId: payload.runId,
     projectId: payload.projectId,
@@ -929,9 +936,9 @@ export function createRequestedSwarmRun(
 }
 
 export function applySwarmRunLifecycleEvent(
-  run: OrchestrationSwarmRun,
+  run: OrchestrationEpicRun,
   event: SwarmRunLifecycleEvent,
-): OrchestrationSwarmRun {
+): OrchestrationEpicRun {
   switch (event.type) {
     case "swarm-run.started":
       return {
@@ -1018,7 +1025,7 @@ export function applySwarmRunLifecycleEvent(
 
 export function createRequestedSwarmTaskExecution(
   payload: SwarmTaskExecutionRequestedEvent["payload"],
-): OrchestrationSwarmTaskExecution {
+): OrchestrationEpicIssueExecution {
   return {
     executionId: payload.executionId,
     runId: payload.runId,
@@ -1041,8 +1048,8 @@ export function createRequestedSwarmTaskExecution(
 
 export function materializeStartedSwarmTaskExecution(input: {
   readonly event: SwarmTaskExecutionStartedEvent;
-  readonly existingExecution: OrchestrationSwarmTaskExecution | null;
-}): OrchestrationSwarmTaskExecution {
+  readonly existingExecution: OrchestrationEpicIssueExecution | null;
+}): OrchestrationEpicIssueExecution {
   const existingExecution = input.existingExecution;
   return {
     executionId: input.event.payload.executionId,
@@ -1065,9 +1072,9 @@ export function materializeStartedSwarmTaskExecution(input: {
 }
 
 export function applySwarmTaskExecutionLifecycleEvent(
-  execution: OrchestrationSwarmTaskExecution,
+  execution: OrchestrationEpicIssueExecution,
   event: SwarmTaskExecutionLifecycleEvent,
-): OrchestrationSwarmTaskExecution {
+): OrchestrationEpicIssueExecution {
   switch (event.type) {
     case "swarm-task-execution.completed":
       return {
@@ -1214,17 +1221,17 @@ export function projectSwarmEvent(
 }
 
 export function deriveSwarmRunExecutionState(input: {
-  readonly runId: OrchestrationSwarmRun["runId"];
-  readonly executions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
+  readonly runId: OrchestrationEpicRun["runId"];
+  readonly executions: ReadonlyArray<OrchestrationEpicIssueExecution>;
 }): {
-  readonly activeExecution: OrchestrationSwarmTaskExecution | null;
-  readonly currentExecution: OrchestrationSwarmTaskExecution | null;
-  readonly latestExecution: OrchestrationSwarmTaskExecution | null;
-  readonly nonTerminalExecutions: ReadonlyArray<OrchestrationSwarmTaskExecution>;
+  readonly activeExecution: OrchestrationEpicIssueExecution | null;
+  readonly currentExecution: OrchestrationEpicIssueExecution | null;
+  readonly latestExecution: OrchestrationEpicIssueExecution | null;
+  readonly nonTerminalExecutions: ReadonlyArray<OrchestrationEpicIssueExecution>;
 } {
-  let latestExecution: OrchestrationSwarmTaskExecution | null = null;
-  let activeExecution: OrchestrationSwarmTaskExecution | null = null;
-  const nonTerminalExecutions: OrchestrationSwarmTaskExecution[] = [];
+  let latestExecution: OrchestrationEpicIssueExecution | null = null;
+  let activeExecution: OrchestrationEpicIssueExecution | null = null;
+  const nonTerminalExecutions: OrchestrationEpicIssueExecution[] = [];
 
   for (const execution of input.executions) {
     if (execution.runId !== input.runId) {

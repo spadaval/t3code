@@ -138,13 +138,8 @@ export function createWsNativeApi(): NativeApi {
         rpcClient.orchestration.cancelPlanImplementationLaunch(input as never),
       retryPlanImplementationLaunch: (input) =>
         rpcClient.orchestration.retryPlanImplementationLaunch(input as never),
-      startSwarmRun: (input) => rpcClient.orchestration.startSwarmRun(input as never),
-      pauseSwarmRun: (input) => rpcClient.orchestration.pauseSwarmRun(input as never),
-      resumePausedSwarmRun: (input) => rpcClient.orchestration.resumePausedSwarmRun(input as never),
-      runNextSwarmTask: (input) => rpcClient.orchestration.runNextSwarmTask(input as never),
-      retrySwarmTaskExecution: (input) =>
-        rpcClient.orchestration.retrySwarmTaskExecution(input as never),
-      cancelSwarmRun: (input) => rpcClient.orchestration.cancelSwarmRun(input as never),
+      startEpicRun: (input) => rpcClient.orchestration.startEpicRun(input as never),
+      stopEpicRun: (input) => rpcClient.orchestration.stopEpicRun(input as never),
       onDomainEvent: (callback, options) =>
         rpcClient.orchestration.onDomainEvent(callback, options),
     },

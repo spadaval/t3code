@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import type { OrchestrationSwarmRun, OrchestrationSwarmTaskExecution } from "@t3tools/contracts";
+import type { OrchestrationEpicRun, OrchestrationEpicIssueExecution } from "@t3tools/contracts";
 import {
   describeSharedWorkspaceProjectInvariantViolation,
   evaluateRunExecutionInvariant,
   evaluateSharedWorkspaceProjectInvariant,
 } from "./EpicRunAdmissionPolicy.ts";
 
-function run(runId: string, overrides: Partial<OrchestrationSwarmRun> = {}): OrchestrationSwarmRun {
+function run(runId: string, overrides: Partial<OrchestrationEpicRun> = {}): OrchestrationEpicRun {
   return {
     runId: runId as never,
     projectId: "project-1" as never,
@@ -33,8 +33,8 @@ function run(runId: string, overrides: Partial<OrchestrationSwarmRun> = {}): Orc
 
 function execution(
   executionId: string,
-  overrides: Partial<OrchestrationSwarmTaskExecution> = {},
-): OrchestrationSwarmTaskExecution {
+  overrides: Partial<OrchestrationEpicIssueExecution> = {},
+): OrchestrationEpicIssueExecution {
   return {
     executionId: executionId as never,
     runId: "run-1" as never,
@@ -57,24 +57,19 @@ function execution(
 }
 
 describe("EpicRunAdmissionPolicy", () => {
-  it("chooses the highest-attention non-terminal run as the project winner", () => {
-    const winner = run("run-2", {
+  it("keeps the earliest admitted non-terminal run as the project winner", () => {
+    const winner = run("run-1", {
       status: "running",
+      requestedAt: "2026-04-06T00:00:01.000Z",
       updatedAt: "2026-04-06T00:00:10.000Z",
     });
-    const loser = run("run-1", {
+    const loser = run("run-2", {
       status: "pending",
-      failureContext: {
-        kind: "worker_failure",
-        message: "worker failed",
-        issueId: null,
-        executionId: null,
-        workerThreadId: null,
-      },
-      updatedAt: "2026-04-06T00:00:05.000Z",
+      requestedAt: "2026-04-06T00:00:02.000Z",
+      updatedAt: "2026-04-06T00:00:11.000Z",
     });
 
-    expect(evaluateSharedWorkspaceProjectInvariant([loser, winner])).toEqual({
+    expect(evaluateSharedWorkspaceProjectInvariant([winner, loser])).toEqual({
       winner,
       losers: [loser],
     });

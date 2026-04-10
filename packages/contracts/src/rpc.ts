@@ -71,7 +71,7 @@ import {
 } from "./git";
 import { KeybindingsConfigError } from "./keybindings";
 import {
-  OrchestrationCancelSwarmRunInput,
+  OrchestrationStopEpicRunInput,
   ClientOrchestrationCommand,
   OrchestrationCancelPlanImplementationLaunchInput,
   OrchestrationCancelPlanImplementationLaunchResult,
@@ -86,16 +86,12 @@ import {
   OrchestrationGetTurnDiffInput,
   OrchestrationLaunchPlanImplementationInput,
   OrchestrationLaunchPlanImplementationResult,
-  OrchestrationPauseSwarmRunInput,
   OrchestrationReplayEventsError,
   OrchestrationReplayEventsInput,
   OrchestrationRpcSchemas,
   OrchestrationRetryPlanImplementationLaunchInput,
-  OrchestrationResumePausedSwarmRunInput,
-  OrchestrationRetrySwarmTaskExecutionInput,
-  OrchestrationRunNextSwarmTaskInput,
-  OrchestrationStartSwarmRunInput,
-  OrchestrationSwarmRunControlResult,
+  OrchestrationStartEpicRunInput,
+  OrchestrationEpicRunControlResult,
 } from "./orchestration";
 import {
   ProjectSearchEntriesError,
@@ -535,48 +531,14 @@ export const WsOrchestrationRetryPlanImplementationLaunchRpc = Rpc.make(
   },
 );
 
-export const WsOrchestrationStartSwarmRunRpc = Rpc.make(ORCHESTRATION_WS_METHODS.startSwarmRun, {
-  payload: OrchestrationStartSwarmRunInput,
-  success: OrchestrationSwarmRunControlResult,
+export const WsOrchestrationStartEpicRunRpc = Rpc.make(ORCHESTRATION_WS_METHODS.startEpicRun, {
+  payload: OrchestrationStartEpicRunInput,
+  success: OrchestrationEpicRunControlResult,
   error: OrchestrationDispatchCommandError,
 });
-
-export const WsOrchestrationPauseSwarmRunRpc = Rpc.make(ORCHESTRATION_WS_METHODS.pauseSwarmRun, {
-  payload: OrchestrationPauseSwarmRunInput,
-  success: OrchestrationSwarmRunControlResult,
-  error: OrchestrationDispatchCommandError,
-});
-
-export const WsOrchestrationResumePausedSwarmRunRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.resumePausedSwarmRun,
-  {
-    payload: OrchestrationResumePausedSwarmRunInput,
-    success: OrchestrationSwarmRunControlResult,
-    error: OrchestrationDispatchCommandError,
-  },
-);
-
-export const WsOrchestrationRunNextSwarmTaskRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.runNextSwarmTask,
-  {
-    payload: OrchestrationRunNextSwarmTaskInput,
-    success: OrchestrationSwarmRunControlResult,
-    error: OrchestrationDispatchCommandError,
-  },
-);
-
-export const WsOrchestrationRetrySwarmTaskExecutionRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.retrySwarmTaskExecution,
-  {
-    payload: OrchestrationRetrySwarmTaskExecutionInput,
-    success: OrchestrationSwarmRunControlResult,
-    error: OrchestrationDispatchCommandError,
-  },
-);
-
-export const WsOrchestrationCancelSwarmRunRpc = Rpc.make(ORCHESTRATION_WS_METHODS.cancelSwarmRun, {
-  payload: OrchestrationCancelSwarmRunInput,
-  success: OrchestrationSwarmRunControlResult,
+export const WsOrchestrationStopEpicRunRpc = Rpc.make(ORCHESTRATION_WS_METHODS.stopEpicRun, {
+  payload: OrchestrationStopEpicRunInput,
+  success: OrchestrationEpicRunControlResult,
   error: OrchestrationDispatchCommandError,
 });
 
@@ -670,10 +632,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationLaunchPlanImplementationRpc,
   WsOrchestrationCancelPlanImplementationLaunchRpc,
   WsOrchestrationRetryPlanImplementationLaunchRpc,
-  WsOrchestrationStartSwarmRunRpc,
-  WsOrchestrationPauseSwarmRunRpc,
-  WsOrchestrationResumePausedSwarmRunRpc,
-  WsOrchestrationRunNextSwarmTaskRpc,
-  WsOrchestrationRetrySwarmTaskExecutionRpc,
-  WsOrchestrationCancelSwarmRunRpc,
+  WsOrchestrationStartEpicRunRpc,
+  WsOrchestrationStopEpicRunRpc,
 );

@@ -1,5 +1,5 @@
 import type {
-  OrchestrationSwarmTaskExecution,
+  OrchestrationEpicIssueExecution,
   OrchestrationSwarmTaskExecutionStatus,
   ThreadId,
 } from "@t3tools/contracts";
@@ -11,14 +11,14 @@ interface WorkerFailureDescriptionInput {
 }
 
 interface RequestedExecutionFailureInput {
-  readonly executionId: OrchestrationSwarmTaskExecution["executionId"];
+  readonly executionId: OrchestrationEpicIssueExecution["executionId"];
   readonly issueId: string;
   readonly workerThreadId: ThreadId | null;
   readonly reason: string;
 }
 
 interface RequestedExecutionTimeoutInput {
-  readonly executionId: OrchestrationSwarmTaskExecution["executionId"];
+  readonly executionId: OrchestrationEpicIssueExecution["executionId"];
   readonly issueId: string;
   readonly workerThreadId: ThreadId | null;
   readonly sessionStatus: string | null | undefined;

@@ -2434,7 +2434,7 @@ const makeBeadsService = Effect.gen(function* () {
         new Set([
           ...epicIssues.map((issue) => issue.id),
           ...swarms.swarms.map((swarm) => swarm.epicId),
-          ...readModel.swarmRuns
+          ...readModel.epicRuns
             .filter((run) => run.projectId === input.projectId)
             .map((run) => run.epicIssueId),
         ]),

@@ -2,8 +2,8 @@ import {
   CommandId,
   EventId,
   ProjectId,
-  SwarmRunId,
-  SwarmTaskExecutionId,
+  EpicRunId,
+  EpicIssueExecutionId,
   ThreadId,
   type OrchestrationEvent,
 } from "@t3tools/contracts";
@@ -32,9 +32,9 @@ function makeEvent(input: {
         : input.aggregateKind === "thread"
           ? ThreadId.makeUnsafe(input.aggregateId)
           : input.aggregateKind === "swarmRun"
-            ? SwarmRunId.makeUnsafe(input.aggregateId)
+            ? EpicRunId.makeUnsafe(input.aggregateId)
             : input.aggregateKind === "swarmTaskExecution"
-              ? SwarmTaskExecutionId.makeUnsafe(input.aggregateId)
+              ? EpicIssueExecutionId.makeUnsafe(input.aggregateId)
               : ThreadId.makeUnsafe(input.aggregateId),
     occurredAt: input.occurredAt,
     commandId: input.commandId === null ? null : CommandId.makeUnsafe(input.commandId),
@@ -547,49 +547,45 @@ describe("orchestration projector", () => {
       ),
     );
 
-    expect(afterCompleted.swarmRuns).toEqual([
+    expect(afterCompleted.epicRuns).toEqual([
       {
         runId: "run-1",
         projectId: "project-1",
         epicIssueId: "EPIC-1",
-        status: "requested",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
+        status: "pending",
         provider: "codex",
         model: "gpt-5.4",
         modelOptions: null,
         providerOptions: null,
         assistantDeliveryMode: "streaming",
         runtimeMode: "full-access",
-        lastError: null,
+        failureContext: null,
         requestedAt,
         startedAt: null,
-        idledAt: null,
-        pausedAt: null,
-        blockedAt: null,
-        blockedContext: null,
+        stopRequestedAt: null,
+        stoppedAt: null,
         failedAt: null,
-        cancelledAt: null,
         completedAt: null,
         updatedAt: completedAt,
       },
     ]);
-    expect(afterCompleted.swarmTaskExecutions).toEqual([
+    expect(afterCompleted.epicIssueExecutions).toEqual([
       {
         executionId: "execution-1",
         runId: "run-1",
         issueId: "TASK-1",
         workerThreadId: "thread-1",
         sequenceNumber: 1,
-        originalStatus: "open",
-        originalAssignee: "issue-owner",
         status: "completed",
-        lastError: null,
+        workspaceKey: "shared",
+        workspacePath: null,
+        failureContext: null,
         requestedAt,
         startedAt,
+        stopRequestedAt: null,
+        stoppedAt: null,
         completedAt,
         failedAt: null,
-        cancelledAt: null,
         updatedAt: completedAt,
       },
     ]);

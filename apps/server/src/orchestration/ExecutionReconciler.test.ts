@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import type { OrchestrationSwarmTaskExecution, OrchestrationThread } from "@t3tools/contracts";
+import type { OrchestrationEpicIssueExecution, OrchestrationThread } from "@t3tools/contracts";
 import {
   decideReconcileCurrentExecution,
   decideReconcileRequestedExecution,
 } from "./ExecutionReconciler.ts";
 
 function execution(
-  overrides: Partial<OrchestrationSwarmTaskExecution> = {},
-): OrchestrationSwarmTaskExecution {
+  overrides: Partial<OrchestrationEpicIssueExecution> = {},
+): OrchestrationEpicIssueExecution {
   return {
     executionId: "exec-1" as never,
     runId: "run-1" as never,
@@ -126,6 +126,50 @@ describe("ExecutionReconciler", () => {
       return;
     }
     expect(decision.reason).toContain("timed out while launching");
+    expect(decision.reason).toContain("Observed session status: idle.");
+    expect(decision.reason).toContain("Observed latest turn state: missing.");
+  });
+
+  it("keeps requested executions pending before timeout even when the session looks ready", () => {
+    expect(
+      decideReconcileRequestedExecution({
+        execution: execution(),
+        thread: thread({
+          session: {
+            threadId: "thread-1" as never,
+            status: "ready",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: "2026-04-06T00:00:01.000Z",
+          },
+        }),
+        nowMs: Date.parse("2026-04-06T00:00:30.000Z"),
+        launchTimeoutMs: 60_000,
+      }),
+    ).toEqual({ type: "noop" });
+  });
+
+  it("keeps requested executions pending before timeout even when the session reports an error", () => {
+    expect(
+      decideReconcileRequestedExecution({
+        execution: execution(),
+        thread: thread({
+          session: {
+            threadId: "thread-1" as never,
+            status: "error",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: "provider reported noise before any turn existed",
+            updatedAt: "2026-04-06T00:00:01.000Z",
+          },
+        }),
+        nowMs: Date.parse("2026-04-06T00:00:30.000Z"),
+        launchTimeoutMs: 60_000,
+      }),
+    ).toEqual({ type: "noop" });
   });
 
   it("delegates launching current executions back to requested reconciliation", () => {
@@ -168,5 +212,47 @@ describe("ExecutionReconciler", () => {
       return;
     }
     expect(decision.reason).toContain("stopped before completing the swarm task execution");
+  });
+
+  it("keeps current executions alive without terminal turn evidence when the session looks stopped", () => {
+    expect(
+      decideReconcileCurrentExecution({
+        execution: execution({
+          status: "running",
+        }),
+        thread: thread({
+          session: {
+            threadId: "thread-1" as never,
+            status: "stopped",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: "2026-04-06T00:00:03.000Z",
+          },
+        }),
+      }),
+    ).toEqual({ type: "noop" });
+  });
+
+  it("keeps current executions alive without terminal turn evidence when the session reports an error", () => {
+    expect(
+      decideReconcileCurrentExecution({
+        execution: execution({
+          status: "running",
+        }),
+        thread: thread({
+          session: {
+            threadId: "thread-1" as never,
+            status: "error",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: "provider reported runtime noise",
+            updatedAt: "2026-04-06T00:00:03.000Z",
+          },
+        }),
+      }),
+    ).toEqual({ type: "noop" });
   });
 });

@@ -4,9 +4,9 @@ import type {
   BeadsSwarmValidation,
   BeadsIssueRelationSummary,
   OrchestrationEvent,
-  OrchestrationSwarmRun,
-  OrchestrationSwarmTaskExecution,
-  SwarmRunId,
+  OrchestrationEpicRun,
+  OrchestrationEpicIssueExecution,
+  EpicRunId,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -46,10 +46,10 @@ function makeIssue(id: string, priority: number | null = null): BeadsIssueRelati
 
 function makeExecution(
   executionId: string,
-  runId: SwarmRunId,
+  runId: EpicRunId,
   sequenceNumber: number,
-  status: OrchestrationSwarmTaskExecution["status"],
-): OrchestrationSwarmTaskExecution {
+  status: OrchestrationEpicIssueExecution["status"],
+): OrchestrationEpicIssueExecution {
   return {
     executionId: executionId as never,
     runId,
@@ -72,10 +72,10 @@ function makeExecution(
 
 function makeRun(
   runId: string,
-  overrides: Partial<OrchestrationSwarmRun> = {},
-): OrchestrationSwarmRun {
+  overrides: Partial<OrchestrationEpicRun> = {},
+): OrchestrationEpicRun {
   return {
-    runId: runId as SwarmRunId,
+    runId: runId as EpicRunId,
     projectId: "project-1" as never,
     epicIssueId: "EPIC-1",
     status: "pending",
@@ -208,7 +208,7 @@ describe("swarm", () => {
         ],
         stale: false,
       }),
-    ).toBe("Swarm validation and status request failed: Issue 'EPIC-404' was not found.");
+    ).toBe("Epic validation and status request failed: Issue 'EPIC-404' was not found.");
   });
 
   it("keeps source-specific backend details when validation and status fail differently", () => {
@@ -227,7 +227,7 @@ describe("swarm", () => {
         stale: true,
       }),
     ).toBe(
-      "Showing the last known swarm state because the latest refresh failed. Swarm validation request failed: Issue 'EPIC-404' was not found. Swarm status request failed: Swarm 'swarm-404' was not found.",
+      "Showing the last known epic-run state because the latest refresh failed. Epic validation request failed: Issue 'EPIC-404' was not found. Tracker status request failed: Swarm 'swarm-404' was not found.",
     );
   });
 
@@ -265,7 +265,7 @@ describe("swarm", () => {
   });
 
   it("derives active and latest swarm task executions from execution history", () => {
-    const runId = "run-1" as SwarmRunId;
+    const runId = "run-1" as EpicRunId;
 
     expect(
       deriveSwarmRunExecutionState({
@@ -273,7 +273,7 @@ describe("swarm", () => {
         executions: [
           makeExecution("execution-2", runId, 2, "running"),
           makeExecution("execution-1", runId, 1, "completed"),
-          makeExecution("execution-3", "run-2" as SwarmRunId, 1, "running"),
+          makeExecution("execution-3", "run-2" as EpicRunId, 1, "running"),
         ],
       }),
     ).toMatchObject({
@@ -285,7 +285,7 @@ describe("swarm", () => {
   });
 
   it("keeps all non-terminal executions for invariant checks", () => {
-    const runId = "run-1" as SwarmRunId;
+    const runId = "run-1" as EpicRunId;
 
     expect(
       deriveSwarmRunExecutionState({
@@ -406,7 +406,7 @@ describe("swarm", () => {
         swarmSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
-        swarmRuns: [
+        epicRuns: [
           makeRun("run-requested", {
             status: "pending",
             updatedAt: "2026-04-06T00:00:03.000Z",
@@ -510,7 +510,7 @@ describe("swarm", () => {
         validation: makeSwarmValidation({
           readyFronts: [[makeIssue("TASK-1", 1)]],
         }),
-        swarmRuns: [
+        epicRuns: [
           makeRun("run-blocked", {
             status: "failed",
             failureContext: {
@@ -546,12 +546,12 @@ describe("swarm", () => {
           },
         }),
         validation: makeSwarmValidation(),
-        swarmRuns: [],
+        epicRuns: [],
         hasProjectConflict: false,
         fetchLifecycle: { kind: "ready", detail: null },
       }),
     ).toEqual({
-      kind: "start_swarm",
+      kind: "start_epic_run",
       label: "Start epic",
       busyLabel: "Starting...",
       disabled: false,
@@ -569,7 +569,7 @@ describe("swarm", () => {
           },
         }),
         validation: makeSwarmValidation(),
-        swarmRuns: [],
+        epicRuns: [],
         hasProjectConflict: false,
         fetchLifecycle: { kind: "ready", detail: null },
       }),
@@ -587,7 +587,7 @@ describe("swarm", () => {
         swarmSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
-        swarmRuns: [
+        epicRuns: [
           makeRun("run-running", {
             status: "running",
             startedAt: "2026-04-06T00:00:02.000Z",
@@ -597,7 +597,7 @@ describe("swarm", () => {
         fetchLifecycle: { kind: "ready", detail: null },
       }),
     ).toEqual({
-      kind: "stop_swarm",
+      kind: "stop_epic_run",
       label: "Stop run",
       busyLabel: "Stopping...",
       disabled: false,
@@ -608,7 +608,7 @@ describe("swarm", () => {
         swarmSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
-        swarmRuns: [
+        epicRuns: [
           makeRun("run-stopped", {
             status: "stopped",
             stoppedAt: "2026-04-06T00:00:02.000Z",
@@ -656,7 +656,7 @@ describe("swarm", () => {
         swarmSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
-        swarmRuns: [],
+        epicRuns: [],
         hasProjectConflict: true,
         fetchLifecycle: { kind: "ready", detail: null },
       }),

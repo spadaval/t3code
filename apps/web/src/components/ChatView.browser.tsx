@@ -313,8 +313,8 @@ function createSnapshotForTargetUser(options: {
       },
     ],
     planImplementationLaunches: [],
-    swarmRuns: [],
-    swarmTaskExecutions: [],
+    epicRuns: [],
+    epicIssueExecutions: [],
     updatedAt: NOW_ISO,
   };
 }
