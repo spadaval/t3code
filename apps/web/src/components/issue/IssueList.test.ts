@@ -82,7 +82,7 @@ describe("IssueList hierarchy rendering", () => {
             parent: { id: "EPIC-1", title: "Epic 1" },
           }),
         ],
-        scopeFilter: "all",
+        showClosed: true,
       }),
     );
 
@@ -107,7 +107,7 @@ describe("IssueList hierarchy rendering", () => {
             parent: { id: "STORY-1", title: "Story 1" },
           }),
         ],
-        scopeFilter: "all",
+        showClosed: true,
       }),
     );
 
@@ -142,7 +142,7 @@ describe("IssueList hierarchy rendering", () => {
             parent: { id: "STORY-1", title: "Hidden story" },
           }),
         ],
-        scopeFilter: "all",
+        showClosed: true,
         searchValue: "matching",
       }),
     );
@@ -174,7 +174,7 @@ describe("IssueList hierarchy rendering", () => {
             status: "closed",
           }),
         ],
-        scopeFilter: "active",
+        showClosed: false,
       }),
     );
 

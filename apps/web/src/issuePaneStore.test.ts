@@ -12,7 +12,8 @@ describe("issuePaneStore", () => {
       byThreadId: {},
       setSelectedIssueId: useIssuePaneStore.getState().setSelectedIssueId,
       setSearch: useIssuePaneStore.getState().setSearch,
-      setScope: useIssuePaneStore.getState().setScope,
+      setShowClosed: useIssuePaneStore.getState().setShowClosed,
+      setSortBy: useIssuePaneStore.getState().setSortBy,
       resetThreadState: useIssuePaneStore.getState().resetThreadState,
     });
   });
@@ -21,7 +22,8 @@ describe("issuePaneStore", () => {
     expect(getIssuePaneState(THREAD_A)).toEqual({
       selectedIssueId: null,
       search: "",
-      scope: "active",
+      showClosed: false,
+      sortBy: "updated",
     });
   });
 
@@ -34,14 +36,16 @@ describe("issuePaneStore", () => {
     expect(getIssuePaneState(THREAD_B).selectedIssueId).toBe("TASK-2");
   });
 
-  it("stores search and scope independently per thread", () => {
+  it("stores search, closed visibility, and sort independently per thread", () => {
     const store = useIssuePaneStore.getState();
     store.setSearch(THREAD_A, "parser");
-    store.setScope(THREAD_A, "closed");
+    store.setShowClosed(THREAD_A, true);
+    store.setSortBy(THREAD_A, "created");
 
     expect(getIssuePaneState(THREAD_A)).toMatchObject({
       search: "parser",
-      scope: "closed",
+      showClosed: true,
+      sortBy: "created",
     });
   });
 
@@ -54,7 +58,8 @@ describe("issuePaneStore", () => {
     expect(getIssuePaneState(THREAD_A)).toEqual({
       selectedIssueId: null,
       search: "",
-      scope: "active",
+      showClosed: false,
+      sortBy: "updated",
     });
   });
 });

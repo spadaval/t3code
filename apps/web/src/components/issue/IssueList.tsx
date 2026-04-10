@@ -1,8 +1,9 @@
-import type { BeadsIssueSummary } from "@t3tools/contracts";
+import type { BeadsIssueSortBy, BeadsIssueSummary } from "@t3tools/contracts";
 import { useMemo, useState, useCallback, useRef, useEffect, type ReactNode } from "react";
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 
-import { filterIssuesForList } from "~/lib/issuePanelLogic";
+import { Checkbox } from "../ui/checkbox";
+import { filterAndSortIssues } from "~/lib/issuePanelLogic";
 import {
   buildIssueTree,
   buildIssueTreeNodeLookup,
@@ -27,10 +28,12 @@ export interface IssueListProps {
   className?: string | undefined;
   selectedIssueId?: string | null | undefined;
   searchValue?: string | undefined;
-  scopeFilter?: "active" | "all" | "closed" | undefined;
+  showClosed?: boolean | undefined;
+  sortBy?: BeadsIssueSortBy | undefined;
   onIssueSelect?: ((issueId: string) => void) | undefined;
   onSearchChange?: ((search: string) => void) | undefined;
-  onScopeChange?: ((scope: "active" | "all" | "closed") => void) | undefined;
+  onShowClosedChange?: ((showClosed: boolean) => void) | undefined;
+  onSortByChange?: ((sortBy: BeadsIssueSortBy) => void) | undefined;
   onLabelClick?: ((label: string) => void) | undefined;
   onIssueContextAction?: ((issueId: string, action: IssueContextAction) => void) | undefined;
   loading?: boolean | undefined;
@@ -108,10 +111,12 @@ export function IssueList({
   className,
   selectedIssueId,
   searchValue = "",
-  scopeFilter = "active",
+  showClosed = false,
+  sortBy = "updated",
   onIssueSelect,
   onSearchChange,
-  onScopeChange,
+  onShowClosedChange,
+  onSortByChange,
   onLabelClick,
   onIssueContextAction,
   loading = false,
@@ -123,16 +128,15 @@ export function IssueList({
   const [focusedIssueIndex, setFocusedIssueIndex] = useState(-1);
   const [collapsedById, setCollapsedById] = useState<Record<string, boolean>>({});
 
-  const filteredIssues = useMemo(() => {
-    return filterIssuesForList(issues, {
+  const filteredResult = useMemo(() => {
+    return filterAndSortIssues(issues, {
       searchQuery: searchValue,
-      scopeFilter,
+      showClosed,
+      sortBy,
     });
-  }, [issues, scopeFilter, searchValue]);
-
-  const issueTree = useMemo(() => {
-    return buildIssueTree(filteredIssues);
-  }, [filteredIssues]);
+  }, [issues, searchValue, showClosed, sortBy]);
+  const filteredIssues = filteredResult.issues;
+  const issueTree = filteredResult.issueTree;
   const fullIssueTree = useMemo(() => buildIssueTree(issues), [issues]);
   const fullTreeNodesById = useMemo(
     () => buildIssueTreeNodeLookup(fullIssueTree.roots),
@@ -208,10 +212,10 @@ export function IssueList({
   );
 
   // Reset focus when filter changes — deps are intentional triggers
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scopeFilter and searchValue are intentional triggers
+  // biome-ignore lint/correctness/useExhaustiveDependencies: showClosed, sortBy, and searchValue are intentional triggers
   useEffect(() => {
     setFocusedIssueIndex(-1);
-  }, [scopeFilter, searchValue]);
+  }, [showClosed, sortBy, searchValue]);
 
   const handleIssueContextMenu = useCallback(
     (issue: BeadsIssueSummary, event: React.MouseEvent) => {
@@ -251,9 +255,11 @@ export function IssueList({
       <div className={cn("flex flex-col h-full", className)}>
         <IssueListHeader
           searchValue={searchValue}
-          scopeFilter={scopeFilter}
+          showClosed={showClosed}
+          sortBy={sortBy}
           onSearchChange={onSearchChange}
-          onScopeChange={onScopeChange}
+          onShowClosedChange={onShowClosedChange}
+          onSortByChange={onSortByChange}
           actions={actions}
           totalCount={issues.length}
           loading
@@ -293,9 +299,11 @@ export function IssueList({
     >
       <IssueListHeader
         searchValue={searchValue}
-        scopeFilter={scopeFilter}
+        showClosed={showClosed}
+        sortBy={sortBy}
         onSearchChange={onSearchChange}
-        onScopeChange={onScopeChange}
+        onShowClosedChange={onShowClosedChange}
+        onSortByChange={onSortByChange}
         actions={actions}
         totalCount={filteredIssues.length}
         originalCount={issues.length}
@@ -306,7 +314,8 @@ export function IssueList({
           <EmptyState
             message={emptyMessage}
             hasSearch={searchValue.trim().length > 0}
-            hasFilter={scopeFilter !== "all"}
+            showClosed={showClosed}
+            hasClosedIssues={issues.some((issue) => issue.status === "closed")}
           />
         ) : (
           <div className="py-1">
@@ -358,18 +367,22 @@ export function IssueList({
 
 function IssueListHeader({
   searchValue,
-  scopeFilter,
+  showClosed,
+  sortBy,
   onSearchChange,
-  onScopeChange,
+  onShowClosedChange,
+  onSortByChange,
   actions,
   totalCount,
   originalCount,
   loading = false,
 }: {
   searchValue?: string | undefined;
-  scopeFilter?: "active" | "all" | "closed" | undefined;
+  showClosed?: boolean | undefined;
+  sortBy?: BeadsIssueSortBy | undefined;
   onSearchChange?: ((search: string) => void) | undefined;
-  onScopeChange?: ((scope: "active" | "all" | "closed") => void) | undefined;
+  onShowClosedChange?: ((showClosed: boolean) => void) | undefined;
+  onSortByChange?: ((sortBy: BeadsIssueSortBy) => void) | undefined;
   actions?: ReactNode | undefined;
   totalCount: number;
   originalCount?: number | undefined;
@@ -396,7 +409,7 @@ function IssueListHeader({
 
   return (
     <div className="border-b border-border bg-background/95 backdrop-blur-sm px-4 py-2.5 space-y-2">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Input
           ref={searchInputRef}
           placeholder="Search issues..."
@@ -405,18 +418,27 @@ function IssueListHeader({
           className="h-7 text-xs"
           disabled={loading}
         />
+        <label className="inline-flex shrink-0 items-center gap-2 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground">
+          <Checkbox
+            checked={showClosed}
+            onCheckedChange={(checked) => onShowClosedChange?.(Boolean(checked))}
+            disabled={loading}
+          />
+          <span>Show closed</span>
+        </label>
         <Select
-          value={scopeFilter}
-          onValueChange={(value) => onScopeChange?.(value as "active" | "all" | "closed")}
+          value={sortBy}
+          onValueChange={(value) => onSortByChange?.(value as BeadsIssueSortBy)}
           disabled={loading}
         >
-          <SelectTrigger className="w-24 h-7 text-xs">
+          <SelectTrigger className="h-7 w-[9.5rem] text-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectPopup>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="all">All</SelectItem>
-            <SelectItem value="closed">Closed</SelectItem>
+            <SelectItem value="updated">Recently updated</SelectItem>
+            <SelectItem value="created">Recently created</SelectItem>
+            <SelectItem value="priority">Priority</SelectItem>
+            <SelectItem value="title">Title</SelectItem>
           </SelectPopup>
         </Select>
       </div>
@@ -719,27 +741,29 @@ function SectionDivider({ label }: { label: string }) {
 function EmptyState({
   message,
   hasSearch,
-  hasFilter,
+  showClosed,
+  hasClosedIssues,
 }: {
   message: string;
   hasSearch: boolean;
-  hasFilter: boolean;
+  showClosed: boolean;
+  hasClosedIssues: boolean;
 }) {
+  const detail = hasSearch
+    ? !showClosed && hasClosedIssues
+      ? "Try different search terms or enable Show closed."
+      : "Try different search terms."
+    : !showClosed && hasClosedIssues
+      ? "Try enabling Show closed."
+      : message;
+
   return (
     <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
       <div className="mb-3 size-10 rounded-full border-2 border-dashed border-muted-foreground/20" />
       <p className="text-sm font-medium text-foreground/80">
-        {hasSearch || hasFilter ? "No matching issues" : "No issues found"}
+        {hasSearch || (!showClosed && hasClosedIssues) ? "No matching issues" : "No issues found"}
       </p>
-      <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-        {hasSearch && hasFilter
-          ? "Try adjusting your search or filter."
-          : hasSearch
-            ? "Try different search terms."
-            : hasFilter
-              ? "Try changing the scope filter."
-              : message}
-      </p>
+      <p className="mt-1 max-w-xs text-xs text-muted-foreground">{detail}</p>
     </div>
   );
 }

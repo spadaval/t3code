@@ -300,7 +300,7 @@ export const BeadsCoordinatorEpicSnapshot = Schema.Struct({
 });
 export type BeadsCoordinatorEpicSnapshot = typeof BeadsCoordinatorEpicSnapshot.Type;
 
-export const BeadsIssueSortBy = Schema.Literals(["updated", "priority"]);
+export const BeadsIssueSortBy = Schema.Literals(["updated", "created", "priority", "title"]);
 export type BeadsIssueSortBy = typeof BeadsIssueSortBy.Type;
 
 export const BeadsQueryIssuesInput = Schema.Struct({

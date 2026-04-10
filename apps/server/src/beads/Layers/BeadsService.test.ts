@@ -443,7 +443,7 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
-  it.effect("preserves parent refs when querying issues for epic grouping", () =>
+  it.effect("preserves parent refs when querying visible issues for epic grouping", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
       installBdJsonMock({
@@ -501,6 +501,7 @@ layer("BeadsServiceLive", (it) => {
       const beads = yield* BeadsService;
       const result = yield* beads.queryIssues({
         cwd: "/repo",
+        statuses: ["open"],
         sortBy: "updated",
       });
 
@@ -512,6 +513,174 @@ layer("BeadsServiceLive", (it) => {
         id: "EPIC-1",
         title: "Epic coordination",
       });
+    }),
+  );
+
+  it.effect("includes closed issues when statuses are omitted", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      installBdJsonMock({
+        "list --all --limit 0": [
+          {
+            id: "TASK-OPEN",
+            title: "Open task",
+            description: null,
+            notes: null,
+            status: "open",
+            priority: 2,
+            issue_type: "task",
+            assignee: null,
+            owner: null,
+            created_at: now,
+            created_by: null,
+            updated_at: now,
+            labels: [],
+          },
+          {
+            id: "TASK-CLOSED",
+            title: "Closed task",
+            description: null,
+            notes: null,
+            status: "closed",
+            priority: 1,
+            issue_type: "task",
+            assignee: null,
+            owner: null,
+            created_at: now,
+            created_by: null,
+            updated_at: now,
+            labels: [],
+          },
+        ],
+      });
+
+      const beads = yield* BeadsService;
+      const result = yield* beads.queryIssues({
+        cwd: "/repo",
+        sortBy: "updated",
+      });
+
+      assert.deepStrictEqual(
+        result.issues.map((issue) => issue.id),
+        ["TASK-CLOSED", "TASK-OPEN"],
+      );
+    }),
+  );
+
+  it.effect("sorts queried issues by created date descending", () =>
+    Effect.gen(function* () {
+      installBdJsonMock({
+        "list --all --limit 0": [
+          {
+            id: "TASK-OLD",
+            title: "Old task",
+            description: null,
+            notes: null,
+            status: "open",
+            priority: 2,
+            issue_type: "task",
+            assignee: null,
+            owner: null,
+            created_at: "2024-01-01T00:00:00Z",
+            created_by: null,
+            updated_at: "2024-01-05T00:00:00Z",
+            labels: [],
+          },
+          {
+            id: "TASK-NEW",
+            title: "New task",
+            description: null,
+            notes: null,
+            status: "open",
+            priority: 2,
+            issue_type: "task",
+            assignee: null,
+            owner: null,
+            created_at: "2024-01-03T00:00:00Z",
+            created_by: null,
+            updated_at: "2024-01-04T00:00:00Z",
+            labels: [],
+          },
+        ],
+      });
+
+      const beads = yield* BeadsService;
+      const result = yield* beads.queryIssues({
+        cwd: "/repo",
+        statuses: ["open"],
+        sortBy: "created",
+      });
+
+      assert.deepStrictEqual(
+        result.issues.map((issue) => issue.id),
+        ["TASK-NEW", "TASK-OLD"],
+      );
+    }),
+  );
+
+  it.effect("sorts queried issues by title with updated-at tie breakers", () =>
+    Effect.gen(function* () {
+      installBdJsonMock({
+        "list --all --limit 0": [
+          {
+            id: "TASK-BETA",
+            title: "Beta task",
+            description: null,
+            notes: null,
+            status: "open",
+            priority: 2,
+            issue_type: "task",
+            assignee: null,
+            owner: null,
+            created_at: "2024-01-01T00:00:00Z",
+            created_by: null,
+            updated_at: "2024-01-02T00:00:00Z",
+            labels: [],
+          },
+          {
+            id: "TASK-ALPHA-OLDER",
+            title: "Alpha task",
+            description: null,
+            notes: null,
+            status: "open",
+            priority: 2,
+            issue_type: "task",
+            assignee: null,
+            owner: null,
+            created_at: "2024-01-01T00:00:00Z",
+            created_by: null,
+            updated_at: "2024-01-01T00:00:00Z",
+            labels: [],
+          },
+          {
+            id: "TASK-ALPHA-NEWER",
+            title: "alpha task",
+            description: null,
+            notes: null,
+            status: "open",
+            priority: 2,
+            issue_type: "task",
+            assignee: null,
+            owner: null,
+            created_at: "2024-01-01T00:00:00Z",
+            created_by: null,
+            updated_at: "2024-01-03T00:00:00Z",
+            labels: [],
+          },
+        ],
+      });
+
+      const beads = yield* BeadsService;
+      const result = yield* beads.queryIssues({
+        cwd: "/repo",
+        statuses: ["open"],
+        sortBy: "title",
+      });
+
+      assert.deepStrictEqual(
+        result.issues.map((issue) => issue.id),
+        ["TASK-ALPHA-NEWER", "TASK-ALPHA-OLDER", "TASK-BETA"],
+      );
     }),
   );
 

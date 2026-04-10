@@ -1,5 +1,4 @@
-import type { BeadsIssueSummary } from "@t3tools/contracts";
-import type { ThreadId } from "@t3tools/contracts";
+import type { BeadsIssueSortBy, BeadsIssueSummary, ThreadId } from "@t3tools/contracts";
 import { type ReactNode, useCallback } from "react";
 
 import { cn } from "~/lib/utils";
@@ -7,7 +6,6 @@ import { IssueList, type IssueContextAction } from "./IssueList";
 import { NavigationTabs, NavigationTab } from "../shared/NavigationTabs";
 import { ErrorDisplay } from "../shared/ErrorDisplay";
 import { LoadingSkeleton } from "../shared/LoadingSpinner";
-import type { IssuePaneScope } from "~/issuePaneStore";
 
 export interface IssueListPanelProps {
   className?: string | undefined;
@@ -15,14 +13,16 @@ export interface IssueListPanelProps {
   issues: readonly BeadsIssueSummary[];
   selectedIssueId?: string | null | undefined;
   searchValue?: string | undefined;
-  scopeFilter?: IssuePaneScope | undefined;
+  showClosed?: boolean | undefined;
+  sortBy?: BeadsIssueSortBy | undefined;
   loading?: boolean | undefined;
   error?: string | null | undefined;
 
   // Event handlers
   onIssueSelect?: ((issueId: string) => void) | undefined;
   onSearchChange?: ((search: string) => void) | undefined;
-  onScopeChange?: ((scope: IssuePaneScope) => void) | undefined;
+  onShowClosedChange?: ((showClosed: boolean) => void) | undefined;
+  onSortByChange?: ((sortBy: BeadsIssueSortBy) => void) | undefined;
   onLabelClick?: ((label: string) => void) | undefined;
   onIssueContextAction?: ((issueId: string, action: IssueContextAction) => void) | undefined;
 
@@ -67,12 +67,14 @@ export function IssueListPanel({
   issues,
   selectedIssueId,
   searchValue = "",
-  scopeFilter = "active",
+  showClosed = false,
+  sortBy = "updated",
   loading = false,
   error = null,
   onIssueSelect,
   onSearchChange,
-  onScopeChange,
+  onShowClosedChange,
+  onSortByChange,
   onLabelClick,
   onIssueContextAction,
   activeTab = "issues",
@@ -177,10 +179,12 @@ export function IssueListPanel({
           issues={issues}
           selectedIssueId={selectedIssueId}
           searchValue={searchValue}
-          scopeFilter={scopeFilter}
+          showClosed={showClosed}
+          sortBy={sortBy}
           onIssueSelect={onIssueSelect}
           onSearchChange={onSearchChange}
-          onScopeChange={onScopeChange}
+          onShowClosedChange={onShowClosedChange}
+          onSortByChange={onSortByChange}
           onLabelClick={onLabelClick}
           onIssueContextAction={onIssueContextAction}
           loading={loading}

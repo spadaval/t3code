@@ -404,12 +404,53 @@ function compareIssueSummaries(
     if (leftPriority !== rightPriority) {
       return leftPriority - rightPriority;
     }
+
+    const updatedAtDelta = right.updatedAt.localeCompare(left.updatedAt);
+    if (updatedAtDelta !== 0) {
+      return updatedAtDelta;
+    }
+
+    return left.id.localeCompare(right.id);
+  }
+
+  if (sortBy === "created") {
+    const createdAtDelta = right.createdAt.localeCompare(left.createdAt);
+    if (createdAtDelta !== 0) {
+      return createdAtDelta;
+    }
+
+    const titleDelta = left.title.localeCompare(right.title, undefined, { sensitivity: "base" });
+    if (titleDelta !== 0) {
+      return titleDelta;
+    }
+
+    return left.id.localeCompare(right.id);
+  }
+
+  if (sortBy === "title") {
+    const titleDelta = left.title.localeCompare(right.title, undefined, { sensitivity: "base" });
+    if (titleDelta !== 0) {
+      return titleDelta;
+    }
+
+    const updatedAtDelta = right.updatedAt.localeCompare(left.updatedAt);
+    if (updatedAtDelta !== 0) {
+      return updatedAtDelta;
+    }
+
+    return left.id.localeCompare(right.id);
   }
 
   const updatedDelta = right.updatedAt.localeCompare(left.updatedAt);
   if (updatedDelta !== 0) {
     return updatedDelta;
   }
+
+  const titleDelta = left.title.localeCompare(right.title, undefined, { sensitivity: "base" });
+  if (titleDelta !== 0) {
+    return titleDelta;
+  }
+
   return left.id.localeCompare(right.id);
 }
 
@@ -692,10 +733,6 @@ function buildSwarmSummaryLookup(
 
 function matchesIssueSummary(issue: BeadsIssueSummaryType, input: BeadsQueryIssuesInput): boolean {
   if (input.statuses && input.statuses.length > 0 && !input.statuses.includes(issue.status)) {
-    return false;
-  }
-
-  if (!input.statuses?.length && issue.status === "closed") {
     return false;
   }
 

@@ -1,11 +1,11 @@
 import type {
+  BeadsIssueSortBy,
   BeadsIssueSummary,
   BeadsSwarmSummary,
   OrchestrationSwarmRun,
   BeadsCoordinatorEpicSnapshot,
 } from "@t3tools/contracts";
-import type { IssuePaneScope } from "~/issuePaneStore";
-import type { IssueTreeForest } from "~/lib/issueTree";
+import type { IssueTreeForest, IssueTreeNode } from "~/lib/issueTree";
 import { buildIssueTree } from "~/lib/issueTree";
 import { partitionCoordinatorSwarms, type CoordinatorSwarmSections } from "~/issuePanel";
 
@@ -13,10 +13,9 @@ import { partitionCoordinatorSwarms, type CoordinatorSwarmSections } from "~/iss
 
 export interface IssueFilterOptions {
   searchQuery?: string;
-  scopeFilter?: IssuePaneScope;
+  showClosed?: boolean;
   selectedLabels?: readonly string[];
-  sortBy?: "updated" | "created" | "title" | "status";
-  sortDirection?: "asc" | "desc";
+  sortBy?: BeadsIssueSortBy;
   groupBy?: "none" | "status" | "labels" | "epic" | "assignee";
 }
 
@@ -38,44 +37,26 @@ export function filterAndSortIssues(
 ): FilteredIssuesResult {
   const {
     searchQuery = "",
-    scopeFilter = "active",
+    showClosed = false,
     selectedLabels = [],
     sortBy = "updated",
-    sortDirection = "desc",
     groupBy = "none",
   } = options;
 
-  let filtered = [...issues];
   const originalCount = issues.length;
+  const normalizedQuery = normalizeSearchValue(searchQuery);
+  const entriesByIssueId = new Map(
+    issues.map((issue, index) => [
+      issue.id,
+      {
+        issue,
+        originalIndex: index,
+      },
+    ]),
+  );
 
-  // Step 1: Apply search filter
-  if (searchQuery.trim()) {
-    const query = searchQuery.toLowerCase().trim();
-    filtered = filtered.filter((issue) => {
-      const titleMatch = issue.title.toLowerCase().includes(query);
-      const descriptionMatch = issue.description?.toLowerCase().includes(query);
-      const labelMatch = issue.labels?.some((label) => label.toLowerCase().includes(query));
-      const idMatch = issue.id.toLowerCase().includes(query);
+  let filtered = issues.filter((issue) => matchesIssueListVisibility(issue, showClosed));
 
-      return titleMatch || descriptionMatch || labelMatch || idMatch;
-    });
-  }
-
-  // Step 2: Apply scope filter
-  if (scopeFilter !== "all") {
-    filtered = filtered.filter((issue) => {
-      switch (scopeFilter) {
-        case "active":
-          return issue.status === "open";
-        case "closed":
-          return issue.status === "closed";
-        default:
-          return true;
-      }
-    });
-  }
-
-  // Step 3: Apply label filter
   if (selectedLabels.length > 0) {
     filtered = filtered.filter((issue) => {
       if (!issue.labels || issue.labels.length === 0) {
@@ -88,32 +69,53 @@ export function filterAndSortIssues(
     });
   }
 
-  // Step 4: Apply sorting
-  const sorted = [...filtered].toSorted((a, b) => {
-    let comparison = 0;
+  const scoredEntries = filtered
+    .map((issue) => {
+      const score =
+        normalizedQuery.length > 0 ? rankIssueAgainstQuery(issue, normalizedQuery) : null;
+      return {
+        issue,
+        originalIndex: entriesByIssueId.get(issue.id)?.originalIndex ?? Number.MAX_SAFE_INTEGER,
+        score,
+      };
+    })
+    .filter(
+      (entry): entry is { issue: BeadsIssueSummary; originalIndex: number; score: number | null } =>
+        normalizedQuery.length === 0 || entry.score !== null,
+    );
 
-    switch (sortBy) {
-      case "title":
-        comparison = a.title.localeCompare(b.title);
-        break;
-      case "created":
-        comparison = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-        break;
-      case "updated":
-        comparison = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
-        break;
-      case "status":
-        comparison = a.status.localeCompare(b.status);
-        break;
-      default:
-        comparison = 0;
+  const scoreByIssueId = new Map(
+    scoredEntries.map((entry) => [entry.issue.id, entry.score ?? Number.NEGATIVE_INFINITY]),
+  );
+  const indexByIssueId = new Map(
+    scoredEntries.map((entry) => [entry.issue.id, entry.originalIndex]),
+  );
+  const compareIssues = (left: BeadsIssueSummary, right: BeadsIssueSummary) => {
+    if (normalizedQuery.length > 0) {
+      const scoreDelta =
+        (scoreByIssueId.get(right.id) ?? Number.NEGATIVE_INFINITY) -
+        (scoreByIssueId.get(left.id) ?? Number.NEGATIVE_INFINITY);
+      if (scoreDelta !== 0) {
+        return scoreDelta;
+      }
     }
 
-    return sortDirection === "desc" ? -comparison : comparison;
-  });
+    const sortDelta = compareIssuesForListSort(left, right, sortBy);
+    if (sortDelta !== 0) {
+      return sortDelta;
+    }
 
-  // Step 5: Generate groupings
-  const issueTree = buildIssueTree(sorted);
+    return (
+      (indexByIssueId.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+      (indexByIssueId.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+    );
+  };
+
+  const issueTree = sortIssueTree(
+    buildIssueTree(scoredEntries.map((entry) => entry.issue)),
+    compareIssues,
+  );
+  const sorted = issueTree.visibleOrder;
   const groupedIssues = createIssueGroups(sorted, groupBy);
 
   return {
@@ -358,6 +360,14 @@ export function analyzeEpicCoordination(
 
 const ACTIVE_ISSUE_LIST_STATUSES = new Set(["open", "in_progress", "blocked", "deferred"]);
 
+export function matchesIssueListVisibility(issue: BeadsIssueSummary, showClosed: boolean): boolean {
+  return showClosed || ACTIVE_ISSUE_LIST_STATUSES.has(issue.status);
+}
+
+export function issueStatusesForVisibility(showClosed: boolean): string[] {
+  return showClosed ? [...ACTIVE_ISSUE_LIST_STATUSES, "closed"] : [...ACTIVE_ISSUE_LIST_STATUSES];
+}
+
 const ISSUE_SEARCH_FIELD_WEIGHTS = {
   id: 1000,
   title: 700,
@@ -378,7 +388,8 @@ interface SearchableIssueField {
 
 export interface IssueListSearchOptions {
   searchQuery?: string;
-  scopeFilter?: IssuePaneScope;
+  showClosed?: boolean;
+  sortBy?: BeadsIssueSortBy;
 }
 
 function normalizeSearchValue(value: string | null | undefined): string {
@@ -533,16 +544,113 @@ function buildSearchableIssueFields(issue: BeadsIssueSummary): readonly Searchab
   return fields.filter((field): field is SearchableIssueField => field !== null);
 }
 
-function matchesIssueListScope(issue: BeadsIssueSummary, scopeFilter: IssuePaneScope): boolean {
-  if (scopeFilter === "all") {
-    return true;
+export function compareIssuesForListSort(
+  left: BeadsIssueSummary,
+  right: BeadsIssueSummary,
+  sortBy: BeadsIssueSortBy,
+): number {
+  if (sortBy === "priority") {
+    const leftPriority = left.priority ?? Number.MAX_SAFE_INTEGER;
+    const rightPriority = right.priority ?? Number.MAX_SAFE_INTEGER;
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
+    }
+
+    const updatedAtDelta = right.updatedAt.localeCompare(left.updatedAt);
+    if (updatedAtDelta !== 0) {
+      return updatedAtDelta;
+    }
+
+    return left.id.localeCompare(right.id);
   }
 
-  if (scopeFilter === "closed") {
-    return issue.status === "closed";
+  if (sortBy === "created") {
+    const createdAtDelta = right.createdAt.localeCompare(left.createdAt);
+    if (createdAtDelta !== 0) {
+      return createdAtDelta;
+    }
+
+    const titleDelta = left.title.localeCompare(right.title, undefined, { sensitivity: "base" });
+    if (titleDelta !== 0) {
+      return titleDelta;
+    }
+
+    return left.id.localeCompare(right.id);
   }
 
-  return ACTIVE_ISSUE_LIST_STATUSES.has(issue.status);
+  if (sortBy === "title") {
+    const titleDelta = left.title.localeCompare(right.title, undefined, { sensitivity: "base" });
+    if (titleDelta !== 0) {
+      return titleDelta;
+    }
+
+    const updatedAtDelta = right.updatedAt.localeCompare(left.updatedAt);
+    if (updatedAtDelta !== 0) {
+      return updatedAtDelta;
+    }
+
+    return left.id.localeCompare(right.id);
+  }
+
+  const updatedAtDelta = right.updatedAt.localeCompare(left.updatedAt);
+  if (updatedAtDelta !== 0) {
+    return updatedAtDelta;
+  }
+
+  const titleDelta = left.title.localeCompare(right.title, undefined, { sensitivity: "base" });
+  if (titleDelta !== 0) {
+    return titleDelta;
+  }
+
+  return left.id.localeCompare(right.id);
+}
+
+function sortIssueTree(
+  issueTree: IssueTreeForest,
+  compareIssues: (left: BeadsIssueSummary, right: BeadsIssueSummary) => number,
+): IssueTreeForest {
+  const sortedRoots = sortIssueTreeNodes(issueTree.roots, compareIssues);
+  const roots = [
+    ...sortedRoots.filter((node) => node.isEpic),
+    ...sortedRoots.filter((node) => !node.isEpic),
+  ];
+  return {
+    roots,
+    visibleOrder: flattenIssueTreeNodes(roots),
+  };
+}
+
+function sortIssueTreeNodes(
+  nodes: readonly IssueTreeNode[],
+  compareIssues: (left: BeadsIssueSummary, right: BeadsIssueSummary) => number,
+): IssueTreeNode[] {
+  return nodes
+    .map((node) => {
+      const children = sortIssueTreeNodes(node.children, compareIssues);
+      return {
+        ...node,
+        children,
+        hasVisibleChildren: children.length > 0,
+      };
+    })
+    .toSorted((left, right) => compareIssues(left.issue, right.issue));
+}
+
+function flattenIssueTreeNodes(roots: readonly IssueTreeNode[]): BeadsIssueSummary[] {
+  const issues: BeadsIssueSummary[] = [];
+
+  const visitNode = (node: IssueTreeNode) => {
+    issues.push(node.issue);
+    for (const child of node.children) {
+      visitNode(child);
+    }
+  };
+
+  for (const root of roots) {
+    visitNode(root);
+  }
+
+  return issues;
 }
 
 function rankIssueAgainstQuery(issue: BeadsIssueSummary, normalizedQuery: string): number | null {
@@ -582,26 +690,11 @@ export function filterIssuesForList(
   issues: readonly BeadsIssueSummary[],
   options: IssueListSearchOptions = {},
 ): readonly BeadsIssueSummary[] {
-  const scopeFilter = options.scopeFilter ?? "active";
-  const normalizedQuery = normalizeSearchValue(options.searchQuery);
-  const scopedIssues = issues.filter((issue) => matchesIssueListScope(issue, scopeFilter));
-
-  if (normalizedQuery.length === 0) {
-    return scopedIssues;
-  }
-
-  return scopedIssues
-    .map((issue, index) => ({
-      issue,
-      index,
-      score: rankIssueAgainstQuery(issue, normalizedQuery),
-    }))
-    .filter(
-      (entry): entry is { issue: BeadsIssueSummary; index: number; score: number } =>
-        entry.score !== null,
-    )
-    .toSorted((left, right) => right.score - left.score || left.index - right.index)
-    .map((entry) => entry.issue);
+  return filterAndSortIssues(issues, {
+    ...(options.searchQuery !== undefined ? { searchQuery: options.searchQuery } : {}),
+    ...(options.showClosed !== undefined ? { showClosed: options.showClosed } : {}),
+    ...(options.sortBy !== undefined ? { sortBy: options.sortBy } : {}),
+  }).issues;
 }
 
 export interface SearchResult<T> {

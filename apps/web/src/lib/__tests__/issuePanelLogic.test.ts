@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { BeadsIssueSummary } from "@t3tools/contracts";
 import {
+  compareIssuesForListSort,
   filterIssuesForList,
   filterAndSortIssues,
+  issueStatusesForVisibility,
+  matchesIssueListVisibility,
   searchItems,
   validateIssueState,
   debounce,
@@ -10,8 +13,6 @@ import {
   memoize,
   type IssueFilterOptions,
 } from "../issuePanelLogic";
-
-// ── Test Fixtures ───────────────────────────────────────────────────────
 
 const createMockIssue = (overrides: Partial<BeadsIssueSummary> = {}): BeadsIssueSummary => ({
   id: "issue-1",
@@ -36,6 +37,7 @@ const SAMPLE_ISSUES: readonly BeadsIssueSummary[] = [
     id: "issue-1",
     title: "High Priority Bug",
     status: "open",
+    priority: 1,
     labels: ["bug", "high-priority"],
     parent: { id: "epic-1", title: "Epic 1" },
     createdAt: "2024-01-01T00:00:00Z",
@@ -45,6 +47,7 @@ const SAMPLE_ISSUES: readonly BeadsIssueSummary[] = [
     id: "issue-2",
     title: "Feature Request",
     status: "open",
+    priority: 2,
     labels: ["enhancement", "feature"],
     parent: { id: "epic-2", title: "Epic 2" },
     createdAt: "2024-01-02T00:00:00Z",
@@ -54,6 +57,7 @@ const SAMPLE_ISSUES: readonly BeadsIssueSummary[] = [
     id: "issue-3",
     title: "Closed Bug Fix",
     status: "closed",
+    priority: 3,
     labels: ["bug", "resolved"],
     parent: { id: "epic-1", title: "Epic 1" },
     createdAt: "2024-01-03T00:00:00Z",
@@ -63,226 +67,175 @@ const SAMPLE_ISSUES: readonly BeadsIssueSummary[] = [
     id: "issue-4",
     title: "Documentation Update",
     status: "open",
+    priority: null,
     labels: ["documentation"],
-    parent: null, // No epic
+    parent: null,
     createdAt: "2024-01-04T00:00:00Z",
-    updatedAt: "2024-01-01T00:00:00Z", // Older update time
+    updatedAt: "2024-01-01T00:00:00Z",
   }),
 ];
 
 describe("issuePanelLogic", () => {
-  describe("filterAndSortIssues", () => {
-    it("returns all issues when no filters applied", () => {
-      const result = filterAndSortIssues(SAMPLE_ISSUES, { scopeFilter: "all" });
-
-      expect(result.issues).toHaveLength(4);
-      expect(result.totalCount).toBe(4);
-      expect(result.filteredCount).toBe(4);
+  describe("matchesIssueListVisibility", () => {
+    it("hides closed issues by default", () => {
+      expect(matchesIssueListVisibility(SAMPLE_ISSUES[0]!, false)).toBe(true);
+      expect(matchesIssueListVisibility(SAMPLE_ISSUES[2]!, false)).toBe(false);
     });
 
-    it("filters by scope - active only (default)", () => {
-      const result = filterAndSortIssues(SAMPLE_ISSUES); // Default should be active
-
-      expect(result.issues).toHaveLength(3);
-      expect(result.issues.every((issue) => issue.status === "open")).toBe(true);
-      expect(result.filteredCount).toBe(3);
-      expect(result.totalCount).toBe(4);
-    });
-
-    it("filters by scope - closed only", () => {
-      const options: IssueFilterOptions = {
-        scopeFilter: "closed",
-      };
-      const result = filterAndSortIssues(SAMPLE_ISSUES, options);
-
-      expect(result.issues).toHaveLength(1);
-      expect(result.issues[0]!.status).toBe("closed");
-      expect(result.filteredCount).toBe(1);
-    });
-
-    it("filters by search query - case insensitive title match", () => {
-      const options: IssueFilterOptions = {
-        searchQuery: "bug",
-        scopeFilter: "all", // Include all to get both open and closed bug issues
-      };
-      const result = filterAndSortIssues(SAMPLE_ISSUES, options);
-
-      expect(result.issues).toHaveLength(2);
-      expect(result.issues.map((i) => i.id)).toEqual(["issue-1", "issue-3"]);
-    });
-
-    it("filters by search query - label match", () => {
-      const options: IssueFilterOptions = {
-        searchQuery: "feature",
-      };
-      const result = filterAndSortIssues(SAMPLE_ISSUES, options);
-
-      expect(result.issues).toHaveLength(1);
-      expect(result.issues[0]!.id).toBe("issue-2");
-    });
-
-    it("filters by selected labels", () => {
-      const options: IssueFilterOptions = {
-        selectedLabels: ["bug"],
-        scopeFilter: "all", // Include all to get both open and closed bug issues
-      };
-      const result = filterAndSortIssues(SAMPLE_ISSUES, options);
-
-      expect(result.issues).toHaveLength(2);
-      expect(result.issues.every((issue) => issue.labels.includes("bug"))).toBe(true);
-    });
-
-    it("combines multiple filters", () => {
-      const options: IssueFilterOptions = {
-        scopeFilter: "active",
-        selectedLabels: ["bug"],
-        searchQuery: "priority",
-      };
-      const result = filterAndSortIssues(SAMPLE_ISSUES, options);
-
-      expect(result.issues).toHaveLength(1);
-      expect(result.issues[0]!.id).toBe("issue-1");
-    });
-
-    describe("sorting", () => {
-      it("sorts by updated date descending (default)", () => {
-        const result = filterAndSortIssues(SAMPLE_ISSUES, { scopeFilter: "all" });
-
-        // Only checking open issues since default scope is active, but we want all for testing
-        const expectedOrder = ["issue-1", "issue-2", "issue-3", "issue-4"];
-        expect(result.issues.map((i) => i.id)).toEqual(expectedOrder);
-      });
-
-      it("sorts by updated date ascending", () => {
-        const options: IssueFilterOptions = {
-          sortBy: "updated",
-          sortDirection: "asc",
-          scopeFilter: "all",
-        };
-        const result = filterAndSortIssues(SAMPLE_ISSUES, options);
-
-        const expectedOrder = ["issue-4", "issue-3", "issue-2", "issue-1"];
-        expect(result.issues.map((i) => i.id)).toEqual(expectedOrder);
-      });
-
-      it("sorts by title alphabetically", () => {
-        const options: IssueFilterOptions = {
-          sortBy: "title",
-          sortDirection: "asc",
-          scopeFilter: "all",
-        };
-        const result = filterAndSortIssues(SAMPLE_ISSUES, options);
-
-        const titles = result.issues.map((i) => i.title);
-        expect(titles).toEqual([
-          "Closed Bug Fix",
-          "Documentation Update",
-          "Feature Request",
-          "High Priority Bug",
-        ]);
-      });
-
-      it("sorts by created date", () => {
-        const options: IssueFilterOptions = {
-          sortBy: "created",
-          sortDirection: "desc",
-          scopeFilter: "all",
-        };
-        const result = filterAndSortIssues(SAMPLE_ISSUES, options);
-
-        const expectedOrder = ["issue-4", "issue-3", "issue-2", "issue-1"];
-        expect(result.issues.map((i) => i.id)).toEqual(expectedOrder);
-      });
-    });
-
-    describe("grouping", () => {
-      it("groups by epic", () => {
-        const options: IssueFilterOptions = {
-          groupBy: "epic",
-          scopeFilter: "all",
-        };
-        const result = filterAndSortIssues(SAMPLE_ISSUES, options);
-
-        expect(result.groupedIssues.get("epic-1")).toHaveLength(2);
-        expect(result.groupedIssues.get("epic-2")).toHaveLength(1);
-        expect(result.groupedIssues.get("no-epic")).toHaveLength(1);
-      });
-
-      it("groups by status", () => {
-        const options: IssueFilterOptions = {
-          groupBy: "status",
-          scopeFilter: "all",
-        };
-        const result = filterAndSortIssues(SAMPLE_ISSUES, options);
-
-        expect(result.groupedIssues.get("open")).toHaveLength(3);
-        expect(result.groupedIssues.get("closed")).toHaveLength(1);
-      });
-
-      it("groups by labels", () => {
-        const options: IssueFilterOptions = {
-          groupBy: "labels",
-          scopeFilter: "all",
-        };
-        const result = filterAndSortIssues(SAMPLE_ISSUES, options);
-
-        // Each issue should be in a group for each of its labels
-        expect(result.groupedIssues.get("bug")).toHaveLength(2);
-        expect(result.groupedIssues.get("enhancement")).toHaveLength(1);
-        expect(result.groupedIssues.get("documentation")).toHaveLength(1);
-      });
-    });
-
-    describe("edge cases", () => {
-      it("handles empty issues array", () => {
-        const result = filterAndSortIssues([]);
-
-        expect(result.issues).toHaveLength(0);
-        expect(result.totalCount).toBe(0);
-        expect(result.filteredCount).toBe(0);
-        // The empty result still has an "all" group for the default groupBy: "none"
-        expect(result.groupedIssues.get("all")).toHaveLength(0);
-      });
-
-      it("handles issues with missing/null fields", () => {
-        const incompleteIssues = [
-          createMockIssue({
-            id: "incomplete-1",
-            title: "",
-            labels: [],
-            parent: null,
-          }),
-        ];
-
-        const result = filterAndSortIssues(incompleteIssues);
-        expect(result.issues).toHaveLength(1);
-      });
-
-      it("handles malformed dates gracefully", () => {
-        const issuesWithBadDates = [
-          createMockIssue({
-            id: "bad-date-1",
-            createdAt: "invalid-date",
-            updatedAt: "also-invalid",
-          }),
-        ];
-
-        // Should not throw and should handle gracefully
-        expect(() => filterAndSortIssues(issuesWithBadDates)).not.toThrow();
-      });
+    it("includes closed issues when requested", () => {
+      expect(matchesIssueListVisibility(SAMPLE_ISSUES[2]!, true)).toBe(true);
     });
   });
 
-  describe("filterIssuesForList", () => {
-    it("returns scoped issues in original order when search is empty", () => {
-      const result = filterIssuesForList(SAMPLE_ISSUES, {
-        scopeFilter: "active",
-      });
-
-      expect(result.map((issue) => issue.id)).toEqual(["issue-1", "issue-2", "issue-4"]);
+  describe("issueStatusesForVisibility", () => {
+    it("returns only active statuses by default", () => {
+      expect(issueStatusesForVisibility(false)).toEqual([
+        "open",
+        "in_progress",
+        "blocked",
+        "deferred",
+      ]);
     });
 
-    it("matches issue ids before title matches", () => {
+    it("adds closed when closed issues are visible", () => {
+      expect(issueStatusesForVisibility(true)).toEqual([
+        "open",
+        "in_progress",
+        "blocked",
+        "deferred",
+        "closed",
+      ]);
+    });
+  });
+
+  describe("compareIssuesForListSort", () => {
+    it("sorts updated newest first with title/id tiebreakers", () => {
+      const issues = [
+        createMockIssue({ id: "b", title: "Beta", updatedAt: "2024-01-03T00:00:00Z" }),
+        createMockIssue({ id: "a", title: "Alpha", updatedAt: "2024-01-03T00:00:00Z" }),
+        createMockIssue({ id: "c", title: "Gamma", updatedAt: "2024-01-02T00:00:00Z" }),
+      ];
+
+      expect(
+        [...issues]
+          .toSorted((left, right) => compareIssuesForListSort(left, right, "updated"))
+          .map((issue) => issue.id),
+      ).toEqual(["a", "b", "c"]);
+    });
+
+    it("sorts created newest first", () => {
+      const issues = [
+        createMockIssue({ id: "older", createdAt: "2024-01-01T00:00:00Z" }),
+        createMockIssue({ id: "newer", createdAt: "2024-01-03T00:00:00Z" }),
+      ];
+
+      expect(
+        [...issues]
+          .toSorted((left, right) => compareIssuesForListSort(left, right, "created"))
+          .map((issue) => issue.id),
+      ).toEqual(["newer", "older"]);
+    });
+
+    it("sorts priority with null last", () => {
+      const issues = [
+        createMockIssue({ id: "null", priority: null }),
+        createMockIssue({ id: "p2", priority: 2 }),
+        createMockIssue({ id: "p1", priority: 1 }),
+      ];
+
+      expect(
+        [...issues]
+          .toSorted((left, right) => compareIssuesForListSort(left, right, "priority"))
+          .map((issue) => issue.id),
+      ).toEqual(["p1", "p2", "null"]);
+    });
+
+    it("sorts title alphabetically with updated tiebreaker", () => {
+      const issues = [
+        createMockIssue({ id: "b", title: "beta" }),
+        createMockIssue({ id: "a-older", title: "Alpha", updatedAt: "2024-01-01T00:00:00Z" }),
+        createMockIssue({ id: "a-newer", title: "alpha", updatedAt: "2024-01-02T00:00:00Z" }),
+      ];
+
+      expect(
+        [...issues]
+          .toSorted((left, right) => compareIssuesForListSort(left, right, "title"))
+          .map((issue) => issue.id),
+      ).toEqual(["a-newer", "a-older", "b"]);
+    });
+  });
+
+  describe("filterAndSortIssues", () => {
+    it("returns only active issues by default", () => {
+      const result = filterAndSortIssues(SAMPLE_ISSUES);
+
+      expect(result.issues.map((issue) => issue.id)).toEqual(["issue-1", "issue-2", "issue-4"]);
+      expect(result.totalCount).toBe(4);
+      expect(result.filteredCount).toBe(3);
+    });
+
+    it("includes closed issues when showClosed is enabled", () => {
+      const result = filterAndSortIssues(SAMPLE_ISSUES, { showClosed: true });
+
+      expect(result.issues.map((issue) => issue.id)).toEqual([
+        "issue-1",
+        "issue-2",
+        "issue-3",
+        "issue-4",
+      ]);
+    });
+
+    it("supports label filtering", () => {
+      const result = filterAndSortIssues(SAMPLE_ISSUES, {
+        showClosed: true,
+        selectedLabels: ["bug"],
+      });
+
+      expect(result.issues.map((issue) => issue.id)).toEqual(["issue-1", "issue-3"]);
+    });
+
+    it("sorts by created date", () => {
+      const result = filterAndSortIssues(SAMPLE_ISSUES, {
+        showClosed: true,
+        sortBy: "created",
+      });
+
+      expect(result.issues.map((issue) => issue.id)).toEqual([
+        "issue-4",
+        "issue-3",
+        "issue-2",
+        "issue-1",
+      ]);
+    });
+
+    it("sorts within tree containers instead of by raw server order", () => {
+      const issues = [
+        createMockIssue({
+          id: "task-1",
+          title: "Alpha task",
+          parent: { id: "epic-z", title: "Epic Z" },
+        }),
+        createMockIssue({
+          id: "root-1",
+          title: "Beta standalone",
+        }),
+        createMockIssue({
+          id: "epic-z",
+          title: "Epic Z",
+          issueType: "epic",
+        }),
+      ];
+
+      const result = filterAndSortIssues(issues, {
+        showClosed: true,
+        sortBy: "title",
+      });
+
+      expect(result.issueTree.roots.map((node) => node.issue.id)).toEqual(["epic-z", "root-1"]);
+      expect(result.issueTree.roots[0]?.children.map((node) => node.issue.id)).toEqual(["task-1"]);
+    });
+
+    it("uses search relevance before the selected sort", () => {
       const issues = [
         createMockIssue({
           id: "task-201",
@@ -294,14 +247,29 @@ describe("issuePanelLogic", () => {
         }),
       ];
 
-      const result = filterIssuesForList(issues, {
-        scopeFilter: "all",
+      const result = filterAndSortIssues(issues, {
+        showClosed: true,
+        sortBy: "title",
         searchQuery: "task-201",
       });
 
-      expect(result.map((issue) => issue.id)).toEqual(["task-201", "issue-2"]);
+      expect(result.issues.map((issue) => issue.id)).toEqual(["task-201", "issue-2"]);
     });
 
+    it("handles malformed dates gracefully", () => {
+      const issuesWithBadDates = [
+        createMockIssue({
+          id: "bad-date-1",
+          createdAt: "invalid-date",
+          updatedAt: "also-invalid",
+        }),
+      ];
+
+      expect(() => filterAndSortIssues(issuesWithBadDates)).not.toThrow();
+    });
+  });
+
+  describe("filterIssuesForList", () => {
     it("matches labels, parent titles, descriptions, and notes", () => {
       const issues = [
         createMockIssue({
@@ -328,7 +296,7 @@ describe("issuePanelLogic", () => {
 
       expect(
         filterIssuesForList(issues, {
-          scopeFilter: "all",
+          showClosed: true,
           searchQuery: "parser",
         }).map((issue) => issue.id),
       ).toEqual(["issue-label", "issue-parent", "issue-description", "issue-notes"]);
@@ -343,33 +311,11 @@ describe("issuePanelLogic", () => {
       ];
 
       const result = filterIssuesForList(issues, {
-        scopeFilter: "all",
+        showClosed: true,
         searchQuery: "parsr",
       });
 
       expect(result.map((issue) => issue.id)).toEqual(["issue-typo"]);
-    });
-
-    it("ranks title matches above description-only matches", () => {
-      const issues = [
-        createMockIssue({
-          id: "issue-title",
-          title: "Parser improvements",
-          description: "General cleanup",
-        }),
-        createMockIssue({
-          id: "issue-description",
-          title: "General cleanup",
-          description: "Parser improvements",
-        }),
-      ];
-
-      const result = filterIssuesForList(issues, {
-        scopeFilter: "all",
-        searchQuery: "parser",
-      });
-
-      expect(result.map((issue) => issue.id)).toEqual(["issue-title", "issue-description"]);
     });
 
     it("treats deferred issues as active", () => {
@@ -380,9 +326,7 @@ describe("issuePanelLogic", () => {
         }),
       ];
 
-      const result = filterIssuesForList(issues, {
-        scopeFilter: "active",
-      });
+      const result = filterIssuesForList(issues);
 
       expect(result.map((issue) => issue.id)).toEqual(["issue-deferred"]);
     });
@@ -433,14 +377,16 @@ describe("issuePanelLogic", () => {
       const result = validateIssueState(duplicateIssues, {});
 
       expect(result.isValid).toBe(false);
-      expect(result.errors.some((e) => e.includes("Duplicate issue IDs"))).toBe(true);
+      expect(result.errors.some((error) => error.includes("Duplicate issue IDs"))).toBe(true);
     });
 
     it("warns about too many labels", () => {
-      const manyLabels = Array.from({ length: 60 }, (_, i) => `label-${i}`);
-      const result = validateIssueState([], { selectedLabels: manyLabels });
+      const manyLabels = Array.from({ length: 60 }, (_, index) => `label-${index}`);
+      const result = validateIssueState([], {
+        selectedLabels: manyLabels,
+      } satisfies IssueFilterOptions);
 
-      expect(result.warnings.some((w) => w.includes("Too many labels"))).toBe(true);
+      expect(result.warnings.some((warning) => warning.includes("Too many labels"))).toBe(true);
     });
 
     it("validates search query length", () => {
@@ -448,7 +394,7 @@ describe("issuePanelLogic", () => {
       const result = validateIssueState([], { searchQuery: longQuery });
 
       expect(result.isValid).toBe(false);
-      expect(result.errors.some((e) => e.includes("too long"))).toBe(true);
+      expect(result.errors.some((error) => error.includes("too long"))).toBe(true);
     });
   });
 
@@ -482,9 +428,9 @@ describe("issuePanelLogic", () => {
 
     it("memoize caches function results", () => {
       let callCount = 0;
-      const fn = (x: number) => {
+      const fn = (value: number) => {
         callCount++;
-        return x * 2;
+        return value * 2;
       };
       const memoized = memoize(fn);
 

@@ -1,4 +1,4 @@
-import type { ProjectId, ThreadId } from "@t3tools/contracts";
+import type { BeadsIssueSortBy, ProjectId, ThreadId } from "@t3tools/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback } from "react";
@@ -10,6 +10,7 @@ import {
   beadsQueryIssuesOptions,
   beadsSwarmSupportOptions,
 } from "~/lib/beadsReactQuery";
+import { issueStatusesForVisibility } from "~/lib/issuePanelLogic";
 import { parseIssuesRouteSearch } from "~/issuesRouteSearch";
 import { cn } from "~/lib/utils";
 import { useProjectById } from "~/storeSelectors";
@@ -41,6 +42,8 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
     select: (current) => parseIssuesRouteSearch(current),
   });
   const activeTab = (search.tab ?? "coordinator") as TabId;
+  const showClosed = search.showClosed ?? false;
+  const sortBy = search.sort ?? "updated";
   const project = useProjectById(projectId) ?? null;
   const cwd = project?.cwd ?? null;
 
@@ -58,7 +61,8 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
   const issuesQuery = useQuery(
     beadsQueryIssuesOptions({
       cwd: cwd ?? "",
-      sortBy: "updated",
+      statuses: issueStatusesForVisibility(showClosed),
+      sortBy,
       enabled: cwd !== null && (activeTab === "issues" || activeTab === "board"),
     }),
   );
@@ -73,6 +77,8 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
           tab,
           ...(prev.epicId ? { epicId: prev.epicId } : {}),
           ...(prev.issueId ? { issueId: prev.issueId } : {}),
+          ...(prev.showClosed !== undefined ? { showClosed: prev.showClosed } : {}),
+          ...(prev.sort ? { sort: prev.sort } : {}),
         }),
         replace: true,
       });
@@ -89,6 +95,8 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
           ...(prev.tab ? { tab: prev.tab } : {}),
           ...(epicId ? { epicId } : {}),
           ...(prev.issueId ? { issueId: prev.issueId } : {}),
+          ...(prev.showClosed !== undefined ? { showClosed: prev.showClosed } : {}),
+          ...(prev.sort ? { sort: prev.sort } : {}),
         }),
       });
     },
@@ -104,6 +112,8 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
           ...(prev.tab ? { tab: prev.tab } : {}),
           ...(prev.epicId ? { epicId: prev.epicId } : {}),
           ...(issueId ? { issueId } : {}),
+          ...(prev.showClosed !== undefined ? { showClosed: prev.showClosed } : {}),
+          ...(prev.sort ? { sort: prev.sort } : {}),
         }),
       });
     },
@@ -119,7 +129,45 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
           tab: "issues",
           epicId,
           issueId: epicId,
+          ...(showClosed ? { showClosed } : {}),
+          ...(sortBy !== "updated" ? { sort: sortBy } : {}),
         },
+      });
+    },
+    [navigate, projectId, showClosed, sortBy],
+  );
+
+  const setShowClosed = useCallback(
+    (nextShowClosed: boolean) => {
+      void navigate({
+        to: "/projects/$projectId/issues",
+        params: { projectId },
+        search: (prev) => ({
+          ...(prev.tab ? { tab: prev.tab } : {}),
+          ...(prev.epicId ? { epicId: prev.epicId } : {}),
+          ...(prev.issueId ? { issueId: prev.issueId } : {}),
+          ...(nextShowClosed ? { showClosed: true } : {}),
+          ...(prev.sort ? { sort: prev.sort } : {}),
+        }),
+        replace: true,
+      });
+    },
+    [navigate, projectId],
+  );
+
+  const setSortBy = useCallback(
+    (nextSortBy: BeadsIssueSortBy) => {
+      void navigate({
+        to: "/projects/$projectId/issues",
+        params: { projectId },
+        search: (prev) => ({
+          ...(prev.tab ? { tab: prev.tab } : {}),
+          ...(prev.epicId ? { epicId: prev.epicId } : {}),
+          ...(prev.issueId ? { issueId: prev.issueId } : {}),
+          ...(prev.showClosed !== undefined ? { showClosed: prev.showClosed } : {}),
+          ...(nextSortBy !== "updated" ? { sort: nextSortBy } : {}),
+        }),
+        replace: true,
       });
     },
     [navigate, projectId],
@@ -214,8 +262,12 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
             issues={issuesQuery.data?.issues ?? []}
             issuesPending={issuesQuery.isPending}
             issuesError={issuesQuery.error}
+            showClosed={showClosed}
+            sortBy={sortBy}
             selectedIssueId={search.issueId ?? null}
             onSelectIssue={setSelectedIssueId}
+            onShowClosedChange={setShowClosed}
+            onSortByChange={setSortBy}
             onOpenThread={openThread}
           />
         )}

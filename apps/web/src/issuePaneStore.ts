@@ -1,26 +1,29 @@
-import type { ThreadId } from "@t3tools/contracts";
+import type { BeadsIssueSortBy, ThreadId } from "@t3tools/contracts";
 import { create } from "zustand";
 
-export type IssuePaneScope = "active" | "all" | "closed";
+export type IssueListSortBy = BeadsIssueSortBy;
 
 export interface ThreadIssuePaneState {
   readonly selectedIssueId: string | null;
   readonly search: string;
-  readonly scope: IssuePaneScope;
+  readonly showClosed: boolean;
+  readonly sortBy: IssueListSortBy;
 }
 
 interface IssuePaneStoreState {
   readonly byThreadId: Record<string, ThreadIssuePaneState>;
   readonly setSelectedIssueId: (threadId: ThreadId, issueId: string | null) => void;
   readonly setSearch: (threadId: ThreadId, search: string) => void;
-  readonly setScope: (threadId: ThreadId, scope: IssuePaneScope) => void;
+  readonly setShowClosed: (threadId: ThreadId, showClosed: boolean) => void;
+  readonly setSortBy: (threadId: ThreadId, sortBy: IssueListSortBy) => void;
   readonly resetThreadState: (threadId: ThreadId) => void;
 }
 
 const DEFAULT_THREAD_ISSUE_PANE_STATE: ThreadIssuePaneState = {
   selectedIssueId: null,
   search: "",
-  scope: "active",
+  showClosed: false,
+  sortBy: "updated",
 };
 
 function updateThreadState(
@@ -54,10 +57,16 @@ export const useIssuePaneStore = create<IssuePaneStoreState>()((set) => ({
         current.search === search ? current : { ...current, search },
       ),
     })),
-  setScope: (threadId, scope) =>
+  setShowClosed: (threadId, showClosed) =>
     set((state) => ({
       byThreadId: updateThreadState(state.byThreadId, threadId, (current) =>
-        current.scope === scope ? current : { ...current, scope },
+        current.showClosed === showClosed ? current : { ...current, showClosed },
+      ),
+    })),
+  setSortBy: (threadId, sortBy) =>
+    set((state) => ({
+      byThreadId: updateThreadState(state.byThreadId, threadId, (current) =>
+        current.sortBy === sortBy ? current : { ...current, sortBy },
       ),
     })),
   resetThreadState: (threadId) =>

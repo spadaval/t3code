@@ -6,6 +6,7 @@ import {
   BeadsContext,
   BeadsEpicCoordinatorSnapshot,
   BeadsIssueGraph,
+  BeadsQueryIssuesInput,
   BeadsProjectCoordinatorSnapshot,
   BeadsSessionActivityEntry,
   BeadsStartBacklogGroomingInput,
@@ -18,6 +19,7 @@ import {
 const decodeBeadsContext = Schema.decodeUnknownEffect(BeadsContext);
 const decodeBeadsEpicCoordinatorSnapshot = Schema.decodeUnknownEffect(BeadsEpicCoordinatorSnapshot);
 const decodeBeadsIssueGraph = Schema.decodeUnknownEffect(BeadsIssueGraph);
+const decodeBeadsQueryIssuesInput = Schema.decodeUnknownEffect(BeadsQueryIssuesInput);
 const decodeBeadsProjectCoordinatorSnapshot = Schema.decodeUnknownEffect(
   BeadsProjectCoordinatorSnapshot,
 );
@@ -81,6 +83,22 @@ it.effect("defaults missing issue graph relations for historical payloads", () =
     assert.deepStrictEqual(parsed.children, []);
     assert.deepStrictEqual(parsed.dependencies, []);
     assert.deepStrictEqual(parsed.dependents, []);
+  }),
+);
+
+it.effect("accepts created/title issue sorting inputs", () =>
+  Effect.gen(function* () {
+    const parsedCreated = yield* decodeBeadsQueryIssuesInput({
+      cwd: "/tmp/repo",
+      sortBy: "created",
+    });
+    const parsedTitle = yield* decodeBeadsQueryIssuesInput({
+      cwd: "/tmp/repo",
+      sortBy: "title",
+    });
+
+    assert.strictEqual(parsedCreated.sortBy, "created");
+    assert.strictEqual(parsedTitle.sortBy, "title");
   }),
 );
 

@@ -1,4 +1,5 @@
 import type {
+  BeadsIssueSortBy,
   BeadsIssueDetail as BeadsIssueDetailType,
   BeadsIssueSummary,
   ProjectId,
@@ -56,12 +57,14 @@ type IssuesTabProps = {
   issues: readonly BeadsIssueSummary[];
   issuesPending: boolean;
   issuesError: Error | null;
+  showClosed: boolean;
+  sortBy: BeadsIssueSortBy;
   selectedIssueId: string | null;
   onSelectIssue: (issueId: string | null) => void;
+  onShowClosedChange: (showClosed: boolean) => void;
+  onSortByChange: (sortBy: BeadsIssueSortBy) => void;
   onOpenThread: (threadId: ThreadId) => void;
 };
-
-type IssuePaneScope = "active" | "all" | "closed";
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -69,7 +72,6 @@ type IssuePaneScope = "active" | "all" | "closed";
 
 export function IssuesTab(props: IssuesTabProps) {
   const [searchValue, setSearchValue] = useState("");
-  const [scopeFilter, setScopeFilter] = useState<IssuePaneScope>("active");
   const queryClient = useQueryClient();
   const project = useProjectById(props.projectId);
   const closeIssueMutation = useMutation(beadsUpdateIssueMutationOptions({ queryClient }));
@@ -152,10 +154,12 @@ export function IssuesTab(props: IssuesTabProps) {
           issues={props.issues}
           selectedIssueId={props.selectedIssueId}
           searchValue={searchValue}
-          scopeFilter={scopeFilter}
+          showClosed={props.showClosed}
+          sortBy={props.sortBy}
           onIssueSelect={(issueId) => props.onSelectIssue(issueId)}
           onSearchChange={setSearchValue}
-          onScopeChange={setScopeFilter}
+          onShowClosedChange={props.onShowClosedChange}
+          onSortByChange={props.onSortByChange}
           onIssueContextAction={(issueId, action) => void handleIssueContextAction(issueId, action)}
           className="flex-1"
           actions={

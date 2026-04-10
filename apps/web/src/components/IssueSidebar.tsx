@@ -11,8 +11,9 @@ import {
   beadsQueryIssuesOptions,
   beadsUpdateIssueMutationOptions,
 } from "~/lib/beadsReactQuery";
+import { issueStatusesForVisibility } from "~/lib/issuePanelLogic";
 import { listIssueLinkedThreads } from "~/issueThreads";
-import { getIssuePaneState, useIssuePaneStore, type IssuePaneScope } from "~/issuePaneStore";
+import { getIssuePaneState, useIssuePaneStore } from "~/issuePaneStore";
 import { useStore } from "~/store";
 import { useThreadProjectContext } from "~/threadProjectContext";
 import { DEFAULT_RUNTIME_MODE } from "~/types";
@@ -23,19 +24,6 @@ import { IssueListPanel } from "./issue/IssueListPanel";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
 import { toastManager } from "./ui/toast";
-
-const ACTIVE_STATUSES = ["open", "in_progress", "blocked", "deferred"] as const;
-const ALL_STATUSES = [...ACTIVE_STATUSES, "closed"] as const;
-
-function statusesForScope(scope: IssuePaneScope): string[] {
-  if (scope === "closed") {
-    return ["closed"];
-  }
-  if (scope === "all") {
-    return [...ALL_STATUSES];
-  }
-  return [...ACTIVE_STATUSES];
-}
 
 function resolveFallbackModelSelection(
   modelSelection: ModelSelection | null | undefined,
@@ -64,7 +52,8 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
   );
   const setSelectedIssueId = useIssuePaneStore((store) => store.setSelectedIssueId);
   const setSearch = useIssuePaneStore((store) => store.setSearch);
-  const setScope = useIssuePaneStore((store) => store.setScope);
+  const setShowClosed = useIssuePaneStore((store) => store.setShowClosed);
+  const setSortBy = useIssuePaneStore((store) => store.setSortBy);
   const hasBootstrappedLinkedIssueSelectionRef = useRef(false);
 
   const selectedIssueId = routeSearch.issueId ?? paneState.selectedIssueId;
@@ -113,8 +102,8 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
   const issueListQuery = useQuery(
     beadsQueryIssuesOptions({
       cwd: project?.cwd ?? "",
-      statuses: statusesForScope(paneState.scope),
-      sortBy: "updated",
+      statuses: issueStatusesForVisibility(paneState.showClosed),
+      sortBy: paneState.sortBy,
       enabled: project !== undefined,
     }),
   );
@@ -429,7 +418,8 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
               issues={issueListQuery.data?.issues ?? []}
               selectedIssueId={selectedIssueId}
               searchValue={paneState.search}
-              scopeFilter={paneState.scope}
+              showClosed={paneState.showClosed}
+              sortBy={paneState.sortBy}
               loading={issueListQuery.isPending}
               error={issueListQuery.error?.message ?? null}
               onIssueSelect={onSelectIssue}
@@ -437,7 +427,8 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
                 void handleIssueContextAction(issueId, action)
               }
               onSearchChange={(value) => setSearch(threadId, value)}
-              onScopeChange={(scope) => setScope(threadId, scope)}
+              onShowClosedChange={(showClosed) => setShowClosed(threadId, showClosed)}
+              onSortByChange={(sortBy) => setSortBy(threadId, sortBy)}
               className="h-full"
             />
           </div>
