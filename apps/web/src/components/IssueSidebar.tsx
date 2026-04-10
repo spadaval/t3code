@@ -11,7 +11,9 @@ import {
   beadsQueryIssuesOptions,
   beadsUpdateIssueMutationOptions,
 } from "~/lib/beadsReactQuery";
+import { isIssueDoneStatus } from "~/lib/issueConstants";
 import { issueStatusesForVisibility } from "~/lib/issuePanelLogic";
+import { cn } from "~/lib/utils";
 import { listIssueLinkedThreads } from "~/issueThreads";
 import { getIssuePaneState, useIssuePaneStore } from "~/issuePaneStore";
 import { useStore } from "~/store";
@@ -352,7 +354,14 @@ export function IssueSidebar({ threadId, onClose }: { threadId: ThreadId; onClos
                     Back
                   </Button>
                   <div className="mt-2 min-w-0">
-                    <div className="truncate text-sm font-medium text-foreground">
+                    <div
+                      className={cn(
+                        "truncate text-sm font-medium text-foreground",
+                        selectedIssue !== null &&
+                          isIssueDoneStatus(selectedIssue.status) &&
+                          "line-through",
+                      )}
+                    >
                       {selectedIssue?.title ?? selectedIssueId}
                     </div>
                     <div className="text-xs text-muted-foreground">{selectedIssueId}</div>

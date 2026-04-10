@@ -6,6 +6,7 @@ import {
   formatStatusDisplay,
   getPriorityVariant,
   getStatusVariant,
+  isIssueDoneStatus,
 } from "~/lib/issueConstants";
 import { IssueTypeIcon } from "./IssueCard";
 
@@ -96,7 +97,14 @@ function SubIssueRow({
     >
       <div className="flex items-center gap-2">
         <IssueTypeIcon issueType={child.issueType} className="size-3.5" />
-        <span className="min-w-0 flex-1 truncate text-sm text-foreground">{child.title}</span>
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-sm text-foreground",
+            isIssueDoneStatus(child.status) && "line-through",
+          )}
+        >
+          {child.title}
+        </span>
         <span className={cn("shrink-0 text-xs", statusClass)}>
           {formatStatusDisplay(child.status)}
         </span>

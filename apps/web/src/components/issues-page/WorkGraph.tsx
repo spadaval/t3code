@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 
 import { beadsIssuesBatchOptions } from "~/lib/beadsReactQuery";
-import { getDependencyTypeDef } from "~/lib/issueConstants";
+import { getDependencyTypeDef, isIssueDoneStatus } from "~/lib/issueConstants";
 import {
   buildWorkGraphData,
   type WorkGraphData,
@@ -142,6 +142,7 @@ export function WorkGraph(props: {
   cwd: string;
   epic: BeadsCoordinatorEpicSnapshot;
   onOpenThread: (threadId: ThreadId) => void;
+  initialExpandedIssueIds?: readonly string[] | undefined;
 }) {
   // Collect all issue IDs from status buckets for batch detail fetch.
   const issueIds = useMemo(() => {
@@ -173,7 +174,9 @@ export function WorkGraph(props: {
     () => buildWorkGraphData(props.epic, issueDetails),
     [props.epic, issueDetails],
   );
-  const [expandedRows, setExpandedRows] = useState<ReadonlySet<string>>(new Set());
+  const [expandedRows, setExpandedRows] = useState<ReadonlySet<string>>(
+    () => new Set(props.initialExpandedIssueIds ?? []),
+  );
 
   // Auto-expand the row for the currently active worker issue.
   const activeWorkerIssueId = useMemo(
@@ -595,7 +598,12 @@ function WorkGraphRow(props: {
         </span>
 
         {/* Title */}
-        <span className="min-w-0 flex-1 text-xs font-medium text-foreground">
+        <span
+          className={cn(
+            "min-w-0 flex-1 text-xs font-medium text-foreground",
+            isIssueDoneStatus(node.issue.status) && "line-through",
+          )}
+        >
           {node.issue.title}
         </span>
 
@@ -770,7 +778,14 @@ function WorkGraphRowDetail(props: {
                   <span className="shrink-0 font-mono text-[11px] text-muted-foreground/60">
                     {dep.id}
                   </span>
-                  <span className="min-w-0 flex-1 truncate text-foreground">{dep.title}</span>
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate text-foreground",
+                      isIssueDoneStatus(dep.status) && "line-through",
+                    )}
+                  >
+                    {dep.title}
+                  </span>
                   <Badge
                     variant={
                       dep.status === "done"

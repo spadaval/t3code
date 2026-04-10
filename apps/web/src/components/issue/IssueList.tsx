@@ -4,6 +4,7 @@ import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 
 import { Checkbox } from "../ui/checkbox";
 import { filterAndSortIssues } from "~/lib/issuePanelLogic";
+import { isIssueDoneStatus } from "~/lib/issueConstants";
 import {
   buildIssueTree,
   buildIssueTreeNodeLookup,
@@ -618,7 +619,12 @@ function EpicTreeSection({
           >
             <div className="flex items-center gap-2">
               <IssueTypeIcon issueType={node.issue.issueType} />
-              <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+              <p
+                className={cn(
+                  "min-w-0 flex-1 truncate text-sm font-medium text-foreground",
+                  isIssueDoneStatus(node.issue.status) && "line-through",
+                )}
+              >
                 {node.issue.title}
               </p>
             </div>

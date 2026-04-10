@@ -14,6 +14,7 @@ import { cn } from "~/lib/utils";
 import {
   getStatusVariant,
   getPriorityVariant,
+  isIssueDoneStatus,
   type IssueStatusVariant,
 } from "~/lib/issueConstants";
 import { formatShortTimestamp } from "~/timestampFormat";
@@ -122,7 +123,14 @@ export function IssueCard({
       {/* Row 1: Icon + Title + Timestamp */}
       <div className="flex items-center gap-2">
         <IssueTypeIcon issueType={issue.issueType} />
-        <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{issue.title}</p>
+        <p
+          className={cn(
+            "min-w-0 flex-1 truncate text-sm font-medium text-foreground",
+            isIssueDoneStatus(issue.status) && "line-through",
+          )}
+        >
+          {issue.title}
+        </p>
         <span className="shrink-0 text-[11px] text-muted-foreground">
           {formatShortTimestamp(issue.updatedAt, settings.timestampFormat)}
         </span>

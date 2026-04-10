@@ -24,6 +24,7 @@ export interface EditableTitleProps {
   saving?: boolean;
   placeholder?: string;
   className?: string;
+  inputClassName?: string;
 }
 
 export function EditableTitle({
@@ -32,6 +33,7 @@ export function EditableTitle({
   saving = false,
   placeholder = "Untitled",
   className,
+  inputClassName,
 }: EditableTitleProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -76,7 +78,7 @@ export function EditableTitle({
           onKeyDown={handleKeyDown}
           onBlur={handleSave}
           autoFocus
-          className={className ?? "text-xl font-semibold"}
+          className={inputClassName ?? "text-xl font-semibold"}
           disabled={saving}
         />
         <Button size="icon-sm" variant="ghost" onClick={handleSave} disabled={saving}>

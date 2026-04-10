@@ -44,6 +44,9 @@ const STATUS_VARIANT_MAP = new Map<string, IssueStatusVariant>(
 );
 
 const STATUS_LABEL_MAP = new Map<string, string>(ISSUE_STATUSES.map((s) => [s.value, s.label]));
+const DONE_ISSUE_STATUS_SET = new Set(
+  ISSUE_STATUSES.filter((status) => status.category === "done").map((status) => status.value),
+);
 
 // ---------------------------------------------------------------------------
 // Issue types — sourced from `bd types`
@@ -122,6 +125,13 @@ export function formatStatusDisplay(status: string): string {
   const known = STATUS_LABEL_MAP.get(status);
   if (known) return known;
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * Returns whether a tracker-backed issue status should be rendered as done.
+ */
+export function isIssueDoneStatus(status: string | null | undefined): boolean {
+  return status !== null && status !== undefined && DONE_ISSUE_STATUS_SET.has(status);
 }
 
 /**

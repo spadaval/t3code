@@ -67,6 +67,29 @@ describe("buildIssueContextMenuItems", () => {
 });
 
 describe("IssueList hierarchy rendering", () => {
+  it("strikes through closed flat issue titles without affecting open titles", () => {
+    const markup = renderToStaticMarkup(
+      createElement(IssueList, {
+        issues: [
+          makeIssue({
+            id: "TASK-CLOSED",
+            title: "Closed task",
+            status: "closed",
+          }),
+          makeIssue({
+            id: "TASK-OPEN",
+            title: "Open task",
+            status: "open",
+          }),
+        ],
+        showClosed: true,
+      }),
+    );
+
+    expect(markup).toMatch(/<p class="[^"]*line-through[^"]*">Closed task<\/p>/);
+    expect(markup).not.toMatch(/<p class="[^"]*line-through[^"]*">Open task<\/p>/);
+  });
+
   it("renders actual epic branches with epic disclosure labels", () => {
     const markup = renderToStaticMarkup(
       createElement(IssueList, {
@@ -75,6 +98,7 @@ describe("IssueList hierarchy rendering", () => {
             id: "EPIC-1",
             title: "Epic 1",
             issueType: "epic",
+            status: "closed",
           }),
           makeIssue({
             id: "TASK-1",
@@ -89,6 +113,7 @@ describe("IssueList hierarchy rendering", () => {
     expect(markup).toContain('aria-label="Expand epic EPIC-1"');
     expect(markup).toContain("Epic 1");
     expect(markup).toContain("0/1 done");
+    expect(markup).toMatch(/<p class="[^"]*line-through[^"]*">Epic 1<\/p>/);
   });
 
   it("renders non-epic issues as flat leaf rows, not nested branches", () => {

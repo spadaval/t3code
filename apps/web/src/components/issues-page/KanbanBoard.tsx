@@ -20,6 +20,7 @@ import { beadsUpdateIssueMutationOptions } from "~/lib/beadsReactQuery";
 import {
   ISSUE_STATUSES,
   formatStatusDisplay,
+  isIssueDoneStatus,
   type IssueStatusDef,
   type IssueStatusVariant,
 } from "~/lib/issueConstants";
@@ -385,7 +386,14 @@ function SortableKanbanCard({
       <div className="flex items-start gap-1.5">
         <IssueTypeIcon issueType={issue.issueType} className="mt-0.5 size-3.5" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium text-foreground">{issue.title}</p>
+          <p
+            className={cn(
+              "truncate text-xs font-medium text-foreground",
+              isIssueDoneStatus(issue.status) && "line-through",
+            )}
+          >
+            {issue.title}
+          </p>
           <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
             <span>{issue.id}</span>
             {issue.priority !== null && (
@@ -434,7 +442,14 @@ function KanbanCardOverlay({ issue }: { issue: BeadsIssueSummary }) {
       <div className="flex items-start gap-1.5">
         <IssueTypeIcon issueType={issue.issueType} className="mt-0.5 size-3.5" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium text-foreground">{issue.title}</p>
+          <p
+            className={cn(
+              "truncate text-xs font-medium text-foreground",
+              isIssueDoneStatus(issue.status) && "line-through",
+            )}
+          >
+            {issue.title}
+          </p>
           <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
             <span>{issue.id}</span>
           </div>

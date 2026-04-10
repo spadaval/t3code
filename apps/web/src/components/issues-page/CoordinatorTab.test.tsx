@@ -18,6 +18,25 @@ const SWARM_SUPPORT = {
   },
 } as const;
 
+function makeIssueSummary(status: "open" | "closed") {
+  return {
+    id: "EPIC-1",
+    title: "Epic 1",
+    description: null,
+    notes: null,
+    status,
+    priority: null,
+    issueType: "epic",
+    assignee: null,
+    owner: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    createdBy: null,
+    updatedAt: "2026-01-02T00:00:00.000Z",
+    labels: [],
+    parent: null,
+  } as const;
+}
+
 const BASE_EPIC = {
   epicId: "EPIC-1",
   epicTitle: "Epic 1",
@@ -111,8 +130,35 @@ describe("CoordinatorTab actions", () => {
     const markup = renderCoordinatorTab();
 
     expect(markup).toContain("Tracker: Ready");
-    expect(markup).toContain("Latest run: Cancelled");
+    expect(markup).toContain("Latest run: Stopped");
     expect(markup).toContain("Start run");
+  });
+
+  it("strikes through epic titles only when the tracker issue is closed", () => {
+    const closedMarkup = renderCoordinatorTab({
+      issue: makeIssueSummary("closed") as BeadsCoordinatorEpicSnapshot["issue"],
+    });
+    const derivedDoneMarkup = renderCoordinatorTab({
+      issue: makeIssueSummary("open") as BeadsCoordinatorEpicSnapshot["issue"],
+      trackerState: "completed",
+      progress: {
+        totalIssueCount: 1,
+        completedIssueCount: 1,
+        readyIssueCount: 0,
+        activeIssueCount: 0,
+        blockedIssueCount: 0,
+        internalBlockedIssueCount: 0,
+        externalBlockedIssueCount: 0,
+        unknownBlockedIssueCount: 0,
+        activeWorkerCount: 0,
+        isComplete: true,
+      },
+    });
+
+    expect(closedMarkup).toMatch(/<p class="[^"]*line-through[^"]*">Epic 1<\/p>/);
+    expect(closedMarkup).toMatch(/<h2 class="[^"]*line-through[^"]*">Epic 1<\/h2>/);
+    expect(derivedDoneMarkup).not.toMatch(/<p class="[^"]*line-through[^"]*">Epic 1<\/p>/);
+    expect(derivedDoneMarkup).not.toMatch(/<h2 class="[^"]*line-through[^"]*">Epic 1<\/h2>/);
   });
 });
 
@@ -129,8 +175,7 @@ describe("WorkGraph integration", () => {
 
   it("renders run bar with latest run info", () => {
     const markup = renderCoordinatorTab();
-    // The run bar should show the latest run as "Cancelled".
-    expect(markup).toContain("Cancelled");
+    expect(markup).toContain("Latest run: Stopped");
   });
 
   it("renders wave columns when validation has readyFronts", () => {
@@ -334,21 +379,21 @@ describe("WorkGraph integration", () => {
   });
 });
 
-describe("Activity log integration", () => {
-  it("renders Activity section when runs exist", () => {
+describe("Legacy activity log removal", () => {
+  it("does not render the removed Activity section when runs exist", () => {
     const markup = renderCoordinatorTab();
-    expect(markup).toContain("Activity");
-    // Should contain run lifecycle entries.
-    expect(markup).toContain("Run requested");
-    expect(markup).toContain("Run stopped");
+    expect(markup).not.toContain("Activity");
+    expect(markup).not.toContain("Run requested");
+    expect(markup).not.toContain("Run stopped");
   });
 
-  it("does not render Activity section when no runs or executions", () => {
+  it("still does not render Activity entries when no runs or executions exist", () => {
     const markup = renderCoordinatorTab({ runs: [], executions: [] });
+    expect(markup).not.toContain("Activity");
     expect(markup).not.toContain("Run requested");
   });
 
-  it("renders execution entries in the activity log", () => {
+  it("does not render legacy execution activity entries", () => {
     const markup = renderCoordinatorTab({
       runs: [BASE_EPIC.runs[0]!],
       executions: [
@@ -372,7 +417,7 @@ describe("Activity log integration", () => {
         } as unknown as BeadsCoordinatorEpicSnapshot["executions"][number],
       ],
     });
-    expect(markup).toContain("Task #1 started: ISSUE-A");
-    expect(markup).toContain("Task #1 completed: ISSUE-A");
+    expect(markup).not.toContain("Task #1 started: ISSUE-A");
+    expect(markup).not.toContain("Task #1 completed: ISSUE-A");
   });
 });

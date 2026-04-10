@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 
 import { resolveDefaultModelSelection } from "~/lib/modelSelection";
+import { isIssueDoneStatus } from "~/lib/issueConstants";
 import { partitionCoordinatorEpics } from "~/issuePanel";
 import { cn } from "~/lib/utils";
 import { useProjectById } from "~/storeSelectors";
@@ -590,7 +591,14 @@ function EpicListItem(props: {
             aria-hidden
           />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-foreground">{epic.epicTitle}</p>
+            <p
+              className={cn(
+                "truncate text-sm font-medium text-foreground",
+                epic.issue !== null && isIssueDoneStatus(epic.issue.status) && "line-through",
+              )}
+            >
+              {epic.epicTitle}
+            </p>
             <p className={cn("mt-0.5 text-xs", LABEL_CLASSES[color])}>{desc.label}</p>
           </div>
           {pct !== null && (
@@ -638,7 +646,14 @@ function EpicDetail(props: {
           />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-lg font-semibold text-foreground">{epic.epicTitle}</h2>
+              <h2
+                className={cn(
+                  "text-lg font-semibold text-foreground",
+                  epic.issue !== null && isIssueDoneStatus(epic.issue.status) && "line-through",
+                )}
+              >
+                {epic.epicTitle}
+              </h2>
               <EpicIssueLink epicId={epic.epicId} onOpenEpicIssue={props.onOpenEpicIssue} />
             </div>
             <div className="mt-1 flex items-center gap-2">

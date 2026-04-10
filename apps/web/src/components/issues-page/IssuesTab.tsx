@@ -21,8 +21,10 @@ import {
   getStatusVariant,
   getPriorityVariant,
   formatPriorityDisplay,
+  isIssueDoneStatus,
 } from "~/lib/issueConstants";
 import { resolveDefaultModelSelection } from "~/lib/modelSelection";
+import { cn } from "~/lib/utils";
 import { listIssueLinkedThreads } from "~/issueThreads";
 import { useStore } from "~/store";
 import { useProjectById } from "~/storeSelectors";
@@ -403,6 +405,11 @@ function IssueDetailPanel({
               value={issue.title}
               onSave={(title) => void handleFieldUpdate({ title })}
               saving={updateIssueMutation.isPending}
+              className={cn(
+                "flex-1 cursor-pointer text-left text-xl font-semibold text-foreground leading-tight hover:text-foreground/80",
+                isIssueDoneStatus(issue.status) && "line-through",
+              )}
+              inputClassName="text-xl font-semibold"
             />
 
             <IssueParentLink parent={parent} onClick={onSelectIssue} className="mt-3" />

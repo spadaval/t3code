@@ -3,7 +3,12 @@ import { useState, useCallback, useEffect, useRef, type ReactNode } from "react"
 import { MessageSquareTextIcon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
-import { getStatusVariant, formatStatusDisplay, getPriorityVariant } from "~/lib/issueConstants";
+import {
+  getStatusVariant,
+  formatStatusDisplay,
+  getPriorityVariant,
+  isIssueDoneStatus,
+} from "~/lib/issueConstants";
 import { formatShortTimestamp } from "~/timestampFormat";
 import { useSettings } from "~/hooks/useSettings";
 import { StatusIndicator } from "../shared/StatusIndicator";
@@ -345,7 +350,14 @@ function IssueDetailHeader({
       </div>
 
       {/* Title */}
-      <h1 className="text-xl font-semibold text-foreground leading-tight">{issue.title}</h1>
+      <h1
+        className={cn(
+          "text-xl font-semibold text-foreground leading-tight",
+          isIssueDoneStatus(issue.status) && "line-through",
+        )}
+      >
+        {issue.title}
+      </h1>
 
       {/* Metadata */}
       <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">

@@ -15,6 +15,7 @@ import {
   formatStatusDisplay,
   getPriorityVariant,
   getStatusVariant,
+  isIssueDoneStatus,
 } from "~/lib/issueConstants";
 import { StatusIndicator } from "../shared/StatusIndicator";
 import { IssueTypeIcon } from "./IssueCard";
@@ -89,7 +90,14 @@ export function IssueParentLink({
       {toneIcon("structure", classes.text)}
       <span className="font-medium uppercase tracking-[0.14em]">Parent</span>
       <ChevronRightIcon className="size-3 opacity-60" />
-      <span className="truncate text-foreground">{parent.title}</span>
+      <span
+        className={cn(
+          "truncate text-foreground",
+          isIssueDoneStatus(parent.status) && "line-through",
+        )}
+      >
+        {parent.title}
+      </span>
       <span className="shrink-0 text-muted-foreground">#{parent.id}</span>
     </div>
   );
@@ -227,7 +235,14 @@ function RelationshipItem({
         <IssueTypeIcon issueType={item.issueType} className="mt-0.5 size-3.5" />
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium text-foreground">{item.title}</span>
+            <span
+              className={cn(
+                "truncate text-sm font-medium text-foreground",
+                isIssueDoneStatus(item.status) && "line-through",
+              )}
+            >
+              {item.title}
+            </span>
             <span className="shrink-0 text-xs text-muted-foreground">#{item.id}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
