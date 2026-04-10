@@ -456,23 +456,15 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [ORCHESTRATION_WS_METHODS.launchPlanImplementation]: (input) =>
         observeRpcEffect(
           ORCHESTRATION_WS_METHODS.launchPlanImplementation,
-          planImplementationWorkflow
-            .launchPlanImplementation({
-              sourceThreadId: input.sourceThreadId,
-              planId: input.planId,
-              runtimeMode: input.runtimeMode,
-              launchMode: input.launchMode,
-              runSetup: input.runSetup,
-            })
-            .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new OrchestrationDispatchCommandError({
-                    message: "Failed to launch plan implementation",
-                    cause,
-                  }),
-              ),
+          planImplementationWorkflow.launchPlanImplementation(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationDispatchCommandError({
+                  message: "Failed to launch plan implementation",
+                  cause,
+                }),
             ),
+          ),
           { "rpc.aggregate": "orchestration" },
         ),
       [ORCHESTRATION_WS_METHODS.cancelPlanImplementationLaunch]: (input) =>
