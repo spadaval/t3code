@@ -9,7 +9,7 @@ import {
   OrchestrationProposedPlanFollowUpOutcome,
   OrchestrationPlanImplementationLaunchStatus,
   OrchestrationReadModel,
-  OrchestrationSwarmFailureContext,
+  OrchestrationEpicRunFailureContext,
   ProviderModelOptions,
   ProviderStartOptions,
   ProjectScript,
@@ -115,7 +115,7 @@ const ProjectionSwarmRunDbRowSchema = Schema.Struct({
   providerOptions: Schema.NullOr(Schema.fromJsonString(ProviderStartOptions)),
   assistantDeliveryMode: ProjectionSwarmRun.fields.assistantDeliveryMode,
   runtimeMode: ProjectionSwarmRun.fields.runtimeMode,
-  failureContext: Schema.NullOr(Schema.fromJsonString(OrchestrationSwarmFailureContext)),
+  failureContext: Schema.NullOr(Schema.fromJsonString(OrchestrationEpicRunFailureContext)),
   requestedAt: ProjectionSwarmRun.fields.requestedAt,
   startedAt: ProjectionSwarmRun.fields.startedAt,
   stopRequestedAt: ProjectionSwarmRun.fields.stopRequestedAt,
@@ -126,7 +126,7 @@ const ProjectionSwarmRunDbRowSchema = Schema.Struct({
 });
 const ProjectionSwarmTaskExecutionDbRowSchema = ProjectionSwarmTaskExecution.mapFields(
   Struct.assign({
-    failureContext: Schema.NullOr(Schema.fromJsonString(OrchestrationSwarmFailureContext)),
+    failureContext: Schema.NullOr(Schema.fromJsonString(OrchestrationEpicRunFailureContext)),
   }),
 );
 const ProjectionLatestTurnDbRowSchema = Schema.Struct({
@@ -622,8 +622,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             activityRows,
             sessionRows,
             launchRows,
-            swarmRunRows,
-            swarmTaskExecutionRows,
+            epicRunRows,
+            epicIssueExecutionRows,
             checkpointRows,
             pendingCheckpointCaptureRows,
             latestTurnRows,
@@ -757,10 +757,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           for (const row of launchRows) {
             updatedAt = maxIso(updatedAt, row.updatedAt);
           }
-          for (const row of swarmRunRows) {
+          for (const row of epicRunRows) {
             updatedAt = maxIso(updatedAt, row.updatedAt);
           }
-          for (const row of swarmTaskExecutionRows) {
+          for (const row of epicIssueExecutionRows) {
             updatedAt = maxIso(updatedAt, row.requestedAt);
             if (row.startedAt !== null) {
               updatedAt = maxIso(updatedAt, row.startedAt);
@@ -960,7 +960,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               updatedAt: row.updatedAt,
             }));
 
-          const epicRuns: Array<OrchestrationEpicRun> = swarmRunRows.map((row) => ({
+          const epicRuns: Array<OrchestrationEpicRun> = epicRunRows.map((row) => ({
             runId: row.runId,
             projectId: row.projectId,
             epicIssueId: row.epicIssueId,
@@ -982,7 +982,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           }));
 
           const epicIssueExecutions: Array<OrchestrationEpicIssueExecution> =
-            swarmTaskExecutionRows.map((row) => ({
+            epicIssueExecutionRows.map((row) => ({
               executionId: row.executionId,
               runId: row.runId,
               issueId: row.issueId,

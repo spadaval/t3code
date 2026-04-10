@@ -1,6 +1,6 @@
 import type {
   BeadsIssueRelationSummary,
-  OrchestrationSwarmSchedulerMode,
+  OrchestrationEpicRunSchedulerMode,
   OrchestrationEpicIssueExecution,
   EpicRunId,
 } from "@t3tools/contracts";
@@ -76,7 +76,7 @@ export function describeReadyIssueExhaustion(input: {
 }
 
 export function shouldIdleSemiAutomaticRun(input: {
-  readonly schedulerMode?: OrchestrationSwarmSchedulerMode | null;
+  readonly schedulerMode?: OrchestrationEpicRunSchedulerMode | null;
   readonly latestExecution: OrchestrationEpicIssueExecution | null;
   readonly trigger: SwarmSchedulerTrigger;
 }): boolean {

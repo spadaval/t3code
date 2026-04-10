@@ -1,7 +1,7 @@
 import {
   CommandId,
-  DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE,
-  DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE,
+  DEFAULT_ORCHESTRATION_EPIC_RUN_SCHEDULER_MODE,
+  DEFAULT_ORCHESTRATION_EPIC_RUN_WORKSPACE_MODE,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_RUNTIME_MODE,
@@ -11,9 +11,9 @@ import {
   ThreadId,
   type OrchestrationProject,
   type OrchestrationEpicRun,
-  type OrchestrationSwarmRunBlockedContext,
+  type OrchestrationEpicRunBlockedContext,
   type OrchestrationEpicRunControlResult,
-  type OrchestrationSwarmRunStatus,
+  type OrchestrationEpicRunStatus,
   type OrchestrationEpicIssueExecution,
 } from "@t3tools/contracts";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
@@ -135,11 +135,11 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function isTerminalRunStatus(status: OrchestrationSwarmRunStatus): boolean {
+function isTerminalRunStatus(status: OrchestrationEpicRunStatus): boolean {
   return status === "failed" || status === "stopped" || status === "completed";
 }
 
-function isNonTerminalRunStatus(status: OrchestrationSwarmRunStatus): boolean {
+function isNonTerminalRunStatus(status: OrchestrationEpicRunStatus): boolean {
   return !isTerminalRunStatus(status);
 }
 
@@ -178,7 +178,7 @@ function describeBlockedReason(input: {
   return "Swarm has no ready issue available.";
 }
 
-function trackerWaitingBlockedContext(): OrchestrationSwarmRunBlockedContext {
+function trackerWaitingBlockedContext(): OrchestrationEpicRunBlockedContext {
   return {
     kind: "tracker_waiting",
     issueId: null,
@@ -191,7 +191,7 @@ function workerFailureBlockedContext(input: {
   readonly issueId: string;
   readonly executionId?: EpicIssueExecutionId;
   readonly workerThreadId?: ThreadId;
-}): OrchestrationSwarmRunBlockedContext {
+}): OrchestrationEpicRunBlockedContext {
   return {
     kind: "worker_failure",
     issueId: input.issueId,
@@ -200,12 +200,12 @@ function workerFailureBlockedContext(input: {
   };
 }
 
-function getRunSchedulerMode(): typeof DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE {
-  return DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE;
+function getRunSchedulerMode(): typeof DEFAULT_ORCHESTRATION_EPIC_RUN_SCHEDULER_MODE {
+  return DEFAULT_ORCHESTRATION_EPIC_RUN_SCHEDULER_MODE;
 }
 
-function getRunWorkspaceMode(): typeof DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE {
-  return DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE;
+function getRunWorkspaceMode(): typeof DEFAULT_ORCHESTRATION_EPIC_RUN_WORKSPACE_MODE {
+  return DEFAULT_ORCHESTRATION_EPIC_RUN_WORKSPACE_MODE;
 }
 
 function workerTurnStopped(input: Parameters<typeof workerThreadStillHasActiveTurn>[0]): boolean {
@@ -735,7 +735,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
 
   const markRunStarted = (runId: EpicRunId) =>
     dispatchOrFail("markRunStarted", {
-      type: "swarm-run.mark-started",
+      type: "epic-run.mark-started",
       commandId: serverCommandId("swarm-run-mark-started"),
       runId,
       createdAt: nowIso(),
@@ -743,7 +743,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
 
   const markRunIdle = (runId: EpicRunId) =>
     dispatchOrFail("markRunIdle", {
-      type: "swarm-run.mark-idle",
+      type: "epic-run.mark-idle",
       commandId: serverCommandId("swarm-run-mark-idle"),
       runId,
       createdAt: nowIso(),
@@ -752,10 +752,10 @@ const makeSwarmScheduler = Effect.gen(function* () {
   const blockRun = (
     runId: EpicRunId,
     reason: string,
-    blockedContext: OrchestrationSwarmRunBlockedContext = trackerWaitingBlockedContext(),
+    blockedContext: OrchestrationEpicRunBlockedContext = trackerWaitingBlockedContext(),
   ) =>
     dispatchOrFail("blockRun", {
-      type: "swarm-run.block",
+      type: "epic-run.block",
       commandId: serverCommandId("swarm-run-block"),
       runId,
       reason: truncateSwarmFailureDetail(reason, 500),
@@ -771,7 +771,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
       }
 
       yield* dispatchOrFail("failRun", {
-        type: "swarm-run.fail",
+        type: "epic-run.fail",
         commandId: serverCommandId("swarm-run-fail"),
         runId,
         reason: truncateSwarmFailureDetail(reason, 500),
@@ -781,7 +781,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
 
   const completeRun = (runId: EpicRunId) =>
     dispatchOrFail("completeRun", {
-      type: "swarm-run.complete",
+      type: "epic-run.complete",
       commandId: serverCommandId("swarm-run-complete"),
       runId,
       createdAt: nowIso(),
@@ -789,7 +789,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
 
   const cancelRun = (runId: EpicRunId) =>
     dispatchOrFail("cancelRun", {
-      type: "swarm-run.cancel",
+      type: "epic-run.stop",
       commandId: serverCommandId("swarm-run-cancel"),
       runId,
       createdAt: nowIso(),
@@ -805,7 +805,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
     readonly originalAssignee: string | null;
   }) =>
     dispatchOrFail("requestTaskExecutionCommand", {
-      type: "swarm-task-execution.request",
+      type: "epic-issue-execution.request",
       commandId: serverCommandId("swarm-task-execution-request"),
       executionId: input.executionId,
       runId: input.runId,
@@ -819,7 +819,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
 
   const startTaskExecutionCommand = (input: StartSwarmTaskExecutionInput) =>
     dispatchOrFail("startTaskExecutionCommand", {
-      type: "swarm-task-execution.start",
+      type: "epic-issue-execution.start",
       commandId: serverCommandId("swarm-task-execution-start"),
       executionId: input.executionId,
       runId: input.runId,
@@ -860,7 +860,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
 
   const completeTaskExecutionCommand = (input: CompleteSwarmTaskExecutionInput) =>
     dispatchOrFail("completeTaskExecutionCommand", {
-      type: "swarm-task-execution.complete",
+      type: "epic-issue-execution.complete",
       commandId: serverCommandId("swarm-task-execution-complete"),
       executionId: input.executionId,
       runId: input.runId,
@@ -869,7 +869,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
 
   const failTaskExecutionCommand = (input: FailSwarmTaskExecutionInput) =>
     dispatchOrFail("failTaskExecutionCommand", {
-      type: "swarm-task-execution.fail",
+      type: "epic-issue-execution.fail",
       commandId: serverCommandId("swarm-task-execution-fail"),
       executionId: input.executionId,
       runId: input.runId,
@@ -879,7 +879,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
 
   const cancelTaskExecutionCommand = (input: CancelSwarmTaskExecutionInput) =>
     dispatchOrFail("cancelTaskExecutionCommand", {
-      type: "swarm-task-execution.cancel",
+      type: "epic-issue-execution.stop",
       commandId: serverCommandId("swarm-task-execution-cancel"),
       executionId: input.executionId,
       runId: input.runId,
@@ -1543,12 +1543,11 @@ const makeSwarmScheduler = Effect.gen(function* () {
       const createdAt = nowIso();
 
       yield* dispatchOrFail("createRun", {
-        type: "swarm-run.request",
+        type: "epic-run.request",
         commandId: serverCommandId("swarm-run-request"),
         runId,
         projectId: input.projectId,
         epicIssueId: input.epicIssueId,
-        swarmId: swarm.swarmId,
         schedulerMode: input.schedulerMode,
         workspaceMode: input.workspaceMode,
         provider: modelSelection.provider,

@@ -79,7 +79,7 @@ describe("decider swarm invariants", () => {
       Effect.runPromise(
         decideOrchestrationCommand({
           command: {
-            type: "swarm-run.complete",
+            type: "epic-run.complete",
             commandId: CommandId.makeUnsafe("cmd-run-complete"),
             runId: EpicRunId.makeUnsafe("run-1"),
             createdAt: now,
@@ -95,7 +95,7 @@ describe("decider swarm invariants", () => {
       Effect.runPromise(
         decideOrchestrationCommand({
           command: {
-            type: "swarm-task-execution.request",
+            type: "epic-issue-execution.request",
             commandId: CommandId.makeUnsafe("cmd-execution-request-2"),
             executionId: EpicIssueExecutionId.makeUnsafe("execution-2"),
             runId: EpicRunId.makeUnsafe("run-1"),
@@ -142,7 +142,7 @@ describe("decider swarm invariants", () => {
       Effect.runPromise(
         decideOrchestrationCommand({
           command: {
-            type: "swarm-task-execution.start",
+            type: "epic-issue-execution.start",
             commandId: CommandId.makeUnsafe("cmd-execution-start-stale"),
             executionId: EpicIssueExecutionId.makeUnsafe("execution-1"),
             runId: EpicRunId.makeUnsafe("run-1"),

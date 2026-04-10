@@ -1,4 +1,4 @@
-import { OrchestrationSwarmFailureContext } from "@t3tools/contracts";
+import { OrchestrationEpicRunFailureContext } from "@t3tools/contracts";
 import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
@@ -13,7 +13,7 @@ import {
 
 const ProjectionSwarmTaskExecutionDbRow = Schema.Struct({
   ...ProjectionSwarmTaskExecution.fields,
-  failureContext: Schema.NullOr(Schema.fromJsonString(OrchestrationSwarmFailureContext)),
+  failureContext: Schema.NullOr(Schema.fromJsonString(OrchestrationEpicRunFailureContext)),
 });
 
 function toProjectionSwarmTaskExecution(

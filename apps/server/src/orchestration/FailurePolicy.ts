@@ -1,6 +1,6 @@
 import type {
   OrchestrationEpicIssueExecution,
-  OrchestrationSwarmTaskExecutionStatus,
+  OrchestrationEpicIssueExecutionStatus,
   ThreadId,
 } from "@t3tools/contracts";
 
@@ -104,7 +104,7 @@ export function describeExecutionInvariantViolation(input: {
   readonly runId: string;
   readonly nonTerminalExecutions: ReadonlyArray<{
     readonly executionId: string;
-    readonly status: OrchestrationSwarmTaskExecutionStatus;
+    readonly status: OrchestrationEpicIssueExecutionStatus;
     readonly issueId: string;
     readonly workerThreadId: ThreadId | null;
   }>;

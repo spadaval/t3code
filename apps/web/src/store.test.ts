@@ -72,8 +72,8 @@ function makeState(thread: Thread): AppState {
     bootstrapComplete: true,
     planImplementationLaunches: [],
     swarmProjection: {
-      swarmRunsById: {},
-      swarmTaskExecutionsById: {},
+      epicRunsById: {},
+      epicIssueExecutionsById: {},
     },
     threadsHydrated: true,
   };
@@ -361,8 +361,8 @@ describe("store read model sync", () => {
       bootstrapComplete: true,
       planImplementationLaunches: [],
       swarmProjection: {
-        swarmRunsById: {},
-        swarmTaskExecutionsById: {},
+        epicRunsById: {},
+        epicIssueExecutionsById: {},
       },
       threadsHydrated: true,
     };
@@ -483,8 +483,8 @@ describe("incremental orchestration updates", () => {
       bootstrapComplete: true,
       planImplementationLaunches: [],
       swarmProjection: {
-        swarmRunsById: {},
-        swarmTaskExecutionsById: {},
+        epicRunsById: {},
+        epicIssueExecutionsById: {},
       },
       threadsHydrated: true,
     };
@@ -550,8 +550,8 @@ describe("incremental orchestration updates", () => {
       bootstrapComplete: true,
       planImplementationLaunches: [],
       swarmProjection: {
-        swarmRunsById: {},
-        swarmTaskExecutionsById: {},
+        epicRunsById: {},
+        epicIssueExecutionsById: {},
       },
       threadsHydrated: true,
     };
@@ -626,11 +626,10 @@ describe("incremental orchestration updates", () => {
     const state = makeState(makeThread());
 
     const next = applyOrchestrationEvents(state, [
-      makeEvent("swarm-run.requested", {
+      makeEvent("epic-run.requested", {
         runId: "run-1" as never,
         projectId: ProjectId.makeUnsafe("project-1"),
         epicIssueId: "EPIC-1",
-        swarmId: "SWARM-1",
         schedulerMode: "automatic",
         workspaceMode: "shared",
         provider: "codex",
@@ -642,7 +641,7 @@ describe("incremental orchestration updates", () => {
         requestedAt: "2026-04-06T00:00:00.000Z",
         updatedAt: "2026-04-06T00:00:00.000Z",
       }),
-      makeEvent("swarm-task-execution.requested", {
+      makeEvent("epic-issue-execution.requested", {
         executionId: "execution-1" as never,
         runId: "run-1" as never,
         issueId: "TASK-1",
@@ -653,20 +652,20 @@ describe("incremental orchestration updates", () => {
         requestedAt: "2026-04-06T00:00:00.000Z",
         updatedAt: "2026-04-06T00:00:00.000Z",
       }),
-      makeEvent("swarm-task-execution.started", {
+      makeEvent("epic-issue-execution.started", {
         executionId: "execution-1" as never,
         runId: "run-1" as never,
         startedAt: "2026-04-06T00:00:01.000Z",
         updatedAt: "2026-04-06T00:00:01.000Z",
       }),
-      makeEvent("swarm-task-execution.failed", {
+      makeEvent("epic-issue-execution.failed", {
         executionId: "execution-1" as never,
         runId: "run-1" as never,
         reason: "worker exited",
         failedAt: "2026-04-06T00:00:02.000Z",
         updatedAt: "2026-04-06T00:00:02.000Z",
       }),
-      makeEvent("swarm-run.failed", {
+      makeEvent("epic-run.failed", {
         runId: "run-1" as never,
         reason: "worker exited",
         failedAt: "2026-04-06T00:00:03.000Z",
@@ -696,15 +695,14 @@ describe("incremental orchestration updates", () => {
     ]);
   });
 
-  it("stores failed worker-failure context and clears it when the run resumes", () => {
+  it("stores failed worker-failure context and clears it when the run stops", () => {
     const state = makeState(makeThread());
 
     const blocked = applyOrchestrationEvents(state, [
-      makeEvent("swarm-run.requested", {
+      makeEvent("epic-run.requested", {
         runId: "run-1" as never,
         projectId: ProjectId.makeUnsafe("project-1"),
         epicIssueId: "EPIC-1",
-        swarmId: "SWARM-1",
         schedulerMode: "automatic",
         workspaceMode: "shared",
         provider: "codex",
@@ -716,7 +714,7 @@ describe("incremental orchestration updates", () => {
         requestedAt: "2026-04-06T00:00:00.000Z",
         updatedAt: "2026-04-06T00:00:00.000Z",
       }),
-      makeEvent("swarm-run.blocked", {
+      makeEvent("epic-run.blocked", {
         runId: "run-1" as never,
         reason: "worker exited",
         blockedContext: {
@@ -744,19 +742,19 @@ describe("incremental orchestration updates", () => {
       }),
     ]);
 
-    const resumed = applyOrchestrationEvent(
+    const stopped = applyOrchestrationEvent(
       blocked,
-      makeEvent("swarm-run.resumed", {
+      makeEvent("epic-run.stopped", {
         runId: "run-1" as never,
-        resumedAt: "2026-04-06T00:00:02.000Z",
+        stoppedAt: "2026-04-06T00:00:02.000Z",
         updatedAt: "2026-04-06T00:00:02.000Z",
       }),
     );
 
-    expect(selectSwarmRuns(resumed)).toEqual([
+    expect(selectSwarmRuns(stopped)).toEqual([
       expect.objectContaining({
         runId: "run-1",
-        status: "running",
+        status: "stopped",
         failureContext: null,
       }),
     ]);

@@ -1,6 +1,6 @@
 import type {
-  OrchestrationSwarmSchedulerMode,
-  OrchestrationSwarmWorkspaceMode,
+  OrchestrationEpicRunSchedulerMode,
+  OrchestrationEpicRunWorkspaceMode,
   OrchestrationThreadIssueLink,
   EpicRunId,
   EpicIssueExecutionId,
@@ -41,8 +41,8 @@ export function buildSwarmWorkerPrompt(input: {
   epicIssueId: string;
   runId: EpicRunId;
   executionId: EpicIssueExecutionId;
-  schedulerMode: OrchestrationSwarmSchedulerMode;
-  workspaceMode: OrchestrationSwarmWorkspaceMode;
+  schedulerMode: OrchestrationEpicRunSchedulerMode;
+  workspaceMode: OrchestrationEpicRunWorkspaceMode;
   sequenceNumber: number;
 }): string {
   const sections = [
@@ -85,8 +85,8 @@ export function buildSwarmExecutionComment(input: {
   runId: EpicRunId;
   executionId: EpicIssueExecutionId;
   workerThreadId: ThreadId;
-  schedulerMode: OrchestrationSwarmSchedulerMode;
-  workspaceMode: OrchestrationSwarmWorkspaceMode;
+  schedulerMode: OrchestrationEpicRunSchedulerMode;
+  workspaceMode: OrchestrationEpicRunWorkspaceMode;
   reason?: string;
 }): string {
   const heading =

@@ -5,9 +5,9 @@ import type {
   OrchestrationReadModel,
   OrchestrationStartEpicRunInput,
   OrchestrationEpicRun,
-  OrchestrationSwarmRunStatus,
+  OrchestrationEpicRunStatus,
   OrchestrationEpicIssueExecution,
-  OrchestrationSwarmTaskExecutionStatus,
+  OrchestrationEpicIssueExecutionStatus,
   OrchestrationThread,
   ProjectId,
   EpicRunId,
@@ -66,30 +66,28 @@ export function findSwarmTaskExecutionById(
 }
 
 const SWARM_RUN_ALLOWED_TRANSITIONS = {
-  "swarm-run.mark-started": ["pending"],
-  "swarm-run.mark-idle": ["running"],
-  "swarm-run.pause": ["pending", "running", "stopping"],
-  "swarm-run.resume": [],
-  "swarm-run.block": ["pending", "running", "stopping"],
-  "swarm-run.fail": ["pending", "running", "stopping"],
-  "swarm-run.cancel": ["pending", "running", "stopping"],
-  "swarm-run.complete": ["pending", "running"],
-  "swarm-task-execution.request": ["pending", "running"],
-  "swarm-task-execution.start": ["pending", "running"],
-  "swarm-task-execution.complete": ["pending", "running", "stopping"],
-  "swarm-task-execution.fail": ["pending", "running", "stopping"],
-  "swarm-task-execution.cancel": ["pending", "running", "stopping"],
+  "epic-run.mark-started": ["pending"],
+  "epic-run.mark-idle": ["running"],
+  "epic-run.block": ["pending", "running", "stopping"],
+  "epic-run.fail": ["pending", "running", "stopping"],
+  "epic-run.stop": ["pending", "running", "stopping"],
+  "epic-run.complete": ["pending", "running"],
+  "epic-issue-execution.request": ["pending", "running"],
+  "epic-issue-execution.start": ["pending", "running"],
+  "epic-issue-execution.complete": ["pending", "running", "stopping"],
+  "epic-issue-execution.fail": ["pending", "running", "stopping"],
+  "epic-issue-execution.stop": ["pending", "running", "stopping"],
 } as const satisfies Partial<
-  Record<OrchestrationCommand["type"], ReadonlyArray<OrchestrationSwarmRunStatus>>
+  Record<OrchestrationCommand["type"], ReadonlyArray<OrchestrationEpicRunStatus>>
 >;
 
 const SWARM_TASK_EXECUTION_ALLOWED_TRANSITIONS = {
-  "swarm-task-execution.start": ["launching"],
-  "swarm-task-execution.complete": ["launching", "running", "stopping"],
-  "swarm-task-execution.fail": ["launching", "running", "stopping"],
-  "swarm-task-execution.cancel": ["launching", "running", "stopping"],
+  "epic-issue-execution.start": ["launching"],
+  "epic-issue-execution.complete": ["launching", "running", "stopping"],
+  "epic-issue-execution.fail": ["launching", "running", "stopping"],
+  "epic-issue-execution.stop": ["launching", "running", "stopping"],
 } as const satisfies Partial<
-  Record<OrchestrationCommand["type"], ReadonlyArray<OrchestrationSwarmTaskExecutionStatus>>
+  Record<OrchestrationCommand["type"], ReadonlyArray<OrchestrationEpicIssueExecutionStatus>>
 >;
 
 export function listThreadsByProjectId(
@@ -407,7 +405,7 @@ export function requireSwarmTaskExecutionAbsent(input: {
 
 export function isAllowedSwarmRunStatusTransition(input: {
   readonly commandType: OrchestrationCommand["type"];
-  readonly status: OrchestrationSwarmRunStatus;
+  readonly status: OrchestrationEpicRunStatus;
 }): boolean {
   const allowed =
     input.commandType in SWARM_RUN_ALLOWED_TRANSITIONS
@@ -416,7 +414,7 @@ export function isAllowedSwarmRunStatusTransition(input: {
         ]
       : undefined;
   return allowed
-    ? (allowed as ReadonlyArray<OrchestrationSwarmRunStatus>).includes(input.status)
+    ? (allowed as ReadonlyArray<OrchestrationEpicRunStatus>).includes(input.status)
     : true;
 }
 
@@ -490,7 +488,7 @@ export function requireSwarmRunWithoutCurrentExecution(input: {
 
 export function isAllowedSwarmTaskExecutionStatusTransition(input: {
   readonly commandType: OrchestrationCommand["type"];
-  readonly status: OrchestrationSwarmTaskExecutionStatus;
+  readonly status: OrchestrationEpicIssueExecutionStatus;
 }): boolean {
   const allowed =
     input.commandType in SWARM_TASK_EXECUTION_ALLOWED_TRANSITIONS
@@ -499,7 +497,7 @@ export function isAllowedSwarmTaskExecutionStatusTransition(input: {
         ]
       : undefined;
   return allowed
-    ? (allowed as ReadonlyArray<OrchestrationSwarmTaskExecutionStatus>).includes(input.status)
+    ? (allowed as ReadonlyArray<OrchestrationEpicIssueExecutionStatus>).includes(input.status)
     : true;
 }
 

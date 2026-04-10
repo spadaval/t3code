@@ -7,7 +7,7 @@ import type {
   BeadsSwarmSupport,
   BeadsSwarmValidation,
   OrchestrationEvent,
-  OrchestrationSwarmFailureKind,
+  OrchestrationEpicRunFailureKind,
   OrchestrationEpicRun,
   OrchestrationEpicIssueExecution,
   EpicIssueExecutionId,
@@ -82,7 +82,7 @@ export function deriveExecutionBlocking(
   };
 }
 
-export function inferSwarmFailureKind(reason: string): OrchestrationSwarmFailureKind {
+export function inferSwarmFailureKind(reason: string): OrchestrationEpicRunFailureKind {
   const normalized = reason.toLowerCase();
   if (normalized.includes("launch")) {
     return "launch_failure";
@@ -119,40 +119,38 @@ export function createSwarmFailureContext(input: {
 }
 
 export interface SwarmProjectionState {
-  readonly swarmRunsById: Readonly<Record<string, OrchestrationEpicRun>>;
-  readonly swarmTaskExecutionsById: Readonly<Record<string, OrchestrationEpicIssueExecution>>;
+  readonly epicRunsById: Readonly<Record<string, OrchestrationEpicRun>>;
+  readonly epicIssueExecutionsById: Readonly<Record<string, OrchestrationEpicIssueExecution>>;
 }
 
-type SwarmRunRequestedEvent = Extract<OrchestrationEvent, { type: "swarm-run.requested" }>;
+type SwarmRunRequestedEvent = Extract<OrchestrationEvent, { type: "epic-run.requested" }>;
 type SwarmRunLifecycleEvent = Extract<
   OrchestrationEvent,
   {
     type:
-      | "swarm-run.started"
-      | "swarm-run.idled"
-      | "swarm-run.paused"
-      | "swarm-run.resumed"
-      | "swarm-run.blocked"
-      | "swarm-run.failed"
-      | "swarm-run.cancelled"
-      | "swarm-run.completed";
+      | "epic-run.started"
+      | "epic-run.idled"
+      | "epic-run.blocked"
+      | "epic-run.failed"
+      | "epic-run.stopped"
+      | "epic-run.completed";
   }
 >;
 type SwarmTaskExecutionRequestedEvent = Extract<
   OrchestrationEvent,
-  { type: "swarm-task-execution.requested" }
+  { type: "epic-issue-execution.requested" }
 >;
 type SwarmTaskExecutionStartedEvent = Extract<
   OrchestrationEvent,
-  { type: "swarm-task-execution.started" }
+  { type: "epic-issue-execution.started" }
 >;
 type SwarmTaskExecutionLifecycleEvent = Extract<
   OrchestrationEvent,
   {
     type:
-      | "swarm-task-execution.completed"
-      | "swarm-task-execution.failed"
-      | "swarm-task-execution.cancelled";
+      | "epic-issue-execution.completed"
+      | "epic-issue-execution.failed"
+      | "epic-issue-execution.stopped";
   }
 >;
 
@@ -164,8 +162,8 @@ const NON_TERMINAL_SWARM_RUN_STATUSES = new Set<OrchestrationEpicRun["status"]>(
 
 export function createEmptySwarmProjectionState(): SwarmProjectionState {
   return {
-    swarmRunsById: {},
-    swarmTaskExecutionsById: {},
+    epicRunsById: {},
+    epicIssueExecutionsById: {},
   };
 }
 
@@ -174,8 +172,8 @@ export function createSwarmProjectionState(input: {
   readonly epicIssueExecutions: ReadonlyArray<OrchestrationEpicIssueExecution>;
 }): SwarmProjectionState {
   return {
-    swarmRunsById: Object.fromEntries(input.epicRuns.map((run) => [run.runId, run])),
-    swarmTaskExecutionsById: Object.fromEntries(
+    epicRunsById: Object.fromEntries(input.epicRuns.map((run) => [run.runId, run])),
+    epicIssueExecutionsById: Object.fromEntries(
       input.epicIssueExecutions.map((execution) => [execution.executionId, execution]),
     ),
   };
@@ -901,13 +899,13 @@ export function findConflictingSharedWorkspaceRun(input: {
 }
 
 export function listSwarmRuns(state: SwarmProjectionState): OrchestrationEpicRun[] {
-  return Object.values(state.swarmRunsById).toSorted(compareSwarmRunsByRequestedAtDesc);
+  return Object.values(state.epicRunsById).toSorted(compareSwarmRunsByRequestedAtDesc);
 }
 
 export function listSwarmTaskExecutions(
   state: SwarmProjectionState,
 ): OrchestrationEpicIssueExecution[] {
-  return Object.values(state.swarmTaskExecutionsById).toSorted(compareSwarmTaskExecutions);
+  return Object.values(state.epicIssueExecutionsById).toSorted(compareSwarmTaskExecutions);
 }
 
 export function createRequestedSwarmRun(
@@ -940,7 +938,7 @@ export function applySwarmRunLifecycleEvent(
   event: SwarmRunLifecycleEvent,
 ): OrchestrationEpicRun {
   switch (event.type) {
-    case "swarm-run.started":
+    case "epic-run.started":
       return {
         ...run,
         status: "running",
@@ -948,30 +946,13 @@ export function applySwarmRunLifecycleEvent(
         failureContext: null,
         updatedAt: event.payload.updatedAt,
       };
-    case "swarm-run.idled":
+    case "epic-run.idled":
       return {
         ...run,
         status: "running",
         updatedAt: event.payload.updatedAt,
       };
-    case "swarm-run.paused":
-      return {
-        ...run,
-        status: "stopped",
-        stopRequestedAt: run.stopRequestedAt ?? event.payload.pausedAt,
-        stoppedAt: event.payload.pausedAt,
-        updatedAt: event.payload.updatedAt,
-      };
-    case "swarm-run.resumed":
-      return {
-        ...run,
-        status: "running",
-        failureContext: null,
-        stopRequestedAt: null,
-        stoppedAt: null,
-        updatedAt: event.payload.updatedAt,
-      };
-    case "swarm-run.blocked":
+    case "epic-run.blocked":
       if (event.payload.blockedContext?.kind === "tracker_waiting") {
         return {
           ...run,
@@ -991,7 +972,7 @@ export function applySwarmRunLifecycleEvent(
         failedAt: event.payload.blockedAt,
         updatedAt: event.payload.updatedAt,
       };
-    case "swarm-run.failed":
+    case "epic-run.failed":
       return {
         ...run,
         status: "failed",
@@ -1001,16 +982,16 @@ export function applySwarmRunLifecycleEvent(
         failedAt: event.payload.failedAt,
         updatedAt: event.payload.updatedAt,
       };
-    case "swarm-run.cancelled":
+    case "epic-run.stopped":
       return {
         ...run,
         status: "stopped",
         failureContext: null,
-        stopRequestedAt: run.stopRequestedAt ?? event.payload.cancelledAt,
-        stoppedAt: event.payload.cancelledAt,
+        stopRequestedAt: run.stopRequestedAt ?? event.payload.stoppedAt,
+        stoppedAt: event.payload.stoppedAt,
         updatedAt: event.payload.updatedAt,
       };
-    case "swarm-run.completed":
+    case "epic-run.completed":
       return {
         ...run,
         status: "completed",
@@ -1076,7 +1057,7 @@ export function applySwarmTaskExecutionLifecycleEvent(
   event: SwarmTaskExecutionLifecycleEvent,
 ): OrchestrationEpicIssueExecution {
   switch (event.type) {
-    case "swarm-task-execution.completed":
+    case "epic-issue-execution.completed":
       return {
         ...execution,
         status: "completed",
@@ -1086,7 +1067,7 @@ export function applySwarmTaskExecutionLifecycleEvent(
         completedAt: event.payload.completedAt,
         updatedAt: event.payload.updatedAt,
       };
-    case "swarm-task-execution.failed":
+    case "epic-issue-execution.failed":
       return {
         ...execution,
         status: "failed",
@@ -1099,13 +1080,13 @@ export function applySwarmTaskExecutionLifecycleEvent(
         failedAt: event.payload.failedAt,
         updatedAt: event.payload.updatedAt,
       };
-    case "swarm-task-execution.cancelled":
+    case "epic-issue-execution.stopped":
       return {
         ...execution,
         status: "stopped",
         failureContext: null,
-        stopRequestedAt: execution.stopRequestedAt ?? event.payload.cancelledAt,
-        stoppedAt: event.payload.cancelledAt,
+        stopRequestedAt: execution.stopRequestedAt ?? event.payload.stoppedAt,
+        stoppedAt: event.payload.stoppedAt,
         updatedAt: event.payload.updatedAt,
       };
   }
@@ -1116,101 +1097,99 @@ export function projectSwarmEvent(
   event: OrchestrationEvent,
 ): SwarmProjectionState {
   switch (event.type) {
-    case "swarm-run.requested": {
+    case "epic-run.requested": {
       const run = createRequestedSwarmRun(event.payload);
       return {
         ...state,
-        swarmRunsById: {
-          ...state.swarmRunsById,
+        epicRunsById: {
+          ...state.epicRunsById,
           [run.runId]: run,
         },
       };
     }
-    case "swarm-run.started":
-    case "swarm-run.idled":
-    case "swarm-run.paused":
-    case "swarm-run.resumed":
-    case "swarm-run.blocked":
-    case "swarm-run.failed":
-    case "swarm-run.cancelled":
-    case "swarm-run.completed": {
-      const currentRun = state.swarmRunsById[event.payload.runId];
+    case "epic-run.started":
+    case "epic-run.idled":
+    case "epic-run.blocked":
+    case "epic-run.failed":
+    case "epic-run.stopped":
+    case "epic-run.completed": {
+      const currentRun = state.epicRunsById[event.payload.runId];
       if (!currentRun) {
         return state;
       }
       return {
         ...state,
-        swarmRunsById: {
-          ...state.swarmRunsById,
+        epicRunsById: {
+          ...state.epicRunsById,
           [currentRun.runId]: applySwarmRunLifecycleEvent(currentRun, event),
         },
       };
     }
-    case "swarm-task-execution.requested": {
+    case "epic-issue-execution.requested": {
       const execution = createRequestedSwarmTaskExecution(event.payload);
-      const run = state.swarmRunsById[event.payload.runId];
+      const run = state.epicRunsById[event.payload.runId];
       return {
-        swarmRunsById:
+        epicRunsById:
           run === undefined
-            ? state.swarmRunsById
+            ? state.epicRunsById
             : {
-                ...state.swarmRunsById,
+                ...state.epicRunsById,
                 [run.runId]: {
                   ...run,
                   updatedAt: event.payload.updatedAt,
                 },
               },
-        swarmTaskExecutionsById: {
-          ...state.swarmTaskExecutionsById,
+        epicIssueExecutionsById: {
+          ...state.epicIssueExecutionsById,
           [execution.executionId]: execution,
         },
       };
     }
-    case "swarm-task-execution.started": {
-      const existingExecution = state.swarmTaskExecutionsById[event.payload.executionId] ?? null;
+    case "epic-issue-execution.started": {
+      const existingExecution = state.epicIssueExecutionsById[event.payload.executionId] ?? null;
       const execution = materializeStartedSwarmTaskExecution({
         event,
         existingExecution,
       });
-      const run = state.swarmRunsById[event.payload.runId];
+      const run = state.epicRunsById[event.payload.runId];
       return {
-        swarmRunsById:
+        epicRunsById:
           run === undefined
-            ? state.swarmRunsById
+            ? state.epicRunsById
             : {
-                ...state.swarmRunsById,
+                ...state.epicRunsById,
                 [run.runId]: {
                   ...run,
                   updatedAt: event.payload.updatedAt,
                 },
               },
-        swarmTaskExecutionsById: {
-          ...state.swarmTaskExecutionsById,
+        epicIssueExecutionsById: {
+          ...state.epicIssueExecutionsById,
           [execution.executionId]: execution,
         },
       };
     }
-    case "swarm-task-execution.completed":
-    case "swarm-task-execution.failed":
-    case "swarm-task-execution.cancelled": {
-      const execution = state.swarmTaskExecutionsById[event.payload.executionId];
-      const run = state.swarmRunsById[event.payload.runId];
+    case "epic-issue-execution.completed":
+    case "epic-issue-execution.failed":
+    case "epic-issue-execution.stopped": {
+      const execution = state.epicIssueExecutionsById[event.payload.executionId];
+      const run = state.epicRunsById[event.payload.runId];
       return {
-        swarmRunsById:
+        epicRunsById:
           run === undefined
-            ? state.swarmRunsById
+            ? state.epicRunsById
             : {
-                ...state.swarmRunsById,
+                ...state.epicRunsById,
                 [run.runId]: {
                   ...run,
                   updatedAt: event.payload.updatedAt,
                 },
               },
-        swarmTaskExecutionsById:
+        epicIssueExecutionsById:
           execution === undefined
-            ? state.swarmTaskExecutionsById
+            ? state.epicIssueExecutionsById
             : {
-                ...state.swarmTaskExecutionsById,
+                ...state.epicIssueExecutionsById,
                 [execution.executionId]: applySwarmTaskExecutionLifecycleEvent(execution, event),
               },
       };

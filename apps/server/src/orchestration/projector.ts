@@ -16,23 +16,21 @@ import {
   OrchestrationMessage,
   OrchestrationSession,
   OrchestrationThread,
+  EpicIssueExecutionCompletedPayload,
+  EpicIssueExecutionFailedPayload,
+  EpicIssueExecutionRequestedPayload,
+  EpicIssueExecutionStartedPayload,
+  EpicIssueExecutionStoppedPayload,
+  EpicRunBlockedPayload,
+  EpicRunCompletedPayload,
+  EpicRunFailedPayload,
+  EpicRunIdledPayload,
+  EpicRunRequestedPayload,
+  EpicRunStartedPayload,
+  EpicRunStoppedPayload,
   ProjectCreatedPayload,
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
-  SwarmRunBlockedPayload,
-  SwarmRunCancelledPayload,
-  SwarmRunCompletedPayload,
-  SwarmRunFailedPayload,
-  SwarmRunIdledPayload,
-  SwarmRunPausedPayload,
-  SwarmRunRequestedPayload,
-  SwarmRunResumedPayload,
-  SwarmRunStartedPayload,
-  SwarmTaskExecutionCancelledPayload,
-  SwarmTaskExecutionCompletedPayload,
-  SwarmTaskExecutionFailedPayload,
-  SwarmTaskExecutionRequestedPayload,
-  SwarmTaskExecutionStartedPayload,
   ThreadActivityAppendedPayload,
   ThreadArchivedPayload,
   ThreadCheckpointCaptureRequestedPayload,
@@ -955,8 +953,8 @@ export function projectEvent(
         })),
       );
 
-    case "swarm-run.requested":
-      return decodeForEvent(SwarmRunRequestedPayload, event.payload, event.type, "payload").pipe(
+    case "epic-run.requested":
+      return decodeForEvent(EpicRunRequestedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => {
           const run = createRequestedSwarmRun(payload);
 
@@ -970,8 +968,8 @@ export function projectEvent(
         }),
       );
 
-    case "swarm-run.started":
-      return decodeForEvent(SwarmRunStartedPayload, event.payload, event.type, "payload").pipe(
+    case "epic-run.started":
+      return decodeForEvent(EpicRunStartedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
           epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
@@ -980,8 +978,8 @@ export function projectEvent(
         })),
       );
 
-    case "swarm-run.idled":
-      return decodeForEvent(SwarmRunIdledPayload, event.payload, event.type, "payload").pipe(
+    case "epic-run.idled":
+      return decodeForEvent(EpicRunIdledPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
           epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
@@ -990,8 +988,8 @@ export function projectEvent(
         })),
       );
 
-    case "swarm-run.paused":
-      return decodeForEvent(SwarmRunPausedPayload, event.payload, event.type, "payload").pipe(
+    case "epic-run.blocked":
+      return decodeForEvent(EpicRunBlockedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
           epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
@@ -1000,8 +998,8 @@ export function projectEvent(
         })),
       );
 
-    case "swarm-run.resumed":
-      return decodeForEvent(SwarmRunResumedPayload, event.payload, event.type, "payload").pipe(
+    case "epic-run.failed":
+      return decodeForEvent(EpicRunFailedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
           epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
@@ -1010,8 +1008,8 @@ export function projectEvent(
         })),
       );
 
-    case "swarm-run.blocked":
-      return decodeForEvent(SwarmRunBlockedPayload, event.payload, event.type, "payload").pipe(
+    case "epic-run.stopped":
+      return decodeForEvent(EpicRunStoppedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
           epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
@@ -1020,8 +1018,8 @@ export function projectEvent(
         })),
       );
 
-    case "swarm-run.failed":
-      return decodeForEvent(SwarmRunFailedPayload, event.payload, event.type, "payload").pipe(
+    case "epic-run.completed":
+      return decodeForEvent(EpicRunCompletedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
           epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
@@ -1030,29 +1028,9 @@ export function projectEvent(
         })),
       );
 
-    case "swarm-run.cancelled":
-      return decodeForEvent(SwarmRunCancelledPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
-            applySwarmRunLifecycleEvent(run, { ...event, payload }),
-          ),
-        })),
-      );
-
-    case "swarm-run.completed":
-      return decodeForEvent(SwarmRunCompletedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
-            applySwarmRunLifecycleEvent(run, { ...event, payload }),
-          ),
-        })),
-      );
-
-    case "swarm-task-execution.requested":
+    case "epic-issue-execution.requested":
       return decodeForEvent(
-        SwarmTaskExecutionRequestedPayload,
+        EpicIssueExecutionRequestedPayload,
         event.payload,
         event.type,
         "payload",
@@ -1075,9 +1053,9 @@ export function projectEvent(
         }),
       );
 
-    case "swarm-task-execution.started":
+    case "epic-issue-execution.started":
       return decodeForEvent(
-        SwarmTaskExecutionStartedPayload,
+        EpicIssueExecutionStartedPayload,
         event.payload,
         event.type,
         "payload",
@@ -1107,9 +1085,9 @@ export function projectEvent(
         }),
       );
 
-    case "swarm-task-execution.completed":
+    case "epic-issue-execution.completed":
       return decodeForEvent(
-        SwarmTaskExecutionCompletedPayload,
+        EpicIssueExecutionCompletedPayload,
         event.payload,
         event.type,
         "payload",
@@ -1127,9 +1105,9 @@ export function projectEvent(
         })),
       );
 
-    case "swarm-task-execution.failed":
+    case "epic-issue-execution.failed":
       return decodeForEvent(
-        SwarmTaskExecutionFailedPayload,
+        EpicIssueExecutionFailedPayload,
         event.payload,
         event.type,
         "payload",
@@ -1147,9 +1125,9 @@ export function projectEvent(
         })),
       );
 
-    case "swarm-task-execution.cancelled":
+    case "epic-issue-execution.stopped":
       return decodeForEvent(
-        SwarmTaskExecutionCancelledPayload,
+        EpicIssueExecutionStoppedPayload,
         event.payload,
         event.type,
         "payload",

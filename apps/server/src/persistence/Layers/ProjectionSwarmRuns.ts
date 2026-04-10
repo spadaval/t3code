@@ -1,6 +1,6 @@
 import {
   AssistantDeliveryMode,
-  OrchestrationSwarmFailureContext,
+  OrchestrationEpicRunFailureContext,
   ProviderModelOptions,
   ProviderStartOptions,
 } from "@t3tools/contracts";
@@ -27,7 +27,7 @@ const ProjectionSwarmRunDbRowSchema = Schema.Struct({
   providerOptions: Schema.NullOr(Schema.fromJsonString(ProviderStartOptions)),
   assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
   runtimeMode: ProjectionSwarmRun.fields.runtimeMode,
-  failureContext: Schema.NullOr(Schema.fromJsonString(OrchestrationSwarmFailureContext)),
+  failureContext: Schema.NullOr(Schema.fromJsonString(OrchestrationEpicRunFailureContext)),
   requestedAt: ProjectionSwarmRun.fields.requestedAt,
   startedAt: ProjectionSwarmRun.fields.startedAt,
   stopRequestedAt: ProjectionSwarmRun.fields.stopRequestedAt,

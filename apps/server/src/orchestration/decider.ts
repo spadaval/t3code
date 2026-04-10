@@ -855,7 +855,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "swarm-run.request": {
+    case "epic-run.request": {
       yield* requireSwarmRunAbsent({
         readModel,
         command,
@@ -880,17 +880,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       });
       return {
         ...withEventBase({
-          aggregateKind: "swarmRun",
+          aggregateKind: "epicRun",
           aggregateId: command.runId,
           occurredAt: command.createdAt,
           commandId: command.commandId,
         }),
-        type: "swarm-run.requested",
+        type: "epic-run.requested",
         payload: {
           runId: command.runId,
           projectId: command.projectId,
           epicIssueId: command.epicIssueId,
-          swarmId: command.swarmId,
           schedulerMode: command.schedulerMode,
           workspaceMode: command.workspaceMode,
           provider: command.provider ?? null,
@@ -905,7 +904,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "swarm-run.mark-started": {
+    case "epic-run.mark-started": {
       yield* requireSwarmRunInAllowedStatus({
         readModel,
         command,
@@ -913,12 +912,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       });
       return {
         ...withEventBase({
-          aggregateKind: "swarmRun",
+          aggregateKind: "epicRun",
           aggregateId: command.runId,
           occurredAt: command.createdAt,
           commandId: command.commandId,
         }),
-        type: "swarm-run.started",
+        type: "epic-run.started",
         payload: {
           runId: command.runId,
           startedAt: command.createdAt,
@@ -927,7 +926,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "swarm-run.mark-idle": {
+    case "epic-run.mark-idle": {
       yield* requireSwarmRunWithoutCurrentExecution({
         readModel,
         command,
@@ -935,12 +934,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       });
       return {
         ...withEventBase({
-          aggregateKind: "swarmRun",
+          aggregateKind: "epicRun",
           aggregateId: command.runId,
           occurredAt: command.createdAt,
           commandId: command.commandId,
         }),
-        type: "swarm-run.idled",
+        type: "epic-run.idled",
         payload: {
           runId: command.runId,
           idledAt: command.createdAt,
@@ -949,7 +948,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "swarm-run.pause": {
+    case "epic-run.block": {
       yield* requireSwarmRunWithoutCurrentExecution({
         readModel,
         command,
@@ -957,56 +956,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       });
       return {
         ...withEventBase({
-          aggregateKind: "swarmRun",
+          aggregateKind: "epicRun",
           aggregateId: command.runId,
           occurredAt: command.createdAt,
           commandId: command.commandId,
         }),
-        type: "swarm-run.paused",
-        payload: {
-          runId: command.runId,
-          pausedAt: command.createdAt,
-          updatedAt: command.createdAt,
-        },
-      };
-    }
-
-    case "swarm-run.resume": {
-      yield* requireSwarmRunWithoutCurrentExecution({
-        readModel,
-        command,
-        runId: command.runId,
-      });
-      return {
-        ...withEventBase({
-          aggregateKind: "swarmRun",
-          aggregateId: command.runId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "swarm-run.resumed",
-        payload: {
-          runId: command.runId,
-          resumedAt: command.createdAt,
-          updatedAt: command.createdAt,
-        },
-      };
-    }
-
-    case "swarm-run.block": {
-      yield* requireSwarmRunWithoutCurrentExecution({
-        readModel,
-        command,
-        runId: command.runId,
-      });
-      return {
-        ...withEventBase({
-          aggregateKind: "swarmRun",
-          aggregateId: command.runId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "swarm-run.blocked",
+        type: "epic-run.blocked",
         payload: {
           runId: command.runId,
           reason: command.reason,
@@ -1017,7 +972,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "swarm-run.fail": {
+    case "epic-run.fail": {
       yield* requireSwarmRunInAllowedStatus({
         readModel,
         command,
@@ -1025,12 +980,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       });
       return {
         ...withEventBase({
-          aggregateKind: "swarmRun",
+          aggregateKind: "epicRun",
           aggregateId: command.runId,
           occurredAt: command.createdAt,
           commandId: command.commandId,
         }),
-        type: "swarm-run.failed",
+        type: "epic-run.failed",
         payload: {
           runId: command.runId,
           reason: command.reason,
@@ -1040,7 +995,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "swarm-run.cancel": {
+    case "epic-run.stop": {
       yield* requireSwarmRunWithoutCurrentExecution({
         readModel,
         command,
@@ -1048,21 +1003,21 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       });
       return {
         ...withEventBase({
-          aggregateKind: "swarmRun",
+          aggregateKind: "epicRun",
           aggregateId: command.runId,
           occurredAt: command.createdAt,
           commandId: command.commandId,
         }),
-        type: "swarm-run.cancelled",
+        type: "epic-run.stopped",
         payload: {
           runId: command.runId,
-          cancelledAt: command.createdAt,
+          stoppedAt: command.createdAt,
           updatedAt: command.createdAt,
         },
       };
     }
 
-    case "swarm-run.complete": {
+    case "epic-run.complete": {
       yield* requireSwarmRunWithoutCurrentExecution({
         readModel,
         command,
@@ -1070,12 +1025,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       });
       return {
         ...withEventBase({
-          aggregateKind: "swarmRun",
+          aggregateKind: "epicRun",
           aggregateId: command.runId,
           occurredAt: command.createdAt,
           commandId: command.commandId,
         }),
-        type: "swarm-run.completed",
+        type: "epic-run.completed",
         payload: {
           runId: command.runId,
           completedAt: command.createdAt,
@@ -1084,7 +1039,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "swarm-task-execution.request": {
+    case "epic-issue-execution.request": {
       yield* requireSwarmRunWithoutCurrentExecution({
         readModel,
         command,
@@ -1097,12 +1052,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       });
       return {
         ...withEventBase({
-          aggregateKind: "swarmTaskExecution",
+          aggregateKind: "epicIssueExecution",
           aggregateId: command.executionId,
           occurredAt: command.createdAt,
           commandId: command.commandId,
         }),
-        type: "swarm-task-execution.requested",
+        type: "epic-issue-execution.requested",
         payload: {
           executionId: command.executionId,
           runId: command.runId,
@@ -1117,7 +1072,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "swarm-task-execution.start": {
+    case "epic-issue-execution.start": {
       yield* requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
         readModel,
         command,
@@ -1126,12 +1081,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       });
       return {
         ...withEventBase({
-          aggregateKind: "swarmTaskExecution",
+          aggregateKind: "epicIssueExecution",
           aggregateId: command.executionId,
           occurredAt: command.createdAt,
           commandId: command.commandId,
         }),
-        type: "swarm-task-execution.started",
+        type: "epic-issue-execution.started",
         payload: {
           executionId: command.executionId,
           runId: command.runId,
@@ -1141,7 +1096,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "swarm-task-execution.complete": {
+    case "epic-issue-execution.complete": {
       yield* requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
         readModel,
         command,
@@ -1150,12 +1105,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       });
       return {
         ...withEventBase({
-          aggregateKind: "swarmTaskExecution",
+          aggregateKind: "epicIssueExecution",
           aggregateId: command.executionId,
           occurredAt: command.createdAt,
           commandId: command.commandId,
         }),
-        type: "swarm-task-execution.completed",
+        type: "epic-issue-execution.completed",
         payload: {
           executionId: command.executionId,
           runId: command.runId,
@@ -1165,7 +1120,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "swarm-task-execution.fail": {
+    case "epic-issue-execution.fail": {
       yield* requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
         readModel,
         command,
@@ -1174,12 +1129,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       });
       return {
         ...withEventBase({
-          aggregateKind: "swarmTaskExecution",
+          aggregateKind: "epicIssueExecution",
           aggregateId: command.executionId,
           occurredAt: command.createdAt,
           commandId: command.commandId,
         }),
-        type: "swarm-task-execution.failed",
+        type: "epic-issue-execution.failed",
         payload: {
           executionId: command.executionId,
           runId: command.runId,
@@ -1190,7 +1145,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "swarm-task-execution.cancel": {
+    case "epic-issue-execution.stop": {
       yield* requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
         readModel,
         command,
@@ -1199,16 +1154,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       });
       return {
         ...withEventBase({
-          aggregateKind: "swarmTaskExecution",
+          aggregateKind: "epicIssueExecution",
           aggregateId: command.executionId,
           occurredAt: command.createdAt,
           commandId: command.commandId,
         }),
-        type: "swarm-task-execution.cancelled",
+        type: "epic-issue-execution.stopped",
         payload: {
           executionId: command.executionId,
           runId: command.runId,
-          cancelledAt: command.createdAt,
+          stoppedAt: command.createdAt,
           updatedAt: command.createdAt,
         },
       };

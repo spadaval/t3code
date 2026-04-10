@@ -452,18 +452,17 @@ export const OrchestrationPlanImplementationLaunch = Schema.Struct({
 export type OrchestrationPlanImplementationLaunch =
   typeof OrchestrationPlanImplementationLaunch.Type;
 
-// Legacy command-surface scheduling/workspace options still exist on the write
-// path until the orchestrator refactor deletes the old command set.
-export const OrchestrationSwarmSchedulerMode = Schema.Literals(["automatic", "semi-automatic"]);
-export type OrchestrationSwarmSchedulerMode = typeof OrchestrationSwarmSchedulerMode.Type;
-export const DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE: OrchestrationSwarmSchedulerMode =
+export const OrchestrationEpicRunSchedulerMode = Schema.Literals(["automatic", "semi-automatic"]);
+export type OrchestrationEpicRunSchedulerMode = typeof OrchestrationEpicRunSchedulerMode.Type;
+export const DEFAULT_ORCHESTRATION_EPIC_RUN_SCHEDULER_MODE: OrchestrationEpicRunSchedulerMode =
   "automatic";
 
-export const OrchestrationSwarmWorkspaceMode = Schema.Literals(["shared"]);
-export type OrchestrationSwarmWorkspaceMode = typeof OrchestrationSwarmWorkspaceMode.Type;
-export const DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE: OrchestrationSwarmWorkspaceMode = "shared";
+export const OrchestrationEpicRunWorkspaceMode = Schema.Literals(["shared"]);
+export type OrchestrationEpicRunWorkspaceMode = typeof OrchestrationEpicRunWorkspaceMode.Type;
+export const DEFAULT_ORCHESTRATION_EPIC_RUN_WORKSPACE_MODE: OrchestrationEpicRunWorkspaceMode =
+  "shared";
 
-export const OrchestrationSwarmRunStatus = Schema.Literals([
+export const OrchestrationEpicRunStatus = Schema.Literals([
   "pending",
   "running",
   "stopping",
@@ -471,9 +470,9 @@ export const OrchestrationSwarmRunStatus = Schema.Literals([
   "failed",
   "completed",
 ]);
-export type OrchestrationSwarmRunStatus = typeof OrchestrationSwarmRunStatus.Type;
+export type OrchestrationEpicRunStatus = typeof OrchestrationEpicRunStatus.Type;
 
-export const OrchestrationSwarmTaskExecutionStatus = Schema.Literals([
+export const OrchestrationEpicIssueExecutionStatus = Schema.Literals([
   "launching",
   "running",
   "stopping",
@@ -481,59 +480,57 @@ export const OrchestrationSwarmTaskExecutionStatus = Schema.Literals([
   "completed",
   "failed",
 ]);
-export type OrchestrationSwarmTaskExecutionStatus =
-  typeof OrchestrationSwarmTaskExecutionStatus.Type;
+export type OrchestrationEpicIssueExecutionStatus =
+  typeof OrchestrationEpicIssueExecutionStatus.Type;
 
-// Legacy blocked-context command/event payloads still exist until the
-// orchestrator refactor removes the old blocked-state write path.
-export const OrchestrationSwarmRunBlockedKind = Schema.Literals([
+export const OrchestrationEpicRunBlockedKind = Schema.Literals([
   "tracker_waiting",
   "worker_failure",
 ]);
-export type OrchestrationSwarmRunBlockedKind = typeof OrchestrationSwarmRunBlockedKind.Type;
+export type OrchestrationEpicRunBlockedKind = typeof OrchestrationEpicRunBlockedKind.Type;
 
-export const OrchestrationSwarmRunBlockedContext = Schema.Struct({
-  kind: OrchestrationSwarmRunBlockedKind,
+export const OrchestrationEpicRunBlockedContext = Schema.Struct({
+  kind: OrchestrationEpicRunBlockedKind,
   issueId: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
   executionId: Schema.NullOr(EpicIssueExecutionId).pipe(Schema.withDecodingDefault(() => null)),
   workerThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
 });
-export type OrchestrationSwarmRunBlockedContext = typeof OrchestrationSwarmRunBlockedContext.Type;
+export type OrchestrationEpicRunBlockedContext = typeof OrchestrationEpicRunBlockedContext.Type;
 
-export const OrchestrationSwarmFailureKind = Schema.Literals([
+export const OrchestrationEpicRunFailureKind = Schema.Literals([
   "launch_failure",
   "worker_failure",
   "issue_incomplete",
   "environment_failure",
   "invariant_violation",
 ]);
-export type OrchestrationSwarmFailureKind = typeof OrchestrationSwarmFailureKind.Type;
+export type OrchestrationEpicRunFailureKind = typeof OrchestrationEpicRunFailureKind.Type;
 
-export const OrchestrationSwarmFailureContext = Schema.Struct({
-  kind: OrchestrationSwarmFailureKind,
+export const OrchestrationEpicRunFailureContext = Schema.Struct({
+  kind: OrchestrationEpicRunFailureKind,
   message: TrimmedNonEmptyString,
   issueId: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
   executionId: Schema.NullOr(EpicIssueExecutionId).pipe(Schema.withDecodingDefault(() => null)),
   workerThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
 });
-export type OrchestrationSwarmFailureContext = typeof OrchestrationSwarmFailureContext.Type;
+export type OrchestrationEpicRunFailureContext = typeof OrchestrationEpicRunFailureContext.Type;
 
-export const OrchestrationSwarmWorkspaceKey = TrimmedNonEmptyString;
-export type OrchestrationSwarmWorkspaceKey = typeof OrchestrationSwarmWorkspaceKey.Type;
-export const DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_KEY: OrchestrationSwarmWorkspaceKey = "shared";
+export const OrchestrationEpicWorkspaceKey = TrimmedNonEmptyString;
+export type OrchestrationEpicWorkspaceKey = typeof OrchestrationEpicWorkspaceKey.Type;
+export const DEFAULT_ORCHESTRATION_EPIC_WORKSPACE_KEY: OrchestrationEpicWorkspaceKey = "shared";
 
 export const OrchestrationEpicRun = Schema.Struct({
   runId: EpicRunId,
   projectId: ProjectId,
   epicIssueId: TrimmedNonEmptyString,
-  status: OrchestrationSwarmRunStatus,
+  status: OrchestrationEpicRunStatus,
   provider: Schema.NullOr(ProviderKind),
   model: Schema.NullOr(TrimmedNonEmptyString),
   modelOptions: Schema.NullOr(ProviderModelOptions),
   providerOptions: Schema.NullOr(ProviderStartOptions),
   assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
-  failureContext: Schema.NullOr(OrchestrationSwarmFailureContext).pipe(
+  failureContext: Schema.NullOr(OrchestrationEpicRunFailureContext).pipe(
     Schema.withDecodingDefault(() => null),
   ),
   requestedAt: IsoDateTime,
@@ -552,12 +549,12 @@ export const OrchestrationEpicIssueExecution = Schema.Struct({
   issueId: TrimmedNonEmptyString,
   workerThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
   sequenceNumber: NonNegativeInt,
-  status: OrchestrationSwarmTaskExecutionStatus,
-  workspaceKey: OrchestrationSwarmWorkspaceKey.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_KEY),
+  status: OrchestrationEpicIssueExecutionStatus,
+  workspaceKey: OrchestrationEpicWorkspaceKey.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_EPIC_WORKSPACE_KEY),
   ),
   workspacePath: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
-  failureContext: Schema.NullOr(OrchestrationSwarmFailureContext).pipe(
+  failureContext: Schema.NullOr(OrchestrationEpicRunFailureContext).pipe(
     Schema.withDecodingDefault(() => null),
   ),
   requestedAt: IsoDateTime,
@@ -957,18 +954,17 @@ const PlanImplementationLaunchCancelCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-const SwarmRunRequestCommand = Schema.Struct({
-  type: Schema.Literal("swarm-run.request"),
+const EpicRunRequestCommand = Schema.Struct({
+  type: Schema.Literal("epic-run.request"),
   commandId: CommandId,
   runId: EpicRunId,
   projectId: ProjectId,
   epicIssueId: TrimmedNonEmptyString,
-  swarmId: TrimmedNonEmptyString,
-  schedulerMode: OrchestrationSwarmSchedulerMode.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE),
+  schedulerMode: OrchestrationEpicRunSchedulerMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_EPIC_RUN_SCHEDULER_MODE),
   ),
-  workspaceMode: OrchestrationSwarmWorkspaceMode.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE),
+  workspaceMode: OrchestrationEpicRunWorkspaceMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_EPIC_RUN_WORKSPACE_MODE),
   ),
   provider: Schema.optional(ProviderKind),
   model: Schema.optional(TrimmedNonEmptyString),
@@ -979,69 +975,55 @@ const SwarmRunRequestCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-const SwarmRunMarkStartedCommand = Schema.Struct({
-  type: Schema.Literal("swarm-run.mark-started"),
+const EpicRunMarkStartedCommand = Schema.Struct({
+  type: Schema.Literal("epic-run.mark-started"),
   commandId: CommandId,
   runId: EpicRunId,
   createdAt: IsoDateTime,
 });
 
-const SwarmRunMarkIdleCommand = Schema.Struct({
-  type: Schema.Literal("swarm-run.mark-idle"),
+const EpicRunMarkIdleCommand = Schema.Struct({
+  type: Schema.Literal("epic-run.mark-idle"),
   commandId: CommandId,
   runId: EpicRunId,
   createdAt: IsoDateTime,
 });
 
-const SwarmRunPauseCommand = Schema.Struct({
-  type: Schema.Literal("swarm-run.pause"),
-  commandId: CommandId,
-  runId: EpicRunId,
-  createdAt: IsoDateTime,
-});
-
-const SwarmRunResumeCommand = Schema.Struct({
-  type: Schema.Literal("swarm-run.resume"),
-  commandId: CommandId,
-  runId: EpicRunId,
-  createdAt: IsoDateTime,
-});
-
-const SwarmRunBlockCommand = Schema.Struct({
-  type: Schema.Literal("swarm-run.block"),
+const EpicRunBlockCommand = Schema.Struct({
+  type: Schema.Literal("epic-run.block"),
   commandId: CommandId,
   runId: EpicRunId,
   reason: TrimmedNonEmptyString,
-  blockedContext: Schema.NullOr(OrchestrationSwarmRunBlockedContext).pipe(
+  blockedContext: Schema.NullOr(OrchestrationEpicRunBlockedContext).pipe(
     Schema.withDecodingDefault(() => null),
   ),
   createdAt: IsoDateTime,
 });
 
-const SwarmRunFailCommand = Schema.Struct({
-  type: Schema.Literal("swarm-run.fail"),
+const EpicRunFailCommand = Schema.Struct({
+  type: Schema.Literal("epic-run.fail"),
   commandId: CommandId,
   runId: EpicRunId,
   reason: TrimmedNonEmptyString,
   createdAt: IsoDateTime,
 });
 
-const SwarmRunCancelCommand = Schema.Struct({
-  type: Schema.Literal("swarm-run.cancel"),
+const EpicRunStopCommand = Schema.Struct({
+  type: Schema.Literal("epic-run.stop"),
   commandId: CommandId,
   runId: EpicRunId,
   createdAt: IsoDateTime,
 });
 
-const SwarmRunCompleteCommand = Schema.Struct({
-  type: Schema.Literal("swarm-run.complete"),
+const EpicRunCompleteCommand = Schema.Struct({
+  type: Schema.Literal("epic-run.complete"),
   commandId: CommandId,
   runId: EpicRunId,
   createdAt: IsoDateTime,
 });
 
-const SwarmTaskExecutionRequestCommand = Schema.Struct({
-  type: Schema.Literal("swarm-task-execution.request"),
+const EpicIssueExecutionRequestCommand = Schema.Struct({
+  type: Schema.Literal("epic-issue-execution.request"),
   commandId: CommandId,
   executionId: EpicIssueExecutionId,
   runId: EpicRunId,
@@ -1055,24 +1037,24 @@ const SwarmTaskExecutionRequestCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-const SwarmTaskExecutionStartCommand = Schema.Struct({
-  type: Schema.Literal("swarm-task-execution.start"),
+const EpicIssueExecutionStartCommand = Schema.Struct({
+  type: Schema.Literal("epic-issue-execution.start"),
   commandId: CommandId,
   executionId: EpicIssueExecutionId,
   runId: EpicRunId,
   createdAt: IsoDateTime,
 });
 
-const SwarmTaskExecutionCompleteCommand = Schema.Struct({
-  type: Schema.Literal("swarm-task-execution.complete"),
+const EpicIssueExecutionCompleteCommand = Schema.Struct({
+  type: Schema.Literal("epic-issue-execution.complete"),
   commandId: CommandId,
   executionId: EpicIssueExecutionId,
   runId: EpicRunId,
   createdAt: IsoDateTime,
 });
 
-const SwarmTaskExecutionFailCommand = Schema.Struct({
-  type: Schema.Literal("swarm-task-execution.fail"),
+const EpicIssueExecutionFailCommand = Schema.Struct({
+  type: Schema.Literal("epic-issue-execution.fail"),
   commandId: CommandId,
   executionId: EpicIssueExecutionId,
   runId: EpicRunId,
@@ -1080,8 +1062,8 @@ const SwarmTaskExecutionFailCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-const SwarmTaskExecutionCancelCommand = Schema.Struct({
-  type: Schema.Literal("swarm-task-execution.cancel"),
+const EpicIssueExecutionStopCommand = Schema.Struct({
+  type: Schema.Literal("epic-issue-execution.stop"),
   commandId: CommandId,
   executionId: EpicIssueExecutionId,
   runId: EpicRunId,
@@ -1102,20 +1084,18 @@ const InternalOrchestrationCommand = Schema.Union([
   PlanImplementationLaunchMarkStartedCommand,
   PlanImplementationLaunchFailCommand,
   PlanImplementationLaunchCancelCommand,
-  SwarmRunRequestCommand,
-  SwarmRunMarkStartedCommand,
-  SwarmRunMarkIdleCommand,
-  SwarmRunPauseCommand,
-  SwarmRunResumeCommand,
-  SwarmRunBlockCommand,
-  SwarmRunFailCommand,
-  SwarmRunCancelCommand,
-  SwarmRunCompleteCommand,
-  SwarmTaskExecutionRequestCommand,
-  SwarmTaskExecutionStartCommand,
-  SwarmTaskExecutionCompleteCommand,
-  SwarmTaskExecutionFailCommand,
-  SwarmTaskExecutionCancelCommand,
+  EpicRunRequestCommand,
+  EpicRunMarkStartedCommand,
+  EpicRunMarkIdleCommand,
+  EpicRunBlockCommand,
+  EpicRunFailCommand,
+  EpicRunStopCommand,
+  EpicRunCompleteCommand,
+  EpicIssueExecutionRequestCommand,
+  EpicIssueExecutionStartCommand,
+  EpicIssueExecutionCompleteCommand,
+  EpicIssueExecutionFailCommand,
+  EpicIssueExecutionStopCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -1154,20 +1134,18 @@ export const OrchestrationEventType = Schema.Literals([
   "plan-implementation-launch.started",
   "plan-implementation-launch.failed",
   "plan-implementation-launch.cancelled",
-  "swarm-run.requested",
-  "swarm-run.started",
-  "swarm-run.idled",
-  "swarm-run.paused",
-  "swarm-run.resumed",
-  "swarm-run.blocked",
-  "swarm-run.failed",
-  "swarm-run.cancelled",
-  "swarm-run.completed",
-  "swarm-task-execution.requested",
-  "swarm-task-execution.started",
-  "swarm-task-execution.completed",
-  "swarm-task-execution.failed",
-  "swarm-task-execution.cancelled",
+  "epic-run.requested",
+  "epic-run.started",
+  "epic-run.idled",
+  "epic-run.blocked",
+  "epic-run.failed",
+  "epic-run.stopped",
+  "epic-run.completed",
+  "epic-issue-execution.requested",
+  "epic-issue-execution.started",
+  "epic-issue-execution.completed",
+  "epic-issue-execution.failed",
+  "epic-issue-execution.stopped",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
@@ -1175,8 +1153,8 @@ export const OrchestrationAggregateKind = Schema.Literals([
   "project",
   "thread",
   "planImplementationLaunch",
-  "swarmRun",
-  "swarmTaskExecution",
+  "epicRun",
+  "epicIssueExecution",
 ]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
 export const OrchestrationActorKind = Schema.Literals(["client", "server", "provider"]);
@@ -1411,16 +1389,15 @@ export const PlanImplementationLaunchCancelledPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
-export const SwarmRunRequestedPayload = Schema.Struct({
+export const EpicRunRequestedPayload = Schema.Struct({
   runId: EpicRunId,
   projectId: ProjectId,
   epicIssueId: TrimmedNonEmptyString,
-  swarmId: TrimmedNonEmptyString,
-  schedulerMode: OrchestrationSwarmSchedulerMode.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE),
+  schedulerMode: OrchestrationEpicRunSchedulerMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_EPIC_RUN_SCHEDULER_MODE),
   ),
-  workspaceMode: OrchestrationSwarmWorkspaceMode.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE),
+  workspaceMode: OrchestrationEpicRunWorkspaceMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_EPIC_RUN_WORKSPACE_MODE),
   ),
   provider: Schema.NullOr(ProviderKind),
   model: Schema.NullOr(TrimmedNonEmptyString),
@@ -1432,67 +1409,55 @@ export const SwarmRunRequestedPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
-export const SwarmRunStartedPayload = Schema.Struct({
+export const EpicRunStartedPayload = Schema.Struct({
   runId: EpicRunId,
   startedAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
 
-export const SwarmRunIdledPayload = Schema.Struct({
+export const EpicRunIdledPayload = Schema.Struct({
   runId: EpicRunId,
   idledAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
 
-export const SwarmRunPausedPayload = Schema.Struct({
-  runId: EpicRunId,
-  pausedAt: IsoDateTime,
-  updatedAt: IsoDateTime,
-});
-
-export const SwarmRunResumedPayload = Schema.Struct({
-  runId: EpicRunId,
-  resumedAt: IsoDateTime,
-  updatedAt: IsoDateTime,
-});
-
-export const SwarmRunBlockedPayload = Schema.Struct({
+export const EpicRunBlockedPayload = Schema.Struct({
   runId: EpicRunId,
   reason: TrimmedNonEmptyString,
   blockedAt: IsoDateTime,
-  blockedContext: Schema.NullOr(OrchestrationSwarmRunBlockedContext).pipe(
+  blockedContext: Schema.NullOr(OrchestrationEpicRunBlockedContext).pipe(
     Schema.withDecodingDefault(() => null),
   ),
   updatedAt: IsoDateTime,
 });
 
-export const SwarmRunFailedPayload = Schema.Struct({
+export const EpicRunFailedPayload = Schema.Struct({
   runId: EpicRunId,
   reason: TrimmedNonEmptyString,
   failedAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
 
-export const SwarmRunCancelledPayload = Schema.Struct({
+export const EpicRunStoppedPayload = Schema.Struct({
   runId: EpicRunId,
-  cancelledAt: IsoDateTime,
+  stoppedAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
 
-export const SwarmRunCompletedPayload = Schema.Struct({
+export const EpicRunCompletedPayload = Schema.Struct({
   runId: EpicRunId,
   completedAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
 
-export const SwarmTaskExecutionStartedPayload = Schema.Struct({
+export const EpicIssueExecutionStartedPayload = Schema.Struct({
   executionId: EpicIssueExecutionId,
   runId: EpicRunId,
   startedAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
 
-export const SwarmTaskExecutionRequestedPayload = Schema.Struct({
+export const EpicIssueExecutionRequestedPayload = Schema.Struct({
   executionId: EpicIssueExecutionId,
   runId: EpicRunId,
   issueId: TrimmedNonEmptyString,
@@ -1506,14 +1471,14 @@ export const SwarmTaskExecutionRequestedPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
-export const SwarmTaskExecutionCompletedPayload = Schema.Struct({
+export const EpicIssueExecutionCompletedPayload = Schema.Struct({
   executionId: EpicIssueExecutionId,
   runId: EpicRunId,
   completedAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
 
-export const SwarmTaskExecutionFailedPayload = Schema.Struct({
+export const EpicIssueExecutionFailedPayload = Schema.Struct({
   executionId: EpicIssueExecutionId,
   runId: EpicRunId,
   reason: TrimmedNonEmptyString,
@@ -1521,10 +1486,10 @@ export const SwarmTaskExecutionFailedPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
-export const SwarmTaskExecutionCancelledPayload = Schema.Struct({
+export const EpicIssueExecutionStoppedPayload = Schema.Struct({
   executionId: EpicIssueExecutionId,
   runId: EpicRunId,
-  cancelledAt: IsoDateTime,
+  stoppedAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
 
@@ -1698,73 +1663,63 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("swarm-run.requested"),
-    payload: SwarmRunRequestedPayload,
+    type: Schema.Literal("epic-run.requested"),
+    payload: EpicRunRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("swarm-run.started"),
-    payload: SwarmRunStartedPayload,
+    type: Schema.Literal("epic-run.started"),
+    payload: EpicRunStartedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("swarm-run.idled"),
-    payload: SwarmRunIdledPayload,
+    type: Schema.Literal("epic-run.idled"),
+    payload: EpicRunIdledPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("swarm-run.paused"),
-    payload: SwarmRunPausedPayload,
+    type: Schema.Literal("epic-run.blocked"),
+    payload: EpicRunBlockedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("swarm-run.resumed"),
-    payload: SwarmRunResumedPayload,
+    type: Schema.Literal("epic-run.failed"),
+    payload: EpicRunFailedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("swarm-run.blocked"),
-    payload: SwarmRunBlockedPayload,
+    type: Schema.Literal("epic-run.stopped"),
+    payload: EpicRunStoppedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("swarm-run.failed"),
-    payload: SwarmRunFailedPayload,
+    type: Schema.Literal("epic-run.completed"),
+    payload: EpicRunCompletedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("swarm-run.cancelled"),
-    payload: SwarmRunCancelledPayload,
+    type: Schema.Literal("epic-issue-execution.requested"),
+    payload: EpicIssueExecutionRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("swarm-run.completed"),
-    payload: SwarmRunCompletedPayload,
+    type: Schema.Literal("epic-issue-execution.started"),
+    payload: EpicIssueExecutionStartedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("swarm-task-execution.requested"),
-    payload: SwarmTaskExecutionRequestedPayload,
+    type: Schema.Literal("epic-issue-execution.completed"),
+    payload: EpicIssueExecutionCompletedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("swarm-task-execution.started"),
-    payload: SwarmTaskExecutionStartedPayload,
+    type: Schema.Literal("epic-issue-execution.failed"),
+    payload: EpicIssueExecutionFailedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("swarm-task-execution.completed"),
-    payload: SwarmTaskExecutionCompletedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("swarm-task-execution.failed"),
-    payload: SwarmTaskExecutionFailedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("swarm-task-execution.cancelled"),
-    payload: SwarmTaskExecutionCancelledPayload,
+    type: Schema.Literal("epic-issue-execution.stopped"),
+    payload: EpicIssueExecutionStoppedPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;
@@ -1909,11 +1864,11 @@ export type OrchestrationRetryPlanImplementationLaunchInput =
 export const OrchestrationStartEpicRunInput = Schema.Struct({
   projectId: ProjectId,
   epicIssueId: TrimmedNonEmptyString,
-  schedulerMode: OrchestrationSwarmSchedulerMode.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE),
+  schedulerMode: OrchestrationEpicRunSchedulerMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_EPIC_RUN_SCHEDULER_MODE),
   ),
-  workspaceMode: OrchestrationSwarmWorkspaceMode.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE),
+  workspaceMode: OrchestrationEpicRunWorkspaceMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_EPIC_RUN_WORKSPACE_MODE),
   ),
   provider: Schema.optional(ProviderKind),
   model: Schema.optional(TrimmedNonEmptyString),
@@ -1934,7 +1889,7 @@ export type OrchestrationStopEpicRunInput = typeof OrchestrationStopEpicRunInput
 
 export const OrchestrationEpicRunControlResult = Schema.Struct({
   runId: EpicRunId,
-  status: OrchestrationSwarmRunStatus,
+  status: OrchestrationEpicRunStatus,
 });
 export type OrchestrationEpicRunControlResult = typeof OrchestrationEpicRunControlResult.Type;
 

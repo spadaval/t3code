@@ -435,7 +435,7 @@ export function applyCommand(
         ),
       };
 
-    case "swarm-run.request":
+    case "epic-run.request":
       return {
         ...readModel,
         snapshotSequence: sequence,
@@ -465,7 +465,7 @@ export function applyCommand(
         ],
       };
 
-    case "swarm-run.mark-started":
+    case "epic-run.mark-started":
       return updateRun(
         {
           ...readModel,
@@ -482,7 +482,7 @@ export function applyCommand(
         }),
       );
 
-    case "swarm-run.mark-idle":
+    case "epic-run.mark-idle":
       return updateRun(
         {
           ...readModel,
@@ -497,43 +497,7 @@ export function applyCommand(
         }),
       );
 
-    case "swarm-run.pause":
-      return updateRun(
-        {
-          ...readModel,
-          snapshotSequence: sequence,
-          updatedAt: command.createdAt,
-        },
-        command.runId,
-        (run) => ({
-          ...run,
-          status: "stopped",
-          stopRequestedAt: command.createdAt,
-          stoppedAt: command.createdAt,
-          failureContext: null,
-          updatedAt: command.createdAt,
-        }),
-      );
-
-    case "swarm-run.resume":
-      return updateRun(
-        {
-          ...readModel,
-          snapshotSequence: sequence,
-          updatedAt: command.createdAt,
-        },
-        command.runId,
-        (run) => ({
-          ...run,
-          status: "running",
-          failureContext: null,
-          stopRequestedAt: null,
-          stoppedAt: null,
-          updatedAt: command.createdAt,
-        }),
-      );
-
-    case "swarm-run.block":
+    case "epic-run.block":
       return updateRun(
         {
           ...readModel,
@@ -559,7 +523,7 @@ export function applyCommand(
         }),
       );
 
-    case "swarm-run.fail":
+    case "epic-run.fail":
       return updateRun(
         {
           ...readModel,
@@ -578,7 +542,7 @@ export function applyCommand(
         }),
       );
 
-    case "swarm-run.cancel":
+    case "epic-run.stop":
       return updateRun(
         {
           ...readModel,
@@ -596,7 +560,7 @@ export function applyCommand(
         }),
       );
 
-    case "swarm-run.complete":
+    case "epic-run.complete":
       return updateRun(
         {
           ...readModel,
@@ -615,7 +579,7 @@ export function applyCommand(
         }),
       );
 
-    case "swarm-task-execution.request":
+    case "epic-issue-execution.request":
       return {
         ...updateRun(
           {
@@ -652,7 +616,7 @@ export function applyCommand(
         ],
       };
 
-    case "swarm-task-execution.start":
+    case "epic-issue-execution.start":
       return updateExecution(
         updateRun(
           {
@@ -675,7 +639,7 @@ export function applyCommand(
         }),
       );
 
-    case "swarm-task-execution.complete":
+    case "epic-issue-execution.complete":
       return updateExecution(
         updateRun(
           {
@@ -698,7 +662,7 @@ export function applyCommand(
         }),
       );
 
-    case "swarm-task-execution.fail":
+    case "epic-issue-execution.fail":
       return updateExecution(
         updateRun(
           {
@@ -727,7 +691,7 @@ export function applyCommand(
         }),
       );
 
-    case "swarm-task-execution.cancel":
+    case "epic-issue-execution.stop":
       return updateExecution(
         updateRun(
           {

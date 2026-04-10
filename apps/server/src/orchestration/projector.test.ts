@@ -31,9 +31,9 @@ function makeEvent(input: {
         ? ProjectId.makeUnsafe(input.aggregateId)
         : input.aggregateKind === "thread"
           ? ThreadId.makeUnsafe(input.aggregateId)
-          : input.aggregateKind === "swarmRun"
+          : input.aggregateKind === "epicRun"
             ? EpicRunId.makeUnsafe(input.aggregateId)
-            : input.aggregateKind === "swarmTaskExecution"
+            : input.aggregateKind === "epicIssueExecution"
               ? EpicIssueExecutionId.makeUnsafe(input.aggregateId)
               : ThreadId.makeUnsafe(input.aggregateId),
     occurredAt: input.occurredAt,
@@ -457,8 +457,8 @@ describe("orchestration projector", () => {
         createEmptyReadModel(requestedAt),
         makeEvent({
           sequence: 1,
-          type: "swarm-run.requested",
-          aggregateKind: "swarmRun",
+          type: "epic-run.requested",
+          aggregateKind: "epicRun",
           aggregateId: "run-1",
           occurredAt: requestedAt,
           commandId: "cmd-swarm-requested",
@@ -466,7 +466,6 @@ describe("orchestration projector", () => {
             runId: "run-1",
             projectId: "project-1",
             epicIssueId: "EPIC-1",
-            swarmId: "SWARM-1",
             schedulerMode: "automatic",
             workspaceMode: "shared",
             provider: "codex",
@@ -487,8 +486,8 @@ describe("orchestration projector", () => {
         afterRequested,
         makeEvent({
           sequence: 2,
-          type: "swarm-task-execution.requested",
-          aggregateKind: "swarmTaskExecution",
+          type: "epic-issue-execution.requested",
+          aggregateKind: "epicIssueExecution",
           aggregateId: "execution-1",
           occurredAt: requestedAt,
           commandId: "cmd-execution-requested",
@@ -512,8 +511,8 @@ describe("orchestration projector", () => {
         afterExecutionRequested,
         makeEvent({
           sequence: 3,
-          type: "swarm-task-execution.started",
-          aggregateKind: "swarmTaskExecution",
+          type: "epic-issue-execution.started",
+          aggregateKind: "epicIssueExecution",
           aggregateId: "execution-1",
           occurredAt: startedAt,
           commandId: "cmd-execution-started",
@@ -532,8 +531,8 @@ describe("orchestration projector", () => {
         afterStarted,
         makeEvent({
           sequence: 4,
-          type: "swarm-task-execution.completed",
-          aggregateKind: "swarmTaskExecution",
+          type: "epic-issue-execution.completed",
+          aggregateKind: "epicIssueExecution",
           aggregateId: "execution-1",
           occurredAt: completedAt,
           commandId: "cmd-execution-completed",

@@ -66,26 +66,24 @@ function commandToAggregateRef(command: OrchestrationCommand): {
         aggregateKind: "planImplementationLaunch",
         aggregateId: command.launchId,
       };
-    case "swarm-run.request":
-    case "swarm-run.mark-started":
-    case "swarm-run.mark-idle":
-    case "swarm-run.pause":
-    case "swarm-run.resume":
-    case "swarm-run.block":
-    case "swarm-run.fail":
-    case "swarm-run.cancel":
-    case "swarm-run.complete":
+    case "epic-run.request":
+    case "epic-run.mark-started":
+    case "epic-run.mark-idle":
+    case "epic-run.block":
+    case "epic-run.fail":
+    case "epic-run.stop":
+    case "epic-run.complete":
       return {
-        aggregateKind: "swarmRun",
+        aggregateKind: "epicRun",
         aggregateId: command.runId,
       };
-    case "swarm-task-execution.request":
-    case "swarm-task-execution.start":
-    case "swarm-task-execution.complete":
-    case "swarm-task-execution.fail":
-    case "swarm-task-execution.cancel":
+    case "epic-issue-execution.request":
+    case "epic-issue-execution.start":
+    case "epic-issue-execution.complete":
+    case "epic-issue-execution.fail":
+    case "epic-issue-execution.stop":
       return {
-        aggregateKind: "swarmTaskExecution",
+        aggregateKind: "epicIssueExecution",
         aggregateId: command.executionId,
       };
     default:

@@ -752,7 +752,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       "applySwarmRunsProjection",
     )(function* (event, _attachmentSideEffects) {
       switch (event.type) {
-        case "swarm-run.requested":
+        case "epic-run.requested":
           yield* projectionSwarmRunRepository.upsert({
             runId: event.payload.runId,
             projectId: event.payload.projectId,
@@ -775,14 +775,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           });
           return;
 
-        case "swarm-run.started":
-        case "swarm-run.idled":
-        case "swarm-run.paused":
-        case "swarm-run.resumed":
-        case "swarm-run.blocked":
-        case "swarm-run.failed":
-        case "swarm-run.cancelled":
-        case "swarm-run.completed": {
+        case "epic-run.started":
+        case "epic-run.idled":
+        case "epic-run.blocked":
+        case "epic-run.failed":
+        case "epic-run.stopped":
+        case "epic-run.completed": {
           const existingRow = yield* projectionSwarmRunRepository.getById({
             runId: event.payload.runId,
           });
@@ -791,7 +789,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           }
 
           switch (event.type) {
-            case "swarm-run.started":
+            case "epic-run.started":
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
                 status: "running",
@@ -801,7 +799,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               });
               return;
 
-            case "swarm-run.idled":
+            case "epic-run.idled":
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
                 status: "running",
@@ -809,28 +807,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               });
               return;
 
-            case "swarm-run.paused":
-              yield* projectionSwarmRunRepository.upsert({
-                ...existingRow.value,
-                status: "stopped",
-                stopRequestedAt: existingRow.value.stopRequestedAt ?? event.payload.pausedAt,
-                stoppedAt: event.payload.pausedAt,
-                updatedAt: event.payload.updatedAt,
-              });
-              return;
-
-            case "swarm-run.resumed":
-              yield* projectionSwarmRunRepository.upsert({
-                ...existingRow.value,
-                status: "running",
-                failureContext: null,
-                stopRequestedAt: null,
-                stoppedAt: null,
-                updatedAt: event.payload.updatedAt,
-              });
-              return;
-
-            case "swarm-run.blocked":
+            case "epic-run.blocked":
               if (event.payload.blockedContext?.kind === "tracker_waiting") {
                 yield* projectionSwarmRunRepository.upsert({
                   ...existingRow.value,
@@ -854,7 +831,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               });
               return;
 
-            case "swarm-run.failed":
+            case "epic-run.failed":
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
                 status: "failed",
@@ -866,18 +843,18 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               });
               return;
 
-            case "swarm-run.cancelled":
+            case "epic-run.stopped":
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
                 status: "stopped",
                 failureContext: null,
-                stopRequestedAt: existingRow.value.stopRequestedAt ?? event.payload.cancelledAt,
-                stoppedAt: event.payload.cancelledAt,
+                stopRequestedAt: existingRow.value.stopRequestedAt ?? event.payload.stoppedAt,
+                stoppedAt: event.payload.stoppedAt,
                 updatedAt: event.payload.updatedAt,
               });
               return;
 
-            case "swarm-run.completed":
+            case "epic-run.completed":
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
                 status: "completed",
@@ -891,11 +868,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           }
         }
 
-        case "swarm-task-execution.requested":
-        case "swarm-task-execution.started":
-        case "swarm-task-execution.completed":
-        case "swarm-task-execution.failed":
-        case "swarm-task-execution.cancelled": {
+        case "epic-issue-execution.requested":
+        case "epic-issue-execution.started":
+        case "epic-issue-execution.completed":
+        case "epic-issue-execution.failed":
+        case "epic-issue-execution.stopped": {
           const existingRow = yield* projectionSwarmRunRepository.getById({
             runId: event.payload.runId,
           });
@@ -919,7 +896,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       "applySwarmTaskExecutionsProjection",
     )(function* (event, _attachmentSideEffects) {
       switch (event.type) {
-        case "swarm-task-execution.requested":
+        case "epic-issue-execution.requested":
           yield* projectionSwarmTaskExecutionRepository.upsert({
             executionId: event.payload.executionId,
             runId: event.payload.runId,
@@ -940,7 +917,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           });
           return;
 
-        case "swarm-task-execution.started": {
+        case "epic-issue-execution.started": {
           const existingRow = yield* projectionSwarmTaskExecutionRepository.getById({
             executionId: event.payload.executionId,
           });
@@ -995,9 +972,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
-        case "swarm-task-execution.completed":
-        case "swarm-task-execution.failed":
-        case "swarm-task-execution.cancelled": {
+        case "epic-issue-execution.completed":
+        case "epic-issue-execution.failed":
+        case "epic-issue-execution.stopped": {
           const existingRow = yield* projectionSwarmTaskExecutionRepository.getById({
             executionId: event.payload.executionId,
           });
@@ -1006,7 +983,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           }
 
           switch (event.type) {
-            case "swarm-task-execution.completed":
+            case "epic-issue-execution.completed":
               yield* projectionSwarmTaskExecutionRepository.upsert({
                 ...existingRow.value,
                 status: "completed",
@@ -1018,7 +995,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               });
               return;
 
-            case "swarm-task-execution.failed":
+            case "epic-issue-execution.failed":
               yield* projectionSwarmTaskExecutionRepository.upsert({
                 ...existingRow.value,
                 status: "failed",
@@ -1033,13 +1010,13 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               });
               return;
 
-            case "swarm-task-execution.cancelled":
+            case "epic-issue-execution.stopped":
               yield* projectionSwarmTaskExecutionRepository.upsert({
                 ...existingRow.value,
                 status: "stopped",
                 failureContext: null,
-                stopRequestedAt: existingRow.value.stopRequestedAt ?? event.payload.cancelledAt,
-                stoppedAt: event.payload.cancelledAt,
+                stopRequestedAt: existingRow.value.stopRequestedAt ?? event.payload.stoppedAt,
+                stoppedAt: event.payload.stoppedAt,
                 updatedAt: event.payload.updatedAt,
               });
               return;

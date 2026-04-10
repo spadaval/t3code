@@ -377,13 +377,13 @@ describe("commandInvariants", () => {
   it("checks swarm run status transitions", async () => {
     expect(
       isAllowedSwarmRunStatusTransition({
-        commandType: "swarm-run.fail",
+        commandType: "epic-run.fail",
         status: "running",
       }),
     ).toBe(true);
     expect(
       isAllowedSwarmRunStatusTransition({
-        commandType: "swarm-run.resume",
+        commandType: "epic-run.stop",
         status: "stopped",
       }),
     ).toBe(false);
@@ -393,27 +393,27 @@ describe("commandInvariants", () => {
         requireSwarmRunInAllowedStatus({
           readModel,
           command: {
-            type: "swarm-run.resume",
-            commandId: CommandId.makeUnsafe("cmd-run-resume"),
+            type: "epic-run.stop",
+            commandId: CommandId.makeUnsafe("cmd-run-stop"),
             runId: "run-1" as never,
             createdAt: now,
           },
           runId: "run-1" as never,
         }),
       ),
-    ).rejects.toThrow("cannot transition via 'swarm-run.resume'");
+    ).rejects.toThrow("cannot transition via 'epic-run.stop'");
   });
 
   it("checks swarm task execution run ownership and status transitions", async () => {
     expect(
       isAllowedSwarmTaskExecutionStatusTransition({
-        commandType: "swarm-task-execution.complete",
+        commandType: "epic-issue-execution.complete",
         status: "launching",
       }),
     ).toBe(true);
     expect(
       isAllowedSwarmTaskExecutionStatusTransition({
-        commandType: "swarm-task-execution.complete",
+        commandType: "epic-issue-execution.complete",
         status: "completed",
       }),
     ).toBe(false);
@@ -422,7 +422,7 @@ describe("commandInvariants", () => {
       requireSwarmTaskExecutionForRunInAllowedStatus({
         readModel,
         command: {
-          type: "swarm-task-execution.complete",
+          type: "epic-issue-execution.complete",
           commandId: CommandId.makeUnsafe("cmd-execution-complete"),
           executionId: "execution-1" as never,
           runId: "run-1" as never,
@@ -438,7 +438,7 @@ describe("commandInvariants", () => {
         requireSwarmTaskExecutionForRunInAllowedStatus({
           readModel,
           command: {
-            type: "swarm-task-execution.complete",
+            type: "epic-issue-execution.complete",
             commandId: CommandId.makeUnsafe("cmd-execution-complete-stale"),
             executionId: "execution-2" as never,
             runId: "run-1" as never,
@@ -464,7 +464,7 @@ describe("commandInvariants", () => {
         requireSwarmRunWithoutCurrentExecution({
           readModel: readModelWithRunningRun,
           command: {
-            type: "swarm-run.complete",
+            type: "epic-run.complete",
             commandId: CommandId.makeUnsafe("cmd-run-complete-stale"),
             runId: "run-1" as never,
             createdAt: now,
@@ -509,7 +509,7 @@ describe("commandInvariants", () => {
         requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
           readModel: readModelWithNewerExecution,
           command: {
-            type: "swarm-task-execution.start",
+            type: "epic-issue-execution.start",
             commandId: CommandId.makeUnsafe("cmd-execution-start-stale"),
             executionId: "execution-1" as never,
             runId: "run-1" as never,
@@ -535,7 +535,7 @@ describe("commandInvariants", () => {
         requireSwarmRunWithoutCurrentExecution({
           readModel: readModelWithPendingRun,
           command: {
-            type: "swarm-run.complete",
+            type: "epic-run.complete",
             commandId: CommandId.makeUnsafe("cmd-run-complete-pending-launching"),
             runId: "run-1" as never,
             createdAt: now,
@@ -559,7 +559,7 @@ describe("commandInvariants", () => {
         requireSwarmRunInAllowedStatus({
           readModel: readModelWithStoppedRun,
           command: {
-            type: "swarm-task-execution.request",
+            type: "epic-issue-execution.request",
             commandId: CommandId.makeUnsafe("cmd-run-request-stopped"),
             runId: "run-1" as never,
             executionId: "execution-1" as never,
@@ -573,14 +573,14 @@ describe("commandInvariants", () => {
           runId: "run-1" as never,
         }),
       ),
-    ).rejects.toThrow("cannot transition via 'swarm-task-execution.request'");
+    ).rejects.toThrow("cannot transition via 'epic-issue-execution.request'");
 
     await expect(
       Effect.runPromise(
         requireSwarmRunInAllowedStatus({
           readModel,
           command: {
-            type: "swarm-task-execution.request",
+            type: "epic-issue-execution.request",
             commandId: CommandId.makeUnsafe("cmd-run-request-stopped-terminal"),
             runId: "run-2" as never,
             executionId: "execution-2" as never,
@@ -594,25 +594,25 @@ describe("commandInvariants", () => {
           runId: "run-2" as never,
         }),
       ),
-    ).rejects.toThrow("cannot transition via 'swarm-task-execution.request'");
+    ).rejects.toThrow("cannot transition via 'epic-issue-execution.request'");
   });
 
   it("rejects invalid execution resurrection transitions after terminal states", () => {
     expect(
       isAllowedSwarmTaskExecutionStatusTransition({
-        commandType: "swarm-task-execution.start",
+        commandType: "epic-issue-execution.start",
         status: "running",
       }),
     ).toBe(false);
     expect(
       isAllowedSwarmTaskExecutionStatusTransition({
-        commandType: "swarm-task-execution.complete",
+        commandType: "epic-issue-execution.complete",
         status: "failed",
       }),
     ).toBe(false);
     expect(
       isAllowedSwarmTaskExecutionStatusTransition({
-        commandType: "swarm-task-execution.cancel",
+        commandType: "epic-issue-execution.stop",
         status: "stopped",
       }),
     ).toBe(false);

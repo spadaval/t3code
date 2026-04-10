@@ -167,7 +167,7 @@ function makeEvent<T extends OrchestrationEvent["type"]>(
   return {
     sequence: 1,
     eventId: "event-1" as never,
-    aggregateKind: "swarmRun",
+    aggregateKind: "epicRun",
     aggregateId: "run-1" as never,
     occurredAt: "2026-04-06T00:00:00.000Z",
     commandId: null,
@@ -339,11 +339,10 @@ describe("swarm", () => {
   it("projects swarm lifecycle events into normalized state and derives ordered views", () => {
     const requested = projectSwarmEvent(
       createEmptySwarmProjectionState(),
-      makeEvent("swarm-run.requested", {
+      makeEvent("epic-run.requested", {
         runId: "run-1" as never,
         projectId: "project-1" as never,
         epicIssueId: "EPIC-1",
-        swarmId: "SWARM-1",
         schedulerMode: "automatic",
         workspaceMode: "shared",
         provider: "codex",
@@ -358,7 +357,7 @@ describe("swarm", () => {
     );
     const started = projectSwarmEvent(
       requested,
-      makeEvent("swarm-task-execution.started", {
+      makeEvent("epic-issue-execution.started", {
         executionId: "execution-1" as never,
         runId: "run-1" as never,
         startedAt: "2026-04-06T00:00:01.000Z",
@@ -367,7 +366,7 @@ describe("swarm", () => {
     );
     const blocked = projectSwarmEvent(
       started,
-      makeEvent("swarm-run.blocked", {
+      makeEvent("epic-run.blocked", {
         runId: "run-1" as never,
         reason: "worker exited",
         blockedContext: {
@@ -625,28 +624,26 @@ describe("swarm", () => {
     });
   });
 
-  it("clears stop metadata when a stopped run resumes", () => {
-    const cancelled = makeRun("run-cancelled", {
-      status: "stopped",
-      stopRequestedAt: "2026-04-06T00:00:02.000Z",
-      stoppedAt: "2026-04-06T00:00:02.000Z",
+  it("records stop metadata when a run stops", () => {
+    const running = makeRun("run-running", {
+      status: "running",
       updatedAt: "2026-04-06T00:00:02.000Z",
     });
 
     expect(
       applySwarmRunLifecycleEvent(
-        cancelled,
-        makeEvent("swarm-run.resumed", {
-          runId: "run-cancelled" as never,
-          resumedAt: "2026-04-06T00:00:03.000Z",
+        running,
+        makeEvent("epic-run.stopped", {
+          runId: "run-running" as never,
+          stoppedAt: "2026-04-06T00:00:03.000Z",
           updatedAt: "2026-04-06T00:00:03.000Z",
         }),
       ),
     ).toMatchObject({
-      runId: "run-cancelled",
-      status: "running",
-      stopRequestedAt: null,
-      stoppedAt: null,
+      runId: "run-running",
+      status: "stopped",
+      stopRequestedAt: "2026-04-06T00:00:03.000Z",
+      stoppedAt: "2026-04-06T00:00:03.000Z",
     });
   });
 

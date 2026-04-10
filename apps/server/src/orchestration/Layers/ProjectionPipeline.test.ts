@@ -212,9 +212,9 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       });
 
       yield* eventStore.append({
-        type: "swarm-run.requested",
+        type: "epic-run.requested",
         eventId: EventId.makeUnsafe("evt-swarm-run"),
-        aggregateKind: "swarmRun",
+        aggregateKind: "epicRun",
         aggregateId: "run-1" as never,
         occurredAt: requestedAt,
         commandId: CommandId.makeUnsafe("cmd-swarm-run"),
@@ -225,7 +225,6 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           runId: "run-1" as never,
           projectId: ProjectId.makeUnsafe("project-swarm"),
           epicIssueId: "EPIC-1",
-          swarmId: "SWARM-1",
           schedulerMode: "automatic",
           workspaceMode: "shared",
           provider: "codex",
@@ -240,9 +239,9 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       });
 
       yield* eventStore.append({
-        type: "swarm-task-execution.requested",
+        type: "epic-issue-execution.requested",
         eventId: EventId.makeUnsafe("evt-swarm-execution-requested"),
-        aggregateKind: "swarmTaskExecution",
+        aggregateKind: "epicIssueExecution",
         aggregateId: "execution-1" as never,
         occurredAt: requestedAt,
         commandId: CommandId.makeUnsafe("cmd-swarm-execution-requested"),
@@ -263,9 +262,9 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       });
 
       yield* eventStore.append({
-        type: "swarm-task-execution.started",
+        type: "epic-issue-execution.started",
         eventId: EventId.makeUnsafe("evt-swarm-execution-started"),
-        aggregateKind: "swarmTaskExecution",
+        aggregateKind: "epicIssueExecution",
         aggregateId: "execution-1" as never,
         occurredAt: startedAt,
         commandId: CommandId.makeUnsafe("cmd-swarm-execution-started"),
@@ -281,9 +280,9 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       });
 
       yield* eventStore.append({
-        type: "swarm-task-execution.failed",
+        type: "epic-issue-execution.failed",
         eventId: EventId.makeUnsafe("evt-swarm-execution-failed"),
-        aggregateKind: "swarmTaskExecution",
+        aggregateKind: "epicIssueExecution",
         aggregateId: "execution-1" as never,
         occurredAt: failedAt,
         commandId: CommandId.makeUnsafe("cmd-swarm-execution-failed"),
