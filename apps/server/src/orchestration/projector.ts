@@ -7,30 +7,15 @@ import type {
 } from "@t3tools/contracts";
 import {
   OrchestrationCheckpointSummary,
-  OrchestrationPlanImplementationLaunch,
-  OrchestrationMessage,
-  OrchestrationSession,
-  OrchestrationThread,
-} from "@t3tools/contracts";
-import {
-  applySwarmRunLifecycleEvent,
-  applySwarmTaskExecutionLifecycleEvent,
-  compareSwarmRunsByRequestedAt,
-  compareSwarmTaskExecutions,
-  createRequestedSwarmRun,
-  createRequestedSwarmTaskExecution,
-  materializeStartedSwarmTaskExecution,
-} from "@t3tools/shared/swarm";
-import { Effect, Schema } from "effect";
-
-import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
-import {
-  MessageSentPayloadSchema,
   PlanImplementationLaunchCancelledPayload,
   PlanImplementationLaunchFailedPayload,
   PlanImplementationLaunchRequestedPayload,
   PlanImplementationLaunchStartedPayload,
   PlanImplementationLaunchWorktreePreparedPayload,
+  OrchestrationPlanImplementationLaunch,
+  OrchestrationMessage,
+  OrchestrationSession,
+  OrchestrationThread,
   ProjectCreatedPayload,
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
@@ -50,18 +35,31 @@ import {
   SwarmTaskExecutionStartedPayload,
   ThreadActivityAppendedPayload,
   ThreadArchivedPayload,
+  ThreadCheckpointCaptureRequestedPayload,
   ThreadCreatedPayload,
   ThreadDeletedPayload,
   ThreadInteractionModeSetPayload,
-  ThreadCheckpointCaptureRequestedPayload,
   ThreadMetaUpdatedPayload,
   ThreadProposedPlanUpsertedPayload,
-  ThreadRuntimeModeSetPayload,
-  ThreadUnarchivedPayload,
   ThreadRevertedPayload,
+  ThreadRuntimeModeSetPayload,
   ThreadSessionSetPayload,
+  ThreadMessageSentPayload,
   ThreadTurnDiffCompletedPayload,
-} from "./Schemas.ts";
+  ThreadUnarchivedPayload,
+} from "@t3tools/contracts";
+import {
+  applySwarmRunLifecycleEvent,
+  applySwarmTaskExecutionLifecycleEvent,
+  compareSwarmRunsByRequestedAt,
+  compareSwarmTaskExecutions,
+  createRequestedSwarmRun,
+  createRequestedSwarmTaskExecution,
+  materializeStartedSwarmTaskExecution,
+} from "@t3tools/shared/swarm";
+import { Effect, Schema } from "effect";
+
+import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
 import { isLegacyMissingCheckpointStatus } from "./checkpointCapture.ts";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
@@ -461,7 +459,7 @@ export function projectEvent(
     case "thread.message-sent":
       return Effect.gen(function* () {
         const payload = yield* decodeForEvent(
-          MessageSentPayloadSchema,
+          ThreadMessageSentPayload,
           event.payload,
           event.type,
           "payload",
