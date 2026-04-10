@@ -14,18 +14,18 @@ import type {
   ProjectId,
 } from "@t3tools/contracts";
 import {
-  compareSwarmRunsByRequestedAtDesc,
+  compareEpicRunsByRequestedAtDesc,
   describeSharedWorkspaceProjectConflict as describeSharedWorkspaceProjectConflictMessage,
   deriveActiveExecutionId,
   deriveActiveRunId,
   deriveExecutionBlocking,
-  deriveSwarmProgress,
+  deriveEpicTrackerProgress,
   deriveTrackerLoadState,
   deriveTrackerState,
   deriveValidationState,
-  findActiveSwarmRuns,
+  findActiveEpicRuns,
   findConflictingSharedWorkspaceRun as findConflictingSharedWorkspaceRunCore,
-} from "@t3tools/shared/swarm";
+} from "@t3tools/shared/epicRun";
 
 function describeSharedWorkspaceProjectConflict(
   run: OrchestrationEpicRun,
@@ -227,7 +227,7 @@ function deriveIntegrityError(input: {
   readonly runs: ReadonlyArray<OrchestrationEpicRun>;
   readonly executions: ReadonlyArray<OrchestrationEpicIssueExecution>;
 }): string | null {
-  const activeRuns = findActiveSwarmRuns(input.runs);
+  const activeRuns = findActiveEpicRuns(input.runs);
   if (activeRuns.length > 1) {
     return `Coordinator integrity error for ${input.epicId}: multiple non-terminal runs exist for the same epic.`;
   }
@@ -264,7 +264,7 @@ export function buildCoordinatorEpicSnapshot(input: {
   readonly fallbackEpicId: string;
   readonly fallbackEpicTitle: string;
 }): BeadsCoordinatorEpicSnapshot {
-  const runs = [...input.epicSwarmRuns].toSorted(compareSwarmRunsByRequestedAtDesc);
+  const runs = [...input.epicSwarmRuns].toSorted(compareEpicRunsByRequestedAtDesc);
   const latestRun = runs[0] ?? null;
   const integrityError = deriveIntegrityError({
     epicId: input.issue?.id ?? input.fallbackEpicId,
@@ -283,7 +283,7 @@ export function buildCoordinatorEpicSnapshot(input: {
     trackerLoadState,
     validation: input.validation,
   });
-  const progress = deriveSwarmProgress({
+  const progress = deriveEpicTrackerProgress({
     validation: input.validation,
     status: input.status,
   });

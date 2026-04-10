@@ -29,8 +29,8 @@ export const DEFAULT_THREAD_TERMINAL_ID = "default";
 export const MAX_TERMINALS_PER_GROUP = 4;
 export type ProjectScript = ContractProjectScript;
 export type PlanImplementationLaunch = OrchestrationPlanImplementationLaunch;
-export type SwarmRun = OrchestrationEpicRun;
-export type SwarmTaskExecution = OrchestrationEpicIssueExecution;
+export type EpicRun = OrchestrationEpicRun;
+export type EpicIssueExecution = OrchestrationEpicIssueExecution;
 
 export interface ThreadTerminalGroup {
   id: string;

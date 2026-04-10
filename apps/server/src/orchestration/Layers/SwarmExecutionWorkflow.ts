@@ -17,7 +17,7 @@ import {
   type OrchestrationEpicIssueExecution,
 } from "@t3tools/contracts";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
-import { deriveExecutionBlocking, deriveSwarmRunExecutionState } from "@t3tools/shared/swarm";
+import { deriveExecutionBlocking, deriveEpicRunExecutionState } from "@t3tools/shared/epicRun";
 import { Cause, Deferred, Duration, Effect, Fiber, Layer } from "effect";
 import type { Scope } from "effect";
 
@@ -318,7 +318,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
   const getRunExecutionState = (runId: EpicRunId) =>
     getReadModel().pipe(
       Effect.map((readModel) =>
-        deriveSwarmRunExecutionState({
+        deriveEpicRunExecutionState({
           runId,
           executions: readModel.epicIssueExecutions,
         }),

@@ -9,20 +9,20 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import {
-  describeSwarmCoordinatorFetchFailure,
+  describeEpicRunCoordinatorFetchFailure,
   describeSharedWorkspaceProjectConflict as describeSharedWorkspaceProjectConflictMessage,
   deriveExecutionBlocking,
-  deriveEpicSwarmCoordinatorState,
+  deriveEpicCoordinatorState as deriveEpicCoordinatorStateShared,
   findConflictingSharedWorkspaceRun as findConflictingSharedWorkspaceRunCore,
-  getEpicSwarmCoordinatorPrimaryAction,
-  isSwarmCoordinatorFetchTimeoutMessage,
-  type EpicSwarmCoordinatorPrimaryAction,
-  type EpicSwarmCoordinatorState,
-  type EpicSwarmCoordinatorStateKind,
-  selectLatestSwarmRun as selectLatestSwarmRunCore,
-  type SwarmCoordinatorFetchLifecycle,
-  type SwarmCoordinatorFetchLifecycleKind,
-} from "@t3tools/shared/swarm";
+  getEpicCoordinatorPrimaryAction as getEpicCoordinatorPrimaryActionShared,
+  isEpicRunCoordinatorFetchTimeoutMessage,
+  type EpicCoordinatorPrimaryAction as SharedEpicCoordinatorPrimaryAction,
+  type EpicCoordinatorState as SharedEpicCoordinatorState,
+  type EpicCoordinatorStateKind as SharedEpicCoordinatorStateKind,
+  selectLatestEpicRun as selectLatestEpicRunCore,
+  type EpicRunCoordinatorFetchLifecycle,
+  type EpicRunCoordinatorFetchLifecycleKind,
+} from "@t3tools/shared/epicRun";
 import { describeProposedPlanFollowUpOutcome as describeProposedPlanFollowUpOutcomeShared } from "@t3tools/shared/plan";
 
 export interface CoordinatorSwarmSections {
@@ -47,8 +47,8 @@ export interface SharedWorkspaceProjectConflict {
   readonly message: string;
 }
 
-export type CoordinatorFetchLifecycleKind = SwarmCoordinatorFetchLifecycleKind;
-export type CoordinatorFetchLifecycle = SwarmCoordinatorFetchLifecycle;
+export type CoordinatorFetchLifecycleKind = EpicRunCoordinatorFetchLifecycleKind;
+export type CoordinatorFetchLifecycle = EpicRunCoordinatorFetchLifecycle;
 
 export interface CoordinatorFetchQueryState {
   readonly pending: boolean;
@@ -56,9 +56,9 @@ export interface CoordinatorFetchQueryState {
   readonly error: string | null;
 }
 
-export type EpicCoordinatorStateKind = EpicSwarmCoordinatorStateKind;
-export type EpicCoordinatorState = EpicSwarmCoordinatorState;
-export type EpicCoordinatorPrimaryAction = EpicSwarmCoordinatorPrimaryAction;
+export type EpicCoordinatorStateKind = SharedEpicCoordinatorStateKind;
+export type EpicCoordinatorState = SharedEpicCoordinatorState;
+export type EpicCoordinatorPrimaryAction = SharedEpicCoordinatorPrimaryAction;
 
 export function deriveCoordinatorFetchLifecycle(input: {
   readonly support: CoordinatorFetchQueryState;
@@ -74,10 +74,10 @@ export function deriveCoordinatorFetchLifecycle(input: {
   }
 
   if (input.support.error) {
-    const timedOut = isSwarmCoordinatorFetchTimeoutMessage(input.support.error);
+    const timedOut = isEpicRunCoordinatorFetchTimeoutMessage(input.support.error);
     return {
       kind: input.support.hasData ? "stale" : timedOut ? "timeout" : "error",
-      detail: describeSwarmCoordinatorFetchFailure({
+      detail: describeEpicRunCoordinatorFetchFailure({
         failures: [
           {
             source: "support",
@@ -122,10 +122,10 @@ export function deriveCoordinatorFetchLifecycle(input: {
     return {
       kind: hasSwarmData
         ? "stale"
-        : failures.some((failure) => isSwarmCoordinatorFetchTimeoutMessage(failure.message))
+        : failures.some((failure) => isEpicRunCoordinatorFetchTimeoutMessage(failure.message))
           ? "timeout"
           : "error",
-      detail: describeSwarmCoordinatorFetchFailure({
+      detail: describeEpicRunCoordinatorFetchFailure({
         failures,
         stale: hasSwarmData,
       }),
@@ -207,10 +207,10 @@ export function listEpicDescendantIssues(input: {
   return descendants;
 }
 
-export function selectLatestSwarmRun(
+export function selectLatestEpicRun(
   epicRuns: ReadonlyArray<OrchestrationEpicRun>,
 ): OrchestrationEpicRun | null {
-  return selectLatestSwarmRunCore(epicRuns);
+  return selectLatestEpicRunCore(epicRuns);
 }
 
 export function findConflictingSharedWorkspaceRun(input: {
@@ -228,7 +228,7 @@ export function deriveEpicCoordinatorState(input: {
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
   readonly fetchLifecycle: CoordinatorFetchLifecycle;
 }): EpicCoordinatorState {
-  return deriveEpicSwarmCoordinatorState(input);
+  return deriveEpicCoordinatorStateShared(input);
 }
 
 export function getEpicCoordinatorPrimaryAction(input: {
@@ -242,8 +242,9 @@ export function getEpicCoordinatorPrimaryAction(input: {
   readonly projectConflict: SharedWorkspaceProjectConflict | null;
   readonly fetchLifecycle: CoordinatorFetchLifecycle;
 }): EpicCoordinatorPrimaryAction {
-  return getEpicSwarmCoordinatorPrimaryAction({
-    ...input,
+  const { projectConflict: _projectConflict, ...sharedInput } = input;
+  return getEpicCoordinatorPrimaryActionShared({
+    ...sharedInput,
     hasProjectConflict: input.projectConflict !== null,
   });
 }

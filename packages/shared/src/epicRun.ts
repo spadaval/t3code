@@ -14,7 +14,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 
-export function compareSwarmReadyIssues(
+export function compareEpicReadyIssues(
   left: BeadsIssueRelationSummary,
   right: BeadsIssueRelationSummary,
 ): number {
@@ -29,7 +29,7 @@ export function compareSwarmReadyIssues(
 export function selectDeterministicReadyIssueFromList(
   issues: ReadonlyArray<BeadsIssueRelationSummary>,
 ): BeadsIssueRelationSummary | null {
-  return issues.toSorted(compareSwarmReadyIssues).at(0) ?? null;
+  return issues.toSorted(compareEpicReadyIssues).at(0) ?? null;
 }
 
 export function selectDeterministicReadyIssue(input: {
@@ -50,7 +50,7 @@ export function selectDeterministicReadyIssue(input: {
   return null;
 }
 
-export interface SwarmExecutionBlockingState {
+export interface EpicIssueExecutionBlockingState {
   readonly internalBlockedIssues: ReadonlyArray<BeadsIssueRelationSummary>;
   readonly externalBlockedIssues: ReadonlyArray<BeadsIssueRelationSummary>;
   readonly unknownBlockedIssues: ReadonlyArray<BeadsIssueRelationSummary>;
@@ -61,7 +61,7 @@ export function deriveExecutionBlocking(
   status:
     | (Pick<BeadsSwarmStatus, "blocked"> & Partial<Pick<BeadsSwarmStatus, "blockedBreakdown">>)
     | null,
-): SwarmExecutionBlockingState {
+): EpicIssueExecutionBlockingState {
   const fallbackBlocked = status?.blocked ?? [];
   const internalBlockedIssues = status?.blockedBreakdown?.internal ?? [];
   const externalBlockedIssues = status?.blockedBreakdown?.external ?? [];
@@ -82,7 +82,7 @@ export function deriveExecutionBlocking(
   };
 }
 
-export function inferSwarmFailureKind(reason: string): OrchestrationEpicRunFailureKind {
+export function inferEpicRunFailureKind(reason: string): OrchestrationEpicRunFailureKind {
   const normalized = reason.toLowerCase();
   if (normalized.includes("launch")) {
     return "launch_failure";
@@ -103,14 +103,14 @@ export function inferSwarmFailureKind(reason: string): OrchestrationEpicRunFailu
   return "worker_failure";
 }
 
-export function createSwarmFailureContext(input: {
+export function createEpicRunFailureContext(input: {
   readonly reason: string;
   readonly issueId?: string | null;
   readonly executionId?: EpicIssueExecutionId | null;
   readonly workerThreadId?: ThreadId | null;
 }) {
   return {
-    kind: inferSwarmFailureKind(input.reason),
+    kind: inferEpicRunFailureKind(input.reason),
     message: input.reason,
     issueId: input.issueId ?? null,
     executionId: input.executionId ?? null,
@@ -118,7 +118,7 @@ export function createSwarmFailureContext(input: {
   } as const;
 }
 
-export interface SwarmProjectionState {
+export interface EpicRunProjectionState {
   readonly epicRunsById: Readonly<Record<string, OrchestrationEpicRun>>;
   readonly epicIssueExecutionsById: Readonly<Record<string, OrchestrationEpicIssueExecution>>;
 }
@@ -160,17 +160,17 @@ const NON_TERMINAL_SWARM_RUN_STATUSES = new Set<OrchestrationEpicRun["status"]>(
   "stopping",
 ]);
 
-export function createEmptySwarmProjectionState(): SwarmProjectionState {
+export function createEmptyEpicRunProjectionState(): EpicRunProjectionState {
   return {
     epicRunsById: {},
     epicIssueExecutionsById: {},
   };
 }
 
-export function createSwarmProjectionState(input: {
+export function createEpicRunProjectionState(input: {
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
   readonly epicIssueExecutions: ReadonlyArray<OrchestrationEpicIssueExecution>;
-}): SwarmProjectionState {
+}): EpicRunProjectionState {
   return {
     epicRunsById: Object.fromEntries(input.epicRuns.map((run) => [run.runId, run])),
     epicIssueExecutionsById: Object.fromEntries(
@@ -179,21 +179,21 @@ export function createSwarmProjectionState(input: {
   };
 }
 
-export function compareSwarmRunsByRequestedAt(
+export function compareEpicRunsByRequestedAt(
   left: OrchestrationEpicRun,
   right: OrchestrationEpicRun,
 ): number {
   return left.requestedAt.localeCompare(right.requestedAt) || left.runId.localeCompare(right.runId);
 }
 
-export function compareSwarmRunsByRequestedAtDesc(
+export function compareEpicRunsByRequestedAtDesc(
   left: OrchestrationEpicRun,
   right: OrchestrationEpicRun,
 ): number {
   return right.requestedAt.localeCompare(left.requestedAt) || right.runId.localeCompare(left.runId);
 }
 
-export function compareSwarmTaskExecutions(
+export function compareEpicIssueExecutions(
   left: OrchestrationEpicIssueExecution,
   right: OrchestrationEpicIssueExecution,
 ): number {
@@ -204,25 +204,25 @@ export function compareSwarmTaskExecutions(
   );
 }
 
-export function isNonTerminalSwarmTaskExecutionStatus(
+export function isNonTerminalEpicIssueExecutionStatus(
   status: OrchestrationEpicIssueExecution["status"],
 ): status is "launching" | "running" | "stopping" {
   return status === "launching" || status === "running" || status === "stopping";
 }
 
-export function isNonTerminalSwarmRunStatus(
+export function isNonTerminalEpicRunStatus(
   status: OrchestrationEpicRun["status"],
 ): status is "pending" | "running" | "stopping" {
   return NON_TERMINAL_SWARM_RUN_STATUSES.has(status);
 }
 
-export function compareSwarmRunsByAttentionPriority(
+export function compareEpicRunsByAttentionPriority(
   left: OrchestrationEpicRun,
   right: OrchestrationEpicRun,
 ): number {
   const nonTerminalDelta =
-    Number(isNonTerminalSwarmRunStatus(right.status)) -
-    Number(isNonTerminalSwarmRunStatus(left.status));
+    Number(isNonTerminalEpicRunStatus(right.status)) -
+    Number(isNonTerminalEpicRunStatus(left.status));
   if (nonTerminalDelta !== 0) {
     return nonTerminalDelta;
   }
@@ -241,25 +241,25 @@ export function compareSwarmRunsByAttentionPriority(
 }
 
 export function isNonTerminalSharedWorkspaceRun(run: OrchestrationEpicRun): boolean {
-  return isNonTerminalSwarmRunStatus(run.status);
+  return isNonTerminalEpicRunStatus(run.status);
 }
 
-export function formatSwarmRunStatusLabel(status: OrchestrationEpicRun["status"]): string {
+export function formatEpicRunStatusLabel(status: OrchestrationEpicRun["status"]): string {
   return status.replace(/_/g, " ");
 }
 
-export type SwarmCoordinatorFetchSource = "support" | "validation" | "status";
+export type EpicRunCoordinatorFetchSource = "support" | "validation" | "status";
 
-export interface SwarmCoordinatorFetchFailure {
-  readonly source: SwarmCoordinatorFetchSource;
+export interface EpicRunCoordinatorFetchFailure {
+  readonly source: EpicRunCoordinatorFetchSource;
   readonly message: string;
 }
 
-export function isSwarmCoordinatorFetchTimeoutMessage(message: string): boolean {
+export function isEpicRunCoordinatorFetchTimeoutMessage(message: string): boolean {
   return /\b(?:timed?\s*out|timeout)\b/i.test(message);
 }
 
-function formatSwarmCoordinatorFetchSource(source: SwarmCoordinatorFetchSource): string {
+function formatEpicRunCoordinatorFetchSource(source: EpicRunCoordinatorFetchSource): string {
   switch (source) {
     case "support":
       return "epic-run support";
@@ -270,8 +270,8 @@ function formatSwarmCoordinatorFetchSource(source: SwarmCoordinatorFetchSource):
   }
 }
 
-function formatSwarmCoordinatorFetchSources(
-  sources: ReadonlyArray<SwarmCoordinatorFetchSource>,
+function formatEpicRunCoordinatorFetchSources(
+  sources: ReadonlyArray<EpicRunCoordinatorFetchSource>,
 ): string {
   const [first, second] = sources;
 
@@ -280,29 +280,29 @@ function formatSwarmCoordinatorFetchSources(
   }
 
   if (sources.length === 1) {
-    return formatSwarmCoordinatorFetchSource(first!);
+    return formatEpicRunCoordinatorFetchSource(first!);
   }
 
   if (sources.length === 2) {
-    return `${formatSwarmCoordinatorFetchSource(first!)} and ${second!}`;
+    return `${formatEpicRunCoordinatorFetchSource(first!)} and ${second!}`;
   }
 
   return "epic-run support, validation, and tracker status";
 }
 
-function describeSingleSwarmCoordinatorFetchFailure(input: {
-  readonly failure: SwarmCoordinatorFetchFailure;
+function describeSingleEpicRunCoordinatorFetchFailure(input: {
+  readonly failure: EpicRunCoordinatorFetchFailure;
   readonly stale: boolean;
 }): string {
-  const timedOut = isSwarmCoordinatorFetchTimeoutMessage(input.failure.message);
-  const sourceLabel = formatSwarmCoordinatorFetchSource(input.failure.source);
+  const timedOut = isEpicRunCoordinatorFetchTimeoutMessage(input.failure.message);
+  const sourceLabel = formatEpicRunCoordinatorFetchSource(input.failure.source);
   return input.stale
     ? `Showing the last known ${sourceLabel} because the latest refresh ${timedOut ? "timed out" : "failed"}: ${input.failure.message}`
     : `${sourceLabel.charAt(0).toUpperCase()}${sourceLabel.slice(1)} request ${timedOut ? "timed out" : "failed"}: ${input.failure.message}`;
 }
 
-export function describeSwarmCoordinatorFetchFailure(input: {
-  readonly failures: ReadonlyArray<SwarmCoordinatorFetchFailure>;
+export function describeEpicRunCoordinatorFetchFailure(input: {
+  readonly failures: ReadonlyArray<EpicRunCoordinatorFetchFailure>;
   readonly stale: boolean;
 }): string {
   const failures = input.failures.filter((failure) => failure.message.trim().length > 0);
@@ -315,7 +315,7 @@ export function describeSwarmCoordinatorFetchFailure(input: {
   }
 
   if (failures.length === 1) {
-    return describeSingleSwarmCoordinatorFetchFailure({
+    return describeSingleEpicRunCoordinatorFetchFailure({
       failure: firstFailure!,
       stale: input.stale,
     });
@@ -324,11 +324,11 @@ export function describeSwarmCoordinatorFetchFailure(input: {
   const uniqueMessages = new Set(failures.map((failure) => failure.message));
   if (uniqueMessages.size === 1) {
     const message = firstFailure!.message;
-    const sourceLabel = formatSwarmCoordinatorFetchSources(
+    const sourceLabel = formatEpicRunCoordinatorFetchSources(
       failures.map((failure) => failure.source),
     );
     const timedOut = failures.every((failure) =>
-      isSwarmCoordinatorFetchTimeoutMessage(failure.message),
+      isEpicRunCoordinatorFetchTimeoutMessage(failure.message),
     );
     return input.stale
       ? `Showing the last known ${sourceLabel} because the latest refresh ${timedOut ? "timed out" : "failed"}: ${message}`
@@ -337,7 +337,7 @@ export function describeSwarmCoordinatorFetchFailure(input: {
 
   const detail = failures
     .map((failure) =>
-      describeSingleSwarmCoordinatorFetchFailure({
+      describeSingleEpicRunCoordinatorFetchFailure({
         failure,
         stale: false,
       }),
@@ -374,7 +374,7 @@ export interface CoordinatorStateDescription {
  * description suitable for direct display. No more vague coordination fallbacks.
  */
 export function describeCoordinatorEpicState(input: {
-  readonly stateKind: EpicSwarmCoordinatorStateKind;
+  readonly stateKind: EpicCoordinatorStateKind;
   readonly lastError: string | null;
   readonly fetchDetail: string | null;
   readonly activeWorkerCount: number;
@@ -464,22 +464,22 @@ export function describeCoordinatorEpicState(input: {
 }
 
 export function describeSharedWorkspaceProjectConflict(run: OrchestrationEpicRun): string {
-  return `This project already has an active epic run for ${run.epicIssueId} (${formatSwarmRunStatusLabel(run.status)}). Finish or stop that run before starting another epic in this project.`;
+  return `This project already has an active epic run for ${run.epicIssueId} (${formatEpicRunStatusLabel(run.status)}). Finish or stop that run before starting another epic in this project.`;
 }
 
-export type SwarmCoordinatorFetchLifecycleKind =
+export type EpicRunCoordinatorFetchLifecycleKind =
   | "ready"
   | "loading"
   | "timeout"
   | "stale"
   | "error";
 
-export interface SwarmCoordinatorFetchLifecycle {
-  readonly kind: SwarmCoordinatorFetchLifecycleKind;
+export interface EpicRunCoordinatorFetchLifecycle {
+  readonly kind: EpicRunCoordinatorFetchLifecycleKind;
   readonly detail: string | null;
 }
 
-export type EpicSwarmCoordinatorStateKind =
+export type EpicCoordinatorStateKind =
   | "checking"
   | "timeout"
   | "stale"
@@ -493,13 +493,13 @@ export type EpicSwarmCoordinatorStateKind =
   | "failed"
   | "completed";
 
-export interface EpicSwarmCoordinatorState {
-  readonly kind: EpicSwarmCoordinatorStateKind;
+export interface EpicCoordinatorState {
+  readonly kind: EpicCoordinatorStateKind;
   readonly latestRun: OrchestrationEpicRun | null;
-  readonly fetchLifecycle: SwarmCoordinatorFetchLifecycle;
+  readonly fetchLifecycle: EpicRunCoordinatorFetchLifecycle;
 }
 
-export interface EpicSwarmCoordinatorPrimaryAction {
+export interface EpicCoordinatorPrimaryAction {
   readonly kind:
     | "checking"
     | "unsupported"
@@ -513,12 +513,12 @@ export interface EpicSwarmCoordinatorPrimaryAction {
   readonly disabled: boolean;
 }
 
-export interface SwarmTrackerLoadStateResult {
+export interface EpicTrackerLoadStateResult {
   readonly trackerLoadState: BeadsCoordinatorTrackerLoadState;
   readonly trackerLoadDetail: string | null;
 }
 
-export interface SwarmProgressState {
+export interface EpicTrackerProgressState {
   readonly totalIssueCount: number;
   readonly completedIssueCount: number;
   readonly readyIssueCount: number;
@@ -534,7 +534,7 @@ export interface SwarmProgressState {
 export function deriveTrackerLoadState(input: {
   readonly validationError: string | null;
   readonly statusError: string | null;
-}): SwarmTrackerLoadStateResult {
+}): EpicTrackerLoadStateResult {
   const failures = [
     input.validationError === null
       ? null
@@ -562,11 +562,11 @@ export function deriveTrackerLoadState(input: {
 
   return {
     trackerLoadState: failures.some((failure) =>
-      isSwarmCoordinatorFetchTimeoutMessage(failure.message),
+      isEpicRunCoordinatorFetchTimeoutMessage(failure.message),
     )
       ? "timeout"
       : "error",
-    trackerLoadDetail: describeSwarmCoordinatorFetchFailure({
+    trackerLoadDetail: describeEpicRunCoordinatorFetchFailure({
       failures,
       stale: false,
     }),
@@ -584,13 +584,13 @@ export function deriveValidationState(input: {
   return input.validation.valid ? "valid" : "invalid";
 }
 
-export function deriveSwarmProgress(input: {
+export function deriveEpicTrackerProgress(input: {
   readonly validation: Pick<BeadsSwarmValidation, "swarm"> | null;
   readonly status:
     | (Pick<BeadsSwarmStatus, "swarm" | "completed" | "ready" | "active" | "blocked"> &
         Partial<Pick<BeadsSwarmStatus, "blockedBreakdown">>)
     | null;
-}): SwarmProgressState {
+}): EpicTrackerProgressState {
   const swarm = input.status?.swarm ?? input.validation?.swarm ?? null;
   const executionBlocking = deriveExecutionBlocking(input.status);
   const totalIssueCount = swarm?.totalIssueCount ?? 0;
@@ -620,7 +620,7 @@ export function deriveTrackerState(input: {
     | (Pick<BeadsSwarmStatus, "active" | "blocked"> &
         Partial<Pick<BeadsSwarmStatus, "blockedBreakdown">>)
     | null;
-  readonly progress: Pick<SwarmProgressState, "isComplete">;
+  readonly progress: Pick<EpicTrackerProgressState, "isComplete">;
 }): BeadsCoordinatorTrackerState {
   if (input.trackerLoadState !== "ready" || input.status === null) {
     return "unknown";
@@ -643,24 +643,24 @@ export function deriveTrackerState(input: {
   return "not_started";
 }
 
-export function findActiveSwarmRuns(
+export function findActiveEpicRuns(
   epicRuns: ReadonlyArray<OrchestrationEpicRun>,
 ): OrchestrationEpicRun[] {
   return epicRuns
-    .filter((run) => isNonTerminalSwarmRunStatus(run.status))
-    .toSorted(compareSwarmRunsByRequestedAtDesc);
+    .filter((run) => isNonTerminalEpicRunStatus(run.status))
+    .toSorted(compareEpicRunsByRequestedAtDesc);
 }
 
-export function findActiveSwarmRun(
+export function findActiveEpicRun(
   epicRuns: ReadonlyArray<OrchestrationEpicRun>,
 ): OrchestrationEpicRun | null {
-  return findActiveSwarmRuns(epicRuns)[0] ?? null;
+  return findActiveEpicRuns(epicRuns)[0] ?? null;
 }
 
 export function deriveActiveRunId(
   epicRuns: ReadonlyArray<OrchestrationEpicRun>,
 ): OrchestrationEpicRun["runId"] | null {
-  return findActiveSwarmRun(epicRuns)?.runId ?? null;
+  return findActiveEpicRun(epicRuns)?.runId ?? null;
 }
 
 export function deriveActiveExecutionId(input: {
@@ -672,21 +672,21 @@ export function deriveActiveExecutionId(input: {
   }
 
   return (
-    deriveSwarmRunExecutionState({
+    deriveEpicRunExecutionState({
       runId: input.activeRunId,
       executions: input.executions,
     }).activeExecution?.executionId ?? null
   );
 }
 
-export function deriveEpicSwarmCoordinatorState(input: {
+export function deriveEpicCoordinatorState(input: {
   readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
   readonly status: Pick<BeadsSwarmStatus, "swarm"> | null;
   readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm"> | null;
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
-  readonly fetchLifecycle: SwarmCoordinatorFetchLifecycle;
-}): EpicSwarmCoordinatorState {
-  const latestRun = selectLatestSwarmRun(input.epicRuns);
+  readonly fetchLifecycle: EpicRunCoordinatorFetchLifecycle;
+}): EpicCoordinatorState {
+  const latestRun = selectLatestEpicRun(input.epicRuns);
 
   if (input.fetchLifecycle.kind === "loading") {
     return {
@@ -759,7 +759,7 @@ export function deriveEpicSwarmCoordinatorState(input: {
   };
 }
 
-export function getEpicSwarmCoordinatorPrimaryAction(input: {
+export function getEpicCoordinatorPrimaryAction(input: {
   readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
   readonly status:
     | (Pick<BeadsSwarmStatus, "swarm" | "ready" | "active" | "blocked"> &
@@ -768,9 +768,9 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
   readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm" | "readyFronts"> | null;
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
   readonly hasProjectConflict: boolean;
-  readonly fetchLifecycle: SwarmCoordinatorFetchLifecycle;
-}): EpicSwarmCoordinatorPrimaryAction {
-  const state = deriveEpicSwarmCoordinatorState(input);
+  readonly fetchLifecycle: EpicRunCoordinatorFetchLifecycle;
+}): EpicCoordinatorPrimaryAction {
+  const state = deriveEpicCoordinatorState(input);
   const executionBlocking = deriveExecutionBlocking(input.status);
 
   switch (state.kind) {
@@ -877,10 +877,10 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
   }
 }
 
-export function selectLatestSwarmRun(
+export function selectLatestEpicRun(
   epicRuns: ReadonlyArray<OrchestrationEpicRun>,
 ): OrchestrationEpicRun | null {
-  return [...epicRuns].toSorted(compareSwarmRunsByRequestedAtDesc)[0] ?? null;
+  return [...epicRuns].toSorted(compareEpicRunsByRequestedAtDesc)[0] ?? null;
 }
 
 export function findConflictingSharedWorkspaceRun(input: {
@@ -894,21 +894,21 @@ export function findConflictingSharedWorkspaceRun(input: {
         (candidate) =>
           isNonTerminalSharedWorkspaceRun(candidate) && !epicRunIds.has(candidate.runId),
       )
-      .toSorted(compareSwarmRunsByAttentionPriority)[0] ?? null
+      .toSorted(compareEpicRunsByAttentionPriority)[0] ?? null
   );
 }
 
-export function listSwarmRuns(state: SwarmProjectionState): OrchestrationEpicRun[] {
-  return Object.values(state.epicRunsById).toSorted(compareSwarmRunsByRequestedAtDesc);
+export function listEpicRuns(state: EpicRunProjectionState): OrchestrationEpicRun[] {
+  return Object.values(state.epicRunsById).toSorted(compareEpicRunsByRequestedAtDesc);
 }
 
-export function listSwarmTaskExecutions(
-  state: SwarmProjectionState,
+export function listEpicIssueExecutions(
+  state: EpicRunProjectionState,
 ): OrchestrationEpicIssueExecution[] {
-  return Object.values(state.epicIssueExecutionsById).toSorted(compareSwarmTaskExecutions);
+  return Object.values(state.epicIssueExecutionsById).toSorted(compareEpicIssueExecutions);
 }
 
-export function createRequestedSwarmRun(
+export function createRequestedEpicRun(
   payload: SwarmRunRequestedEvent["payload"],
 ): OrchestrationEpicRun {
   return {
@@ -933,7 +933,7 @@ export function createRequestedSwarmRun(
   };
 }
 
-export function applySwarmRunLifecycleEvent(
+export function applyEpicRunLifecycleEvent(
   run: OrchestrationEpicRun,
   event: SwarmRunLifecycleEvent,
 ): OrchestrationEpicRun {
@@ -963,7 +963,7 @@ export function applySwarmRunLifecycleEvent(
       return {
         ...run,
         status: "failed",
-        failureContext: createSwarmFailureContext({
+        failureContext: createEpicRunFailureContext({
           reason: event.payload.reason,
           issueId: event.payload.blockedContext?.issueId ?? null,
           executionId: event.payload.blockedContext?.executionId ?? null,
@@ -976,7 +976,7 @@ export function applySwarmRunLifecycleEvent(
       return {
         ...run,
         status: "failed",
-        failureContext: createSwarmFailureContext({
+        failureContext: createEpicRunFailureContext({
           reason: event.payload.reason,
         }),
         failedAt: event.payload.failedAt,
@@ -1004,7 +1004,7 @@ export function applySwarmRunLifecycleEvent(
   }
 }
 
-export function createRequestedSwarmTaskExecution(
+export function createRequestedEpicIssueExecution(
   payload: SwarmTaskExecutionRequestedEvent["payload"],
 ): OrchestrationEpicIssueExecution {
   return {
@@ -1027,7 +1027,7 @@ export function createRequestedSwarmTaskExecution(
   };
 }
 
-export function materializeStartedSwarmTaskExecution(input: {
+export function materializeStartedEpicIssueExecution(input: {
   readonly event: SwarmTaskExecutionStartedEvent;
   readonly existingExecution: OrchestrationEpicIssueExecution | null;
 }): OrchestrationEpicIssueExecution {
@@ -1052,7 +1052,7 @@ export function materializeStartedSwarmTaskExecution(input: {
   };
 }
 
-export function applySwarmTaskExecutionLifecycleEvent(
+export function applyEpicIssueExecutionLifecycleEvent(
   execution: OrchestrationEpicIssueExecution,
   event: SwarmTaskExecutionLifecycleEvent,
 ): OrchestrationEpicIssueExecution {
@@ -1071,7 +1071,7 @@ export function applySwarmTaskExecutionLifecycleEvent(
       return {
         ...execution,
         status: "failed",
-        failureContext: createSwarmFailureContext({
+        failureContext: createEpicRunFailureContext({
           reason: event.payload.reason,
           issueId: execution.issueId,
           executionId: execution.executionId,
@@ -1092,13 +1092,13 @@ export function applySwarmTaskExecutionLifecycleEvent(
   }
 }
 
-export function projectSwarmEvent(
-  state: SwarmProjectionState,
+export function projectEpicRunEvent(
+  state: EpicRunProjectionState,
   event: OrchestrationEvent,
-): SwarmProjectionState {
+): EpicRunProjectionState {
   switch (event.type) {
     case "epic-run.requested": {
-      const run = createRequestedSwarmRun(event.payload);
+      const run = createRequestedEpicRun(event.payload);
       return {
         ...state,
         epicRunsById: {
@@ -1121,12 +1121,12 @@ export function projectSwarmEvent(
         ...state,
         epicRunsById: {
           ...state.epicRunsById,
-          [currentRun.runId]: applySwarmRunLifecycleEvent(currentRun, event),
+          [currentRun.runId]: applyEpicRunLifecycleEvent(currentRun, event),
         },
       };
     }
     case "epic-issue-execution.requested": {
-      const execution = createRequestedSwarmTaskExecution(event.payload);
+      const execution = createRequestedEpicIssueExecution(event.payload);
       const run = state.epicRunsById[event.payload.runId];
       return {
         epicRunsById:
@@ -1147,7 +1147,7 @@ export function projectSwarmEvent(
     }
     case "epic-issue-execution.started": {
       const existingExecution = state.epicIssueExecutionsById[event.payload.executionId] ?? null;
-      const execution = materializeStartedSwarmTaskExecution({
+      const execution = materializeStartedEpicIssueExecution({
         event,
         existingExecution,
       });
@@ -1190,7 +1190,7 @@ export function projectSwarmEvent(
             ? state.epicIssueExecutionsById
             : {
                 ...state.epicIssueExecutionsById,
-                [execution.executionId]: applySwarmTaskExecutionLifecycleEvent(execution, event),
+                [execution.executionId]: applyEpicIssueExecutionLifecycleEvent(execution, event),
               },
       };
     }
@@ -1199,7 +1199,7 @@ export function projectSwarmEvent(
   }
 }
 
-export function deriveSwarmRunExecutionState(input: {
+export function deriveEpicRunExecutionState(input: {
   readonly runId: OrchestrationEpicRun["runId"];
   readonly executions: ReadonlyArray<OrchestrationEpicIssueExecution>;
 }): {
@@ -1217,23 +1217,23 @@ export function deriveSwarmRunExecutionState(input: {
       continue;
     }
 
-    if (latestExecution === null || compareSwarmTaskExecutions(latestExecution, execution) < 0) {
+    if (latestExecution === null || compareEpicIssueExecutions(latestExecution, execution) < 0) {
       latestExecution = execution;
     }
 
-    if (isNonTerminalSwarmTaskExecutionStatus(execution.status)) {
+    if (isNonTerminalEpicIssueExecutionStatus(execution.status)) {
       nonTerminalExecutions.push(execution);
     }
 
     if (
       execution.status === "running" &&
-      (activeExecution === null || compareSwarmTaskExecutions(activeExecution, execution) < 0)
+      (activeExecution === null || compareEpicIssueExecutions(activeExecution, execution) < 0)
     ) {
       activeExecution = execution;
     }
   }
 
-  const orderedNonTerminalExecutions = nonTerminalExecutions.toSorted(compareSwarmTaskExecutions);
+  const orderedNonTerminalExecutions = nonTerminalExecutions.toSorted(compareEpicIssueExecutions);
 
   return {
     activeExecution,

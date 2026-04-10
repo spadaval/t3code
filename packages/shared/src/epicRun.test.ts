@@ -11,25 +11,25 @@ import type {
 import { describe, expect, it } from "vitest";
 
 import {
-  applySwarmRunLifecycleEvent,
-  compareSwarmReadyIssues,
-  createEmptySwarmProjectionState,
-  describeSwarmCoordinatorFetchFailure,
+  applyEpicRunLifecycleEvent,
+  compareEpicReadyIssues,
+  createEmptyEpicRunProjectionState,
+  describeEpicRunCoordinatorFetchFailure,
   describeSharedWorkspaceProjectConflict,
   deriveExecutionBlocking,
-  deriveEpicSwarmCoordinatorState,
-  deriveSwarmProgress,
-  deriveSwarmRunExecutionState,
+  deriveEpicCoordinatorState,
+  deriveEpicTrackerProgress,
+  deriveEpicRunExecutionState,
   deriveTrackerState,
   findConflictingSharedWorkspaceRun,
-  getEpicSwarmCoordinatorPrimaryAction,
-  listSwarmRuns,
-  listSwarmTaskExecutions,
-  projectSwarmEvent,
+  getEpicCoordinatorPrimaryAction,
+  listEpicRuns,
+  listEpicIssueExecutions,
+  projectEpicRunEvent,
   selectDeterministicReadyIssue,
   selectDeterministicReadyIssueFromList,
-  selectLatestSwarmRun,
-} from "./swarm";
+  selectLatestEpicRun,
+} from "./epicRun";
 
 function makeIssue(id: string, priority: number | null = null): BeadsIssueRelationSummary {
   return {
@@ -188,14 +188,14 @@ describe("swarm", () => {
         makeIssue("TASK-2", 1),
         makeIssue("TASK-4", null),
       ]
-        .toSorted(compareSwarmReadyIssues)
+        .toSorted(compareEpicReadyIssues)
         .map((issue) => issue.id),
     ).toEqual(["TASK-1", "TASK-2", "TASK-3", "TASK-4"]);
   });
 
   it("preserves a shared backend error across validation and status failures", () => {
     expect(
-      describeSwarmCoordinatorFetchFailure({
+      describeEpicRunCoordinatorFetchFailure({
         failures: [
           {
             source: "validation",
@@ -213,7 +213,7 @@ describe("swarm", () => {
 
   it("keeps source-specific backend details when validation and status fail differently", () => {
     expect(
-      describeSwarmCoordinatorFetchFailure({
+      describeEpicRunCoordinatorFetchFailure({
         failures: [
           {
             source: "validation",
@@ -268,7 +268,7 @@ describe("swarm", () => {
     const runId = "run-1" as EpicRunId;
 
     expect(
-      deriveSwarmRunExecutionState({
+      deriveEpicRunExecutionState({
         runId,
         executions: [
           makeExecution("execution-2", runId, 2, "running"),
@@ -288,7 +288,7 @@ describe("swarm", () => {
     const runId = "run-1" as EpicRunId;
 
     expect(
-      deriveSwarmRunExecutionState({
+      deriveEpicRunExecutionState({
         runId,
         executions: [
           makeExecution("execution-2", runId, 2, "launching"),
@@ -301,7 +301,7 @@ describe("swarm", () => {
     });
 
     expect(
-      deriveSwarmRunExecutionState({
+      deriveEpicRunExecutionState({
         runId,
         executions: [
           makeExecution("execution-2", runId, 2, "launching"),
@@ -326,7 +326,7 @@ describe("swarm", () => {
       updatedAt: "2026-04-06T00:00:05.000Z",
     });
 
-    expect(selectLatestSwarmRun([completed, requested])).toEqual(requested);
+    expect(selectLatestEpicRun([completed, requested])).toEqual(requested);
     expect(
       findConflictingSharedWorkspaceRun({
         projectSwarmRuns: [requested, conflicting],
@@ -337,8 +337,8 @@ describe("swarm", () => {
   });
 
   it("projects swarm lifecycle events into normalized state and derives ordered views", () => {
-    const requested = projectSwarmEvent(
-      createEmptySwarmProjectionState(),
+    const requested = projectEpicRunEvent(
+      createEmptyEpicRunProjectionState(),
       makeEvent("epic-run.requested", {
         runId: "run-1" as never,
         projectId: "project-1" as never,
@@ -355,7 +355,7 @@ describe("swarm", () => {
         updatedAt: "2026-04-06T00:00:00.000Z",
       }),
     );
-    const started = projectSwarmEvent(
+    const started = projectEpicRunEvent(
       requested,
       makeEvent("epic-issue-execution.started", {
         executionId: "execution-1" as never,
@@ -364,7 +364,7 @@ describe("swarm", () => {
         updatedAt: "2026-04-06T00:00:01.000Z",
       }),
     );
-    const blocked = projectSwarmEvent(
+    const blocked = projectEpicRunEvent(
       started,
       makeEvent("epic-run.blocked", {
         runId: "run-1" as never,
@@ -380,7 +380,7 @@ describe("swarm", () => {
       }),
     );
 
-    expect(listSwarmRuns(blocked)).toEqual([
+    expect(listEpicRuns(blocked)).toEqual([
       expect.objectContaining({
         runId: "run-1",
         status: "failed",
@@ -390,7 +390,7 @@ describe("swarm", () => {
         }),
       }),
     ]);
-    expect(listSwarmTaskExecutions(blocked)).toEqual([
+    expect(listEpicIssueExecutions(blocked)).toEqual([
       expect.objectContaining({
         executionId: "execution-1",
         status: "running",
@@ -401,7 +401,7 @@ describe("swarm", () => {
 
   it("derives coordinator state from shared swarm inputs", () => {
     expect(
-      deriveEpicSwarmCoordinatorState({
+      deriveEpicCoordinatorState({
         swarmSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
@@ -473,7 +473,7 @@ describe("swarm", () => {
     });
 
     expect(
-      deriveSwarmProgress({
+      deriveEpicTrackerProgress({
         validation: null,
         status: internalOnlyStatus,
       }),
@@ -503,7 +503,7 @@ describe("swarm", () => {
 
   it("opens the coordinator for failed runs", () => {
     expect(
-      getEpicSwarmCoordinatorPrimaryAction({
+      getEpicCoordinatorPrimaryAction({
         swarmSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation({
@@ -534,7 +534,7 @@ describe("swarm", () => {
 
   it("keeps start actions available for internal-only blockers but not external blockers", () => {
     expect(
-      getEpicSwarmCoordinatorPrimaryAction({
+      getEpicCoordinatorPrimaryAction({
         swarmSupport: makeSwarmSupport(),
         status: makeSwarmStatus({
           blocked: [makeIssue("TASK-2", 2)],
@@ -557,7 +557,7 @@ describe("swarm", () => {
     });
 
     expect(
-      getEpicSwarmCoordinatorPrimaryAction({
+      getEpicCoordinatorPrimaryAction({
         swarmSupport: makeSwarmSupport(),
         status: makeSwarmStatus({
           blocked: [makeIssue("TASK-9", 9)],
@@ -582,7 +582,7 @@ describe("swarm", () => {
 
   it("returns stop for running runs and coordinator access for stopped runs", () => {
     expect(
-      getEpicSwarmCoordinatorPrimaryAction({
+      getEpicCoordinatorPrimaryAction({
         swarmSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
@@ -603,7 +603,7 @@ describe("swarm", () => {
     });
 
     expect(
-      getEpicSwarmCoordinatorPrimaryAction({
+      getEpicCoordinatorPrimaryAction({
         swarmSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
@@ -631,7 +631,7 @@ describe("swarm", () => {
     });
 
     expect(
-      applySwarmRunLifecycleEvent(
+      applyEpicRunLifecycleEvent(
         running,
         makeEvent("epic-run.stopped", {
           runId: "run-running" as never,
@@ -649,7 +649,7 @@ describe("swarm", () => {
 
   it("prefers opening the active swarm when ready state conflicts with another shared run", () => {
     expect(
-      getEpicSwarmCoordinatorPrimaryAction({
+      getEpicCoordinatorPrimaryAction({
         swarmSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),

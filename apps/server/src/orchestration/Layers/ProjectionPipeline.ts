@@ -4,7 +4,7 @@ import {
   type ChatAttachment,
   type OrchestrationEvent,
 } from "@t3tools/contracts";
-import { createSwarmFailureContext } from "@t3tools/shared/swarm";
+import { createEpicRunFailureContext } from "@t3tools/shared/epicRun";
 import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -820,7 +820,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
                 status: "failed",
-                failureContext: createSwarmFailureContext({
+                failureContext: createEpicRunFailureContext({
                   reason: event.payload.reason,
                   issueId: event.payload.blockedContext?.issueId ?? null,
                   executionId: event.payload.blockedContext?.executionId ?? null,
@@ -835,7 +835,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
                 status: "failed",
-                failureContext: createSwarmFailureContext({
+                failureContext: createEpicRunFailureContext({
                   reason: event.payload.reason,
                 }),
                 failedAt: event.payload.failedAt,
@@ -999,7 +999,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               yield* projectionSwarmTaskExecutionRepository.upsert({
                 ...existingRow.value,
                 status: "failed",
-                failureContext: createSwarmFailureContext({
+                failureContext: createEpicRunFailureContext({
                   reason: event.payload.reason,
                   issueId: existingRow.value.issueId,
                   executionId: existingRow.value.executionId,

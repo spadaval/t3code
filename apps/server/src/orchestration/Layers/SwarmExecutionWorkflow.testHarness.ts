@@ -21,7 +21,7 @@ import {
   type EpicRunId,
   TurnId,
 } from "@t3tools/contracts";
-import { createSwarmFailureContext } from "@t3tools/shared/swarm";
+import { createEpicRunFailureContext } from "@t3tools/shared/epicRun";
 import {
   BeadsTrackerService,
   type BeadsTrackerServiceShape,
@@ -511,7 +511,7 @@ export function applyCommand(
           failureContext:
             command.blockedContext?.kind === "tracker_waiting"
               ? null
-              : createSwarmFailureContext({
+              : createEpicRunFailureContext({
                   reason: command.reason,
                   issueId: command.blockedContext?.issueId ?? null,
                   executionId: command.blockedContext?.executionId ?? null,
@@ -535,7 +535,7 @@ export function applyCommand(
           ...run,
           status: "failed",
           failedAt: command.createdAt,
-          failureContext: createSwarmFailureContext({
+          failureContext: createEpicRunFailureContext({
             reason: command.reason,
           }),
           updatedAt: command.createdAt,
@@ -680,7 +680,7 @@ export function applyCommand(
         (execution) => ({
           ...execution,
           status: "failed",
-          failureContext: createSwarmFailureContext({
+          failureContext: createEpicRunFailureContext({
             reason: command.reason,
             issueId: execution.issueId,
             executionId: execution.executionId,

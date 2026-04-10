@@ -15,10 +15,10 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import {
-  deriveSwarmRunExecutionState,
+  deriveEpicRunExecutionState,
   isNonTerminalSharedWorkspaceRun,
-  isNonTerminalSwarmRunStatus,
-} from "@t3tools/shared/swarm";
+  isNonTerminalEpicRunStatus,
+} from "@t3tools/shared/epicRun";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
@@ -315,7 +315,7 @@ export function findNonTerminalRunForEpic(input: {
     (run) =>
       run.projectId === input.projectId &&
       run.epicIssueId === input.epicIssueId &&
-      isNonTerminalSwarmRunStatus(run.status),
+      isNonTerminalEpicRunStatus(run.status),
   );
 }
 
@@ -458,7 +458,7 @@ function getCurrentSwarmTaskExecutionForRun(
   readModel: OrchestrationReadModel,
   runId: EpicRunId,
 ): OrchestrationEpicIssueExecution | null {
-  return deriveSwarmRunExecutionState({
+  return deriveEpicRunExecutionState({
     runId,
     executions: readModel.epicIssueExecutions,
   }).currentExecution;

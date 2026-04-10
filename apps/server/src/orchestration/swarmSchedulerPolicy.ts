@@ -4,7 +4,7 @@ import type {
   OrchestrationEpicIssueExecution,
   EpicRunId,
 } from "@t3tools/contracts";
-import { selectDeterministicReadyIssueFromList } from "@t3tools/shared/swarm";
+import { selectDeterministicReadyIssueFromList } from "@t3tools/shared/epicRun";
 
 export {
   describeSharedWorkspaceProjectInvariantViolation,

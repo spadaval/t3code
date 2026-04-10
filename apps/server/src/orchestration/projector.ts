@@ -47,14 +47,14 @@ import {
   ThreadUnarchivedPayload,
 } from "@t3tools/contracts";
 import {
-  applySwarmRunLifecycleEvent,
-  applySwarmTaskExecutionLifecycleEvent,
-  compareSwarmRunsByRequestedAt,
-  compareSwarmTaskExecutions,
-  createRequestedSwarmRun,
-  createRequestedSwarmTaskExecution,
-  materializeStartedSwarmTaskExecution,
-} from "@t3tools/shared/swarm";
+  applyEpicRunLifecycleEvent,
+  applyEpicIssueExecutionLifecycleEvent,
+  compareEpicRunsByRequestedAt,
+  compareEpicIssueExecutions,
+  createRequestedEpicRun,
+  createRequestedEpicIssueExecution,
+  materializeStartedEpicIssueExecution,
+} from "@t3tools/shared/epicRun";
 import { Effect, Schema } from "effect";
 
 import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
@@ -956,14 +956,14 @@ export function projectEvent(
     case "epic-run.requested":
       return decodeForEvent(EpicRunRequestedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => {
-          const run = createRequestedSwarmRun(payload);
+          const run = createRequestedEpicRun(payload);
 
           return {
             ...nextBase,
             epicRuns: [
               ...nextBase.epicRuns.filter((entry) => entry.runId !== payload.runId),
               run,
-            ].toSorted(compareSwarmRunsByRequestedAt),
+            ].toSorted(compareEpicRunsByRequestedAt),
           };
         }),
       );
@@ -973,7 +973,7 @@ export function projectEvent(
         Effect.map((payload) => ({
           ...nextBase,
           epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
-            applySwarmRunLifecycleEvent(run, { ...event, payload }),
+            applyEpicRunLifecycleEvent(run, { ...event, payload }),
           ),
         })),
       );
@@ -983,7 +983,7 @@ export function projectEvent(
         Effect.map((payload) => ({
           ...nextBase,
           epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
-            applySwarmRunLifecycleEvent(run, { ...event, payload }),
+            applyEpicRunLifecycleEvent(run, { ...event, payload }),
           ),
         })),
       );
@@ -993,7 +993,7 @@ export function projectEvent(
         Effect.map((payload) => ({
           ...nextBase,
           epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
-            applySwarmRunLifecycleEvent(run, { ...event, payload }),
+            applyEpicRunLifecycleEvent(run, { ...event, payload }),
           ),
         })),
       );
@@ -1003,7 +1003,7 @@ export function projectEvent(
         Effect.map((payload) => ({
           ...nextBase,
           epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
-            applySwarmRunLifecycleEvent(run, { ...event, payload }),
+            applyEpicRunLifecycleEvent(run, { ...event, payload }),
           ),
         })),
       );
@@ -1013,7 +1013,7 @@ export function projectEvent(
         Effect.map((payload) => ({
           ...nextBase,
           epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
-            applySwarmRunLifecycleEvent(run, { ...event, payload }),
+            applyEpicRunLifecycleEvent(run, { ...event, payload }),
           ),
         })),
       );
@@ -1023,7 +1023,7 @@ export function projectEvent(
         Effect.map((payload) => ({
           ...nextBase,
           epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
-            applySwarmRunLifecycleEvent(run, { ...event, payload }),
+            applyEpicRunLifecycleEvent(run, { ...event, payload }),
           ),
         })),
       );
@@ -1036,7 +1036,7 @@ export function projectEvent(
         "payload",
       ).pipe(
         Effect.map((payload) => {
-          const execution = createRequestedSwarmTaskExecution(payload);
+          const execution = createRequestedEpicIssueExecution(payload);
 
           return {
             ...nextBase,
@@ -1048,7 +1048,7 @@ export function projectEvent(
                 (entry) => entry.executionId !== payload.executionId,
               ),
               execution,
-            ].toSorted(compareSwarmTaskExecutions),
+            ].toSorted(compareEpicIssueExecutions),
           };
         }),
       );
@@ -1065,7 +1065,7 @@ export function projectEvent(
             nextBase.epicIssueExecutions.find(
               (entry) => entry.executionId === payload.executionId,
             ) ?? null;
-          const execution = materializeStartedSwarmTaskExecution({
+          const execution = materializeStartedEpicIssueExecution({
             event: { ...event, payload },
             existingExecution,
           });
@@ -1080,7 +1080,7 @@ export function projectEvent(
                 (entry) => entry.executionId !== payload.executionId,
               ),
               execution,
-            ].toSorted(compareSwarmTaskExecutions),
+            ].toSorted(compareEpicIssueExecutions),
           };
         }),
       );
@@ -1100,7 +1100,7 @@ export function projectEvent(
           epicIssueExecutions: updateSwarmTaskExecution(
             nextBase.epicIssueExecutions,
             payload.executionId,
-            (execution) => applySwarmTaskExecutionLifecycleEvent(execution, { ...event, payload }),
+            (execution) => applyEpicIssueExecutionLifecycleEvent(execution, { ...event, payload }),
           ),
         })),
       );
@@ -1120,7 +1120,7 @@ export function projectEvent(
           epicIssueExecutions: updateSwarmTaskExecution(
             nextBase.epicIssueExecutions,
             payload.executionId,
-            (execution) => applySwarmTaskExecutionLifecycleEvent(execution, { ...event, payload }),
+            (execution) => applyEpicIssueExecutionLifecycleEvent(execution, { ...event, payload }),
           ),
         })),
       );
@@ -1140,7 +1140,7 @@ export function projectEvent(
           epicIssueExecutions: updateSwarmTaskExecution(
             nextBase.epicIssueExecutions,
             payload.executionId,
-            (execution) => applySwarmTaskExecutionLifecycleEvent(execution, { ...event, payload }),
+            (execution) => applyEpicIssueExecutionLifecycleEvent(execution, { ...event, payload }),
           ),
         })),
       );

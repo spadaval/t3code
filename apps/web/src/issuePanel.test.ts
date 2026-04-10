@@ -21,7 +21,7 @@ import {
   listEpicDescendantIssues,
   partitionCoordinatorEpics,
   partitionCoordinatorSwarms,
-  selectLatestSwarmRun,
+  selectLatestEpicRun,
   type TrackerRefinementPlanCandidate,
 } from "./issuePanel";
 
@@ -49,7 +49,7 @@ function makeIssue(
   } satisfies BeadsIssueSummary;
 }
 
-function makeSwarmRun(overrides: Record<string, unknown> = {}): OrchestrationEpicRun {
+function makeEpicRun(overrides: Record<string, unknown> = {}): OrchestrationEpicRun {
   return {
     runId: EpicRunId.makeUnsafe("run-1"),
     projectId: ProjectId.makeUnsafe("project-1"),
@@ -263,7 +263,7 @@ describe("deriveEpicCoordinatorState", () => {
   });
 
   it("returns stale when cached swarm state is being refreshed", () => {
-    const run = makeSwarmRun({
+    const run = makeEpicRun({
       status: "running",
       runId: EpicRunId.makeUnsafe("run-stale"),
     });
@@ -402,12 +402,12 @@ describe("deriveEpicCoordinatorState", () => {
   });
 
   it("prefers a non-terminal run over newer historical runs", () => {
-    const runningRun = makeSwarmRun({
+    const runningRun = makeEpicRun({
       runId: EpicRunId.makeUnsafe("run-running"),
       status: "running",
       updatedAt: "2026-01-02T00:00:00.000Z",
     });
-    const completedRun = makeSwarmRun({
+    const completedRun = makeEpicRun({
       runId: EpicRunId.makeUnsafe("run-completed"),
       status: "completed",
       updatedAt: "2026-01-03T00:00:00.000Z",
@@ -450,7 +450,7 @@ describe("deriveEpicCoordinatorState", () => {
     ["stopped", "stopped"],
     ["completed", "completed"],
   ] as const)("maps run status %s to %s", (runStatus, expectedKind) => {
-    const run = makeSwarmRun({
+    const run = makeEpicRun({
       status: runStatus,
       ...(runStatus === "failed"
         ? {
@@ -497,21 +497,21 @@ describe("deriveEpicCoordinatorState", () => {
   });
 });
 
-describe("selectLatestSwarmRun", () => {
+describe("selectLatestEpicRun", () => {
   it("returns the latest non-terminal run before newer terminal history", () => {
-    const runningRun = makeSwarmRun({
+    const runningRun = makeEpicRun({
       runId: EpicRunId.makeUnsafe("run-running"),
       status: "running",
       updatedAt: "2026-01-03T00:00:00.000Z",
     });
-    const completedRun = makeSwarmRun({
+    const completedRun = makeEpicRun({
       runId: EpicRunId.makeUnsafe("run-completed"),
       status: "completed",
       updatedAt: "2026-01-04T00:00:00.000Z",
       completedAt: "2026-01-04T00:00:00.000Z",
     });
 
-    expect(selectLatestSwarmRun([completedRun, runningRun])).toEqual(runningRun);
+    expect(selectLatestEpicRun([completedRun, runningRun])).toEqual(runningRun);
   });
 });
 
@@ -669,7 +669,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           },
           readyFronts: [],
         },
-        epicRuns: [makeSwarmRun({ status: "completed" })],
+        epicRuns: [makeEpicRun({ status: "completed" })],
         projectConflict: null,
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
@@ -702,7 +702,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           readyFronts: [],
         },
         epicRuns: [
-          makeSwarmRun({
+          makeEpicRun({
             status: "running",
           }),
         ],
@@ -736,7 +736,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           readyFronts: [],
         },
         epicRuns: [
-          makeSwarmRun({
+          makeEpicRun({
             status: "stopped",
             stoppedAt: "2026-01-01T00:02:00.000Z",
           }),
@@ -773,7 +773,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           readyFronts: [],
         },
         epicRuns: [
-          makeSwarmRun({
+          makeEpicRun({
             status: "stopping",
             stopRequestedAt: "2026-01-01T00:02:00.000Z",
           }),
@@ -824,7 +824,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           },
           readyFronts: [],
         },
-        epicRuns: [makeSwarmRun({ status: "failed", lastError: "boom" })],
+        epicRuns: [makeEpicRun({ status: "failed", lastError: "boom" })],
         projectConflict: null,
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
@@ -871,7 +871,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           },
           readyFronts: [],
         },
-        epicRuns: [makeSwarmRun({ status: "failed", lastError: "boom" })],
+        epicRuns: [makeEpicRun({ status: "failed", lastError: "boom" })],
         projectConflict: null,
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
@@ -889,7 +889,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         swarmSupport: { supported: true },
         status: { swarm: null, ready: [], active: [], blocked: [] },
         validation: { valid: false, swarm: null, readyFronts: [] },
-        epicRuns: [makeSwarmRun({ status: "failed", lastError: "boom" })],
+        epicRuns: [makeEpicRun({ status: "failed", lastError: "boom" })],
         projectConflict: null,
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
@@ -961,7 +961,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           ],
         },
         epicRuns: [
-          makeSwarmRun({
+          makeEpicRun({
             status: "failed",
             failureContext: {
               kind: "worker_failure",
@@ -1030,7 +1030,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           readyFronts: [],
         },
         epicRuns: [
-          makeSwarmRun({
+          makeEpicRun({
             status: "failed",
             failureContext: {
               kind: "worker_failure",
@@ -1099,7 +1099,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           readyFronts: [],
         },
         epicRuns: [
-          makeSwarmRun({
+          makeEpicRun({
             status: "failed",
             failureContext: {
               kind: "environment_failure",
@@ -1143,7 +1143,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         epicRuns: [],
         projectConflict: describeSharedWorkspaceProjectConflict(
-          makeSwarmRun({
+          makeEpicRun({
             runId: EpicRunId.makeUnsafe("run-blocking"),
             epicIssueId: "EPIC-OTHER",
             status: "running",
@@ -1247,13 +1247,13 @@ describe("describeDisabledEpicCoordinatorAction", () => {
 
 describe("findConflictingSharedWorkspaceRun", () => {
   it("returns the latest conflicting shared-workspace run from the same project", () => {
-    const blockingRun = makeSwarmRun({
+    const blockingRun = makeEpicRun({
       runId: EpicRunId.makeUnsafe("run-blocking"),
       epicIssueId: "EPIC-BLOCKING",
       status: "running",
       updatedAt: "2026-01-03T00:00:00.000Z",
     });
-    const currentEpicRun = makeSwarmRun({
+    const currentEpicRun = makeEpicRun({
       runId: EpicRunId.makeUnsafe("run-current"),
       epicIssueId: "EPIC-1",
       status: "completed",
@@ -1306,7 +1306,7 @@ describe("collectCoordinatorEpics", () => {
           },
         ],
         epicRuns: [
-          makeSwarmRun({
+          makeEpicRun({
             epicIssueId: "EPIC-3",
           }),
         ],
@@ -1355,7 +1355,7 @@ describe("partitionCoordinatorEpics", () => {
           trackerState: "in_progress" as const,
           runs: [
             {
-              ...makeSwarmRun({
+              ...makeEpicRun({
                 runId: "run-1" as never,
                 status: "running",
               }),

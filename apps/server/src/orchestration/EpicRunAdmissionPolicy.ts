@@ -4,10 +4,10 @@ import type {
   EpicRunId,
 } from "@t3tools/contracts";
 import {
-  compareSwarmRunsByRequestedAt,
-  deriveSwarmRunExecutionState,
+  compareEpicRunsByRequestedAt,
+  deriveEpicRunExecutionState,
   isNonTerminalSharedWorkspaceRun,
-} from "@t3tools/shared/swarm";
+} from "@t3tools/shared/epicRun";
 
 import { describeExecutionInvariantViolation } from "./FailurePolicy.ts";
 
@@ -34,7 +34,7 @@ function compareSharedWorkspaceProjectCandidates(
     return priorityDelta;
   }
 
-  return compareSwarmRunsByRequestedAt(left, right);
+  return compareEpicRunsByRequestedAt(left, right);
 }
 
 export function evaluateSharedWorkspaceProjectInvariant(
@@ -56,10 +56,10 @@ export function evaluateSharedWorkspaceProjectInvariant(
 export function evaluateRunExecutionInvariant(input: {
   readonly runId: EpicRunId;
   readonly executions: ReadonlyArray<OrchestrationEpicIssueExecution>;
-}): ReturnType<typeof deriveSwarmRunExecutionState> & {
+}): ReturnType<typeof deriveEpicRunExecutionState> & {
   readonly violationReason: string | null;
 } {
-  const state = deriveSwarmRunExecutionState(input);
+  const state = deriveEpicRunExecutionState(input);
   if (state.nonTerminalExecutions.length <= 1) {
     return {
       ...state,

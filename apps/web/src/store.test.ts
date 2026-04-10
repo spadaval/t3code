@@ -14,8 +14,8 @@ import { describe, expect, it } from "vitest";
 import {
   applyOrchestrationEvent,
   applyOrchestrationEvents,
-  selectSwarmRuns,
-  selectSwarmTaskExecutions,
+  selectEpicRuns,
+  selectEpicIssueExecutions,
   syncServerReadModel,
   type AppState,
 } from "./store";
@@ -71,7 +71,7 @@ function makeState(thread: Thread): AppState {
     threadIdsByProjectId,
     bootstrapComplete: true,
     planImplementationLaunches: [],
-    swarmProjection: {
+    epicRunProjection: {
       epicRunsById: {},
       epicIssueExecutionsById: {},
     },
@@ -322,8 +322,8 @@ describe("store read model sync", () => {
       ],
     });
 
-    expect(selectSwarmRuns(next)).toHaveLength(1);
-    expect(selectSwarmTaskExecutions(next)[0]?.workerThreadId).toBe(
+    expect(selectEpicRuns(next)).toHaveLength(1);
+    expect(selectEpicIssueExecutions(next)[0]?.workerThreadId).toBe(
       ThreadId.makeUnsafe("thread-1"),
     );
   });
@@ -360,7 +360,7 @@ describe("store read model sync", () => {
       threadIdsByProjectId: {},
       bootstrapComplete: true,
       planImplementationLaunches: [],
-      swarmProjection: {
+      epicRunProjection: {
         epicRunsById: {},
         epicIssueExecutionsById: {},
       },
@@ -482,7 +482,7 @@ describe("incremental orchestration updates", () => {
       threadIdsByProjectId: {},
       bootstrapComplete: true,
       planImplementationLaunches: [],
-      swarmProjection: {
+      epicRunProjection: {
         epicRunsById: {},
         epicIssueExecutionsById: {},
       },
@@ -549,7 +549,7 @@ describe("incremental orchestration updates", () => {
       },
       bootstrapComplete: true,
       planImplementationLaunches: [],
-      swarmProjection: {
+      epicRunProjection: {
         epicRunsById: {},
         epicIssueExecutionsById: {},
       },
@@ -673,7 +673,7 @@ describe("incremental orchestration updates", () => {
       }),
     ]);
 
-    expect(selectSwarmRuns(next)).toEqual([
+    expect(selectEpicRuns(next)).toEqual([
       expect.objectContaining({
         runId: "run-1",
         status: "failed",
@@ -683,7 +683,7 @@ describe("incremental orchestration updates", () => {
         }),
       }),
     ]);
-    expect(selectSwarmTaskExecutions(next)).toEqual([
+    expect(selectEpicIssueExecutions(next)).toEqual([
       expect.objectContaining({
         executionId: "execution-1",
         status: "failed",
@@ -728,7 +728,7 @@ describe("incremental orchestration updates", () => {
       }),
     ]);
 
-    expect(selectSwarmRuns(blocked)).toEqual([
+    expect(selectEpicRuns(blocked)).toEqual([
       expect.objectContaining({
         runId: "run-1",
         status: "failed",
@@ -751,7 +751,7 @@ describe("incremental orchestration updates", () => {
       }),
     );
 
-    expect(selectSwarmRuns(stopped)).toEqual([
+    expect(selectEpicRuns(stopped)).toEqual([
       expect.objectContaining({
         runId: "run-1",
         status: "stopped",
