@@ -609,6 +609,32 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.checkpoint.capture.request": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.checkpoint-capture-requested",
+        payload: {
+          threadId: command.threadId,
+          request: {
+            turnId: command.turnId,
+            checkpointTurnCount: command.checkpointTurnCount,
+            assistantMessageId: command.assistantMessageId ?? null,
+            requestedAt: command.requestedAt,
+          },
+        },
+      };
+    }
+
     case "thread.turn.diff.complete": {
       yield* requireThread({
         readModel,

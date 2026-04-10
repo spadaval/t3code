@@ -345,6 +345,15 @@ export const OrchestrationCheckpointSummary = Schema.Struct({
 });
 export type OrchestrationCheckpointSummary = typeof OrchestrationCheckpointSummary.Type;
 
+export const OrchestrationCheckpointCaptureRequest = Schema.Struct({
+  turnId: TurnId,
+  checkpointTurnCount: NonNegativeInt,
+  assistantMessageId: Schema.NullOr(MessageId),
+  requestedAt: IsoDateTime,
+});
+export type OrchestrationCheckpointCaptureRequest =
+  typeof OrchestrationCheckpointCaptureRequest.Type;
+
 export const OrchestrationThreadActivityTone = Schema.Literals([
   "info",
   "tool",
@@ -407,6 +416,9 @@ export const OrchestrationThread = Schema.Struct({
   proposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(Schema.withDecodingDefault(() => [])),
   activities: Schema.Array(OrchestrationThreadActivity),
   checkpoints: Schema.Array(OrchestrationCheckpointSummary),
+  pendingCheckpointCaptures: Schema.Array(OrchestrationCheckpointCaptureRequest).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
   session: Schema.NullOr(OrchestrationSession),
 });
 export type OrchestrationThread = typeof OrchestrationThread.Type;
@@ -823,6 +835,19 @@ const ThreadProposedPlanUpsertCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const ThreadCheckpointCaptureRequestCommand = Schema.Struct({
+  type: Schema.Literal("thread.checkpoint.capture.request"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  turnId: TurnId,
+  checkpointTurnCount: NonNegativeInt,
+  assistantMessageId: Schema.optional(MessageId),
+  requestedAt: IsoDateTime,
+  createdAt: IsoDateTime,
+});
+export type ThreadCheckpointCaptureRequestCommand =
+  typeof ThreadCheckpointCaptureRequestCommand.Type;
+
 const ThreadTurnDiffCompleteCommand = Schema.Struct({
   type: Schema.Literal("thread.turn.diff.complete"),
   commandId: CommandId,
@@ -1048,6 +1073,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,
   ThreadProposedPlanUpsertCommand,
+  ThreadCheckpointCaptureRequestCommand,
   ThreadTurnDiffCompleteCommand,
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
@@ -1100,6 +1126,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.session-stop-requested",
   "thread.session-set",
   "thread.proposed-plan-upserted",
+  "thread.checkpoint-capture-requested",
   "thread.turn-diff-completed",
   "thread.activity-appended",
   "plan-implementation-launch.requested",
@@ -1286,6 +1313,13 @@ export const ThreadProposedPlanUpsertedPayload = Schema.Struct({
   threadId: ThreadId,
   proposedPlan: OrchestrationProposedPlan,
 });
+
+export const ThreadCheckpointCaptureRequestedPayload = Schema.Struct({
+  threadId: ThreadId,
+  request: OrchestrationCheckpointCaptureRequest,
+});
+export type ThreadCheckpointCaptureRequestedPayload =
+  typeof ThreadCheckpointCaptureRequestedPayload.Type;
 
 export const ThreadTurnDiffCompletedPayload = Schema.Struct({
   threadId: ThreadId,
@@ -1601,6 +1635,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.proposed-plan-upserted"),
     payload: ThreadProposedPlanUpsertedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.checkpoint-capture-requested"),
+    payload: ThreadCheckpointCaptureRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

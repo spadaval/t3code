@@ -8,6 +8,7 @@ import type {
 import {
   countLaunchableReadyIssues,
   describeReadyIssueExhaustion,
+  describeRetryIssueNotLiveReady,
   evaluateRunExecutionInvariant,
   evaluateSharedWorkspaceProjectInvariant,
   selectLaunchableReadyIssue,
@@ -182,6 +183,24 @@ describe("swarmSchedulerPolicy", () => {
         readyIssues: [issue("TASK-1", 1), issue("TASK-9", null)],
       }),
     ).toContain("Previously attempted ready issues: TASK-1, TASK-9.");
+  });
+
+  it("describes retry selection failure when the requested issue is no longer ready", () => {
+    expect(
+      describeRetryIssueNotLiveReady({
+        runId: "run-1" as never,
+        retryIssueId: "TASK-1",
+        readyIssues: [issue("TASK-2", 2), issue("TASK-9", null)],
+      }),
+    ).toContain("cannot retry issue 'TASK-1' because it is not currently live-ready");
+
+    expect(
+      describeRetryIssueNotLiveReady({
+        runId: "run-1" as never,
+        retryIssueId: "TASK-1",
+        readyIssues: [issue("TASK-2", 2), issue("TASK-9", null)],
+      }),
+    ).toContain("Ready issues: TASK-2, TASK-9.");
   });
 
   it("idles semi-automatic runs only after non-manual settle/background triggers", () => {

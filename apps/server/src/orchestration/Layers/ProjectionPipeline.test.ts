@@ -1676,6 +1676,284 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       }),
   );
 
+  it.effect("creates and clears pending checkpoint capture rows without rewriting turn state", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+        eventStore
+          .append(event)
+          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+
+      yield* appendAndProject({
+        type: "project.created",
+        eventId: EventId.makeUnsafe("evt-pending-checkpoint-1"),
+        aggregateKind: "project",
+        aggregateId: ProjectId.makeUnsafe("project-pending-checkpoint"),
+        occurredAt: "2026-03-01T10:00:00.000Z",
+        commandId: CommandId.makeUnsafe("cmd-pending-checkpoint-1"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-pending-checkpoint-1"),
+        metadata: {},
+        payload: {
+          projectId: ProjectId.makeUnsafe("project-pending-checkpoint"),
+          title: "Pending Checkpoint Project",
+          workspaceRoot: "/repo/pending-checkpoint",
+          defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
+          scripts: [],
+          createdAt: "2026-03-01T10:00:00.000Z",
+          updatedAt: "2026-03-01T10:00:00.000Z",
+        },
+      });
+
+      yield* appendAndProject({
+        type: "thread.created",
+        eventId: EventId.makeUnsafe("evt-pending-checkpoint-2"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-pending-checkpoint"),
+        occurredAt: "2026-03-01T10:00:01.000Z",
+        commandId: CommandId.makeUnsafe("cmd-pending-checkpoint-2"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-pending-checkpoint-2"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-pending-checkpoint"),
+          projectId: ProjectId.makeUnsafe("project-pending-checkpoint"),
+          title: "Thread Pending Checkpoint",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-03-01T10:00:01.000Z",
+          updatedAt: "2026-03-01T10:00:01.000Z",
+        },
+      });
+
+      yield* appendAndProject({
+        type: "thread.session-set",
+        eventId: EventId.makeUnsafe("evt-pending-checkpoint-3"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-pending-checkpoint"),
+        occurredAt: "2026-03-01T10:00:02.000Z",
+        commandId: CommandId.makeUnsafe("cmd-pending-checkpoint-3"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-pending-checkpoint-3"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-pending-checkpoint"),
+          session: {
+            threadId: ThreadId.makeUnsafe("thread-pending-checkpoint"),
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: TurnId.makeUnsafe("turn-pending"),
+            lastError: null,
+            updatedAt: "2026-03-01T10:00:02.000Z",
+          },
+        },
+      });
+
+      yield* appendAndProject({
+        type: "thread.checkpoint-capture-requested",
+        eventId: EventId.makeUnsafe("evt-pending-checkpoint-4"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-pending-checkpoint"),
+        occurredAt: "2026-03-01T10:00:03.000Z",
+        commandId: CommandId.makeUnsafe("cmd-pending-checkpoint-4"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-pending-checkpoint-4"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-pending-checkpoint"),
+          request: {
+            turnId: TurnId.makeUnsafe("turn-pending"),
+            checkpointTurnCount: 1,
+            assistantMessageId: MessageId.makeUnsafe("assistant-pending"),
+            requestedAt: "2026-03-01T10:00:03.000Z",
+          },
+        },
+      });
+
+      const pendingRows = yield* sql<{
+        readonly turnId: string;
+        readonly checkpointTurnCount: number;
+      }>`
+        SELECT
+          turn_id AS "turnId",
+          checkpoint_turn_count AS "checkpointTurnCount"
+        FROM projection_pending_checkpoint_captures
+        WHERE thread_id = 'thread-pending-checkpoint'
+        ORDER BY requested_at ASC
+      `;
+      assert.deepEqual(pendingRows, [{ turnId: "turn-pending", checkpointTurnCount: 1 }]);
+
+      yield* appendAndProject({
+        type: "thread.turn-diff-completed",
+        eventId: EventId.makeUnsafe("evt-pending-checkpoint-5"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-pending-checkpoint"),
+        occurredAt: "2026-03-01T10:00:04.000Z",
+        commandId: CommandId.makeUnsafe("cmd-pending-checkpoint-5"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-pending-checkpoint-5"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-pending-checkpoint"),
+          turnId: TurnId.makeUnsafe("turn-pending"),
+          checkpointTurnCount: 1,
+          checkpointRef: CheckpointRef.makeUnsafe("refs/t3/checkpoints/thread-pending/turn/1"),
+          status: "ready",
+          files: [],
+          assistantMessageId: MessageId.makeUnsafe("assistant-pending"),
+          completedAt: "2026-03-01T10:00:04.000Z",
+        },
+      });
+
+      const clearedPendingRows = yield* sql`
+        SELECT COUNT(*) AS count
+        FROM projection_pending_checkpoint_captures
+        WHERE thread_id = 'thread-pending-checkpoint'
+      `;
+      assert.deepEqual(clearedPendingRows, [{ count: 0 }]);
+
+      const turnRows = yield* sql<{
+        readonly state: string;
+        readonly checkpointTurnCount: number | null;
+      }>`
+        SELECT
+          state,
+          checkpoint_turn_count AS "checkpointTurnCount"
+        FROM projection_turns
+        WHERE thread_id = 'thread-pending-checkpoint'
+          AND turn_id = 'turn-pending'
+      `;
+      assert.deepEqual(turnRows, [{ state: "running", checkpointTurnCount: 1 }]);
+    }),
+  );
+
+  it.effect(
+    "treats legacy missing checkpoint events as pending capture replay without interrupting turns",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+          eventStore
+            .append(event)
+            .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+
+        yield* appendAndProject({
+          type: "project.created",
+          eventId: EventId.makeUnsafe("evt-legacy-missing-1"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.makeUnsafe("project-legacy-missing"),
+          occurredAt: "2026-03-01T11:00:00.000Z",
+          commandId: CommandId.makeUnsafe("cmd-legacy-missing-1"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-legacy-missing-1"),
+          metadata: {},
+          payload: {
+            projectId: ProjectId.makeUnsafe("project-legacy-missing"),
+            title: "Legacy Missing Project",
+            workspaceRoot: "/repo/legacy-missing",
+            defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
+            scripts: [],
+            createdAt: "2026-03-01T11:00:00.000Z",
+            updatedAt: "2026-03-01T11:00:00.000Z",
+          },
+        });
+
+        yield* appendAndProject({
+          type: "thread.created",
+          eventId: EventId.makeUnsafe("evt-legacy-missing-2"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-legacy-missing"),
+          occurredAt: "2026-03-01T11:00:01.000Z",
+          commandId: CommandId.makeUnsafe("cmd-legacy-missing-2"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-legacy-missing-2"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-legacy-missing"),
+            projectId: ProjectId.makeUnsafe("project-legacy-missing"),
+            title: "Thread Legacy Missing",
+            modelSelection: { provider: "codex", model: "gpt-5-codex" },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: "2026-03-01T11:00:01.000Z",
+            updatedAt: "2026-03-01T11:00:01.000Z",
+          },
+        });
+
+        yield* appendAndProject({
+          type: "thread.turn-interrupt-requested",
+          eventId: EventId.makeUnsafe("evt-legacy-missing-3"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-legacy-missing"),
+          occurredAt: "2026-03-01T11:00:02.000Z",
+          commandId: CommandId.makeUnsafe("cmd-legacy-missing-3"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-legacy-missing-3"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-legacy-missing"),
+            turnId: TurnId.makeUnsafe("turn-legacy"),
+            createdAt: "2026-03-01T11:00:02.000Z",
+          },
+        });
+
+        yield* appendAndProject({
+          type: "thread.turn-diff-completed",
+          eventId: EventId.makeUnsafe("evt-legacy-missing-4"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-legacy-missing"),
+          occurredAt: "2026-03-01T11:00:03.000Z",
+          commandId: CommandId.makeUnsafe("cmd-legacy-missing-4"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-legacy-missing-4"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-legacy-missing"),
+            turnId: TurnId.makeUnsafe("turn-legacy"),
+            checkpointTurnCount: 1,
+            checkpointRef: CheckpointRef.makeUnsafe("refs/t3/checkpoints/thread-legacy/turn/1"),
+            status: "missing",
+            files: [],
+            assistantMessageId: MessageId.makeUnsafe("assistant-legacy"),
+            completedAt: "2026-03-01T11:00:03.000Z",
+          },
+        });
+
+        const pendingRows = yield* sql<{
+          readonly turnId: string;
+          readonly checkpointTurnCount: number;
+        }>`
+        SELECT
+          turn_id AS "turnId",
+          checkpoint_turn_count AS "checkpointTurnCount"
+        FROM projection_pending_checkpoint_captures
+        WHERE thread_id = 'thread-legacy-missing'
+      `;
+        assert.deepEqual(pendingRows, [{ turnId: "turn-legacy", checkpointTurnCount: 1 }]);
+
+        const turnRows = yield* sql<{
+          readonly state: string;
+          readonly checkpointTurnCount: number | null;
+        }>`
+        SELECT
+          state,
+          checkpoint_turn_count AS "checkpointTurnCount"
+        FROM projection_turns
+        WHERE thread_id = 'thread-legacy-missing'
+          AND turn_id = 'turn-legacy'
+      `;
+        assert.deepEqual(turnRows, [{ state: "interrupted", checkpointTurnCount: null }]);
+      }),
+  );
+
   it.effect("does not fallback-retain messages whose turnId is removed by revert", () =>
     Effect.gen(function* () {
       const projectionPipeline = yield* OrchestrationProjectionPipeline;

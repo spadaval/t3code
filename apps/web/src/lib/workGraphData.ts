@@ -9,6 +9,8 @@ import type {
   OrchestrationSwarmTaskExecution,
 } from "@t3tools/contracts";
 
+import { type CoordinatorLogEntry, executionEntries, runEntries } from "./coordinatorEventLog";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -39,6 +41,8 @@ export type WorkGraphIssueNode = {
   readonly dependencies: readonly BeadsIssueDependency[];
   /** Description snippet from issue detail (populated when issueDetails are provided). */
   readonly descriptionSnippet: string | null;
+  /** Lifecycle events for this issue's executions (chronological). */
+  readonly events: readonly CoordinatorLogEntry[];
 };
 
 /** A group of issues within a run section (wave or status bucket). */
@@ -73,11 +77,13 @@ export type WorkGraphRunSection = {
   readonly groups: readonly WorkGraphGroup[];
   /** Summary counts for the section header. */
   readonly summary: WorkGraphRunSectionSummary;
+  /** Run lifecycle events (chronological). Empty for the unscheduled section. */
+  readonly events: readonly CoordinatorLogEntry[];
 };
 
 /** The fully joined data model for the work graph view. */
 export type WorkGraphData = {
-  /** Run sections (active run first, then pending, then historical). */
+  /** Run sections in chronological order (oldest historical first, then pending, then active/current). */
   readonly sections: readonly WorkGraphRunSection[];
   /** The currently active run, if any. */
   readonly activeRun: OrchestrationSwarmRun | null;
@@ -389,23 +395,89 @@ export function buildWorkGraphData(
   // Determine the "primary" run: the active run, or the latest run if no active run.
   const primaryRun = activeRun ?? latestRun;
 
-  /** Enrich a node with issue detail data (dependencies, description snippet). */
+  /** Enrich a node with issue detail data (dependencies, description snippet) and lifecycle events. */
   function enrichNode(
     issueId: string,
-    base: Omit<WorkGraphIssueNode, "dependencies" | "descriptionSnippet">,
+    base: Omit<WorkGraphIssueNode, "dependencies" | "descriptionSnippet" | "events">,
   ): WorkGraphIssueNode {
     const detail = issueDetails?.get(issueId);
+    // Derive lifecycle events from this node's executions.
+    const events: CoordinatorLogEntry[] = [];
+    for (const exec of base.executions) {
+      events.push(...executionEntries(exec));
+    }
+    events.sort((a, b) => {
+      const tsDelta = a.timestamp.localeCompare(b.timestamp);
+      if (tsDelta !== 0) return tsDelta;
+      return a.key.localeCompare(b.key);
+    });
     return {
       ...base,
       dependencies: detail?.dependencies ?? [],
       descriptionSnippet: extractDescriptionSnippet(detail),
+      events,
     };
   }
 
-  // Build sections.
+  // Build sections in chronological order: historical (oldest first) -> pending -> active.
   const sections: WorkGraphRunSection[] = [];
 
-  // --- Active/primary run section ---
+  // --- 1. Historical run sections (oldest first) ---
+  // epic.runs is newest-first from server; reverse non-primary runs for chronological order.
+  const historicalRuns = epic.runs.filter((r) => r.runId !== primaryRun?.runId).toReversed();
+  for (const run of historicalRuns) {
+    const runExecs = runExecutionMap.get(run.runId) ?? [];
+    if (runExecs.length === 0) continue; // Skip runs with no executions.
+    const runIssueExecMap = buildIssueExecutionMap(runExecs);
+
+    const histNodes: WorkGraphIssueNode[] = [];
+    for (const [issueId, issueExecs] of runIssueExecMap) {
+      issuesClaimedByRun.add(issueId);
+      const tagged = issueMap.get(issueId);
+      const issue = tagged?.issue;
+      if (!issue) continue;
+
+      // For historical runs, derive status from the execution outcome rather than
+      // the current tracker status (which reflects the latest state, not this run's era).
+      const latestExec = issueExecs[0]!;
+      let histStatus: WorkGraphIssueStatus;
+      if (latestExec.status === "completed") histStatus = "completed";
+      else if (latestExec.status === "active") histStatus = "active";
+      else if (latestExec.status === "failed" || latestExec.status === "cancelled")
+        histStatus = "blocked";
+      else histStatus = "ready";
+
+      histNodes.push(
+        enrichNode(issueId, {
+          issue,
+          status: histStatus,
+          waveIndex: null, // No wave data for historical runs.
+          executions: issueExecs,
+          latestExecution: latestExec,
+          isActiveWorker: false,
+          blockedBy: null,
+        }),
+      );
+    }
+
+    if (histNodes.length > 0) {
+      // Historical runs don't use wave data -- just group by completion.
+      const groups = buildGroups(histNodes, false, 0);
+      sections.push({
+        run,
+        kind: "historical",
+        label: formatRunLabel(run, false),
+        groups,
+        summary: computeSummary(histNodes),
+        events: runEntries(run),
+      });
+    }
+  }
+
+  // --- 2. Active/primary run section ---
+  // Built after historical so we know which issues have already been claimed,
+  // but will be appended after the pending section below.
+  let primarySection: WorkGraphRunSection | null = null;
   if (primaryRun !== null) {
     const runExecs = runExecutionMap.get(primaryRun.runId) ?? [];
     const runIssueExecMap = buildIssueExecutionMap(runExecs);
@@ -464,67 +536,18 @@ export function buildWorkGraphData(
 
     if (primaryNodes.length > 0) {
       const groups = buildGroups(primaryNodes, hasWaveData, waveCount);
-      sections.push({
+      primarySection = {
         run: primaryRun,
         kind: isPrimaryActive ? "active" : "historical",
         label: formatRunLabel(primaryRun, isPrimaryActive),
         groups,
         summary: computeSummary(primaryNodes),
-      });
+        events: runEntries(primaryRun),
+      };
     }
   }
 
-  // --- Historical run sections (non-primary runs, reverse chronological) ---
-  const historicalRuns = epic.runs.filter((r) => r.runId !== primaryRun?.runId);
-  for (const run of historicalRuns) {
-    const runExecs = runExecutionMap.get(run.runId) ?? [];
-    if (runExecs.length === 0) continue; // Skip runs with no executions.
-    const runIssueExecMap = buildIssueExecutionMap(runExecs);
-
-    const histNodes: WorkGraphIssueNode[] = [];
-    for (const [issueId, issueExecs] of runIssueExecMap) {
-      issuesClaimedByRun.add(issueId);
-      const tagged = issueMap.get(issueId);
-      const issue = tagged?.issue;
-      if (!issue) continue;
-
-      // For historical runs, derive status from the execution outcome rather than
-      // the current tracker status (which reflects the latest state, not this run's era).
-      const latestExec = issueExecs[0]!;
-      let histStatus: WorkGraphIssueStatus;
-      if (latestExec.status === "completed") histStatus = "completed";
-      else if (latestExec.status === "active") histStatus = "active";
-      else if (latestExec.status === "failed" || latestExec.status === "cancelled")
-        histStatus = "blocked";
-      else histStatus = "ready";
-
-      histNodes.push(
-        enrichNode(issueId, {
-          issue,
-          status: histStatus,
-          waveIndex: null, // No wave data for historical runs.
-          executions: issueExecs,
-          latestExecution: latestExec,
-          isActiveWorker: false,
-          blockedBy: null,
-        }),
-      );
-    }
-
-    if (histNodes.length > 0) {
-      // Historical runs don't use wave data -- just group by completion.
-      const groups = buildGroups(histNodes, false, 0);
-      sections.push({
-        run,
-        kind: "historical",
-        label: formatRunLabel(run, false),
-        groups,
-        summary: computeSummary(histNodes),
-      });
-    }
-  }
-
-  // --- Pending section: issues not claimed by any run ---
+  // --- 3. Pending section: issues not claimed by any run ---
   const pendingNodes: WorkGraphIssueNode[] = [];
   for (const { issue, status: issueStatus } of taggedIssues) {
     if (issuesClaimedByRun.has(issue.id)) continue;
@@ -543,15 +566,19 @@ export function buildWorkGraphData(
 
   if (pendingNodes.length > 0) {
     const groups = buildGroups(pendingNodes, hasWaveData, waveCount);
-    // Insert after the primary section but before historical.
-    const insertIdx = sections.length > 0 && sections[0]!.kind !== "historical" ? 1 : 0;
-    sections.splice(insertIdx, 0, {
+    sections.push({
       run: null,
       kind: "unscheduled",
       label: "Pending",
       groups,
       summary: computeSummary(pendingNodes),
+      events: [],
     });
+  }
+
+  // --- 4. Append the primary/active run section last (most recent) ---
+  if (primarySection !== null) {
+    sections.push(primarySection);
   }
 
   return {

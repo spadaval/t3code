@@ -5,7 +5,6 @@ import {
   MessageId,
   type OrchestrationEvent,
   type OrchestrationProposedPlanId,
-  CheckpointRef,
   isToolLifecycleItemType,
   ThreadId,
   type ThreadTokenUsageSnapshot,
@@ -1252,31 +1251,27 @@ const make = Effect.fn("make")(function* () {
     if (event.type === "turn.diff.updated") {
       const turnId = toTurnId(event.turnId);
       if (turnId && (yield* isGitRepoForThread(thread.id))) {
-        // Skip if a checkpoint already exists for this turn. A real
-        // (non-placeholder) capture from CheckpointReactor should not
-        // be clobbered, and dispatching a duplicate placeholder for the
-        // same turnId would produce an unstable checkpointTurnCount.
-        if (thread.checkpoints.some((c) => c.turnId === turnId)) {
+        if (
+          thread.checkpoints.some((checkpoint) => checkpoint.turnId === turnId) ||
+          thread.pendingCheckpointCaptures.some((request) => request.turnId === turnId)
+        ) {
           // Already tracked; no-op.
         } else {
           const assistantMessageId = MessageId.makeUnsafe(
             `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
           );
-          const maxTurnCount = thread.checkpoints.reduce(
-            (max, c) => Math.max(max, c.checkpointTurnCount),
+          const maxTurnCount = [...thread.checkpoints, ...thread.pendingCheckpointCaptures].reduce(
+            (max, checkpointOrRequest) => Math.max(max, checkpointOrRequest.checkpointTurnCount),
             0,
           );
           yield* orchestrationEngine.dispatch({
-            type: "thread.turn.diff.complete",
-            commandId: providerCommandId(event, "thread-turn-diff-complete"),
+            type: "thread.checkpoint.capture.request",
+            commandId: providerCommandId(event, "thread-checkpoint-capture-request"),
             threadId: thread.id,
             turnId,
-            completedAt: now,
-            checkpointRef: CheckpointRef.makeUnsafe(`provider-diff:${event.eventId}`),
-            status: "missing",
-            files: [],
             assistantMessageId,
             checkpointTurnCount: maxTurnCount + 1,
+            requestedAt: now,
             createdAt: now,
           });
         }

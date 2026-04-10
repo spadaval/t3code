@@ -32,8 +32,6 @@ import {
   useEpicCoordinatorActionRunner,
 } from "~/hooks/useEpicCoordinatorActionRunner";
 import { WorkGraph } from "./WorkGraph";
-import { CoordinatorEventLog } from "./CoordinatorEventLog";
-import { WorkerActivityFeed } from "./WorkerActivityFeed";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { ScrollArea } from "../ui/scroll-area";
@@ -640,7 +638,6 @@ function EpicDetail(props: {
   const validation = epic.validation;
   const activeRun = getActiveRun(epic);
   const latestRun = getLatestRun(epic);
-  const activeExecution = getActiveExecution(epic);
 
   return (
     <div className="space-y-6 p-5">
@@ -701,17 +698,6 @@ function EpicDetail(props: {
         onRunAction={props.onRunAction}
         onSelectEpic={props.onSelectEpic}
       />
-
-      {/* Active worker feed */}
-      {activeExecution?.workerThreadId ? (
-        <DetailSection title="Active Worker">
-          <WorkerActivityFeed
-            workerThreadId={activeExecution.workerThreadId}
-            execution={activeExecution}
-            onOpenThread={props.onOpenThread}
-          />
-        </DetailSection>
-      ) : null}
 
       {epic.validationState === "invalid" ? (
         <div className="space-y-2 rounded-lg border border-warning/25 bg-warning/5 px-3 py-2.5">
@@ -795,17 +781,6 @@ function EpicDetail(props: {
       {/* Validation messages */}
       {validation && (validation.errors.length > 0 || validation.warnings.length > 0) ? (
         <ValidationMessages validation={validation} />
-      ) : null}
-
-      {/* Activity log */}
-      {epic.runs.length > 0 || epic.executions.length > 0 ? (
-        <DetailSection title="Activity">
-          <CoordinatorEventLog
-            runs={epic.runs}
-            executions={epic.executions}
-            onOpenThread={props.onOpenThread}
-          />
-        </DetailSection>
       ) : null}
 
       {/* Unified work graph */}

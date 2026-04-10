@@ -18,7 +18,7 @@ import {
 } from "@t3tools/contracts";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
 import { deriveExecutionBlocking, deriveSwarmRunExecutionState } from "@t3tools/shared/swarm";
-import { Cause, Duration, Effect, Fiber, Layer } from "effect";
+import { Cause, Deferred, Duration, Effect, Fiber, Layer } from "effect";
 import type { Scope } from "effect";
 
 import { BeadsTrackerService } from "../../beads/Services/BeadsTrackerService.ts";
@@ -28,6 +28,7 @@ import { SwarmScheduler, type SwarmSchedulerShape } from "../Services/SwarmSched
 import {
   countLaunchableReadyIssues,
   describeReadyIssueExhaustion,
+  describeRetryIssueNotLiveReady,
   describeSharedWorkspaceProjectInvariantViolation,
   evaluateRunExecutionInvariant,
   evaluateSharedWorkspaceProjectInvariant,
@@ -75,6 +76,10 @@ interface CancelSwarmTaskExecutionInput {
   readonly executionId: SwarmTaskExecutionId;
 }
 
+type QueuedSwarmDriveRequest = SwarmDriveRequest & {
+  readonly completion?: Deferred.Deferred<void, never>;
+};
+
 function workflowError(operation: string, detail: string, cause?: unknown): SwarmSchedulerError {
   return new SwarmSchedulerError({
     operation,
@@ -116,10 +121,6 @@ function messageId(tag: string): MessageId {
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-function swarmRunAssignee(runId: SwarmRunId): string {
-  return `t3code-swarm/${runId}`;
 }
 
 function isTerminalRunStatus(status: OrchestrationSwarmRunStatus): boolean {
@@ -318,6 +319,30 @@ function describeExecutionInvariantViolation(input: {
   }
 
   return `Shared-workspace swarm run '${input.runId}' has unexpected non-terminal task execution '${execution.executionId}' in its execution history.`;
+}
+
+function prioritizeDriveRequests(
+  requests: ReadonlyArray<QueuedSwarmDriveRequest>,
+): Array<QueuedSwarmDriveRequest> {
+  const manual: Array<QueuedSwarmDriveRequest> = [];
+  const lifecycle: Array<QueuedSwarmDriveRequest> = [];
+  const background: Array<QueuedSwarmDriveRequest> = [];
+
+  for (const request of requests) {
+    if (isBackgroundSwarmSchedulerTrigger(request.trigger)) {
+      background.push(request);
+      continue;
+    }
+
+    if (request.trigger === "execution_settled" || request.trigger === "worker_state_changed") {
+      lifecycle.push(request);
+      continue;
+    }
+
+    manual.push(request);
+  }
+
+  return [...manual, ...lifecycle, ...background];
 }
 
 const makeSwarmScheduler = Effect.gen(function* () {
@@ -690,55 +715,6 @@ const makeSwarmScheduler = Effect.gen(function* () {
         execution,
         cwd: project.workspaceRoot,
       } as const;
-    });
-
-  const claimIssueForRequestedExecution = (input: {
-    readonly cwd: string;
-    readonly run: OrchestrationSwarmRun;
-    readonly executionId: SwarmTaskExecutionId;
-    readonly workerThreadId: ThreadId;
-    readonly issueId: string;
-  }) =>
-    Effect.gen(function* () {
-      yield* beadsTracker
-        .updateIssue({
-          cwd: input.cwd,
-          issueId: input.issueId,
-          status: "in_progress",
-          assignee: swarmRunAssignee(input.run.runId),
-        })
-        .pipe(
-          Effect.mapError((error) =>
-            workflowError(
-              "syncIssueForStartedExecution:updateIssue",
-              truncateDetail(toErrorMessage(error)),
-              error,
-            ),
-          ),
-        );
-      yield* beadsTracker
-        .commentIssue({
-          cwd: input.cwd,
-          issueId: input.issueId,
-          text: buildSwarmExecutionComment({
-            phase: "started",
-            epicIssueId: input.run.epicIssueId,
-            runId: input.run.runId,
-            executionId: input.executionId,
-            workerThreadId: input.workerThreadId,
-            schedulerMode: input.run.schedulerMode,
-            workspaceMode: input.run.workspaceMode,
-          }),
-        })
-        .pipe(
-          Effect.mapError((error) =>
-            workflowError(
-              "syncIssueForStartedExecution:commentIssue",
-              truncateDetail(toErrorMessage(error)),
-              error,
-            ),
-          ),
-        );
     });
 
   const restoreIssueFromExecutionSnapshot = (input: {
@@ -1183,26 +1159,23 @@ const makeSwarmScheduler = Effect.gen(function* () {
         return invariant.run;
       }
 
-      const trackerState = yield* getTrackerState({
-        projectId: run.projectId,
-        epicIssueId: run.epicIssueId,
-      });
+      const project = yield* getProjectById(run.projectId);
+      const trackerStatus = yield* beadsTracker
+        .getEpicSwarmStatus({
+          cwd: project.workspaceRoot,
+          epicIssueId: run.epicIssueId,
+        })
+        .pipe(
+          Effect.mapError((error) =>
+            workflowError(
+              "launchNextTaskExecution:getEpicSwarmStatus",
+              truncateDetail(toErrorMessage(error)),
+              error,
+            ),
+          ),
+        );
 
-      if (
-        !trackerState.support.supported ||
-        !trackerState.validation.swarm ||
-        !trackerState.validation.valid
-      ) {
-        const reason = !trackerState.support.supported
-          ? (trackerState.support.reason ?? "Swarm execution is not supported.")
-          : !trackerState.validation.swarm
-            ? `Swarm '${run.epicIssueId}' is no longer available.`
-            : trackerState.validation.errors.join("; ") || "Swarm validation failed.";
-        yield* failRun(run.runId, reason);
-        return yield* getRunById(run.runId);
-      }
-
-      const executionBlocking = deriveExecutionBlocking(trackerState.status);
+      const executionBlocking = deriveExecutionBlocking(trackerStatus);
       if (executionBlocking.hasExecutionBlockingIssues) {
         yield* blockRun(
           run.runId,
@@ -1210,21 +1183,21 @@ const makeSwarmScheduler = Effect.gen(function* () {
             internalBlockedCount: executionBlocking.internalBlockedIssues.length,
             externalBlockedCount: executionBlocking.externalBlockedIssues.length,
             unknownBlockedCount: executionBlocking.unknownBlockedIssues.length,
-            activeCount: trackerState.status.active.length,
+            activeCount: trackerStatus.active.length,
           }),
           trackerWaitingBlockedContext(),
         );
         return yield* getRunById(run.runId);
       }
 
-      if (trackerState.status.active.length > 0) {
+      if (trackerStatus.active.length > 0) {
         yield* blockRun(
           run.runId,
           describeBlockedReason({
             internalBlockedCount: executionBlocking.internalBlockedIssues.length,
             externalBlockedCount: executionBlocking.externalBlockedIssues.length,
             unknownBlockedCount: executionBlocking.unknownBlockedIssues.length,
-            activeCount: trackerState.status.active.length,
+            activeCount: trackerStatus.active.length,
           }),
           trackerWaitingBlockedContext(),
         );
@@ -1252,16 +1225,29 @@ const makeSwarmScheduler = Effect.gen(function* () {
       }
 
       const nextReadyIssue = selectLaunchableReadyIssue({
-        readyIssues: trackerState.status.ready,
+        readyIssues: trackerStatus.ready,
         attemptedIssueIds,
         ...(input.retryIssueId ? { retryIssueId: input.retryIssueId } : {}),
       });
 
       if (!nextReadyIssue) {
+        if (input.retryIssueId) {
+          yield* blockRun(
+            run.runId,
+            describeRetryIssueNotLiveReady({
+              runId: run.runId,
+              retryIssueId: input.retryIssueId,
+              readyIssues: trackerStatus.ready,
+            }),
+            trackerWaitingBlockedContext(),
+          );
+          return yield* getRunById(run.runId);
+        }
+
         if (
-          trackerState.status.ready.length > 0 &&
+          trackerStatus.ready.length > 0 &&
           countLaunchableReadyIssues({
-            readyIssues: trackerState.status.ready,
+            readyIssues: trackerStatus.ready,
             attemptedIssueIds,
             ...(input.retryIssueId ? { retryIssueId: input.retryIssueId } : {}),
           }) === 0
@@ -1271,21 +1257,21 @@ const makeSwarmScheduler = Effect.gen(function* () {
             describeReadyIssueExhaustion({
               runId: run.runId,
               attemptedIssueIds,
-              readyIssues: trackerState.status.ready,
+              readyIssues: trackerStatus.ready,
             }),
             trackerWaitingBlockedContext(),
           );
           return yield* getRunById(run.runId);
         }
 
-        if (trackerState.status.blocked.length > 0) {
+        if (trackerStatus.blocked.length > 0) {
           yield* blockRun(
             run.runId,
             describeBlockedReason({
               internalBlockedCount: executionBlocking.internalBlockedIssues.length,
               externalBlockedCount: executionBlocking.externalBlockedIssues.length,
               unknownBlockedCount: executionBlocking.unknownBlockedIssues.length,
-              activeCount: trackerState.status.active.length,
+              activeCount: trackerStatus.active.length,
             }),
             trackerWaitingBlockedContext(),
           );
@@ -1305,16 +1291,11 @@ const makeSwarmScheduler = Effect.gen(function* () {
       );
 
       const issueId = nextReadyIssue.id;
-      const cwd = trackerState.project.workspaceRoot;
+      const cwd = project.workspaceRoot;
       const workerThreadId = nextThreadId();
       const executionId = nextExecutionId();
       const sequenceNumber = yield* nextExecutionSequenceNumber(run.runId);
-      const originalIssue = yield* getIssueById({
-        operation: "launchNextTaskExecution:getIssue",
-        cwd,
-        issueId,
-      });
-      const threadTitle = buildSwarmWorkerThreadTitle(originalIssue);
+      const threadTitle = buildSwarmWorkerThreadTitle(nextReadyIssue);
 
       let threadCreated = false;
       let executionRequested = false;
@@ -1323,11 +1304,11 @@ const makeSwarmScheduler = Effect.gen(function* () {
       const launchAttempt = Effect.gen(function* () {
         yield* createWorkerThread({
           run,
-          project: trackerState.project,
+          project,
           threadId: workerThreadId,
           title: threadTitle,
           issueLink: buildSwarmIssueLink({
-            issue: originalIssue,
+            issue: nextReadyIssue,
             cwd,
             linkedAt: nowIso(),
           }),
@@ -1340,26 +1321,18 @@ const makeSwarmScheduler = Effect.gen(function* () {
           issueId,
           workerThreadId,
           sequenceNumber,
-          originalStatus: originalIssue.status,
-          originalAssignee: originalIssue.assignee,
+          originalStatus: nextReadyIssue.status,
+          originalAssignee: nextReadyIssue.assignee,
         });
         executionRequested = true;
-
-        yield* claimIssueForRequestedExecution({
-          cwd,
-          run,
-          executionId,
-          workerThreadId,
-          issueId,
-        });
 
         yield* startWorkerThreadTurn({
           run,
           threadId: workerThreadId,
           title: threadTitle,
           promptText: buildSwarmWorkerPrompt({
-            issueId: originalIssue.id,
-            issueTitle: originalIssue.title,
+            issueId,
+            issueTitle: nextReadyIssue.title,
             epicIssueId: run.epicIssueId,
             runId: run.runId,
             executionId,
@@ -1398,7 +1371,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
             if (executionRequested && !turnStartDispatched) {
               return yield* cleanupFailedRequestedExecutionLaunch({
                 run,
-                project: trackerState.project,
+                project,
                 executionId,
                 issueId,
                 workerThreadId,
@@ -1533,6 +1506,8 @@ const makeSwarmScheduler = Effect.gen(function* () {
         return yield* getRunById(input.run.runId);
       }
 
+      // Checkpoint capture is metadata-only. Pending captures or legacy placeholder
+      // checkpoint rows must never be treated as worker interruption signals here.
       if (thread.value.latestTurn?.state === "interrupted") {
         yield* failSwarmTaskExecution({
           runId: input.run.runId,
@@ -1683,6 +1658,8 @@ const makeSwarmScheduler = Effect.gen(function* () {
         sessionActiveTurnId: thread.value.session?.activeTurnId,
       });
 
+      // Checkpoint lifecycle is intentionally ignored here; only concrete turn/session
+      // lifecycle states are allowed to fail a worker execution.
       if (
         thread.value.latestTurn?.state === "interrupted" ||
         (!workerStillRunning &&
@@ -1839,22 +1816,32 @@ const makeSwarmScheduler = Effect.gen(function* () {
       yield* failRun(request.runId, truncateDetail(toErrorMessage(Cause.squash(exit.cause))));
     });
 
+  const signalDriveRequestCompletion = (request: QueuedSwarmDriveRequest) =>
+    request.completion
+      ? Deferred.succeed(request.completion, undefined).pipe(Effect.ignore)
+      : Effect.void;
+
   const worker = yield* makeKeyedCoalescingWorker<
     OrchestrationProject["id"],
-    ReadonlyArray<SwarmDriveRequest>,
+    ReadonlyArray<QueuedSwarmDriveRequest>,
     never,
     Scope.Scope
   >({
-    merge: (current, next) => [...current, ...next],
+    merge: (current, next) => prioritizeDriveRequests([...current, ...next]),
     process: (projectId, requests) =>
       Effect.gen(function* () {
         if (activeProjectFibers.has(projectId)) {
           return;
         }
 
-        const fiber = yield* Effect.forEach(requests, (request) => driveRunSafely(request), {
-          discard: true,
-        }).pipe(
+        const fiber = yield* Effect.forEach(
+          requests,
+          (request) =>
+            driveRunSafely(request).pipe(Effect.ensuring(signalDriveRequestCompletion(request))),
+          {
+            discard: true,
+          },
+        ).pipe(
           Effect.catch((error) =>
             Effect.logError("Swarm scheduler project processing failed", {
               projectId,
@@ -1894,8 +1881,16 @@ const makeSwarmScheduler = Effect.gen(function* () {
     readonly projectId: OrchestrationProject["id"];
     readonly request: SwarmDriveRequest;
   }) =>
-    scheduleDriveRequest(input.projectId, input.request).pipe(
-      Effect.flatMap(() => worker.drainKey(input.projectId)),
+    Effect.gen(function* () {
+      const completion = yield* Deferred.make<void>();
+      const queuedRequest: QueuedSwarmDriveRequest = {
+        ...input.request,
+        completion,
+      };
+
+      yield* scheduleDriveRequest(input.projectId, queuedRequest);
+      yield* Deferred.await(completion);
+    }).pipe(
       Effect.flatMap(() => getRunById(input.request.runId)),
       Effect.map(asControlResult),
     );

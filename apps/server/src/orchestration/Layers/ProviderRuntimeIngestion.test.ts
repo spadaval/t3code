@@ -166,7 +166,8 @@ type ProviderRuntimeTestThread = ProviderRuntimeTestReadModel["threads"][number]
 type ProviderRuntimeTestMessage = ProviderRuntimeTestThread["messages"][number];
 type ProviderRuntimeTestProposedPlan = ProviderRuntimeTestThread["proposedPlans"][number];
 type ProviderRuntimeTestActivity = ProviderRuntimeTestThread["activities"][number];
-type ProviderRuntimeTestCheckpoint = ProviderRuntimeTestThread["checkpoints"][number];
+type ProviderRuntimeTestPendingCheckpointCapture =
+  ProviderRuntimeTestThread["pendingCheckpointCaptures"][number];
 
 describe("ProviderRuntimeIngestion", () => {
   let runtime: ManagedRuntime.ManagedRuntime<
@@ -2171,7 +2172,7 @@ describe("ProviderRuntimeIngestion", () => {
     ).toBe(true);
   });
 
-  it("consumes P1 runtime events into thread metadata, diff checkpoints, and activities", async () => {
+  it("consumes P1 runtime events into thread metadata, pending checkpoint requests, and activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -2259,8 +2260,8 @@ describe("ProviderRuntimeIngestion", () => {
         entry.activities.some(
           (activity: ProviderRuntimeTestActivity) => activity.kind === "runtime.warning",
         ) &&
-        entry.checkpoints.some(
-          (checkpoint: ProviderRuntimeTestCheckpoint) => checkpoint.turnId === "turn-p1",
+        entry.pendingCheckpointCaptures.some(
+          (request: ProviderRuntimeTestPendingCheckpointCapture) => request.turnId === "turn-p1",
         ),
     );
 
@@ -2297,12 +2298,56 @@ describe("ProviderRuntimeIngestion", () => {
     expect(warning?.kind).toBe("runtime.warning");
     expect(warningPayload?.message).toBe("Provider got slow");
 
-    const checkpoint = thread.checkpoints.find(
-      (entry: ProviderRuntimeTestCheckpoint) => entry.turnId === "turn-p1",
+    expect(thread.checkpoints).toHaveLength(0);
+
+    const request = thread.pendingCheckpointCaptures.find(
+      (entry: ProviderRuntimeTestPendingCheckpointCapture) => entry.turnId === "turn-p1",
     );
-    expect(checkpoint?.status).toBe("missing");
-    expect(checkpoint?.assistantMessageId).toBe("assistant:item-p1-assistant");
-    expect(checkpoint?.checkpointRef).toBe("provider-diff:evt-turn-diff-updated");
+    expect(request?.checkpointTurnCount).toBe(1);
+    expect(request?.assistantMessageId).toBe("assistant:item-p1-assistant");
+  });
+
+  it("dedupes duplicate turn.diff.updated events for the same turn", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "turn.diff.updated",
+      eventId: asEventId("evt-turn-diff-updated-1"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-p1"),
+      itemId: asItemId("item-p1-assistant-1"),
+      payload: {
+        unifiedDiff: "diff --git a/file.txt b/file.txt\n+hello\n",
+      },
+    });
+
+    harness.emit({
+      type: "turn.diff.updated",
+      eventId: asEventId("evt-turn-diff-updated-2"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-p1"),
+      itemId: asItemId("item-p1-assistant-2"),
+      payload: {
+        unifiedDiff: "diff --git a/file.txt b/file.txt\n+hello again\n",
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) => entry.pendingCheckpointCaptures.length === 1,
+    );
+
+    expect(thread.pendingCheckpointCaptures).toHaveLength(1);
+    expect(thread.pendingCheckpointCaptures[0]?.turnId).toBe("turn-p1");
+    expect(thread.pendingCheckpointCaptures[0]?.checkpointTurnCount).toBe(1);
+    expect(thread.pendingCheckpointCaptures[0]?.assistantMessageId).toBe(
+      "assistant:item-p1-assistant-1",
+    );
   });
 
   it("projects context window updates into normalized thread activities", async () => {

@@ -10,6 +10,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ProjectionPlanImplementationLaunchRepository } from "../../persistence/Services/ProjectionPlanImplementationLaunches.ts";
+import { ProjectionPendingCheckpointCaptureRepository } from "../../persistence/Services/ProjectionPendingCheckpointCaptures.ts";
 import { ProjectionPendingApprovalRepository } from "../../persistence/Services/ProjectionPendingApprovals.ts";
 import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
@@ -32,6 +33,7 @@ import {
 } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
+import { ProjectionPendingCheckpointCaptureRepositoryLive } from "../../persistence/Layers/ProjectionPendingCheckpointCaptures.ts";
 import { ProjectionPlanImplementationLaunchRepositoryLive } from "../../persistence/Layers/ProjectionPlanImplementationLaunches.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
@@ -48,6 +50,7 @@ import {
   OrchestrationProjectionPipeline,
   type OrchestrationProjectionPipelineShape,
 } from "../Services/ProjectionPipeline.ts";
+import { isLegacyMissingCheckpointStatus } from "../checkpointCapture.ts";
 import {
   attachmentRelativePath,
   parseAttachmentIdFromRelativePath,
@@ -67,6 +70,7 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   threadSessions: "projection.thread-sessions",
   threadTurns: "projection.thread-turns",
   checkpoints: "projection.checkpoints",
+  pendingCheckpointCaptures: "projection.pending-checkpoint-captures",
   pendingApprovals: "projection.pending-approvals",
 } as const;
 
@@ -247,6 +251,10 @@ function collectThreadAttachmentRelativePaths(
   return relativePaths;
 }
 
+function checkpointStatusToFallbackTurnState(status: "ready" | "missing" | "error") {
+  return status === "error" ? ("error" as const) : ("completed" as const);
+}
+
 const runAttachmentSideEffects = Effect.fn("runAttachmentSideEffects")(function* (
   sideEffects: AttachmentSideEffects,
 ) {
@@ -381,6 +389,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
     const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
     const projectionTurnRepository = yield* ProjectionTurnRepository;
+    const projectionPendingCheckpointCaptureRepository =
+      yield* ProjectionPendingCheckpointCaptureRepository;
     const projectionPendingApprovalRepository = yield* ProjectionPendingApprovalRepository;
 
     const fileSystem = yield* FileSystem.FileSystem;
@@ -572,6 +582,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
 
         case "thread.message-sent":
         case "thread.proposed-plan-upserted":
+        case "thread.checkpoint-capture-requested":
         case "thread.activity-appended": {
           const existingRow = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
@@ -1405,11 +1416,14 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         }
 
         case "thread.turn-diff-completed": {
+          if (isLegacyMissingCheckpointStatus(event.payload.status)) {
+            return;
+          }
+
           const existingTurn = yield* projectionTurnRepository.getByTurnId({
             threadId: event.payload.threadId,
             turnId: event.payload.turnId,
           });
-          const nextState = event.payload.status === "error" ? "error" : "completed";
           yield* projectionTurnRepository.clearCheckpointTurnConflict({
             threadId: event.payload.threadId,
             turnId: event.payload.turnId,
@@ -1420,7 +1434,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             yield* projectionTurnRepository.upsertByTurnId({
               ...existingTurn.value,
               assistantMessageId: event.payload.assistantMessageId,
-              state: nextState,
               checkpointTurnCount: event.payload.checkpointTurnCount,
               checkpointRef: event.payload.checkpointRef,
               checkpointStatus: event.payload.status,
@@ -1438,7 +1451,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             sourceProposedPlanThreadId: null,
             sourceProposedPlanId: null,
             assistantMessageId: event.payload.assistantMessageId,
-            state: nextState,
+            state: checkpointStatusToFallbackTurnState(event.payload.status),
             requestedAt: event.payload.completedAt,
             startedAt: event.payload.completedAt,
             completedAt: event.payload.completedAt,
@@ -1472,6 +1485,59 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                     ...turn,
                     turnId: turn.turnId,
                   }),
+            { concurrency: 1 },
+          ).pipe(Effect.asVoid);
+          return;
+        }
+
+        default:
+          return;
+      }
+    });
+
+    const applyPendingCheckpointCapturesProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyPendingCheckpointCapturesProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "thread.checkpoint-capture-requested": {
+          yield* projectionPendingCheckpointCaptureRepository.upsert({
+            threadId: event.payload.threadId,
+            turnId: event.payload.request.turnId,
+            checkpointTurnCount: event.payload.request.checkpointTurnCount,
+            assistantMessageId: event.payload.request.assistantMessageId,
+            requestedAt: event.payload.request.requestedAt,
+          });
+          return;
+        }
+
+        case "thread.turn-diff-completed": {
+          if (isLegacyMissingCheckpointStatus(event.payload.status)) {
+            yield* projectionPendingCheckpointCaptureRepository.upsert({
+              threadId: event.payload.threadId,
+              turnId: event.payload.turnId,
+              checkpointTurnCount: event.payload.checkpointTurnCount,
+              assistantMessageId: event.payload.assistantMessageId,
+              requestedAt: event.payload.completedAt,
+            });
+            return;
+          }
+          yield* projectionPendingCheckpointCaptureRepository.deleteByThreadAndTurnId({
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+          });
+          return;
+        }
+
+        case "thread.reverted": {
+          const existingRows = yield* projectionPendingCheckpointCaptureRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          yield* projectionPendingCheckpointCaptureRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
+          yield* Effect.forEach(
+            existingRows.filter((row) => row.checkpointTurnCount <= event.payload.turnCount),
+            (row) => projectionPendingCheckpointCaptureRepository.upsert(row),
             { concurrency: 1 },
           ).pipe(Effect.asVoid);
           return;
@@ -1610,6 +1676,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         apply: applyThreadTurnsProjection,
       },
       {
+        name: ORCHESTRATION_PROJECTOR_NAMES.pendingCheckpointCaptures,
+        apply: applyPendingCheckpointCapturesProjection,
+      },
+      {
         name: ORCHESTRATION_PROJECTOR_NAMES.checkpoints,
         apply: applyCheckpointsProjection,
       },
@@ -1726,6 +1796,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionThreadActivityRepositoryLive),
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),
   Layer.provideMerge(ProjectionTurnRepositoryLive),
+  Layer.provideMerge(ProjectionPendingCheckpointCaptureRepositoryLive),
   Layer.provideMerge(ProjectionPendingApprovalRepositoryLive),
   Layer.provideMerge(ProjectionStateRepositoryLive),
 );

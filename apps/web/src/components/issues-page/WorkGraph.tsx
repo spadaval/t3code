@@ -6,7 +6,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowRightIcon,
   CheckCircle2Icon,
@@ -37,6 +37,7 @@ import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { Badge } from "../ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { ExecutionDiffSummary } from "./ExecutionDiffSummary";
+import { CoordinatorEventLogCompact } from "./CoordinatorEventLog";
 import { WorkerActivityFeed } from "./WorkerActivityFeed";
 
 // ---------------------------------------------------------------------------
@@ -175,6 +176,26 @@ export function WorkGraph(props: {
     [props.epic, issueDetails],
   );
   const [expandedRows, setExpandedRows] = useState<ReadonlySet<string>>(new Set());
+
+  // Auto-expand the row for the currently active worker issue.
+  const activeWorkerIssueId = useMemo(
+    () =>
+      data.sections
+        .flatMap((s) => s.groups.flatMap((g) => [...g.nodes]))
+        .find((n) => n.isActiveWorker)?.issue.id ?? null,
+    [data.sections],
+  );
+
+  useEffect(() => {
+    if (activeWorkerIssueId !== null) {
+      setExpandedRows((prev) => {
+        if (prev.has(activeWorkerIssueId)) return prev;
+        const next = new Set(prev);
+        next.add(activeWorkerIssueId);
+        return next;
+      });
+    }
+  }, [activeWorkerIssueId]);
 
   const toggleRow = useCallback((issueId: string) => {
     setExpandedRows((prev) => {
@@ -383,6 +404,13 @@ function WorkGraphRunSectionView(props: {
       {section.run?.lastError && !collapsed ? (
         <div className="mt-1.5 rounded border border-destructive/20 bg-destructive/5 px-2.5 py-1.5 text-xs text-destructive">
           {section.run.lastError}
+        </div>
+      ) : null}
+
+      {/* Run lifecycle events (shown below header when expanded) */}
+      {!collapsed && section.events.length > 0 ? (
+        <div className="mt-2 rounded-md border border-border/30 bg-muted/20 px-2.5 py-2">
+          <CoordinatorEventLogCompact entries={section.events} />
         </div>
       ) : null}
 
@@ -809,6 +837,18 @@ function WorkGraphRowDetail(props: {
                 ) : null}
               </div>
             ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Execution lifecycle events */}
+      {node.events.length > 0 ? (
+        <div>
+          <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
+            Activity
+          </p>
+          <div className="rounded-md border border-border/30 bg-muted/20 px-2 py-1.5">
+            <CoordinatorEventLogCompact entries={node.events} maxEntries={10} />
           </div>
         </div>
       ) : null}

@@ -137,6 +137,7 @@ describe("OrchestrationEngine", () => {
           proposedPlans: [],
           activities: [],
           checkpoints: [],
+          pendingCheckpointCaptures: [],
           session: null,
         },
       ],

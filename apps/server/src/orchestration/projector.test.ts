@@ -102,6 +102,7 @@ describe("orchestration projector", () => {
         proposedPlans: [],
         activities: [],
         checkpoints: [],
+        pendingCheckpointCaptures: [],
         session: null,
       },
     ]);
@@ -139,6 +140,210 @@ describe("orchestration projector", () => {
         ),
       ),
     ).rejects.toBeDefined();
+  });
+
+  it("treats legacy missing checkpoint replay as pending work without interrupting the turn", async () => {
+    const createdAt = "2026-02-25T10:00:00.000Z";
+    const model = createEmptyReadModel(createdAt);
+
+    const events: ReadonlyArray<OrchestrationEvent> = [
+      makeEvent({
+        sequence: 1,
+        type: "thread.created",
+        aggregateKind: "thread",
+        aggregateId: "thread-legacy-missing",
+        occurredAt: createdAt,
+        commandId: "cmd-create-thread",
+        payload: {
+          threadId: "thread-legacy-missing",
+          projectId: "project-1",
+          title: "demo",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5.3-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+      makeEvent({
+        sequence: 2,
+        type: "thread.session-set",
+        aggregateKind: "thread",
+        aggregateId: "thread-legacy-missing",
+        occurredAt: "2026-02-25T10:00:01.000Z",
+        commandId: "cmd-session-running",
+        payload: {
+          threadId: "thread-legacy-missing",
+          session: {
+            threadId: "thread-legacy-missing",
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: "turn-legacy",
+            lastError: null,
+            updatedAt: "2026-02-25T10:00:01.000Z",
+          },
+        },
+      }),
+      makeEvent({
+        sequence: 3,
+        type: "thread.message-sent",
+        aggregateKind: "thread",
+        aggregateId: "thread-legacy-missing",
+        occurredAt: "2026-02-25T10:00:02.000Z",
+        commandId: "cmd-assistant-complete",
+        payload: {
+          threadId: "thread-legacy-missing",
+          messageId: "assistant-legacy",
+          role: "assistant",
+          text: "done",
+          turnId: "turn-legacy",
+          streaming: false,
+          createdAt: "2026-02-25T10:00:02.000Z",
+          updatedAt: "2026-02-25T10:00:02.000Z",
+        },
+      }),
+      makeEvent({
+        sequence: 4,
+        type: "thread.turn-diff-completed",
+        aggregateKind: "thread",
+        aggregateId: "thread-legacy-missing",
+        occurredAt: "2026-02-25T10:00:03.000Z",
+        commandId: "cmd-legacy-missing",
+        payload: {
+          threadId: "thread-legacy-missing",
+          turnId: "turn-legacy",
+          checkpointTurnCount: 1,
+          checkpointRef: "refs/t3/checkpoints/thread-legacy-missing/turn/1",
+          status: "missing",
+          files: [],
+          assistantMessageId: "assistant-legacy",
+          completedAt: "2026-02-25T10:00:03.000Z",
+        },
+      }),
+    ];
+
+    const finalState = await events.reduce<Promise<ReturnType<typeof createEmptyReadModel>>>(
+      (statePromise, event) =>
+        statePromise.then((state) => Effect.runPromise(projectEvent(state, event))),
+      Promise.resolve(model),
+    );
+
+    const thread = finalState.threads.find((entry) => entry.id === "thread-legacy-missing");
+    expect(thread?.latestTurn?.state).toBe("completed");
+    expect(thread?.checkpoints).toHaveLength(0);
+    expect(thread?.pendingCheckpointCaptures).toEqual([
+      {
+        turnId: "turn-legacy",
+        checkpointTurnCount: 1,
+        assistantMessageId: "assistant-legacy",
+        requestedAt: "2026-02-25T10:00:03.000Z",
+      },
+    ]);
+  });
+
+  it("preserves latest turn lifecycle state when finalized checkpoint metadata arrives", async () => {
+    const createdAt = "2026-02-25T11:00:00.000Z";
+    const model = createEmptyReadModel(createdAt);
+
+    const events: ReadonlyArray<OrchestrationEvent> = [
+      makeEvent({
+        sequence: 1,
+        type: "thread.created",
+        aggregateKind: "thread",
+        aggregateId: "thread-preserve-turn-state",
+        occurredAt: createdAt,
+        commandId: "cmd-create-thread",
+        payload: {
+          threadId: "thread-preserve-turn-state",
+          projectId: "project-1",
+          title: "demo",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5.3-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+      makeEvent({
+        sequence: 2,
+        type: "thread.session-set",
+        aggregateKind: "thread",
+        aggregateId: "thread-preserve-turn-state",
+        occurredAt: "2026-02-25T11:00:01.000Z",
+        commandId: "cmd-session-running",
+        payload: {
+          threadId: "thread-preserve-turn-state",
+          session: {
+            threadId: "thread-preserve-turn-state",
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: "turn-1",
+            lastError: null,
+            updatedAt: "2026-02-25T11:00:01.000Z",
+          },
+        },
+      }),
+      makeEvent({
+        sequence: 3,
+        type: "thread.session-set",
+        aggregateKind: "thread",
+        aggregateId: "thread-preserve-turn-state",
+        occurredAt: "2026-02-25T11:00:02.000Z",
+        commandId: "cmd-session-error",
+        payload: {
+          threadId: "thread-preserve-turn-state",
+          session: {
+            threadId: "thread-preserve-turn-state",
+            status: "error",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: "provider exploded",
+            updatedAt: "2026-02-25T11:00:02.000Z",
+          },
+        },
+      }),
+      makeEvent({
+        sequence: 4,
+        type: "thread.turn-diff-completed",
+        aggregateKind: "thread",
+        aggregateId: "thread-preserve-turn-state",
+        occurredAt: "2026-02-25T11:00:03.000Z",
+        commandId: "cmd-checkpoint-ready",
+        payload: {
+          threadId: "thread-preserve-turn-state",
+          turnId: "turn-1",
+          checkpointTurnCount: 1,
+          checkpointRef: "refs/t3/checkpoints/thread-preserve-turn-state/turn/1",
+          status: "ready",
+          files: [],
+          assistantMessageId: "assistant-1",
+          completedAt: "2026-02-25T11:00:03.000Z",
+        },
+      }),
+    ];
+
+    const finalState = await events.reduce<Promise<ReturnType<typeof createEmptyReadModel>>>(
+      (statePromise, event) =>
+        statePromise.then((state) => Effect.runPromise(projectEvent(state, event))),
+      Promise.resolve(model),
+    );
+
+    const thread = finalState.threads.find((entry) => entry.id === "thread-preserve-turn-state");
+    expect(thread?.latestTurn?.state).toBe("error");
+    expect(thread?.latestTurn?.turnId).toBe("turn-1");
+    expect(thread?.checkpoints).toHaveLength(1);
+    expect(thread?.checkpoints[0]?.checkpointTurnCount).toBe(1);
   });
 
   it("applies thread.archived and thread.unarchived events", async () => {
@@ -347,7 +552,6 @@ describe("orchestration projector", () => {
         runId: "run-1",
         projectId: "project-1",
         epicIssueId: "EPIC-1",
-        swarmId: "SWARM-1",
         status: "requested",
         schedulerMode: "automatic",
         workspaceMode: "shared",

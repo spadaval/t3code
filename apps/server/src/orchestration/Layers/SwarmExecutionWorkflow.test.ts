@@ -2,11 +2,13 @@ import { Duration, Effect, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  CheckpointRef,
   CommandId,
   ProjectId,
   SwarmRunId,
   SwarmTaskExecutionId,
   ThreadId,
+  TurnId,
 } from "@t3tools/contracts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { SwarmExecutionWorkflow } from "../Services/SwarmExecutionWorkflow.ts";
@@ -96,9 +98,9 @@ describe("SwarmExecutionWorkflow", () => {
     expect(snapshot.threads[0]?.issueLink?.issueId).toBe("TASK-1");
 
     const issue = harness.getIssue("TASK-1");
-    expect(issue?.status).toBe("in_progress");
-    expect(issue?.assignee).toBe(`t3code-swarm/${first.runId}`);
-    expect(issue?.comments.at(-1)?.text).toContain("Swarm worker started.");
+    expect(issue?.status).toBe("open");
+    expect(issue?.assignee).toBeNull();
+    expect(issue?.comments).toHaveLength(0);
   });
 
   it("keeps requested execution pending before timeout when launch has been requested but not observed", async () => {
@@ -140,8 +142,8 @@ describe("SwarmExecutionWorkflow", () => {
     expect(reconciledExecution?.startedAt).toBeNull();
     expect(snapshot.swarmTaskExecutions).toHaveLength(1);
     expect(snapshot.threads).toHaveLength(1);
-    expect(issue?.status).toBe("in_progress");
-    expect(issue?.assignee).toBe(`t3code-swarm/${started.runId}`);
+    expect(issue?.status).toBe("open");
+    expect(issue?.assignee).toBeNull();
   });
 
   it("deterministically keeps one shared-workspace run and fails the loser when another starts", async () => {
@@ -464,8 +466,8 @@ describe("SwarmExecutionWorkflow", () => {
     expect(execution?.issueId).toBe("TASK-2");
     expect(firstIssue?.status).toBe("open");
     expect(firstIssue?.assignee).toBeNull();
-    expect(secondIssue?.status).toBe("in_progress");
-    expect(secondIssue?.assignee).toBe(`t3code-swarm/${started.runId}`);
+    expect(secondIssue?.status).toBe("open");
+    expect(secondIssue?.assignee).toBeNull();
   });
 
   it("does not claim validation-only issues after launchable-state recheck", async () => {
@@ -633,7 +635,7 @@ describe("SwarmExecutionWorkflow", () => {
     const issue = harness.getIssue("TASK-1");
 
     expect(run?.status).toBe("blocked");
-    expect(run?.lastError).toContain("issue 'TASK-1' is still 'in_progress'");
+    expect(run?.lastError).toContain("issue 'TASK-1' is still 'open'");
     expect(run?.lastError).toContain("must close their assigned Beads issue");
     expect(run?.blockedContext).toEqual({
       kind: "worker_failure",
@@ -645,7 +647,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(issue?.status).toBe("open");
     expect(issue?.assignee).toBeNull();
     expect(issue?.comments.at(-1)?.text).toContain("Swarm worker failed.");
-    expect(issue?.comments.at(-1)?.text).toContain("issue 'TASK-1' is still 'in_progress'");
+    expect(issue?.comments.at(-1)?.text).toContain("issue 'TASK-1' is still 'open'");
   });
 
   it("idles semi-automatic runs after a completed task when ready work remains", async () => {
@@ -707,8 +709,178 @@ describe("SwarmExecutionWorkflow", () => {
     expect(run?.status).toBe("idle");
     expect(completedExecution?.status).toBe("completed");
     expect(issue?.status).toBe("closed");
-    expect(issue?.assignee).toBe(`t3code-swarm/${started.runId}`);
+    expect(issue?.assignee).toBeNull();
     expect(issue?.comments.at(-1)?.text).toContain("Swarm worker completed.");
+  });
+
+  it("does not treat pending checkpoint capture state as a worker interruption", async () => {
+    const harness = await createHarness();
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startSwarmRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+    const initialSnapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const execution = initialSnapshot.swarmTaskExecutions[0];
+    expect(execution?.workerThreadId).toBeTruthy();
+    if (!execution?.workerThreadId) {
+      return;
+    }
+
+    const baseline = makeTrackerState();
+    harness.setTrackerState(
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [[relationIssue("TASK-2", 2)]],
+        },
+        status: {
+          ...baseline.status,
+          ready: [relationIssue("TASK-2", 2)],
+        },
+      }),
+    );
+    harness.patchIssue("TASK-1", { status: "closed" });
+    harness.patchThread(execution.workerThreadId, {
+      latestTurn: makeCompletedLatestTurn("turn-worker-completed"),
+      session: makeReadySession(execution.workerThreadId),
+    });
+    harness.patchReadModel((current) => ({
+      ...current,
+      threads: current.threads.map((thread) =>
+        thread.id === execution.workerThreadId
+          ? {
+              ...thread,
+              pendingCheckpointCaptures: [
+                {
+                  turnId: TurnId.makeUnsafe("turn-worker-completed"),
+                  checkpointTurnCount: 1,
+                  assistantMessageId: null,
+                  requestedAt: now,
+                },
+              ],
+            }
+          : thread,
+      ),
+    }));
+
+    await runtime!.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          yield* harness.workflow.start;
+          yield* harness.workflow.drain;
+        }),
+      ),
+    );
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const run = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
+    const completedExecution = snapshot.swarmTaskExecutions.find(
+      (entry) => entry.executionId === execution.executionId,
+    );
+
+    expect(run?.status).toBe("running");
+    expect(run?.blockedContext).toBeNull();
+    expect(completedExecution?.status).toBe("completed");
+  });
+
+  it("ignores legacy missing checkpoint placeholders when worker lifecycle is otherwise completed", async () => {
+    const harness = await createHarness();
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startSwarmRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+    const initialSnapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const execution = initialSnapshot.swarmTaskExecutions[0];
+    expect(execution?.workerThreadId).toBeTruthy();
+    if (!execution?.workerThreadId) {
+      return;
+    }
+
+    const baseline = makeTrackerState();
+    harness.setTrackerState(
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [[relationIssue("TASK-2", 2)]],
+        },
+        status: {
+          ...baseline.status,
+          ready: [relationIssue("TASK-2", 2)],
+        },
+      }),
+    );
+    harness.patchIssue("TASK-1", { status: "closed" });
+    harness.patchThread(execution.workerThreadId, {
+      latestTurn: makeCompletedLatestTurn("turn-worker-completed"),
+      session: makeReadySession(execution.workerThreadId),
+    });
+    harness.patchReadModel((current) => ({
+      ...current,
+      threads: current.threads.map((thread) =>
+        thread.id === execution.workerThreadId
+          ? {
+              ...thread,
+              checkpoints: [
+                {
+                  turnId: TurnId.makeUnsafe("turn-worker-completed"),
+                  checkpointTurnCount: 1,
+                  checkpointRef: CheckpointRef.makeUnsafe(
+                    "refs/t3/checkpoints/thread-worker/turn/1",
+                  ),
+                  status: "missing",
+                  files: [],
+                  assistantMessageId: null,
+                  completedAt: now,
+                },
+                {
+                  turnId: TurnId.makeUnsafe("turn-worker-completed"),
+                  checkpointTurnCount: 1,
+                  checkpointRef: CheckpointRef.makeUnsafe(
+                    "refs/t3/checkpoints/thread-worker/turn/1",
+                  ),
+                  status: "ready",
+                  files: [],
+                  assistantMessageId: null,
+                  completedAt: now,
+                },
+              ],
+            }
+          : thread,
+      ),
+    }));
+
+    await runtime!.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          yield* harness.workflow.start;
+          yield* harness.workflow.drain;
+        }),
+      ),
+    );
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const run = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
+    const completedExecution = snapshot.swarmTaskExecutions.find(
+      (entry) => entry.executionId === execution.executionId,
+    );
+
+    expect(run?.status).toBe("running");
+    expect(run?.blockedContext).toBeNull();
+    expect(completedExecution?.status).toBe("completed");
   });
 
   it("automatically launches the next worker thread after a completed task when ready work remains", async () => {
@@ -791,11 +963,11 @@ describe("SwarmExecutionWorkflow", () => {
     expect(nextThread?.title).toBe("TASK-2: Task 2 (Swarm worker)");
     expect(nextThread?.issueLink?.issueId).toBe("TASK-2");
     expect(initialIssue?.status).toBe("closed");
-    expect(initialIssue?.assignee).toBe(`t3code-swarm/${started.runId}`);
+    expect(initialIssue?.assignee).toBeNull();
     expect(initialIssue?.comments.at(-1)?.text).toContain("Swarm worker completed.");
-    expect(nextIssue?.status).toBe("in_progress");
-    expect(nextIssue?.assignee).toBe(`t3code-swarm/${started.runId}`);
-    expect(nextIssue?.comments.at(-1)?.text).toContain("Swarm worker started.");
+    expect(nextIssue?.status).toBe("open");
+    expect(nextIssue?.assignee).toBeNull();
+    expect(nextIssue?.comments).toHaveLength(0);
   });
 
   it("resumes semi-automatic paused runs back to idle instead of implicitly continuing", async () => {
@@ -1145,8 +1317,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(run?.lastError).toBeNull();
     expect(activeExecution?.status).toBe("active");
     expect(activeExecution?.lastError).toBeNull();
-    expect(issue?.comments).toHaveLength(1);
-    expect(issue?.comments.at(-1)?.text).toContain("Swarm worker started.");
+    expect(issue?.comments).toHaveLength(0);
   });
 
   it("includes observed worker state when a task stops without an upstream error reason", async () => {
@@ -1201,7 +1372,7 @@ describe("SwarmExecutionWorkflow", () => {
 
   it("blocks the run when task launch setup fails after tracker validation succeeds", async () => {
     const harness = await createHarness(makeTrackerState(), {
-      failUpdateIssueForIds: ["TASK-1"],
+      failDispatchForCommandTypes: ["thread.turn.start"],
     });
 
     const started = await runtime!.runPromise(
@@ -1219,19 +1390,14 @@ describe("SwarmExecutionWorkflow", () => {
     const run = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
     const issue = harness.getIssue("TASK-1");
 
-    expect(run?.status).toBe("blocked");
-    expect(run?.lastError).toContain("Simulated updateIssue failure for issue 'TASK-1'.");
-    expect(run?.blockedContext).toEqual({
-      kind: "worker_failure",
-      issueId: "TASK-1",
-      executionId: expect.any(String),
-      workerThreadId: expect.any(String),
-    });
+    expect(run?.status).toBe("failed");
+    expect(run?.lastError).toContain("Simulated dispatch failure for command 'thread.turn.start'.");
+    expect(run?.blockedContext).toBeNull();
     expect(snapshot.swarmTaskExecutions).toHaveLength(1);
-    expect(snapshot.swarmTaskExecutions[0]?.status).toBe("failed");
+    expect(snapshot.swarmTaskExecutions[0]?.status).toBe("requested");
     expect(issue?.status).toBe("open");
     expect(issue?.assignee).toBeNull();
-    expect(issue?.comments.at(-1)?.text).toContain("Swarm worker failed.");
+    expect(issue?.comments).toHaveLength(0);
   });
 
   it("restores the exact tracker status and assignee when requested launch reconciliation fails", async () => {
@@ -1275,9 +1441,9 @@ describe("SwarmExecutionWorkflow", () => {
     expect(execution?.status).toBe("failed");
     expect(execution?.startedAt).toBeNull();
     expect(execution?.originalStatus).toBe("open");
-    expect(execution?.originalAssignee).toBe("issue-owner");
+    expect(execution?.originalAssignee).toBeNull();
     expect(issue?.status).toBe("open");
-    expect(issue?.assignee).toBe("issue-owner");
+    expect(issue?.assignee).toBeNull();
     expect(issue?.comments.at(-1)?.text).toContain("Swarm worker failed.");
   });
 
@@ -1373,7 +1539,7 @@ describe("SwarmExecutionWorkflow", () => {
 
     expect(timedOutExecution?.status).toBe("failed");
     expect(issue?.status).toBe("open");
-    expect(issue?.assignee).toBe("issue-owner");
+    expect(issue?.assignee).toBeNull();
     expect(issue?.comments.at(-1)?.text).toContain("Swarm worker failed.");
     expect(issue?.comments.at(-1)?.text).toContain("timed out while launching");
   });
@@ -1654,8 +1820,8 @@ describe("SwarmExecutionWorkflow", () => {
 
     expect(run?.status).toBe("running");
     expect(currentExecution?.status).toBe("requested");
-    expect(issue?.status).toBe("in_progress");
-    expect(issue?.assignee).toBe(`t3code-swarm/${started.runId}`);
+    expect(issue?.status).toBe("open");
+    expect(issue?.assignee).toBeNull();
   }, 10_000);
 
   it("keeps a worker-failure run blocked until tracker invariants are repaired", async () => {
@@ -1787,7 +1953,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(run?.blockedContext).toBeNull();
     expect(nextExecution?.status).toBe("requested");
     expect(nextExecution?.issueId).toBe("TASK-2");
-    expect(nextIssue?.status).toBe("in_progress");
+    expect(nextIssue?.status).toBe("open");
   });
 
   it("automatically schedules the lowest-priority ready issue first", async () => {
@@ -1816,7 +1982,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(firstExecution?.sequenceNumber).toBe(1);
     expect(snapshot.threads).toHaveLength(1);
     expect(snapshot.threads[0]?.issueLink?.issueId).toBe("TASK-1");
-    expect(harness.getIssue("TASK-1")?.status).toBe("in_progress");
+    expect(harness.getIssue("TASK-1")?.status).toBe("open");
     expect(harness.getIssue("TASK-2")?.status).toBe("open");
   });
 
@@ -1867,7 +2033,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(nextExecution?.issueId).toBe("TASK-2");
     expect(nextExecution?.sequenceNumber).toBe(2);
     expect(harness.getIssue("TASK-1")?.status).toBe("open");
-    expect(harness.getIssue("TASK-2")?.status).toBe("in_progress");
+    expect(harness.getIssue("TASK-2")?.status).toBe("open");
   });
 
   it("retries the requested failed execution instead of selecting a different ready issue", async () => {
@@ -1919,7 +2085,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(retried.status).toBe("running");
     expect(retriedExecution?.issueId).toBe("TASK-1");
     expect(retriedExecution?.sequenceNumber).toBe(2);
-    expect(harness.getIssue("TASK-1")?.status).toBe("in_progress");
+    expect(harness.getIssue("TASK-1")?.status).toBe("open");
     expect(harness.getIssue("TASK-2")?.status).toBe("open");
   });
 
@@ -1967,6 +2133,63 @@ describe("SwarmExecutionWorkflow", () => {
     expect(snapshot.swarmTaskExecutions).toHaveLength(1);
     expect(run?.lastError).toContain("every live ready issue was already attempted");
     expect(run?.lastError).toContain("Previously attempted ready issues: TASK-1.");
+  });
+
+  it("blocks with retry-specific detail when the requested execution issue is no longer ready", async () => {
+    const harness = await createHarness();
+
+    const started = await harness.startRun();
+    await harness.drainScheduler();
+
+    const initialSnapshot = await harness.getSnapshot();
+    const execution = initialSnapshot.swarmTaskExecutions[0];
+    expect(execution?.workerThreadId).toBeTruthy();
+    if (!execution?.workerThreadId) {
+      return;
+    }
+
+    harness.patchWorkerThread(execution.workerThreadId, {
+      latestTurn: makeErroredLatestTurn("turn-worker-error"),
+      session: makeErroredSession(execution.workerThreadId, "Worker crashed"),
+    });
+
+    await harness.startSchedulerService();
+
+    const baseline = makeTrackerState();
+    harness.setTrackerState(
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [[relationIssue("TASK-2", 2)]],
+        },
+        status: {
+          ...baseline.status,
+          ready: [relationIssue("TASK-2", 2)],
+          blocked: [],
+        },
+      }),
+    );
+
+    const retried = await harness.retryExecution({
+      runId: started.runId,
+      executionId: execution.executionId,
+    });
+    const snapshot = await harness.getSnapshot();
+    const run = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
+
+    expect(retried.status).toBe("blocked");
+    expect(run?.status).toBe("blocked");
+    expect(run?.blockedContext).toEqual({
+      kind: "tracker_waiting",
+      issueId: null,
+      executionId: null,
+      workerThreadId: null,
+    });
+    expect(snapshot.swarmTaskExecutions).toHaveLength(1);
+    expect(run?.lastError).toContain(
+      "cannot retry issue 'TASK-1' because it is not currently live-ready",
+    );
+    expect(run?.lastError).toContain("Ready issues: TASK-2.");
   });
 
   it("blocks immediately when only external blockers remain and does not dispatch a worker", async () => {

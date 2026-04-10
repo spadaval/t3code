@@ -1,5 +1,4 @@
 import type {
-  BeadsIssueSummary,
   OrchestrationSwarmSchedulerMode,
   OrchestrationSwarmWorkspaceMode,
   OrchestrationThreadIssueLink,
@@ -10,7 +9,12 @@ import type {
 import path from "node:path";
 
 export function buildSwarmIssueLink(input: {
-  issue: BeadsIssueSummary;
+  issue: {
+    readonly id: string;
+    readonly title: string;
+    readonly status: string;
+    readonly priority: number | null;
+  };
   cwd: string;
   linkedAt: string;
 }): OrchestrationThreadIssueLink {
@@ -24,7 +28,10 @@ export function buildSwarmIssueLink(input: {
   };
 }
 
-export function buildSwarmWorkerThreadTitle(issue: BeadsIssueSummary): string {
+export function buildSwarmWorkerThreadTitle(issue: {
+  readonly id: string;
+  readonly title: string;
+}): string {
   return `${issue.id}: ${issue.title} (Swarm worker)`;
 }
 

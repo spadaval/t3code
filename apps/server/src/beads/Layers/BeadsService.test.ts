@@ -140,6 +140,7 @@ function makeLinkedThreadFixture(input: {
     activities: [],
     proposedPlans: [],
     checkpoints: [],
+    pendingCheckpointCaptures: [],
     deletedAt: null,
   };
 }

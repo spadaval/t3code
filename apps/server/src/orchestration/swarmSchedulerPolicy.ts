@@ -148,6 +148,23 @@ export function describeReadyIssueExhaustion(input: {
   ].join(" ");
 }
 
+export function describeRetryIssueNotLiveReady(input: {
+  readonly runId: SwarmRunId;
+  readonly retryIssueId: string;
+  readonly readyIssues: ReadonlyArray<BeadsIssueRelationSummary>;
+}): string {
+  return [
+    `Swarm run '${input.runId}' cannot retry issue '${input.retryIssueId}' because it is not currently live-ready.`,
+    `Ready issues: ${
+      input.readyIssues
+        .map((issue) => issue.id)
+        .toSorted()
+        .join(", ") || "none"
+    }.`,
+    "Wait for that issue to return to the ready set before retrying its execution.",
+  ].join(" ");
+}
+
 export function shouldIdleSemiAutomaticRun(input: {
   readonly run: Pick<OrchestrationSwarmRun, "schedulerMode">;
   readonly latestExecution: OrchestrationSwarmTaskExecution | null;

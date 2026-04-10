@@ -702,6 +702,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         proposedPlans: [],
         activities: [],
         checkpoints: [],
+        pendingCheckpointCaptures: [],
         session: null,
       });
       const threads = existing

@@ -55,6 +55,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_projects`;
       yield* sql`DELETE FROM projection_state`;
       yield* sql`DELETE FROM projection_thread_proposed_plans`;
+      yield* sql`DELETE FROM projection_pending_checkpoint_captures`;
       yield* sql`DELETE FROM projection_turns`;
 
       yield* sql`
@@ -435,6 +436,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               createdAt: "2026-02-24T00:00:06.000Z",
             },
           ],
+          pendingCheckpointCaptures: [],
           checkpoints: [
             {
               turnId: asTurnId("turn-1"),
@@ -524,6 +526,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
         yield* sql`DELETE FROM projection_projects`;
         yield* sql`DELETE FROM projection_threads`;
+        yield* sql`DELETE FROM projection_pending_checkpoint_captures`;
         yield* sql`DELETE FROM projection_turns`;
 
         yield* sql`
@@ -656,6 +659,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`DELETE FROM projection_projects`;
       yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_pending_checkpoint_captures`;
       yield* sql`DELETE FROM projection_turns`;
 
       yield* sql`

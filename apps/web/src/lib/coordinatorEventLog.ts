@@ -57,7 +57,7 @@ function formatSchedulerMode(mode: OrchestrationSwarmRun["schedulerMode"]): stri
 // Run lifecycle entries
 // ---------------------------------------------------------------------------
 
-function runEntries(run: OrchestrationSwarmRun): CoordinatorLogEntry[] {
+export function runEntries(run: OrchestrationSwarmRun): CoordinatorLogEntry[] {
   const entries: CoordinatorLogEntry[] = [];
   const base = { runId: run.runId };
 
@@ -166,7 +166,7 @@ function runEntries(run: OrchestrationSwarmRun): CoordinatorLogEntry[] {
 // Execution lifecycle entries
 // ---------------------------------------------------------------------------
 
-function executionEntries(exec: OrchestrationSwarmTaskExecution): CoordinatorLogEntry[] {
+export function executionEntries(exec: OrchestrationSwarmTaskExecution): CoordinatorLogEntry[] {
   const entries: CoordinatorLogEntry[] = [];
   const base = {
     runId: exec.runId,

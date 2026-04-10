@@ -10,6 +10,7 @@ import {
   DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE,
   DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE,
 } from "@t3tools/contracts";
+import type { QueryClient } from "@tanstack/react-query";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 
@@ -127,6 +128,12 @@ export function describeCoordinatorActionError(actionKind: CoordinatorActionInpu
   }
 }
 
+export function invalidateCoordinatorBeadsQueries(
+  queryClient: Pick<QueryClient, "invalidateQueries">,
+) {
+  void queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
+}
+
 export function useEpicCoordinatorActionRunner(input: {
   readonly cwd: string;
   readonly projectId: ProjectId | null;
@@ -199,7 +206,7 @@ export function useEpicCoordinatorActionRunner(input: {
         return;
       }
 
-      await queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
+      invalidateCoordinatorBeadsQueries(queryClient);
 
       if (result) {
         if (!result.created) {

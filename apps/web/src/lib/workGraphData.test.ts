@@ -280,22 +280,22 @@ describe("buildWorkGraphData", () => {
       status: makeStatus({ active: [issueA] }),
     });
 
-    // Should have 2 sections: active run-2 and historical run-1.
+    // Should have 2 sections: chronological order = historical run-1 first, active run-2 last.
     expect(result.sections).toHaveLength(2);
 
-    // Active run-2: issue A with only exec-2.
-    const activeSection = result.sections[0]!;
-    expect(activeSection.kind).toBe("active");
-    const activeNode = activeSection.groups[0]!.nodes.find((n) => n.issue.id === "A")!;
-    expect(activeNode.executions).toHaveLength(1);
-    expect(activeNode.executions[0]!.executionId).toBe("exec-2");
-
-    // Historical run-1: issue A with only exec-1.
-    const histSection = result.sections[1]!;
+    // Historical run-1 (first -- oldest): issue A with only exec-1.
+    const histSection = result.sections[0]!;
     expect(histSection.kind).toBe("historical");
     const histNode = histSection.groups[0]!.nodes.find((n) => n.issue.id === "A")!;
     expect(histNode.executions).toHaveLength(1);
     expect(histNode.executions[0]!.executionId).toBe("exec-1");
+
+    // Active run-2 (last -- most recent): issue A with only exec-2.
+    const activeSection = result.sections[1]!;
+    expect(activeSection.kind).toBe("active");
+    const activeNode = activeSection.groups[0]!.nodes.find((n) => n.issue.id === "A")!;
+    expect(activeNode.executions).toHaveLength(1);
+    expect(activeNode.executions[0]!.executionId).toBe("exec-2");
   });
 
   it("sets isActiveWorker flag correctly", () => {
@@ -430,7 +430,7 @@ describe("buildWorkGraphData", () => {
     expect(groups[1]!.nodes[0]!.issue.id).toBe("READY-1");
   });
 
-  it("creates separate sections for multiple runs", () => {
+  it("creates separate sections for multiple runs in chronological order", () => {
     const issueA = makeIssue("A", "Task A");
     const issueB = makeIssue("B", "Task B");
     const run1 = makeRun("run-1", "cancelled", {
@@ -465,24 +465,24 @@ describe("buildWorkGraphData", () => {
       status: makeStatus({ completed: [issueB], active: [issueA] }),
     });
 
-    // Active run-2 section, then historical run-1 section.
+    // Chronological order: historical run-1 first, then active run-2.
     expect(result.sections).toHaveLength(2);
 
-    // Active section (run-2): A (active) + B (completed).
-    const active = result.sections[0]!;
-    expect(active.kind).toBe("active");
-    expect(active.run!.runId).toBe("run-2");
-    const activeNodes = active.groups.flatMap((g) => g.nodes);
-    expect(activeNodes.map((n) => n.issue.id).sort()).toEqual(["A", "B"]);
-
-    // Historical section (run-1): A only (with exec-1).
-    const hist = result.sections[1]!;
+    // Historical section (run-1, oldest): A only (with exec-1).
+    const hist = result.sections[0]!;
     expect(hist.kind).toBe("historical");
     expect(hist.run!.runId).toBe("run-1");
     const histNodes = hist.groups.flatMap((g) => g.nodes);
     expect(histNodes).toHaveLength(1);
     expect(histNodes[0]!.issue.id).toBe("A");
     expect(histNodes[0]!.executions[0]!.executionId).toBe("exec-1");
+
+    // Active section (run-2, most recent): A (active) + B (completed).
+    const active = result.sections[1]!;
+    expect(active.kind).toBe("active");
+    expect(active.run!.runId).toBe("run-2");
+    const activeNodes = active.groups.flatMap((g) => g.nodes);
+    expect(activeNodes.map((n) => n.issue.id).sort()).toEqual(["A", "B"]);
   });
 
   it("computes summary counts for run sections", () => {
@@ -563,17 +563,23 @@ describe("buildWorkGraphData", () => {
     });
 
     // run-1 should only claim issue A (has execution). Issue B goes to pending.
+    // Chronological order: pending first (no run), then historical run-1 last (primary).
     expect(result.sections).toHaveLength(2);
-    const hist = result.sections.find((s) => s.kind === "historical")!;
-    const histNodes = hist.groups.flatMap((g) => g.nodes);
-    expect(histNodes).toHaveLength(1);
-    expect(histNodes[0]!.issue.id).toBe("A");
 
-    const pending = result.sections.find((s) => s.kind === "unscheduled")!;
+    // Pending section first (no run association).
+    const pending = result.sections[0]!;
+    expect(pending.kind).toBe("unscheduled");
     expect(pending.label).toBe("Pending");
     const pendingNodes = pending.groups.flatMap((g) => g.nodes);
     expect(pendingNodes).toHaveLength(1);
     expect(pendingNodes[0]!.issue.id).toBe("B");
+
+    // Historical run-1 last (primary run when no active run).
+    const hist = result.sections[1]!;
+    expect(hist.kind).toBe("historical");
+    const histNodes = hist.groups.flatMap((g) => g.nodes);
+    expect(histNodes).toHaveLength(1);
+    expect(histNodes[0]!.issue.id).toBe("A");
   });
 
   it("populates blockedBy classification from blocked breakdown", () => {
@@ -668,5 +674,125 @@ describe("buildWorkGraphData", () => {
     const nodes = allNodes(result);
     expect(nodes[0]!.dependencies).toEqual([]);
     expect(nodes[0]!.descriptionSnippet).toBeNull();
+  });
+
+  it("populates run lifecycle events on run sections", () => {
+    const run = makeRun("run-1", "running", {
+      requestedAt: "2026-04-08T00:00:00.000Z",
+      startedAt: "2026-04-08T00:00:01.000Z",
+    });
+    const issueA = makeIssue("A", "Task A");
+
+    const result = buildWorkGraphData({
+      ...BASE_EPIC,
+      activeRunId: "run-1" as never,
+      runs: [run],
+      status: makeStatus({ ready: [issueA] }),
+    });
+
+    expect(result.sections).toHaveLength(1);
+    const section = result.sections[0]!;
+    expect(section.events.length).toBeGreaterThanOrEqual(2);
+    expect(section.events.some((e) => e.kind === "run.requested")).toBe(true);
+    expect(section.events.some((e) => e.kind === "run.started")).toBe(true);
+  });
+
+  it("populates empty events on unscheduled sections", () => {
+    const issueA = makeIssue("A", "Task A");
+
+    const result = buildWorkGraphData({
+      ...BASE_EPIC,
+      status: makeStatus({ ready: [issueA] }),
+    });
+
+    expect(result.sections).toHaveLength(1);
+    expect(result.sections[0]!.kind).toBe("unscheduled");
+    expect(result.sections[0]!.events).toEqual([]);
+  });
+
+  it("populates execution lifecycle events on issue nodes", () => {
+    const issueA = makeIssue("A", "Task A");
+    const run = makeRun("run-1", "running");
+    const exec = makeExecution("exec-1", "A", 1, {
+      status: "completed",
+      requestedAt: "2026-04-08T00:00:00.000Z",
+      startedAt: "2026-04-08T00:00:01.000Z",
+      completedAt: "2026-04-08T00:00:10.000Z",
+    });
+
+    const result = buildWorkGraphData({
+      ...BASE_EPIC,
+      activeRunId: "run-1" as never,
+      runs: [run],
+      executions: [exec],
+      status: makeStatus({ completed: [issueA] }),
+    });
+
+    const nodes = allNodes(result);
+    const nodeA = nodes.find((n) => n.issue.id === "A")!;
+    expect(nodeA.events.length).toBeGreaterThanOrEqual(2);
+    expect(nodeA.events.some((e) => e.kind === "execution.requested")).toBe(true);
+    expect(nodeA.events.some((e) => e.kind === "execution.completed")).toBe(true);
+    // Events should be in chronological order.
+    for (let i = 1; i < nodeA.events.length; i++) {
+      expect(nodeA.events[i]!.timestamp >= nodeA.events[i - 1]!.timestamp).toBe(true);
+    }
+  });
+
+  it("nodes without executions have empty events", () => {
+    const issueA = makeIssue("A", "Task A");
+    const run = makeRun("run-1", "running");
+
+    const result = buildWorkGraphData({
+      ...BASE_EPIC,
+      activeRunId: "run-1" as never,
+      runs: [run],
+      status: makeStatus({ ready: [issueA] }),
+    });
+
+    const nodes = allNodes(result);
+    expect(nodes[0]!.events).toEqual([]);
+  });
+
+  it("orders multiple historical runs oldest-first", () => {
+    const issueA = makeIssue("A", "Task A");
+    const issueB = makeIssue("B", "Task B");
+    const run1 = makeRun("run-1", "completed", {
+      requestedAt: "2026-04-08T00:00:00.000Z",
+      startedAt: "2026-04-08T00:00:01.000Z",
+      completedAt: "2026-04-08T00:00:10.000Z",
+      updatedAt: "2026-04-08T00:00:10.000Z",
+    });
+    const run2 = makeRun("run-2", "completed", {
+      requestedAt: "2026-04-08T00:01:00.000Z",
+      startedAt: "2026-04-08T00:01:01.000Z",
+      completedAt: "2026-04-08T00:01:10.000Z",
+      updatedAt: "2026-04-08T00:01:10.000Z",
+    });
+    const run3 = makeRun("run-3", "running", {
+      requestedAt: "2026-04-08T00:02:00.000Z",
+      startedAt: "2026-04-08T00:02:01.000Z",
+      updatedAt: "2026-04-08T00:02:01.000Z",
+    });
+    const exec1 = makeExecution("exec-1", "A", 1, { runId: "run-1" as never });
+    const exec2 = makeExecution("exec-2", "B", 1, { runId: "run-2" as never });
+
+    const result = buildWorkGraphData({
+      ...BASE_EPIC,
+      activeRunId: "run-3" as never,
+      // Server provides newest-first.
+      runs: [run3, run2, run1],
+      executions: [exec1, exec2],
+      status: makeStatus({ completed: [issueA, issueB] }),
+    });
+
+    // Chronological: run-1 (oldest), run-2, then run-3 (active, last).
+    expect(result.sections).toHaveLength(3);
+    expect(result.sections[0]!.run!.runId).toBe("run-1");
+    expect(result.sections[0]!.kind).toBe("historical");
+    expect(result.sections[1]!.run!.runId).toBe("run-2");
+    expect(result.sections[1]!.kind).toBe("historical");
+    expect(result.sections[2]!.run!.runId).toBe("run-3");
+    expect(result.sections[2]!.kind).toBe("active");
   });
 });

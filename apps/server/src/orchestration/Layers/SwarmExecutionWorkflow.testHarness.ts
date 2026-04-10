@@ -65,9 +65,11 @@ function beadsError(message: string) {
 }
 
 export function relationIssue(id: string, priority: number | null) {
+  const title =
+    id === "TASK-1" ? "Task 1" : id === "TASK-2" ? "Task 2" : id === "EPIC-1" ? "Epic 1" : id;
   return {
     id,
-    title: id,
+    title,
     status: "open",
     priority,
     issueType: "task",
@@ -359,6 +361,7 @@ export function applyCommand(
             proposedPlans: [],
             activities: [],
             checkpoints: [],
+            pendingCheckpointCaptures: [],
             session: null,
           },
         ],
