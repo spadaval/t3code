@@ -12,19 +12,19 @@ export {
   evaluateSharedWorkspaceProjectInvariant,
 } from "./EpicRunAdmissionPolicy.ts";
 
-export type SwarmSchedulerTrigger =
+export type EpicRunSchedulerTrigger =
   | "startup_reconcile"
   | "periodic_reconcile"
   | "manual_start"
   | "execution_settled"
   | "worker_state_changed";
 
-export interface SwarmDriveRequest {
+export interface EpicRunDriveRequest {
   readonly runId: EpicRunId;
-  readonly trigger: SwarmSchedulerTrigger;
+  readonly trigger: EpicRunSchedulerTrigger;
 }
 
-export function isBackgroundSwarmSchedulerTrigger(trigger: SwarmSchedulerTrigger): boolean {
+export function isBackgroundEpicRunSchedulerTrigger(trigger: EpicRunSchedulerTrigger): boolean {
   return trigger === "startup_reconcile" || trigger === "periodic_reconcile";
 }
 
@@ -63,7 +63,7 @@ export function describeReadyIssueExhaustion(input: {
     .toSorted();
 
   return [
-    `Swarm run '${input.runId}' has no launchable ready issue because every live ready issue was already attempted in this run.`,
+    `Epic run '${input.runId}' has no launchable ready issue because every live ready issue was already attempted in this run.`,
     `Ready issues: ${
       input.readyIssues
         .map((issue) => issue.id)
@@ -78,7 +78,7 @@ export function describeReadyIssueExhaustion(input: {
 export function shouldIdleSemiAutomaticRun(input: {
   readonly schedulerMode?: OrchestrationEpicRunSchedulerMode | null;
   readonly latestExecution: OrchestrationEpicIssueExecution | null;
-  readonly trigger: SwarmSchedulerTrigger;
+  readonly trigger: EpicRunSchedulerTrigger;
 }): boolean {
   if (input.schedulerMode !== "semi-automatic") {
     return false;

@@ -25,9 +25,9 @@ import {
 } from "@t3tools/shared/epicRun";
 import { describeProposedPlanFollowUpOutcome as describeProposedPlanFollowUpOutcomeShared } from "@t3tools/shared/plan";
 
-export interface CoordinatorSwarmSections {
-  readonly runningSwarms: ReadonlyArray<BeadsSwarmSummary>;
-  readonly readyToRunSwarms: ReadonlyArray<BeadsSwarmSummary>;
+export interface CoordinatorTrackerEpicSections {
+  readonly runningEpics: ReadonlyArray<BeadsSwarmSummary>;
+  readonly readyToRunEpics: ReadonlyArray<BeadsSwarmSummary>;
 }
 
 export interface CoordinatorEpicEntry {
@@ -62,7 +62,7 @@ export type EpicCoordinatorPrimaryAction = SharedEpicCoordinatorPrimaryAction;
 
 export function deriveCoordinatorFetchLifecycle(input: {
   readonly support: CoordinatorFetchQueryState;
-  readonly requireSwarmState: boolean;
+  readonly requireTrackerState: boolean;
   readonly validation?: CoordinatorFetchQueryState | null;
   readonly status?: CoordinatorFetchQueryState | null;
 }): CoordinatorFetchLifecycle {
@@ -89,7 +89,7 @@ export function deriveCoordinatorFetchLifecycle(input: {
     };
   }
 
-  if (!input.requireSwarmState) {
+  if (!input.requireTrackerState) {
     return {
       kind: "ready",
       detail: null,
@@ -98,7 +98,7 @@ export function deriveCoordinatorFetchLifecycle(input: {
 
   const validation = input.validation ?? { pending: false, hasData: false, error: null };
   const status = input.status ?? { pending: false, hasData: false, error: null };
-  const hasSwarmData = validation.hasData || status.hasData;
+  const hasTrackerData = validation.hasData || status.hasData;
   const pending = validation.pending || status.pending;
   const failures = [
     validation.error === null
@@ -120,22 +120,22 @@ export function deriveCoordinatorFetchLifecycle(input: {
 
   if (failures.length > 0) {
     return {
-      kind: hasSwarmData
+      kind: hasTrackerData
         ? "stale"
         : failures.some((failure) => isEpicRunCoordinatorFetchTimeoutMessage(failure.message))
           ? "timeout"
           : "error",
       detail: describeEpicRunCoordinatorFetchFailure({
         failures,
-        stale: hasSwarmData,
+        stale: hasTrackerData,
       }),
     };
   }
 
   if (pending) {
     return {
-      kind: hasSwarmData ? "stale" : "loading",
-      detail: hasSwarmData
+      kind: hasTrackerData ? "stale" : "loading",
+      detail: hasTrackerData
         ? "Showing the last known epic-run state while the latest refresh completes."
         : null,
     };
@@ -214,15 +214,15 @@ export function selectLatestEpicRun(
 }
 
 export function findConflictingSharedWorkspaceRun(input: {
-  readonly projectSwarmRuns: ReadonlyArray<OrchestrationEpicRun>;
-  readonly epicSwarmRuns: ReadonlyArray<OrchestrationEpicRun>;
+  readonly projectEpicRuns: ReadonlyArray<OrchestrationEpicRun>;
+  readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
 }): SharedWorkspaceProjectConflict | null {
   const run = findConflictingSharedWorkspaceRunCore(input);
   return run ? describeSharedWorkspaceProjectConflict(run) : null;
 }
 
 export function deriveEpicCoordinatorState(input: {
-  readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
+  readonly coordinationSupport: Pick<BeadsSwarmSupport, "supported"> | null;
   readonly status: Pick<BeadsSwarmStatus, "swarm"> | null;
   readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm"> | null;
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
@@ -232,7 +232,7 @@ export function deriveEpicCoordinatorState(input: {
 }
 
 export function getEpicCoordinatorPrimaryAction(input: {
-  readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
+  readonly coordinationSupport: Pick<BeadsSwarmSupport, "supported"> | null;
   readonly status:
     | (Pick<BeadsSwarmStatus, "swarm" | "ready" | "active" | "blocked"> &
         Partial<Pick<BeadsSwarmStatus, "blockedBreakdown">>)
@@ -393,10 +393,10 @@ export function partitionCoordinatorEpics<T extends object>(
   };
 }
 
-export function partitionCoordinatorSwarms(
+export function partitionCoordinatorTrackerEpics(
   swarms: ReadonlyArray<BeadsSwarmSummary>,
-): CoordinatorSwarmSections {
-  const runningSwarms = swarms
+): CoordinatorTrackerEpicSections {
+  const runningEpics = swarms
     .filter((swarm) => swarm.activeWorkerCount > 0)
     .toSorted((left, right) => {
       const activeWorkersDelta = right.activeWorkerCount - left.activeWorkerCount;
@@ -410,7 +410,7 @@ export function partitionCoordinatorSwarms(
       return left.epicTitle.localeCompare(right.epicTitle);
     });
 
-  const readyToRunSwarms = swarms
+  const readyToRunEpics = swarms
     .filter((swarm) => swarm.activeWorkerCount === 0 && swarm.readyIssueCount > 0)
     .toSorted((left, right) => {
       const readyDelta = right.readyIssueCount - left.readyIssueCount;
@@ -421,8 +421,8 @@ export function partitionCoordinatorSwarms(
     });
 
   return {
-    runningSwarms,
-    readyToRunSwarms,
+    runningEpics,
+    readyToRunEpics,
   };
 }
 

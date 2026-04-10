@@ -45,9 +45,9 @@ import { ErrorDisplay } from "../shared/ErrorDisplay";
 type CoordinatorTabProps = {
   cwd: string;
   projectId: ProjectId | null;
-  swarmSupport: BeadsSwarmSupport | null;
-  swarmSupportPending: boolean;
-  swarmSupportError: Error | null;
+  coordinationSupport: BeadsSwarmSupport | null;
+  coordinationSupportPending: boolean;
+  coordinationSupportError: Error | null;
   snapshot: BeadsProjectCoordinatorSnapshot | null;
   snapshotPending: boolean;
   snapshotError: Error | null;
@@ -388,7 +388,7 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
   });
 
   // Gate: loading / error / unsupported states
-  if (props.swarmSupportPending) {
+  if (props.coordinationSupportPending) {
     return (
       <div className="flex h-full items-center justify-center">
         <LoadingSpinner size="md" />
@@ -396,22 +396,22 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
     );
   }
 
-  if (props.swarmSupportError) {
+  if (props.coordinationSupportError) {
     return (
       <div className="flex h-full items-center justify-center p-8">
-        <ErrorDisplay error={props.swarmSupportError} variant="minimal" />
+        <ErrorDisplay error={props.coordinationSupportError} variant="minimal" />
       </div>
     );
   }
 
-  if (props.swarmSupport?.supported === false) {
+  if (props.coordinationSupport?.supported === false) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
         <p className="text-sm text-muted-foreground">
           Coordinator is unavailable for this backend.
         </p>
-        {props.swarmSupport.reason ? (
-          <p className="text-xs text-muted-foreground/70">{props.swarmSupport.reason}</p>
+        {props.coordinationSupport.reason ? (
+          <p className="text-xs text-muted-foreground/70">{props.coordinationSupport.reason}</p>
         ) : null}
       </div>
     );

@@ -36,7 +36,7 @@ import { normalizeDispatchCommand } from "./orchestration/Normalizer";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { PlanImplementationWorkflow } from "./orchestration/Services/PlanImplementationWorkflow";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
-import { SwarmScheduler } from "./orchestration/Services/SwarmScheduler";
+import { EpicRunScheduler } from "./orchestration/Services/EpicRunScheduler";
 import {
   observeRpcEffect,
   observeRpcStream,
@@ -58,7 +58,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const orchestrationEngine = yield* OrchestrationEngineService;
     const planImplementationWorkflow = yield* PlanImplementationWorkflow;
-    const swarmScheduler = yield* SwarmScheduler;
+    const epicRunScheduler = yield* EpicRunScheduler;
     const checkpointDiffQuery = yield* CheckpointDiffQuery;
     const keybindings = yield* Keybindings;
     const open = yield* Open;
@@ -506,7 +506,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [ORCHESTRATION_WS_METHODS.startEpicRun]: (input) =>
         observeRpcEffect(
           ORCHESTRATION_WS_METHODS.startEpicRun,
-          swarmScheduler.startEpicRun(input).pipe(
+          epicRunScheduler.startEpicRun(input).pipe(
             Effect.mapError(
               (cause) =>
                 new OrchestrationDispatchCommandError({
@@ -520,7 +520,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [ORCHESTRATION_WS_METHODS.stopEpicRun]: (input) =>
         observeRpcEffect(
           ORCHESTRATION_WS_METHODS.stopEpicRun,
-          swarmScheduler.stopEpicRun(input).pipe(
+          epicRunScheduler.stopEpicRun(input).pipe(
             Effect.mapError(
               (cause) =>
                 new OrchestrationDispatchCommandError({

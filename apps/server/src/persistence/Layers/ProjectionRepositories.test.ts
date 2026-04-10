@@ -220,7 +220,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
     }),
   );
 
-  it.effect("stores swarm task execution rows and nullable worker thread ids", () =>
+  it.effect("stores epic-run execution rows and nullable worker thread ids", () =>
     Effect.gen(function* () {
       const executions = yield* ProjectionSwarmTaskExecutionRepository;
 

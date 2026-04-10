@@ -20,7 +20,7 @@ import {
   listEpicChildIssues,
   listEpicDescendantIssues,
   partitionCoordinatorEpics,
-  partitionCoordinatorSwarms,
+  partitionCoordinatorTrackerEpics,
   selectLatestEpicRun,
   type TrackerRefinementPlanCandidate,
 } from "./issuePanel";
@@ -93,7 +93,7 @@ describe("deriveCoordinatorFetchLifecycle", () => {
     expect(
       deriveCoordinatorFetchLifecycle({
         support: { pending: true, hasData: false, error: null },
-        requireSwarmState: false,
+        requireTrackerState: false,
       }),
     ).toEqual({
       kind: "loading",
@@ -105,7 +105,7 @@ describe("deriveCoordinatorFetchLifecycle", () => {
     expect(
       deriveCoordinatorFetchLifecycle({
         support: { pending: false, hasData: true, error: null },
-        requireSwarmState: true,
+        requireTrackerState: true,
         validation: { pending: false, hasData: false, error: "Beads command timed out." },
         status: { pending: false, hasData: false, error: "Beads command timed out." },
       }),
@@ -116,7 +116,7 @@ describe("deriveCoordinatorFetchLifecycle", () => {
     expect(
       deriveCoordinatorFetchLifecycle({
         support: { pending: false, hasData: true, error: null },
-        requireSwarmState: true,
+        requireTrackerState: true,
         validation: { pending: false, hasData: true, error: "backend exploded" },
         status: { pending: false, hasData: true, error: null },
       }),
@@ -131,7 +131,7 @@ describe("deriveCoordinatorFetchLifecycle", () => {
     expect(
       deriveCoordinatorFetchLifecycle({
         support: { pending: false, hasData: true, error: null },
-        requireSwarmState: true,
+        requireTrackerState: true,
         validation: {
           pending: false,
           hasData: false,
@@ -154,7 +154,7 @@ describe("deriveCoordinatorFetchLifecycle", () => {
     expect(
       deriveCoordinatorFetchLifecycle({
         support: { pending: false, hasData: true, error: null },
-        requireSwarmState: true,
+        requireTrackerState: true,
         validation: { pending: true, hasData: true, error: null },
         status: { pending: false, hasData: true, error: null },
       }),
@@ -233,7 +233,7 @@ describe("deriveEpicCoordinatorState", () => {
   it("returns checking while swarm support or validation is loading", () => {
     expect(
       deriveEpicCoordinatorState({
-        swarmSupport: null,
+        coordinationSupport: null,
         status: null,
         validation: null,
         epicRuns: [],
@@ -249,7 +249,7 @@ describe("deriveEpicCoordinatorState", () => {
   it("returns timeout when swarm validation/status timed out", () => {
     expect(
       deriveEpicCoordinatorState({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: null,
         validation: null,
         epicRuns: [],
@@ -270,7 +270,7 @@ describe("deriveEpicCoordinatorState", () => {
 
     expect(
       deriveEpicCoordinatorState({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: null,
         validation: null,
         epicRuns: [run],
@@ -286,7 +286,7 @@ describe("deriveEpicCoordinatorState", () => {
   it("returns unsupported when swarm support is unavailable", () => {
     expect(
       deriveEpicCoordinatorState({
-        swarmSupport: { supported: false },
+        coordinationSupport: { supported: false },
         status: null,
         validation: null,
         epicRuns: [],
@@ -302,7 +302,7 @@ describe("deriveEpicCoordinatorState", () => {
   it("returns needs_preparation when epic structure is invalid and there is no run history", () => {
     expect(
       deriveEpicCoordinatorState({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: { swarm: null },
         validation: { valid: false, swarm: null },
         epicRuns: [],
@@ -318,7 +318,7 @@ describe("deriveEpicCoordinatorState", () => {
   it("returns needs_preparation when a swarm exists but beads validation fails", () => {
     expect(
       deriveEpicCoordinatorState({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: {
           swarm: {
             swarmId: "swarm-1",
@@ -359,7 +359,7 @@ describe("deriveEpicCoordinatorState", () => {
   it("returns ready when a valid swarm exists and no run has started", () => {
     expect(
       deriveEpicCoordinatorState({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: null,
         validation: {
           valid: true,
@@ -388,7 +388,7 @@ describe("deriveEpicCoordinatorState", () => {
   it("returns ready when epic structure is valid even if swarm metadata is still missing", () => {
     expect(
       deriveEpicCoordinatorState({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: { swarm: null },
         validation: { valid: true, swarm: null },
         epicRuns: [],
@@ -416,7 +416,7 @@ describe("deriveEpicCoordinatorState", () => {
 
     expect(
       deriveEpicCoordinatorState({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: null,
         validation: {
           valid: true,
@@ -470,7 +470,7 @@ describe("deriveEpicCoordinatorState", () => {
 
     expect(
       deriveEpicCoordinatorState({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: null,
         validation: {
           valid: true,
@@ -519,7 +519,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("disables the CTA while swarm state is still loading", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: null,
+        coordinationSupport: null,
         status: null,
         validation: null,
         epicRuns: [],
@@ -537,7 +537,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Retry epic status when fetches timed out", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: null,
         validation: null,
         epicRuns: [],
@@ -555,7 +555,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Open prep thread when epic structure is invalid and no swarm exists", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: { swarm: null, ready: [], active: [], blocked: [] },
         validation: { valid: false, swarm: null, readyFronts: [] },
         epicRuns: [],
@@ -573,7 +573,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Open prep thread when the epic swarm exists but is invalid", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: {
           swarm: {
             swarmId: "swarm-1",
@@ -620,7 +620,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Start epic when the swarm is valid and runnable", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: { swarm: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
@@ -652,7 +652,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Open epic when a swarm run already exists", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: { swarm: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
@@ -684,7 +684,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Resume epic for paused runs and Open epic for cancelled runs", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: { swarm: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
@@ -718,7 +718,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
 
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: { swarm: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
@@ -755,7 +755,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("opens the coordinator for non-running stopped history", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: { swarm: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
@@ -792,7 +792,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Open epic when the latest run failed but the swarm is still valid", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: {
           swarm: {
             swarmId: "swarm-1",
@@ -839,7 +839,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Open epic when the latest run failed and validation is now broken", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: {
           swarm: {
             swarmId: "swarm-1",
@@ -886,7 +886,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Open epic when the latest run failed and epic structure is invalid", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: { swarm: null, ready: [], active: [], blocked: [] },
         validation: { valid: false, swarm: null, readyFronts: [] },
         epicRuns: [makeEpicRun({ status: "failed", lastError: "boom" })],
@@ -904,7 +904,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("keeps Open epic for recoverable worker failures when tracker state can advance", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: {
           swarm: {
             swarmId: "swarm-1",
@@ -986,7 +986,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("keeps Open epic while tracker state is still blocked after a worker failure", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: {
           swarm: {
             swarmId: "swarm-1",
@@ -1055,7 +1055,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("keeps Open epic for generic tracker-blocked runs", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: {
           swarm: {
             swarmId: "swarm-1",
@@ -1124,7 +1124,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("redirects ready epics to the active shared-workspace run for the project", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: { supported: true },
+        coordinationSupport: { supported: true },
         status: { swarm: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
@@ -1263,8 +1263,8 @@ describe("findConflictingSharedWorkspaceRun", () => {
 
     expect(
       findConflictingSharedWorkspaceRun({
-        projectSwarmRuns: [currentEpicRun, blockingRun],
-        epicSwarmRuns: [currentEpicRun],
+        projectEpicRuns: [currentEpicRun, blockingRun],
+        epicRuns: [currentEpicRun],
       }),
     ).toEqual(describeSharedWorkspaceProjectConflict(blockingRun));
   });
@@ -1439,7 +1439,7 @@ describe("partitionCoordinatorEpics", () => {
   });
 });
 
-describe("partitionCoordinatorSwarms", () => {
+describe("partitionCoordinatorEpics", () => {
   it("partitions and sorts running and ready swarms", () => {
     const swarms = [
       {
@@ -1499,9 +1499,9 @@ describe("partitionCoordinatorSwarms", () => {
       },
     ];
 
-    expect(partitionCoordinatorSwarms(swarms)).toEqual({
-      runningSwarms: [swarms[2], swarms[1]],
-      readyToRunSwarms: [swarms[0], swarms[3]],
+    expect(partitionCoordinatorTrackerEpics(swarms)).toEqual({
+      runningEpics: [swarms[2], swarms[1]],
+      readyToRunEpics: [swarms[0], swarms[3]],
     });
   });
 });

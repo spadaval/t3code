@@ -123,8 +123,8 @@ export interface EpicRunProjectionState {
   readonly epicIssueExecutionsById: Readonly<Record<string, OrchestrationEpicIssueExecution>>;
 }
 
-type SwarmRunRequestedEvent = Extract<OrchestrationEvent, { type: "epic-run.requested" }>;
-type SwarmRunLifecycleEvent = Extract<
+type EpicRunRequestedEvent = Extract<OrchestrationEvent, { type: "epic-run.requested" }>;
+type EpicRunLifecycleEvent = Extract<
   OrchestrationEvent,
   {
     type:
@@ -136,15 +136,15 @@ type SwarmRunLifecycleEvent = Extract<
       | "epic-run.completed";
   }
 >;
-type SwarmTaskExecutionRequestedEvent = Extract<
+type EpicIssueExecutionRequestedEvent = Extract<
   OrchestrationEvent,
   { type: "epic-issue-execution.requested" }
 >;
-type SwarmTaskExecutionStartedEvent = Extract<
+type EpicIssueExecutionStartedEvent = Extract<
   OrchestrationEvent,
   { type: "epic-issue-execution.started" }
 >;
-type SwarmTaskExecutionLifecycleEvent = Extract<
+type EpicIssueExecutionLifecycleEvent = Extract<
   OrchestrationEvent,
   {
     type:
@@ -154,7 +154,7 @@ type SwarmTaskExecutionLifecycleEvent = Extract<
   }
 >;
 
-const NON_TERMINAL_SWARM_RUN_STATUSES = new Set<OrchestrationEpicRun["status"]>([
+const NON_TERMINAL_EPIC_RUN_STATUSES = new Set<OrchestrationEpicRun["status"]>([
   "pending",
   "running",
   "stopping",
@@ -213,7 +213,7 @@ export function isNonTerminalEpicIssueExecutionStatus(
 export function isNonTerminalEpicRunStatus(
   status: OrchestrationEpicRun["status"],
 ): status is "pending" | "running" | "stopping" {
-  return NON_TERMINAL_SWARM_RUN_STATUSES.has(status);
+  return NON_TERMINAL_EPIC_RUN_STATUSES.has(status);
 }
 
 export function compareEpicRunsByAttentionPriority(
@@ -680,7 +680,7 @@ export function deriveActiveExecutionId(input: {
 }
 
 export function deriveEpicCoordinatorState(input: {
-  readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
+  readonly coordinationSupport: Pick<BeadsSwarmSupport, "supported"> | null;
   readonly status: Pick<BeadsSwarmStatus, "swarm"> | null;
   readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm"> | null;
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
@@ -720,7 +720,7 @@ export function deriveEpicCoordinatorState(input: {
     };
   }
 
-  if (input.swarmSupport?.supported !== true) {
+  if (input.coordinationSupport?.supported !== true) {
     return {
       kind: "unsupported",
       latestRun: null,
@@ -760,7 +760,7 @@ export function deriveEpicCoordinatorState(input: {
 }
 
 export function getEpicCoordinatorPrimaryAction(input: {
-  readonly swarmSupport: Pick<BeadsSwarmSupport, "supported"> | null;
+  readonly coordinationSupport: Pick<BeadsSwarmSupport, "supported"> | null;
   readonly status:
     | (Pick<BeadsSwarmStatus, "swarm" | "ready" | "active" | "blocked"> &
         Partial<Pick<BeadsSwarmStatus, "blockedBreakdown">>)
@@ -884,12 +884,12 @@ export function selectLatestEpicRun(
 }
 
 export function findConflictingSharedWorkspaceRun(input: {
-  readonly projectSwarmRuns: ReadonlyArray<OrchestrationEpicRun>;
-  readonly epicSwarmRuns: ReadonlyArray<OrchestrationEpicRun>;
+  readonly projectEpicRuns: ReadonlyArray<OrchestrationEpicRun>;
+  readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
 }): OrchestrationEpicRun | null {
-  const epicRunIds = new Set(input.epicSwarmRuns.map((run) => run.runId));
+  const epicRunIds = new Set(input.epicRuns.map((run) => run.runId));
   return (
-    input.projectSwarmRuns
+    input.projectEpicRuns
       .filter(
         (candidate) =>
           isNonTerminalSharedWorkspaceRun(candidate) && !epicRunIds.has(candidate.runId),
@@ -909,7 +909,7 @@ export function listEpicIssueExecutions(
 }
 
 export function createRequestedEpicRun(
-  payload: SwarmRunRequestedEvent["payload"],
+  payload: EpicRunRequestedEvent["payload"],
 ): OrchestrationEpicRun {
   return {
     runId: payload.runId,
@@ -935,7 +935,7 @@ export function createRequestedEpicRun(
 
 export function applyEpicRunLifecycleEvent(
   run: OrchestrationEpicRun,
-  event: SwarmRunLifecycleEvent,
+  event: EpicRunLifecycleEvent,
 ): OrchestrationEpicRun {
   switch (event.type) {
     case "epic-run.started":
@@ -1005,7 +1005,7 @@ export function applyEpicRunLifecycleEvent(
 }
 
 export function createRequestedEpicIssueExecution(
-  payload: SwarmTaskExecutionRequestedEvent["payload"],
+  payload: EpicIssueExecutionRequestedEvent["payload"],
 ): OrchestrationEpicIssueExecution {
   return {
     executionId: payload.executionId,
@@ -1028,7 +1028,7 @@ export function createRequestedEpicIssueExecution(
 }
 
 export function materializeStartedEpicIssueExecution(input: {
-  readonly event: SwarmTaskExecutionStartedEvent;
+  readonly event: EpicIssueExecutionStartedEvent;
   readonly existingExecution: OrchestrationEpicIssueExecution | null;
 }): OrchestrationEpicIssueExecution {
   const existingExecution = input.existingExecution;
@@ -1054,7 +1054,7 @@ export function materializeStartedEpicIssueExecution(input: {
 
 export function applyEpicIssueExecutionLifecycleEvent(
   execution: OrchestrationEpicIssueExecution,
-  event: SwarmTaskExecutionLifecycleEvent,
+  event: EpicIssueExecutionLifecycleEvent,
 ): OrchestrationEpicIssueExecution {
   switch (event.type) {
     case "epic-issue-execution.completed":

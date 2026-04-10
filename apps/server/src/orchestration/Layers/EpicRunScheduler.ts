@@ -35,9 +35,9 @@ import {
   isClosedIssueStatus,
   truncateSwarmFailureDetail,
 } from "../FailurePolicy.ts";
-import { SwarmSchedulerError } from "../Errors.ts";
+import { EpicRunSchedulerError } from "../Errors.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
-import { SwarmScheduler, type SwarmSchedulerShape } from "../Services/SwarmScheduler.ts";
+import { EpicRunScheduler, type EpicRunSchedulerShape } from "../Services/EpicRunScheduler.ts";
 import {
   countLaunchableReadyIssues,
   describeReadyIssueExhaustion,
@@ -45,18 +45,18 @@ import {
   evaluateRunExecutionInvariant,
   evaluateSharedWorkspaceProjectInvariant,
   getAttemptedIssueIds,
-  isBackgroundSwarmSchedulerTrigger,
+  isBackgroundEpicRunSchedulerTrigger,
   selectLaunchableReadyIssue,
   shouldIdleSemiAutomaticRun,
-  type SwarmDriveRequest,
-  type SwarmSchedulerTrigger,
-} from "../swarmSchedulerPolicy.ts";
+  type EpicRunDriveRequest,
+  type EpicRunSchedulerTrigger,
+} from "../epicRunSchedulerPolicy.ts";
 import {
-  buildSwarmExecutionComment,
-  buildSwarmIssueLink,
-  buildSwarmWorkerPrompt,
-  buildSwarmWorkerThreadTitle,
-} from "../swarmWorker.ts";
+  buildEpicRunExecutionComment,
+  buildEpicRunIssueLink,
+  buildEpicRunWorkerPrompt,
+  buildEpicRunWorkerThreadTitle,
+} from "../epicRunWorker.ts";
 
 const RECONCILIATION_INTERVAL = Duration.seconds(15);
 const WORKER_STOP_POLL_INTERVAL = Duration.millis(250);
@@ -64,7 +64,7 @@ const WORKER_INTERRUPT_CONFIRM_TIMEOUT = Duration.seconds(3);
 const WORKER_SESSION_STOP_CONFIRM_TIMEOUT = Duration.seconds(5);
 const REQUESTED_EXECUTION_TIMEOUT = Duration.seconds(60);
 
-interface StartSwarmTaskExecutionInput {
+interface StartEpicIssueExecutionInput {
   readonly runId: EpicRunId;
   readonly executionId: EpicIssueExecutionId;
   readonly issueId: string;
@@ -72,35 +72,35 @@ interface StartSwarmTaskExecutionInput {
   readonly sequenceNumber: number;
 }
 
-interface CompleteSwarmTaskExecutionInput {
+interface CompleteEpicIssueExecutionInput {
   readonly runId: EpicRunId;
   readonly executionId: EpicIssueExecutionId;
 }
 
-interface FailSwarmTaskExecutionInput {
+interface FailEpicIssueExecutionInput {
   readonly runId: EpicRunId;
   readonly executionId: EpicIssueExecutionId;
   readonly reason: string;
 }
 
-interface CancelSwarmTaskExecutionInput {
+interface CancelEpicIssueExecutionInput {
   readonly runId: EpicRunId;
   readonly executionId: EpicIssueExecutionId;
 }
 
-type QueuedSwarmDriveRequest = SwarmDriveRequest & {
+type QueuedEpicRunDriveRequest = EpicRunDriveRequest & {
   readonly completion?: Deferred.Deferred<void, never>;
 };
 
-function workflowError(operation: string, detail: string, cause?: unknown): SwarmSchedulerError {
-  return new SwarmSchedulerError({
+function workflowError(operation: string, detail: string, cause?: unknown): EpicRunSchedulerError {
+  return new EpicRunSchedulerError({
     operation,
     detail,
     ...(cause !== undefined ? { cause } : {}),
   });
 }
 
-function isWorkflowExecutionError(error: unknown): error is SwarmSchedulerError {
+function isWorkflowExecutionError(error: unknown): error is EpicRunSchedulerError {
   return (
     typeof error === "object" &&
     error !== null &&
@@ -164,18 +164,18 @@ function describeBlockedReason(input: {
   readonly activeCount: number;
 }): string {
   if (input.externalBlockedCount > 0) {
-    return `Swarm has ${input.externalBlockedCount} externally blocked issue${input.externalBlockedCount === 1 ? "" : "s"} and execution is halted until those dependencies are resolved.`;
+    return `Epic run has ${input.externalBlockedCount} externally blocked issue${input.externalBlockedCount === 1 ? "" : "s"} and execution is halted until those dependencies are resolved.`;
   }
   if (input.unknownBlockedCount > 0) {
-    return `Swarm has ${input.unknownBlockedCount} blocked issue${input.unknownBlockedCount === 1 ? "" : "s"} with unclassified blocker provenance and execution is halted until tracker state is clarified.`;
+    return `Epic run has ${input.unknownBlockedCount} blocked issue${input.unknownBlockedCount === 1 ? "" : "s"} with unclassified blocker provenance and execution is halted until tracker state is clarified.`;
   }
   if (input.activeCount > 0) {
-    return `Swarm has ${input.activeCount} externally active issue${input.activeCount === 1 ? "" : "s"} and no ready issue is available.`;
+    return `Epic run has ${input.activeCount} externally active issue${input.activeCount === 1 ? "" : "s"} and no ready issue is available.`;
   }
   if (input.internalBlockedCount > 0) {
-    return `Swarm is waiting on ${input.internalBlockedCount} internally blocked issue${input.internalBlockedCount === 1 ? "" : "s"} and no ready issue is available.`;
+    return `Epic run is waiting on ${input.internalBlockedCount} internally blocked issue${input.internalBlockedCount === 1 ? "" : "s"} and no ready issue is available.`;
   }
-  return "Swarm has no ready issue available.";
+  return "Epic run has no ready issue available.";
 }
 
 function trackerWaitingBlockedContext(): OrchestrationEpicRunBlockedContext {
@@ -213,14 +213,14 @@ function workerTurnStopped(input: Parameters<typeof workerThreadStillHasActiveTu
 }
 
 function prioritizeDriveRequests(
-  requests: ReadonlyArray<QueuedSwarmDriveRequest>,
-): Array<QueuedSwarmDriveRequest> {
-  const manual: Array<QueuedSwarmDriveRequest> = [];
-  const lifecycle: Array<QueuedSwarmDriveRequest> = [];
-  const background: Array<QueuedSwarmDriveRequest> = [];
+  requests: ReadonlyArray<QueuedEpicRunDriveRequest>,
+): Array<QueuedEpicRunDriveRequest> {
+  const manual: Array<QueuedEpicRunDriveRequest> = [];
+  const lifecycle: Array<QueuedEpicRunDriveRequest> = [];
+  const background: Array<QueuedEpicRunDriveRequest> = [];
 
   for (const request of requests) {
-    if (isBackgroundSwarmSchedulerTrigger(request.trigger)) {
+    if (isBackgroundEpicRunSchedulerTrigger(request.trigger)) {
       background.push(request);
       continue;
     }
@@ -236,7 +236,7 @@ function prioritizeDriveRequests(
   return [...manual, ...lifecycle, ...background];
 }
 
-const makeSwarmScheduler = Effect.gen(function* () {
+const makeEpicRunScheduler = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const beadsTracker = yield* BeadsTrackerService;
   const activeProjectFibers = new Map<OrchestrationProject["id"], Fiber.Fiber<void, never>>();
@@ -256,13 +256,13 @@ const makeSwarmScheduler = Effect.gen(function* () {
   let enqueueProjectRequest:
     | ((
         projectId: OrchestrationProject["id"],
-        request: SwarmDriveRequest,
+        request: EpicRunDriveRequest,
       ) => Effect.Effect<void, never, never>)
     | null = null;
 
   const scheduleDriveRequest = (
     projectId: OrchestrationProject["id"],
-    request: SwarmDriveRequest,
+    request: EpicRunDriveRequest,
   ) => (enqueueProjectRequest ? enqueueProjectRequest(projectId, request) : Effect.void);
 
   const getProjectById = (projectId: OrchestrationProject["id"]) =>
@@ -283,7 +283,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
         const run = readModel.epicRuns.find((entry) => entry.runId === runId) ?? null;
         return run
           ? Effect.succeed(run)
-          : Effect.fail(workflowError("getRunById", `Swarm run '${runId}' was not found.`));
+          : Effect.fail(workflowError("getRunById", `Epic run '${runId}' was not found.`));
       }),
     );
 
@@ -299,7 +299,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
       ),
     );
 
-  const getExecutionById = (executionId: StartSwarmTaskExecutionInput["executionId"]) =>
+  const getExecutionById = (executionId: StartEpicIssueExecutionInput["executionId"]) =>
     getReadModel().pipe(
       Effect.flatMap((readModel) => {
         const execution =
@@ -309,7 +309,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
           : Effect.fail(
               workflowError(
                 "getExecutionById",
-                `Swarm task execution '${executionId}' was not found.`,
+                `Epic-run execution '${executionId}' was not found.`,
               ),
             );
       }),
@@ -422,7 +422,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
     readonly timeout: Duration.Duration;
   }) => {
     const deadline = Date.now() + Duration.toMillis(input.timeout);
-    const poll = (): Effect.Effect<any, SwarmSchedulerError> =>
+    const poll = (): Effect.Effect<any, EpicRunSchedulerError> =>
       getThreadByIdOption(input.threadId).pipe(
         Effect.flatMap((thread) => {
           if (thread._tag === "None") {
@@ -502,7 +502,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
 
       return yield* workflowError(
         input.operation,
-        `Swarm run '${input.runId}' could not confirm that worker thread '${input.workerThreadId}' for execution '${input.executionId}' stopped after interrupt and session-stop escalation.`,
+        `Epic run '${input.runId}' could not confirm that worker thread '${input.workerThreadId}' for execution '${input.executionId}' stopped after interrupt and session-stop escalation.`,
       );
     });
 
@@ -524,7 +524,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
 
   const getEffectiveModelSelection = (
     project: OrchestrationProject,
-    input: SwarmSchedulerShape["startEpicRun"] extends (
+    input: EpicRunSchedulerShape["startEpicRun"] extends (
       input: infer I,
     ) => Effect.Effect<any, any, any>
       ? I
@@ -637,7 +637,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
           .commentIssue({
             cwd: input.cwd,
             issueId: input.execution.issueId,
-            text: buildSwarmExecutionComment({
+            text: buildEpicRunExecutionComment({
               phase: input.phase,
               epicIssueId: input.run.epicIssueId,
               runId: input.run.runId,
@@ -717,15 +717,15 @@ const makeSwarmScheduler = Effect.gen(function* () {
           return Effect.fail(
             workflowError(
               operation,
-              trackerState.support.reason ?? "Swarm execution is not supported in this project.",
+              trackerState.support.reason ?? "Epic-run execution is not supported in this project.",
             ),
           );
         }
 
         if (!trackerState.validation.valid) {
-          const detail = trackerState.validation.errors.join("; ") || "Swarm validation failed.";
+          const detail = trackerState.validation.errors.join("; ") || "Epic-run validation failed.";
           return Effect.fail(
-            workflowError(operation, `Cannot start swarm for ${input.epicIssueId}: ${detail}`),
+            workflowError(operation, `Cannot start epic run for ${input.epicIssueId}: ${detail}`),
           );
         }
 
@@ -817,7 +817,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
       createdAt: nowIso(),
     }).pipe(Effect.asVoid);
 
-  const startTaskExecutionCommand = (input: StartSwarmTaskExecutionInput) =>
+  const startTaskExecutionCommand = (input: StartEpicIssueExecutionInput) =>
     dispatchOrFail("startTaskExecutionCommand", {
       type: "epic-issue-execution.start",
       commandId: serverCommandId("swarm-task-execution-start"),
@@ -858,7 +858,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
       }),
     );
 
-  const completeTaskExecutionCommand = (input: CompleteSwarmTaskExecutionInput) =>
+  const completeTaskExecutionCommand = (input: CompleteEpicIssueExecutionInput) =>
     dispatchOrFail("completeTaskExecutionCommand", {
       type: "epic-issue-execution.complete",
       commandId: serverCommandId("swarm-task-execution-complete"),
@@ -867,7 +867,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
       createdAt: nowIso(),
     }).pipe(Effect.asVoid);
 
-  const failTaskExecutionCommand = (input: FailSwarmTaskExecutionInput) =>
+  const failTaskExecutionCommand = (input: FailEpicIssueExecutionInput) =>
     dispatchOrFail("failTaskExecutionCommand", {
       type: "epic-issue-execution.fail",
       commandId: serverCommandId("swarm-task-execution-fail"),
@@ -877,7 +877,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
       createdAt: nowIso(),
     }).pipe(Effect.asVoid);
 
-  const cancelTaskExecutionCommand = (input: CancelSwarmTaskExecutionInput) =>
+  const cancelTaskExecutionCommand = (input: CancelEpicIssueExecutionInput) =>
     dispatchOrFail("cancelTaskExecutionCommand", {
       type: "epic-issue-execution.stop",
       commandId: serverCommandId("swarm-task-execution-cancel"),
@@ -890,7 +890,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
     readonly run: OrchestrationEpicRun;
     readonly project: OrchestrationProject;
     readonly threadId: ThreadId;
-    readonly issueLink: ReturnType<typeof buildSwarmIssueLink>;
+    readonly issueLink: ReturnType<typeof buildEpicRunIssueLink>;
     readonly title: string;
   }) => {
     const provider = input.run.provider ?? "codex";
@@ -978,7 +978,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
 
   const launchNextTaskExecution = (input: {
     readonly runId: EpicRunId;
-    readonly trigger: SwarmSchedulerTrigger;
+    readonly trigger: EpicRunSchedulerTrigger;
   }) =>
     Effect.gen(function* () {
       const run = yield* getRunById(input.runId);
@@ -1116,7 +1116,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
       const workerThreadId = nextThreadId();
       const executionId = nextExecutionId();
       const sequenceNumber = yield* nextExecutionSequenceNumber(run.runId);
-      const threadTitle = buildSwarmWorkerThreadTitle(nextReadyIssue);
+      const threadTitle = buildEpicRunWorkerThreadTitle(nextReadyIssue);
 
       let threadCreated = false;
       let executionRequested = false;
@@ -1128,7 +1128,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
           project,
           threadId: workerThreadId,
           title: threadTitle,
-          issueLink: buildSwarmIssueLink({
+          issueLink: buildEpicRunIssueLink({
             issue: nextReadyIssue,
             cwd,
             linkedAt: nowIso(),
@@ -1151,7 +1151,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
           run,
           threadId: workerThreadId,
           title: threadTitle,
-          promptText: buildSwarmWorkerPrompt({
+          promptText: buildEpicRunWorkerPrompt({
             issueId,
             issueTitle: nextReadyIssue.title,
             epicIssueId: run.epicIssueId,
@@ -1223,7 +1223,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
   const reconcileRequestedTaskExecution = (input: {
     readonly run: OrchestrationEpicRun;
     readonly execution: OrchestrationEpicIssueExecution;
-  }): Effect.Effect<OrchestrationEpicRun, SwarmSchedulerError> =>
+  }): Effect.Effect<OrchestrationEpicRun, EpicRunSchedulerError> =>
     Effect.gen(function* () {
       const project = yield* getProjectById(input.run.projectId);
       const threadOption =
@@ -1248,7 +1248,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
             reason: truncateSwarmFailureDetail(decision.reason, 500),
           });
         case "complete":
-          yield* completeSwarmTaskExecution({
+          yield* completeEpicIssueExecution({
             runId: input.run.runId,
             executionId: input.execution.executionId,
           });
@@ -1257,7 +1257,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
             trigger: "execution_settled",
           });
         case "fail":
-          yield* failSwarmTaskExecution({
+          yield* failEpicIssueExecution({
             runId: input.run.runId,
             executionId: input.execution.executionId,
             reason: decision.reason,
@@ -1279,7 +1279,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
 
   const reconcileCurrentTaskExecution = (
     runId: EpicRunId,
-  ): Effect.Effect<OrchestrationEpicRun, SwarmSchedulerError> =>
+  ): Effect.Effect<OrchestrationEpicRun, EpicRunSchedulerError> =>
     Effect.gen(function* () {
       const run = yield* getRunById(runId);
       const { currentExecution } = yield* getRunExecutionState(run.runId);
@@ -1299,7 +1299,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
       if (!execution) {
         return yield* workflowError(
           "reconcileCurrentTaskExecution",
-          `Swarm run '${run.runId}' passed execution invariant checks without a current execution.`,
+          `Epic run '${run.runId}' passed execution invariant checks without a current execution.`,
         );
       }
 
@@ -1319,7 +1319,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
             execution,
           });
         case "complete_execution":
-          yield* completeSwarmTaskExecution({
+          yield* completeEpicIssueExecution({
             runId: run.runId,
             executionId: execution.executionId,
           });
@@ -1328,7 +1328,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
             trigger: "execution_settled",
           });
         case "fail_execution":
-          yield* failSwarmTaskExecution({
+          yield* failEpicIssueExecution({
             runId: run.runId,
             executionId: execution.executionId,
             reason: decision.reason,
@@ -1340,8 +1340,8 @@ const makeSwarmScheduler = Effect.gen(function* () {
     });
 
   const driveRun = (
-    request: SwarmDriveRequest,
-  ): Effect.Effect<OrchestrationEpicRun, SwarmSchedulerError> =>
+    request: EpicRunDriveRequest,
+  ): Effect.Effect<OrchestrationEpicRun, EpicRunSchedulerError> =>
     Effect.gen(function* () {
       let run = yield* getRunById(request.runId);
       if (isTerminalRunStatus(run.status)) {
@@ -1394,7 +1394,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
       });
     });
 
-  const driveRunSafely = (request: SwarmDriveRequest) =>
+  const driveRunSafely = (request: EpicRunDriveRequest) =>
     Effect.gen(function* () {
       const exit = yield* Effect.exit(driveRun(request));
       if (exit._tag === "Success" || Cause.hasInterruptsOnly(exit.cause)) {
@@ -1407,14 +1407,14 @@ const makeSwarmScheduler = Effect.gen(function* () {
       );
     });
 
-  const signalDriveRequestCompletion = (request: QueuedSwarmDriveRequest) =>
+  const signalDriveRequestCompletion = (request: QueuedEpicRunDriveRequest) =>
     request.completion
       ? Deferred.succeed(request.completion, undefined).pipe(Effect.ignore)
       : Effect.void;
 
   const worker = yield* makeKeyedCoalescingWorker<
     OrchestrationProject["id"],
-    ReadonlyArray<QueuedSwarmDriveRequest>,
+    ReadonlyArray<QueuedEpicRunDriveRequest>,
     never,
     Scope.Scope
   >({
@@ -1434,7 +1434,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
           },
         ).pipe(
           Effect.catch((error) =>
-            Effect.logError("Swarm scheduler project processing failed", {
+            Effect.logError("Epic-run scheduler project processing failed", {
               projectId,
               cause: error,
             }),
@@ -1470,11 +1470,11 @@ const makeSwarmScheduler = Effect.gen(function* () {
 
   const runDriveRequestAndReturnControl = (input: {
     readonly projectId: OrchestrationProject["id"];
-    readonly request: SwarmDriveRequest;
+    readonly request: EpicRunDriveRequest;
   }) =>
     Effect.gen(function* () {
       const completion = yield* Deferred.make<void>();
-      const queuedRequest: QueuedSwarmDriveRequest = {
+      const queuedRequest: QueuedEpicRunDriveRequest = {
         ...input.request,
         completion,
       };
@@ -1487,7 +1487,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
     );
 
   const createRun = (
-    input: SwarmSchedulerShape["startEpicRun"] extends (
+    input: EpicRunSchedulerShape["startEpicRun"] extends (
       input: infer I,
     ) => Effect.Effect<any, any, any>
       ? I
@@ -1534,7 +1534,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
       if (!swarm) {
         return yield* workflowError(
           "startEpicRun",
-          `Failed to create swarm for ${input.epicIssueId}: swarm was still missing after create completed.`,
+          `Failed to initialize epic-run tracker state for ${input.epicIssueId}: swarm was still missing after create completed.`,
         );
       }
 
@@ -1564,7 +1564,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
       return yield* getRunById(runId);
     });
 
-  const startEpicRun: SwarmSchedulerShape["startEpicRun"] = (input) =>
+  const startEpicRun: EpicRunSchedulerShape["startEpicRun"] = (input) =>
     Effect.gen(function* () {
       const run = yield* createRun(input);
       return yield* runDriveRequestAndReturnControl({
@@ -1615,7 +1615,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
       return "stopped" as const;
     });
 
-  const stopEpicRun: SwarmSchedulerShape["stopEpicRun"] = (input) =>
+  const stopEpicRun: EpicRunSchedulerShape["stopEpicRun"] = (input) =>
     Effect.gen(function* () {
       const run = yield* getRunById(input.runId);
       if (isTerminalRunStatus(run.status)) {
@@ -1653,7 +1653,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
       return asControlResult(yield* getRunById(run.runId));
     });
 
-  const completeSwarmTaskExecution = (input: CompleteSwarmTaskExecutionInput) =>
+  const completeEpicIssueExecution = (input: CompleteEpicIssueExecutionInput) =>
     Effect.gen(function* () {
       const { run, project, execution } = yield* getWorkerExecutionContext(
         input.runId,
@@ -1662,13 +1662,13 @@ const makeSwarmScheduler = Effect.gen(function* () {
       const executionState = yield* getRunExecutionState(run.runId);
       if (executionState.currentExecution?.executionId !== input.executionId) {
         return yield* workflowError(
-          "completeSwarmTaskExecution",
-          `Swarm task execution '${input.executionId}' is not the current non-terminal execution for run '${run.runId}'.`,
+          "completeEpicIssueExecution",
+          `Epic-run execution '${input.executionId}' is not the current non-terminal execution for run '${run.runId}'.`,
         );
       }
 
       const issue = yield* getIssueById({
-        operation: "completeSwarmTaskExecution:getIssue",
+        operation: "completeEpicIssueExecution:getIssue",
         cwd: project.workspaceRoot,
         issueId: execution.issueId,
       });
@@ -1678,7 +1678,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
           currentStatus: issue.status,
           workerThreadId: execution.workerThreadId,
         });
-        yield* failSwarmTaskExecution({
+        yield* failEpicIssueExecution({
           runId: run.runId,
           executionId: execution.executionId,
           reason,
@@ -1696,7 +1696,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
       return yield* getRunById(run.runId);
     });
 
-  const failSwarmTaskExecution = (input: FailSwarmTaskExecutionInput) =>
+  const failEpicIssueExecution = (input: FailEpicIssueExecutionInput) =>
     Effect.gen(function* () {
       const { run, project, execution } = yield* getWorkerExecutionContext(
         input.runId,
@@ -1705,8 +1705,8 @@ const makeSwarmScheduler = Effect.gen(function* () {
       const executionState = yield* getRunExecutionState(run.runId);
       if (executionState.currentExecution?.executionId !== input.executionId) {
         return yield* workflowError(
-          "failSwarmTaskExecution",
-          `Swarm task execution '${input.executionId}' is not the current non-terminal execution for run '${run.runId}'.`,
+          "failEpicIssueExecution",
+          `Epic-run execution '${input.executionId}' is not the current non-terminal execution for run '${run.runId}'.`,
         );
       }
 
@@ -1731,7 +1731,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
     });
 
   const enqueueAllRuns = (
-    trigger: Extract<SwarmSchedulerTrigger, "startup_reconcile" | "periodic_reconcile">,
+    trigger: Extract<EpicRunSchedulerTrigger, "startup_reconcile" | "periodic_reconcile">,
   ) =>
     getReadModel().pipe(
       Effect.flatMap((readModel) =>
@@ -1747,7 +1747,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
 
   const reconcileAllSafely = () => enqueueAllRuns("startup_reconcile");
 
-  const start: SwarmSchedulerShape["start"] = Effect.gen(function* () {
+  const start: EpicRunSchedulerShape["start"] = Effect.gen(function* () {
     yield* reconcileAllSafely();
     yield* drain();
     yield* Effect.forever(
@@ -1762,9 +1762,7 @@ const makeSwarmScheduler = Effect.gen(function* () {
     drain: drain(),
     startEpicRun,
     stopEpicRun,
-  } satisfies SwarmSchedulerShape;
+  } satisfies EpicRunSchedulerShape;
 });
 
-export const SwarmSchedulerLive = Layer.effect(SwarmScheduler, makeSwarmScheduler);
-
-export const SwarmExecutionWorkflowLive = SwarmSchedulerLive;
+export const EpicRunSchedulerLive = Layer.effect(EpicRunScheduler, makeEpicRunScheduler);

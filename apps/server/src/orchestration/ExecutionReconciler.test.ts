@@ -211,7 +211,7 @@ describe("ExecutionReconciler", () => {
     if (decision.type !== "fail_execution") {
       return;
     }
-    expect(decision.reason).toContain("stopped before completing the swarm task execution");
+    expect(decision.reason).toContain("stopped before completing the epic-run execution");
   });
 
   it("keeps current executions alive without terminal turn evidence when the session looks stopped", () => {

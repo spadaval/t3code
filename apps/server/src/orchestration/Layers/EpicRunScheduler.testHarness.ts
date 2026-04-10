@@ -30,11 +30,8 @@ import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "../Services/OrchestrationEngine.ts";
-import {
-  SwarmExecutionWorkflow,
-  type SwarmExecutionWorkflowShape,
-} from "../Services/SwarmExecutionWorkflow.ts";
-import { SwarmExecutionWorkflowLive } from "./SwarmExecutionWorkflow.ts";
+import { EpicRunScheduler, type EpicRunSchedulerShape } from "../Services/EpicRunScheduler.ts";
+import { EpicRunSchedulerLive } from "./EpicRunScheduler.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
 
@@ -720,13 +717,13 @@ export function applyCommand(
   }
 }
 
-type SwarmExecutionWorkflowTestHarness = {
+type EpicRunSchedulerTestHarness = {
   engine: Omit<OrchestrationEngineShape, "getReadModel"> & {
     getReadModel: () => Effect.Effect<OrchestrationReadModel, never, never>;
   };
-  workflow: SwarmExecutionWorkflowShape;
+  workflow: EpicRunSchedulerShape;
   projectId: ProjectId;
-  runPromise: <A, E, R extends OrchestrationEngineService | SwarmExecutionWorkflow>(
+  runPromise: <A, E, R extends OrchestrationEngineService | EpicRunScheduler>(
     effect: Effect.Effect<A, E, R>,
   ) => Promise<A>;
   startSchedulerService: () => Promise<void>;
@@ -769,19 +766,16 @@ type SwarmExecutionWorkflowTestHarness = {
   injectExecutionDrift: (execution: OrchestrationEpicIssueExecution) => void;
 };
 
-export type SwarmExecutionWorkflowHarnessRuntime = {
-  runtime: ManagedRuntime.ManagedRuntime<
-    OrchestrationEngineService | SwarmExecutionWorkflow,
-    unknown
-  >;
-  harness: SwarmExecutionWorkflowTestHarness;
+export type EpicRunSchedulerHarnessRuntime = {
+  runtime: ManagedRuntime.ManagedRuntime<OrchestrationEngineService | EpicRunScheduler, unknown>;
+  harness: EpicRunSchedulerTestHarness;
   dispose: () => Promise<void>;
 };
 
-export async function createSwarmExecutionWorkflowHarness(
+export async function createEpicRunSchedulerHarness(
   initialTrackerState = makeTrackerState(),
   options: HarnessOptions = {},
-): Promise<SwarmExecutionWorkflowHarnessRuntime> {
+): Promise<EpicRunSchedulerHarnessRuntime> {
   let trackerState = initialTrackerState;
   let trackerStateSequence: ReadonlyArray<TrackerState> | null = null;
   let pendingTrackerStateSnapshot: TrackerState | null = null;
@@ -1008,17 +1002,17 @@ export async function createSwarmExecutionWorkflowHarness(
       }),
   };
 
-  const layer = SwarmExecutionWorkflowLive.pipe(
+  const layer = EpicRunSchedulerLive.pipe(
     Layer.provideMerge(Layer.succeed(OrchestrationEngineService, engineService)),
     Layer.provideMerge(Layer.succeed(BeadsTrackerService, trackerService)),
   );
 
   const runtime = ManagedRuntime.make(layer);
-  const runPromise = <A, E, R extends OrchestrationEngineService | SwarmExecutionWorkflow>(
+  const runPromise = <A, E, R extends OrchestrationEngineService | EpicRunScheduler>(
     effect: Effect.Effect<A, E, R>,
   ) => runtime.runPromise(effect);
   const engine = await runPromise(Effect.service(OrchestrationEngineService));
-  const workflow = await runPromise(Effect.service(SwarmExecutionWorkflow));
+  const workflow = await runPromise(Effect.service(EpicRunScheduler));
   const projectId = asProjectId("project-1");
 
   await runPromise(
@@ -1033,7 +1027,7 @@ export async function createSwarmExecutionWorkflowHarness(
     }),
   );
 
-  const harness: SwarmExecutionWorkflowTestHarness = {
+  const harness: EpicRunSchedulerTestHarness = {
     engine,
     workflow,
     projectId,

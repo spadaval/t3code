@@ -404,7 +404,7 @@ describe("commandInvariants", () => {
     ).rejects.toThrow("cannot transition via 'epic-run.stop'");
   });
 
-  it("checks swarm task execution run ownership and status transitions", async () => {
+  it("checks epic-run execution run ownership and status transitions", async () => {
     expect(
       isAllowedSwarmTaskExecutionStatusTransition({
         commandType: "epic-issue-execution.complete",
@@ -451,7 +451,7 @@ describe("commandInvariants", () => {
     ).rejects.toThrow(/belongs to run|cannot transition/);
   });
 
-  it("rejects run commands while a non-terminal swarm task execution still exists", async () => {
+  it("rejects run commands while a non-terminal epic-run execution still exists", async () => {
     const readModelWithRunningRun: OrchestrationReadModel = {
       ...readModel,
       epicRuns: readModel.epicRuns.map((run) =>
@@ -475,7 +475,7 @@ describe("commandInvariants", () => {
     ).rejects.toThrow("still has non-terminal task execution 'execution-1'");
   });
 
-  it("rejects stale swarm task execution commands when another execution is current", async () => {
+  it("rejects stale epic-run execution commands when another execution is current", async () => {
     const readModelWithNewerExecution: OrchestrationReadModel = {
       ...readModel,
       epicRuns: readModel.epicRuns.map((run) =>

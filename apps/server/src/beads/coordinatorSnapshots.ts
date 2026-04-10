@@ -37,8 +37,8 @@ function describeSharedWorkspaceProjectConflict(
 }
 
 function findConflictingSharedWorkspaceRun(input: {
-  readonly projectSwarmRuns: ReadonlyArray<OrchestrationEpicRun>;
-  readonly epicSwarmRuns: ReadonlyArray<OrchestrationEpicRun>;
+  readonly projectEpicRuns: ReadonlyArray<OrchestrationEpicRun>;
+  readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
 }): BeadsCoordinatorProjectConflict | null {
   const run = findConflictingSharedWorkspaceRunCore(input);
   return run ? describeSharedWorkspaceProjectConflict(run) : null;
@@ -258,13 +258,13 @@ export function buildCoordinatorEpicSnapshot(input: {
   readonly status: BeadsSwarmStatus | null;
   readonly validationError: string | null;
   readonly statusError: string | null;
-  readonly projectSwarmRuns: ReadonlyArray<OrchestrationEpicRun>;
-  readonly epicSwarmRuns: ReadonlyArray<OrchestrationEpicRun>;
+  readonly projectEpicRuns: ReadonlyArray<OrchestrationEpicRun>;
+  readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
   readonly epicExecutions: ReadonlyArray<OrchestrationEpicIssueExecution>;
   readonly fallbackEpicId: string;
   readonly fallbackEpicTitle: string;
 }): BeadsCoordinatorEpicSnapshot {
-  const runs = [...input.epicSwarmRuns].toSorted(compareEpicRunsByRequestedAtDesc);
+  const runs = [...input.epicRuns].toSorted(compareEpicRunsByRequestedAtDesc);
   const latestRun = runs[0] ?? null;
   const integrityError = deriveIntegrityError({
     epicId: input.issue?.id ?? input.fallbackEpicId,
@@ -293,8 +293,8 @@ export function buildCoordinatorEpicSnapshot(input: {
     progress,
   });
   const projectConflict = findConflictingSharedWorkspaceRun({
-    projectSwarmRuns: input.projectSwarmRuns,
-    epicSwarmRuns: runs,
+    projectEpicRuns: input.projectEpicRuns,
+    epicRuns: runs,
   });
   const activeRunId = integrityError === null ? deriveActiveRunId(runs) : null;
   const activeRun =
@@ -357,10 +357,10 @@ export function buildProjectCoordinatorSnapshot(input: {
     }
   >;
 }): BeadsProjectCoordinatorSnapshot {
-  const projectSwarmRuns = input.readModel.epicRuns.filter(
+  const projectEpicRuns = input.readModel.epicRuns.filter(
     (run) => run.projectId === input.projectId,
   );
-  const projectRunIds = new Set(projectSwarmRuns.map((run) => run.runId));
+  const projectRunIds = new Set(projectEpicRuns.map((run) => run.runId));
   const executionsByRunId = new Map<
     OrchestrationEpicRun["runId"],
     OrchestrationEpicIssueExecution[]
@@ -382,10 +382,10 @@ export function buildProjectCoordinatorSnapshot(input: {
   const epics = buildCoordinatorEpicEntries({
     epicIssues: input.epicIssues,
     swarms: input.swarms,
-    epicRuns: projectSwarmRuns,
+    epicRuns: projectEpicRuns,
   }).map((epic) => {
-    const epicSwarmRuns = projectSwarmRuns.filter((run) => run.epicIssueId === epic.epicId);
-    const epicExecutions = epicSwarmRuns.flatMap((run) => executionsByRunId.get(run.runId) ?? []);
+    const epicRuns = projectEpicRuns.filter((run) => run.epicIssueId === epic.epicId);
+    const epicExecutions = epicRuns.flatMap((run) => executionsByRunId.get(run.runId) ?? []);
     const state = input.perEpicState.get(epic.epicId);
 
     return buildCoordinatorEpicSnapshot({
@@ -395,8 +395,8 @@ export function buildProjectCoordinatorSnapshot(input: {
       status: state?.status ?? null,
       validationError: state?.validationError ?? null,
       statusError: state?.statusError ?? null,
-      projectSwarmRuns,
-      epicSwarmRuns,
+      projectEpicRuns,
+      epicRuns,
       epicExecutions,
       fallbackEpicId: epic.epicId,
       fallbackEpicTitle: epic.epicTitle,
@@ -421,11 +421,11 @@ export function buildSingleEpicCoordinatorSnapshot(input: {
   readonly readModel: OrchestrationReadModel;
 }): BeadsCoordinatorEpicSnapshot {
   const issueSummary = toIssueSummary(input.issue);
-  const projectSwarmRuns = input.readModel.epicRuns.filter(
+  const projectEpicRuns = input.readModel.epicRuns.filter(
     (run) => run.projectId === input.projectId,
   );
-  const epicSwarmRuns = projectSwarmRuns.filter((run) => run.epicIssueId === issueSummary.id);
-  const epicRunIds = new Set(epicSwarmRuns.map((run) => run.runId));
+  const epicRuns = projectEpicRuns.filter((run) => run.epicIssueId === issueSummary.id);
+  const epicRunIds = new Set(epicRuns.map((run) => run.runId));
   const epicExecutions = input.readModel.epicIssueExecutions.filter((execution) =>
     epicRunIds.has(execution.runId),
   );
@@ -437,8 +437,8 @@ export function buildSingleEpicCoordinatorSnapshot(input: {
     status: input.status,
     validationError: input.validationError,
     statusError: input.statusError,
-    projectSwarmRuns,
-    epicSwarmRuns,
+    projectEpicRuns,
+    epicRuns,
     epicExecutions,
     fallbackEpicId: issueSummary.id,
     fallbackEpicTitle: issueSummary.title,

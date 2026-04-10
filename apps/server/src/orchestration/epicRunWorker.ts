@@ -8,7 +8,7 @@ import type {
 } from "@t3tools/contracts";
 import path from "node:path";
 
-export function buildSwarmIssueLink(input: {
+export function buildEpicRunIssueLink(input: {
   issue: {
     readonly id: string;
     readonly title: string;
@@ -28,14 +28,14 @@ export function buildSwarmIssueLink(input: {
   };
 }
 
-export function buildSwarmWorkerThreadTitle(issue: {
+export function buildEpicRunWorkerThreadTitle(issue: {
   readonly id: string;
   readonly title: string;
 }): string {
-  return `${issue.id}: ${issue.title} (Swarm worker)`;
+  return `${issue.id}: ${issue.title} (Epic-run worker)`;
 }
 
-export function buildSwarmWorkerPrompt(input: {
+export function buildEpicRunWorkerPrompt(input: {
   issueId: string;
   issueTitle: string;
   epicIssueId: string;
@@ -48,7 +48,7 @@ export function buildSwarmWorkerPrompt(input: {
   const sections = [
     "## Assignment",
     "",
-    `You are a swarm worker implementing issue ${input.issueId}: ${input.issueTitle}`,
+    `You are an epic-run worker implementing issue ${input.issueId}: ${input.issueTitle}`,
     `This issue belongs to epic ${input.epicIssueId}.`,
     "",
     "## Getting started",
@@ -67,7 +67,7 @@ export function buildSwarmWorkerPrompt(input: {
     "## Completion",
     "",
     `- When the issue is fully implemented, close it with \`bd close ${input.issueId}\`.`,
-    "- Closing the issue signals the swarm coordinator that this worker has finished.",
+    "- Closing the issue signals the epic-run coordinator that this worker has finished.",
     "- If you discover follow-up work that is out of scope, file new issues with `bd` rather than expanding the scope of this task.",
     "",
     "## Context",
@@ -79,7 +79,7 @@ export function buildSwarmWorkerPrompt(input: {
   return sections.join("\n");
 }
 
-export function buildSwarmExecutionComment(input: {
+export function buildEpicRunExecutionComment(input: {
   phase: "started" | "completed" | "failed" | "cancelled";
   epicIssueId: string;
   runId: EpicRunId;
@@ -91,12 +91,12 @@ export function buildSwarmExecutionComment(input: {
 }): string {
   const heading =
     input.phase === "started"
-      ? "Swarm worker started."
+      ? "Epic-run worker started."
       : input.phase === "completed"
-        ? "Swarm worker completed."
+        ? "Epic-run worker completed."
         : input.phase === "failed"
-          ? "Swarm worker failed."
-          : "Swarm worker cancelled.";
+          ? "Epic-run worker failed."
+          : "Epic-run worker cancelled.";
 
   const sections = [
     heading,

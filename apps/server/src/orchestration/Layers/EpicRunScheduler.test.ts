@@ -10,9 +10,9 @@ import {
   TurnId,
 } from "@t3tools/contracts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
-import { SwarmExecutionWorkflow } from "../Services/SwarmExecutionWorkflow.ts";
+import { EpicRunScheduler } from "../Services/EpicRunScheduler.ts";
 import {
-  createSwarmExecutionWorkflowHarness,
+  createEpicRunSchedulerHarness,
   type HarnessOptions,
   makeCompletedLatestTurn,
   makeErroredLatestTurn,
@@ -26,8 +26,8 @@ import {
   makeTrackerState,
   now,
   relationIssue,
-  type SwarmExecutionWorkflowHarnessRuntime,
-} from "./SwarmExecutionWorkflow.testHarness.ts";
+  type EpicRunSchedulerHarnessRuntime,
+} from "./EpicRunScheduler.testHarness.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
 
@@ -37,10 +37,10 @@ function failureMessage(
   return input?.failureContext?.message ?? null;
 }
 
-describe("SwarmExecutionWorkflow", () => {
-  let harnessRuntime: SwarmExecutionWorkflowHarnessRuntime | null = null;
+describe("EpicRunScheduler", () => {
+  let harnessRuntime: EpicRunSchedulerHarnessRuntime | null = null;
   let runtime: ManagedRuntime.ManagedRuntime<
-    OrchestrationEngineService | SwarmExecutionWorkflow,
+    OrchestrationEngineService | EpicRunScheduler,
     unknown
   > | null = null;
 
@@ -56,7 +56,7 @@ describe("SwarmExecutionWorkflow", () => {
     initialTrackerState = makeTrackerState(),
     options: HarnessOptions = {},
   ) {
-    harnessRuntime = await createSwarmExecutionWorkflowHarness(initialTrackerState, options);
+    harnessRuntime = await createEpicRunSchedulerHarness(initialTrackerState, options);
     runtime = harnessRuntime.runtime;
     return harnessRuntime.harness;
   }
@@ -98,7 +98,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(snapshot.epicIssueExecutions[0]?.status).toBe("launching");
     expect(snapshot.epicIssueExecutions[0]?.startedAt).toBeNull();
     expect(snapshot.threads).toHaveLength(1);
-    expect(snapshot.threads[0]?.title).toBe("TASK-1: Task 1 (Swarm worker)");
+    expect(snapshot.threads[0]?.title).toBe("TASK-1: Task 1 (Epic-run worker)");
     expect(snapshot.threads[0]?.issueLink?.issueId).toBe("TASK-1");
 
     const issue = harness.getIssue("TASK-1");
@@ -286,7 +286,7 @@ describe("SwarmExecutionWorkflow", () => {
           runtimeMode: "full-access",
         }),
       ),
-    ).rejects.toThrow("Cannot start swarm for EPIC-1: Swarm graph is invalid.");
+    ).rejects.toThrow("Cannot start epic run for EPIC-1: Swarm graph is invalid.");
     expect(harness.getCreateEpicSwarmCallCount()).toBe(0);
   });
 
@@ -322,7 +322,7 @@ describe("SwarmExecutionWorkflow", () => {
       {
         createEpicSwarmMode: "fail",
         createEpicSwarmErrorMessage:
-          "Failed to create swarm for EPIC-1: swarm was still missing after create completed.",
+          "Failed to initialize epic-run tracker state for EPIC-1: swarm was still missing after create completed.",
       },
     );
 
@@ -337,7 +337,7 @@ describe("SwarmExecutionWorkflow", () => {
         }),
       ),
     ).rejects.toThrow(
-      "Failed to create swarm for EPIC-1: swarm was still missing after create completed.",
+      "Failed to initialize epic-run tracker state for EPIC-1: swarm was still missing after create completed.",
     );
     expect(harness.getCreateEpicSwarmCallCount()).toBe(1);
   });
@@ -598,7 +598,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(failedExecution?.status).toBe("failed");
     expect(issue?.status).toBe("open");
     expect(issue?.assignee).toBeNull();
-    expect(issue?.comments.at(-1)?.text).toContain("Swarm worker failed.");
+    expect(issue?.comments.at(-1)?.text).toContain("Epic-run worker failed.");
     expect(issue?.comments.at(-1)?.text).toContain("issue 'TASK-1' is still 'open'");
   });
 
@@ -662,7 +662,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(completedExecution?.status).toBe("completed");
     expect(issue?.status).toBe("closed");
     expect(issue?.assignee).toBeNull();
-    expect(issue?.comments.at(-1)?.text).toContain("Swarm worker completed.");
+    expect(issue?.comments.at(-1)?.text).toContain("Epic-run worker completed.");
   });
 
   it("does not treat pending checkpoint capture state as a worker interruption", async () => {
@@ -912,11 +912,11 @@ describe("SwarmExecutionWorkflow", () => {
     expect(nextExecution?.workerThreadId).toBeTruthy();
     expect(snapshot.epicIssueExecutions).toHaveLength(2);
     expect(snapshot.threads).toHaveLength(2);
-    expect(nextThread?.title).toBe("TASK-2: Task 2 (Swarm worker)");
+    expect(nextThread?.title).toBe("TASK-2: Task 2 (Epic-run worker)");
     expect(nextThread?.issueLink?.issueId).toBe("TASK-2");
     expect(initialIssue?.status).toBe("closed");
     expect(initialIssue?.assignee).toBeNull();
-    expect(initialIssue?.comments.at(-1)?.text).toContain("Swarm worker completed.");
+    expect(initialIssue?.comments.at(-1)?.text).toContain("Epic-run worker completed.");
     expect(nextIssue?.status).toBe("open");
     expect(nextIssue?.assignee).toBeNull();
     expect(nextIssue?.comments).toHaveLength(0);
@@ -1020,7 +1020,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(failureMessage(failedExecution)).toBe("Worker crashed");
     expect(issue?.status).toBe("open");
     expect(issue?.assignee).toBeNull();
-    expect(issue?.comments.at(-1)?.text).toContain("Swarm worker failed.");
+    expect(issue?.comments.at(-1)?.text).toContain("Epic-run worker failed.");
     expect(issue?.comments.at(-1)?.text).toContain("Worker crashed");
   });
 
@@ -1353,7 +1353,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(timedOutExecution?.status).toBe("failed");
     expect(issue?.status).toBe("open");
     expect(issue?.assignee).toBe("issue-owner");
-    expect(issue?.comments.at(-1)?.text).toContain("Swarm worker failed.");
+    expect(issue?.comments.at(-1)?.text).toContain("Epic-run worker failed.");
     expect(issue?.comments.at(-1)?.text).toContain("timed out while launching");
   });
 
@@ -1561,7 +1561,7 @@ describe("SwarmExecutionWorkflow", () => {
     expect(execution?.status).toBe("stopped");
     expect(issue?.status).toBe("open");
     expect(issue?.assignee).toBeNull();
-    expect(issue?.comments.at(-1)?.text).toContain("Swarm worker cancelled.");
+    expect(issue?.comments.at(-1)?.text).toContain("Epic-run worker cancelled.");
   });
 
   it("leaves the run non-terminal when cancellation cannot confirm the worker stopped", async () => {

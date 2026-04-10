@@ -42,7 +42,7 @@ import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRun
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor";
 import { PlanImplementationWorkflowLive } from "./orchestration/Layers/PlanImplementationWorkflow";
-import { SwarmSchedulerLive } from "./orchestration/Layers/SwarmScheduler";
+import { EpicRunSchedulerLive } from "./orchestration/Layers/EpicRunScheduler";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry";
 import { ServerSettingsLive } from "./serverSettings";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
@@ -108,7 +108,7 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(ProviderCommandReactorLive),
   Layer.provideMerge(CheckpointReactorLive),
   Layer.provideMerge(PlanImplementationWorkflowLive),
-  Layer.provideMerge(SwarmSchedulerLive),
+  Layer.provideMerge(EpicRunSchedulerLive),
   Layer.provideMerge(RuntimeReceiptBusLive),
 );
 

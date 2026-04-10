@@ -106,9 +106,9 @@ function renderCoordinatorTab(epicOverrides?: Partial<BeadsCoordinatorEpicSnapsh
       <CoordinatorTab
         cwd="/repo"
         projectId={null}
-        swarmSupport={SWARM_SUPPORT}
-        swarmSupportPending={false}
-        swarmSupportError={null}
+        coordinationSupport={SWARM_SUPPORT}
+        coordinationSupportPending={false}
+        coordinationSupportError={null}
         snapshot={{
           projectId: "project-1" as never,
           support: SWARM_SUPPORT,

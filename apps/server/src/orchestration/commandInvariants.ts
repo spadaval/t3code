@@ -285,7 +285,7 @@ export function requireSwarmRun(input: {
   return Effect.fail(
     invariantError(
       input.command.type,
-      `Swarm run '${input.runId}' does not exist for command '${input.command.type}'.`,
+      `Epic run '${input.runId}' does not exist for command '${input.command.type}'.`,
     ),
   );
 }
@@ -301,7 +301,7 @@ export function requireSwarmRunAbsent(input: {
   return Effect.fail(
     invariantError(
       input.command.type,
-      `Swarm run '${input.runId}' already exists and cannot be created twice.`,
+      `Epic run '${input.runId}' already exists and cannot be created twice.`,
     ),
   );
 }
@@ -382,7 +382,7 @@ export function requireSwarmTaskExecution(input: {
   return Effect.fail(
     invariantError(
       input.command.type,
-      `Swarm task execution '${input.executionId}' does not exist for command '${input.command.type}'.`,
+      `Epic-run execution '${input.executionId}' does not exist for command '${input.command.type}'.`,
     ),
   );
 }
@@ -398,7 +398,7 @@ export function requireSwarmTaskExecutionAbsent(input: {
   return Effect.fail(
     invariantError(
       input.command.type,
-      `Swarm task execution '${input.executionId}' already exists and cannot be created twice.`,
+      `Epic-run execution '${input.executionId}' already exists and cannot be created twice.`,
     ),
   );
 }
@@ -434,7 +434,7 @@ export function requireSwarmRunStatusTransition(input: {
   return Effect.fail(
     invariantError(
       input.command.type,
-      `Swarm run '${input.run.runId}' in status '${input.run.status}' cannot transition via '${input.command.type}'.`,
+      `Epic run '${input.run.runId}' in status '${input.run.status}' cannot transition via '${input.command.type}'.`,
     ),
   );
 }
@@ -479,7 +479,7 @@ export function requireSwarmRunWithoutCurrentExecution(input: {
       return Effect.fail(
         invariantError(
           input.command.type,
-          `Swarm run '${input.runId}' still has non-terminal task execution '${currentExecution.executionId}' in status '${currentExecution.status}'.`,
+          `Epic run '${input.runId}' still has non-terminal task execution '${currentExecution.executionId}' in status '${currentExecution.status}'.`,
         ),
       );
     }),
@@ -513,7 +513,7 @@ export function requireSwarmTaskExecutionForRunInAllowedStatus(input: {
         return Effect.fail(
           invariantError(
             input.command.type,
-            `Swarm task execution '${input.executionId}' belongs to run '${execution.runId}', not '${input.runId}'.`,
+            `Epic-run execution '${input.executionId}' belongs to run '${execution.runId}', not '${input.runId}'.`,
           ),
         );
       }
@@ -530,7 +530,7 @@ export function requireSwarmTaskExecutionForRunInAllowedStatus(input: {
       return Effect.fail(
         invariantError(
           input.command.type,
-          `Swarm task execution '${input.executionId}' in status '${execution.status}' cannot transition via '${input.command.type}'.`,
+          `Epic-run execution '${input.executionId}' in status '${execution.status}' cannot transition via '${input.command.type}'.`,
         ),
       );
     }),
@@ -550,7 +550,7 @@ export function requireCurrentSwarmTaskExecutionForRunInAllowedStatus(input: {
         return Effect.fail(
           invariantError(
             input.command.type,
-            `Swarm run '${input.runId}' does not have a current non-terminal task execution for command '${input.command.type}'.`,
+            `Epic run '${input.runId}' does not have a current non-terminal task execution for command '${input.command.type}'.`,
           ),
         );
       }
@@ -562,7 +562,7 @@ export function requireCurrentSwarmTaskExecutionForRunInAllowedStatus(input: {
       return Effect.fail(
         invariantError(
           input.command.type,
-          `Swarm task execution '${execution.executionId}' is stale for run '${input.runId}'; current non-terminal execution is '${currentExecution.executionId}'.`,
+          `Epic-run execution '${execution.executionId}' is stale for run '${input.runId}'; current non-terminal execution is '${currentExecution.executionId}'.`,
         ),
       );
     }),

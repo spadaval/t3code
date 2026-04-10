@@ -91,8 +91,8 @@ export class PlanImplementationWorkflowError extends Schema.TaggedErrorClass<Pla
   }
 }
 
-export class SwarmExecutionWorkflowError extends Schema.TaggedErrorClass<SwarmExecutionWorkflowError>()(
-  "SwarmExecutionWorkflowError",
+export class EpicRunWorkflowError extends Schema.TaggedErrorClass<EpicRunWorkflowError>()(
+  "EpicRunWorkflowError",
   {
     operation: Schema.String,
     detail: Schema.String,
@@ -100,12 +100,12 @@ export class SwarmExecutionWorkflowError extends Schema.TaggedErrorClass<SwarmEx
   },
 ) {
   override get message(): string {
-    return `Swarm execution workflow failed in ${this.operation}: ${this.detail}`;
+    return `Epic-run workflow failed in ${this.operation}: ${this.detail}`;
   }
 }
 
-export class SwarmSchedulerError extends Schema.TaggedErrorClass<SwarmSchedulerError>()(
-  "SwarmSchedulerError",
+export class EpicRunSchedulerError extends Schema.TaggedErrorClass<EpicRunSchedulerError>()(
+  "EpicRunSchedulerError",
   {
     operation: Schema.String,
     detail: Schema.String,
@@ -113,7 +113,7 @@ export class SwarmSchedulerError extends Schema.TaggedErrorClass<SwarmSchedulerE
   },
 ) {
   override get message(): string {
-    return `Swarm scheduler failed in ${this.operation}: ${this.detail}`;
+    return `Epic-run scheduler failed in ${this.operation}: ${this.detail}`;
   }
 }
 

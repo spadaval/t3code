@@ -264,7 +264,7 @@ describe("swarm", () => {
     ).toBe("TASK-1");
   });
 
-  it("derives active and latest swarm task executions from execution history", () => {
+  it("derives active and latest epic-run executions from execution history", () => {
     const runId = "run-1" as EpicRunId;
 
     expect(
@@ -329,8 +329,8 @@ describe("swarm", () => {
     expect(selectLatestEpicRun([completed, requested])).toEqual(requested);
     expect(
       findConflictingSharedWorkspaceRun({
-        projectSwarmRuns: [requested, conflicting],
-        epicSwarmRuns: [requested],
+        projectEpicRuns: [requested, conflicting],
+        epicRuns: [requested],
       }),
     ).toEqual(conflicting);
     expect(describeSharedWorkspaceProjectConflict(conflicting)).toContain("EPIC-OTHER");
@@ -402,7 +402,7 @@ describe("swarm", () => {
   it("derives coordinator state from shared swarm inputs", () => {
     expect(
       deriveEpicCoordinatorState({
-        swarmSupport: makeSwarmSupport(),
+        coordinationSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
         epicRuns: [
@@ -504,7 +504,7 @@ describe("swarm", () => {
   it("opens the coordinator for failed runs", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: makeSwarmSupport(),
+        coordinationSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation({
           readyFronts: [[makeIssue("TASK-1", 1)]],
@@ -535,7 +535,7 @@ describe("swarm", () => {
   it("keeps start actions available for internal-only blockers but not external blockers", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: makeSwarmSupport(),
+        coordinationSupport: makeSwarmSupport(),
         status: makeSwarmStatus({
           blocked: [makeIssue("TASK-2", 2)],
           blockedBreakdown: {
@@ -558,7 +558,7 @@ describe("swarm", () => {
 
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: makeSwarmSupport(),
+        coordinationSupport: makeSwarmSupport(),
         status: makeSwarmStatus({
           blocked: [makeIssue("TASK-9", 9)],
           blockedBreakdown: {
@@ -583,7 +583,7 @@ describe("swarm", () => {
   it("returns stop for running runs and coordinator access for stopped runs", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: makeSwarmSupport(),
+        coordinationSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
         epicRuns: [
@@ -604,7 +604,7 @@ describe("swarm", () => {
 
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: makeSwarmSupport(),
+        coordinationSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
         epicRuns: [
@@ -650,7 +650,7 @@ describe("swarm", () => {
   it("prefers opening the active swarm when ready state conflicts with another shared run", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        swarmSupport: makeSwarmSupport(),
+        coordinationSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
         epicRuns: [],

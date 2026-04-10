@@ -68,9 +68,9 @@ import {
   type PlanImplementationWorkflowShape,
 } from "./orchestration/Services/PlanImplementationWorkflow.ts";
 import {
-  SwarmScheduler,
-  type SwarmSchedulerShape,
-} from "./orchestration/Services/SwarmScheduler.ts";
+  EpicRunScheduler,
+  type EpicRunSchedulerShape,
+} from "./orchestration/Services/EpicRunScheduler.ts";
 import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
@@ -282,7 +282,7 @@ const buildAppUnderTest = (options?: {
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
     planImplementationWorkflow?: Partial<PlanImplementationWorkflowShape>;
-    swarmScheduler?: Partial<SwarmSchedulerShape>;
+    epicRunScheduler?: Partial<EpicRunSchedulerShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
     browserTraceCollector?: Partial<BrowserTraceCollectorShape>;
@@ -538,7 +538,7 @@ const buildAppUnderTest = (options?: {
         }),
       ),
       Layer.provide(
-        Layer.mock(SwarmScheduler)({
+        Layer.mock(EpicRunScheduler)({
           start: Effect.void,
           drain: Effect.void,
           startEpicRun: () =>
@@ -551,7 +551,7 @@ const buildAppUnderTest = (options?: {
               runId: "run-1" as any,
               status: "stopped",
             }),
-          ...options?.layers?.swarmScheduler,
+          ...options?.layers?.epicRunScheduler,
         }),
       ),
       Layer.provide(

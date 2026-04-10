@@ -42,7 +42,7 @@ export function truncateSwarmFailureDetail(value: string, max = 1_500): string {
 
 export function describeIncompleteWorkerExecution(input: WorkerFailureDescriptionInput): string {
   return [
-    `Worker thread '${input.workerThreadId}' stopped before completing the swarm task execution.`,
+    `Worker thread '${input.workerThreadId}' stopped before completing the epic-run execution.`,
     `Observed session status: ${input.sessionStatus ?? "unknown"}.`,
     `Observed latest turn state: ${input.latestTurnState ?? "missing"}.`,
     "The provider did not report a more specific error reason.",
@@ -53,7 +53,7 @@ export function describeRequestedExecutionLaunchFailure(
   input: RequestedExecutionFailureInput,
 ): string {
   return [
-    `Requested swarm task execution '${input.executionId}' for issue '${input.issueId}' did not finish launching.`,
+    `Requested epic-run execution '${input.executionId}' for issue '${input.issueId}' did not finish launching.`,
     input.workerThreadId
       ? `Worker thread '${input.workerThreadId}' did not reach an active turn.`
       : "The worker thread was unavailable.",
@@ -75,7 +75,7 @@ export function isRequestedExecutionTimedOut(input: {
 
 export function describeRequestedExecutionTimeout(input: RequestedExecutionTimeoutInput): string {
   return [
-    `Requested swarm task execution '${input.executionId}' for issue '${input.issueId}' timed out while launching.`,
+    `Requested epic-run execution '${input.executionId}' for issue '${input.issueId}' timed out while launching.`,
     input.workerThreadId
       ? `Worker thread '${input.workerThreadId}' never reached an active turn before timeout.`
       : "The worker thread was unavailable before launch progress was observed.",
@@ -96,7 +96,7 @@ export function describeIssueNotClosedForCompletedExecution(
     input.workerThreadId === null ? "Worker thread" : `Worker thread '${input.workerThreadId}'`;
   return [
     `${workerDescriptor} completed, but issue '${input.issueId}' is still '${input.currentStatus}'.`,
-    "Swarm workers must close their assigned Beads issue before task completion is recorded.",
+    "Epic-run workers must close their assigned Beads issue before task completion is recorded.",
   ].join(" ");
 }
 

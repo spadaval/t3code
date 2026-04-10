@@ -51,7 +51,9 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
   // Core data queries
   useQuery(beadsContextOptions(cwd ? { cwd } : null));
 
-  const swarmSupportQuery = useQuery(beadsSwarmSupportOptions({ cwd, enabled: cwd !== null }));
+  const coordinationSupportQuery = useQuery(
+    beadsSwarmSupportOptions({ cwd, enabled: cwd !== null }),
+  );
 
   const coordinatorQuery = useQuery(
     beadsProjectCoordinatorSnapshotOptions(
@@ -236,9 +238,9 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
           <CoordinatorTab
             cwd={cwd}
             projectId={projectId}
-            swarmSupport={swarmSupportQuery.data ?? null}
-            swarmSupportPending={swarmSupportQuery.isPending}
-            swarmSupportError={swarmSupportQuery.error}
+            coordinationSupport={coordinationSupportQuery.data ?? null}
+            coordinationSupportPending={coordinationSupportQuery.isPending}
+            coordinationSupportError={coordinationSupportQuery.error}
             snapshot={coordinatorQuery.data ?? null}
             snapshotPending={coordinatorQuery.isPending}
             snapshotError={coordinatorQuery.error}

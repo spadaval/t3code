@@ -7,7 +7,10 @@ import type {
 } from "@t3tools/contracts";
 import type { IssueTreeForest, IssueTreeNode } from "~/lib/issueTree";
 import { buildIssueTree } from "~/lib/issueTree";
-import { partitionCoordinatorSwarms, type CoordinatorSwarmSections } from "~/issuePanel";
+import {
+  partitionCoordinatorTrackerEpics,
+  type CoordinatorTrackerEpicSections,
+} from "~/issuePanel";
 
 // ── Issue Filtering and Sorting ─────────────────────────────────────────
 
@@ -201,7 +204,7 @@ export interface CoordinatorAnalysisOptions {
 }
 
 export interface CoordinatorAnalysisResult {
-  sections: CoordinatorSwarmSections;
+  sections: CoordinatorTrackerEpicSections;
   metrics: {
     totalSwarms: number;
     activeSwarms: number;
@@ -211,8 +214,8 @@ export interface CoordinatorAnalysisResult {
     totalCompletedIssues: number;
     totalIssues: number;
   };
-  filteredSwarms: readonly BeadsSwarmSummary[];
-  selectedEpicSwarm: BeadsSwarmSummary | null;
+  filteredEpicSummaries: readonly BeadsSwarmSummary[];
+  selectedEpicSummary: BeadsSwarmSummary | null;
   hasActivity: boolean;
   needsAttention: readonly BeadsSwarmSummary[];
 }
@@ -228,18 +231,18 @@ export function analyzeCoordinatorState(
   const { showOnlyActive = false, selectedEpicId = null } = options;
 
   // Filter swarms based on options
-  let filteredSwarms = [...swarms];
+  let filteredEpicSummaries = [...swarms];
   if (showOnlyActive) {
-    filteredSwarms = filteredSwarms.filter((swarm) => swarm.activeWorkerCount > 0);
+    filteredEpicSummaries = filteredEpicSummaries.filter((swarm) => swarm.activeWorkerCount > 0);
   }
 
-  // Find selected epic swarm
-  const selectedEpicSwarm = selectedEpicId
+  // Find selected epic summary
+  const selectedEpicSummary = selectedEpicId
     ? swarms.find((swarm) => swarm.epicId === selectedEpicId) || null
     : null;
 
   // Partition into sections
-  const sections = partitionCoordinatorSwarms(filteredSwarms);
+  const sections = partitionCoordinatorTrackerEpics(filteredEpicSummaries);
 
   // Calculate metrics
   const metrics = {
@@ -268,8 +271,8 @@ export function analyzeCoordinatorState(
   return {
     sections,
     metrics,
-    filteredSwarms,
-    selectedEpicSwarm,
+    filteredEpicSummaries,
+    selectedEpicSummary,
     hasActivity,
     needsAttention,
   };
@@ -281,7 +284,7 @@ export interface EpicCoordinationResult {
   epics: readonly BeadsCoordinatorEpicSnapshot[];
   prioritizedEpics: readonly BeadsCoordinatorEpicSnapshot[];
   epicById: Map<string, BeadsCoordinatorEpicSnapshot>;
-  epicSwarmMap: Map<string, BeadsSwarmSummary>;
+  epicSummaryById: Map<string, BeadsSwarmSummary>;
   runsByEpic: Map<string, readonly OrchestrationEpicRun[]>;
 }
 
@@ -300,9 +303,9 @@ export function analyzeEpicCoordination(
     epicById.set(epic.epicId, epic);
   }
 
-  const epicSwarmMap = new Map<string, BeadsSwarmSummary>();
+  const epicSummaryById = new Map<string, BeadsSwarmSummary>();
   for (const swarm of swarms) {
-    epicSwarmMap.set(swarm.epicId, swarm);
+    epicSummaryById.set(swarm.epicId, swarm);
   }
 
   // Group runs by epic
@@ -351,7 +354,7 @@ export function analyzeEpicCoordination(
     epics,
     prioritizedEpics,
     epicById,
-    epicSwarmMap,
+    epicSummaryById,
     runsByEpic: readonlyRunsByEpic,
   };
 }

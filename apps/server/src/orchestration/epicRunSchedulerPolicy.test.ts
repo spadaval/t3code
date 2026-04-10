@@ -12,7 +12,7 @@ import {
   evaluateSharedWorkspaceProjectInvariant,
   selectLaunchableReadyIssue,
   shouldIdleSemiAutomaticRun,
-} from "./swarmSchedulerPolicy.ts";
+} from "./epicRunSchedulerPolicy.ts";
 
 function issue(id: string, priority: number | null): BeadsIssueRelationSummary {
   return {
@@ -76,7 +76,7 @@ function execution(
   };
 }
 
-describe("swarmSchedulerPolicy", () => {
+describe("epicRunSchedulerPolicy", () => {
   it("ignores terminal shared-workspace runs when choosing the project winner", () => {
     const winner = run("run-2", {
       status: "running",

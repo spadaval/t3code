@@ -71,7 +71,7 @@ export function decideReconcileRequestedExecution(input: {
         executionId: input.execution.executionId,
         issueId: input.execution.issueId,
         workerThreadId: null,
-        reason: "Requested swarm task execution lost its worker thread linkage.",
+        reason: "Requested epic-run execution lost its worker thread linkage.",
       }),
     };
   }
@@ -154,7 +154,7 @@ export function decideReconcileCurrentExecution(input: {
   if (input.execution.workerThreadId === null) {
     return {
       type: "fail_execution",
-      reason: "Active swarm task execution lost its worker thread linkage.",
+      reason: "Active epic-run execution lost its worker thread linkage.",
     };
   }
 
