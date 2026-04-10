@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Duration, Effect, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -33,6 +32,12 @@ import {
 } from "./SwarmExecutionWorkflow.testHarness.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
+
+function failureMessage(
+  input: { failureContext: { message: string } | null } | null | undefined,
+): string | null {
+  return input?.failureContext?.message ?? null;
+}
 
 describe("SwarmExecutionWorkflow", () => {
   let harnessRuntime: SwarmExecutionWorkflowHarnessRuntime | null = null;
@@ -138,7 +143,7 @@ describe("SwarmExecutionWorkflow", () => {
     const issue = harness.getIssue("TASK-1");
 
     expect(run?.status).toBe("running");
-    expect(run?.blockedContext).toBeNull();
+    expect(run?.failureContext).toBeNull();
     expect(reconciledExecution?.status).toBe("requested");
     expect(reconciledExecution?.startedAt).toBeNull();
     expect(snapshot.swarmTaskExecutions).toHaveLength(1);
@@ -176,8 +181,8 @@ describe("SwarmExecutionWorkflow", () => {
 
     expect(secondRun?.status).toBe("running");
     expect(firstRun?.status).toBe("failed");
-    expect(firstRun?.lastError).toContain(`Run '${second.runId}'`);
-    expect(firstRun?.lastError).toContain(`Run '${first.runId}'`);
+    expect(failureMessage(firstRun)).toContain(`Run '${second.runId}'`);
+    expect(failureMessage(firstRun)).toContain(`Run '${first.runId}'`);
   });
 
   it("allows shared-workspace runs from different projects even when epic ids match", async () => {
@@ -636,14 +641,16 @@ describe("SwarmExecutionWorkflow", () => {
     const issue = harness.getIssue("TASK-1");
 
     expect(run?.status).toBe("blocked");
-    expect(run?.lastError).toContain("issue 'TASK-1' is still 'open'");
-    expect(run?.lastError).toContain("must close their assigned Beads issue");
-    expect(run?.blockedContext).toEqual({
-      kind: "worker_failure",
-      issueId: "TASK-1",
-      executionId: execution.executionId,
-      workerThreadId: execution.workerThreadId,
-    });
+    expect(failureMessage(run)).toContain("issue 'TASK-1' is still 'open'");
+    expect(failureMessage(run)).toContain("must close their assigned Beads issue");
+    expect(run?.failureContext).toEqual(
+      expect.objectContaining({
+        kind: "worker_failure",
+        issueId: "TASK-1",
+        executionId: execution.executionId,
+        workerThreadId: execution.workerThreadId,
+      }),
+    );
     expect(failedExecution?.status).toBe("failed");
     expect(issue?.status).toBe("open");
     expect(issue?.assignee).toBeNull();
@@ -787,7 +794,7 @@ describe("SwarmExecutionWorkflow", () => {
     );
 
     expect(run?.status).toBe("running");
-    expect(run?.blockedContext).toBeNull();
+    expect(run?.failureContext).toBeNull();
     expect(completedExecution?.status).toBe("completed");
   });
 
@@ -880,7 +887,7 @@ describe("SwarmExecutionWorkflow", () => {
     );
 
     expect(run?.status).toBe("running");
-    expect(run?.blockedContext).toBeNull();
+    expect(run?.failureContext).toBeNull();
     expect(completedExecution?.status).toBe("completed");
   });
 
@@ -954,7 +961,7 @@ describe("SwarmExecutionWorkflow", () => {
     const nextIssue = harness.getIssue("TASK-2");
 
     expect(run?.status).toBe("running");
-    expect(run?.blockedContext).toBeNull();
+    expect(run?.failureContext).toBeNull();
     expect(completedExecution?.status).toBe("completed");
     expect(nextExecution?.status).toBe("requested");
     expect(nextExecution?.issueId).toBe("TASK-2");
@@ -1170,8 +1177,10 @@ describe("SwarmExecutionWorkflow", () => {
     expect(resumed.status).toBe("running");
     expect(pausedRun?.status).toBe("running");
     expect(blockingRun?.status).toBe("failed");
-    expect(blockingRun?.lastError).toContain("Shared-workspace swarm scheduling invariant failed");
-    expect(blockingRun?.lastError).toContain(`Run '${pausedRun?.runId}'`);
+    expect(failureMessage(blockingRun)).toContain(
+      "Shared-workspace swarm scheduling invariant failed",
+    );
+    expect(failureMessage(blockingRun)).toContain(`Run '${pausedRun?.runId}'`);
   });
 
   it("completes automatic runs when the last task finishes and no work remains", async () => {
@@ -1259,15 +1268,17 @@ describe("SwarmExecutionWorkflow", () => {
     const issue = harness.getIssue("TASK-1");
 
     expect(run?.status).toBe("blocked");
-    expect(run?.lastError).toBe("Worker crashed");
-    expect(run?.blockedContext).toEqual({
-      kind: "worker_failure",
-      issueId: "TASK-1",
-      executionId: execution.executionId,
-      workerThreadId: execution.workerThreadId,
-    });
+    expect(failureMessage(run)).toBe("Worker crashed");
+    expect(run?.failureContext).toEqual(
+      expect.objectContaining({
+        kind: "worker_failure",
+        issueId: "TASK-1",
+        executionId: execution.executionId,
+        workerThreadId: execution.workerThreadId,
+      }),
+    );
     expect(failedExecution?.status).toBe("failed");
-    expect(failedExecution?.lastError).toBe("Worker crashed");
+    expect(failureMessage(failedExecution)).toBe("Worker crashed");
     expect(issue?.status).toBe("open");
     expect(issue?.assignee).toBeNull();
     expect(issue?.comments.at(-1)?.text).toContain("Swarm worker failed.");
@@ -1314,10 +1325,10 @@ describe("SwarmExecutionWorkflow", () => {
     const issue = harness.getIssue("TASK-1");
 
     expect(run?.status).toBe("running");
-    expect(run?.blockedContext).toBeNull();
-    expect(run?.lastError).toBeNull();
+    expect(run?.failureContext).toBeNull();
+    expect(failureMessage(run)).toBeNull();
     expect(activeExecution?.status).toBe("active");
-    expect(activeExecution?.lastError).toBeNull();
+    expect(failureMessage(activeExecution)).toBeNull();
     expect(issue?.comments).toHaveLength(0);
   });
 
@@ -1357,17 +1368,21 @@ describe("SwarmExecutionWorkflow", () => {
     const issue = harness.getIssue("TASK-1");
 
     expect(run?.status).toBe("blocked");
-    expect(run?.lastError).toContain(`Worker thread '${execution.workerThreadId}' stopped`);
-    expect(run?.lastError).toContain("Observed session status: stopped.");
-    expect(run?.lastError).toContain("Observed latest turn state: interrupted.");
-    expect(run?.blockedContext).toEqual({
-      kind: "worker_failure",
-      issueId: "TASK-1",
-      executionId: execution.executionId,
-      workerThreadId: execution.workerThreadId,
-    });
+    expect(failureMessage(run)).toContain(`Worker thread '${execution.workerThreadId}' stopped`);
+    expect(failureMessage(run)).toContain("Observed session status: stopped.");
+    expect(failureMessage(run)).toContain("Observed latest turn state: interrupted.");
+    expect(run?.failureContext).toEqual(
+      expect.objectContaining({
+        kind: "worker_failure",
+        issueId: "TASK-1",
+        executionId: execution.executionId,
+        workerThreadId: execution.workerThreadId,
+      }),
+    );
     expect(failedExecution?.status).toBe("failed");
-    expect(failedExecution?.lastError).toContain(`Worker thread '${execution.workerThreadId}'`);
+    expect(failureMessage(failedExecution)).toContain(
+      `Worker thread '${execution.workerThreadId}'`,
+    );
     expect(issue?.comments.at(-1)?.text).toContain("Observed session status: stopped.");
   });
 
@@ -1392,8 +1407,10 @@ describe("SwarmExecutionWorkflow", () => {
     const issue = harness.getIssue("TASK-1");
 
     expect(run?.status).toBe("failed");
-    expect(run?.lastError).toContain("Simulated dispatch failure for command 'thread.turn.start'.");
-    expect(run?.blockedContext).toBeNull();
+    expect(failureMessage(run)).toContain(
+      "Simulated dispatch failure for command 'thread.turn.start'.",
+    );
+    expect(run?.failureContext).toBeNull();
     expect(snapshot.swarmTaskExecutions).toHaveLength(1);
     expect(snapshot.swarmTaskExecutions[0]?.status).toBe("requested");
     expect(issue?.status).toBe("open");
@@ -1438,11 +1455,9 @@ describe("SwarmExecutionWorkflow", () => {
     const issue = harness.getIssue("TASK-1");
 
     expect(run?.status).toBe("blocked");
-    expect(run?.lastError).toContain("never reported a started turn");
+    expect(failureMessage(run)).toContain("never reported a started turn");
     expect(execution?.status).toBe("failed");
     expect(execution?.startedAt).toBeNull();
-    expect(execution?.originalStatus).toBe("open");
-    expect(execution?.originalAssignee).toBeNull();
     expect(issue?.status).toBe("open");
     expect(issue?.assignee).toBeNull();
     expect(issue?.comments.at(-1)?.text).toContain("Swarm worker failed.");
@@ -1486,14 +1501,16 @@ describe("SwarmExecutionWorkflow", () => {
     const thread = snapshot.threads.find((entry) => entry.id === execution.workerThreadId);
 
     expect(run?.status).toBe("blocked");
-    expect(run?.blockedContext).toEqual({
-      kind: "worker_failure",
-      issueId: "TASK-1",
-      executionId: execution.executionId,
-      workerThreadId: execution.workerThreadId,
-    });
-    expect(run?.lastError).toContain("timed out while launching");
-    expect(run?.lastError).toContain("never reached an active turn before timeout");
+    expect(run?.failureContext).toEqual(
+      expect.objectContaining({
+        kind: "worker_failure",
+        issueId: "TASK-1",
+        executionId: execution.executionId,
+        workerThreadId: execution.workerThreadId,
+      }),
+    );
+    expect(failureMessage(run)).toContain("timed out while launching");
+    expect(failureMessage(run)).toContain("never reached an active turn before timeout");
     expect(failedExecution?.status).toBe("failed");
     expect(thread?.deletedAt).toBe(now);
   });
@@ -1575,15 +1592,16 @@ describe("SwarmExecutionWorkflow", () => {
           issueId: "TASK-2",
           workerThreadId: ThreadId.makeUnsafe("thread-duplicate"),
           sequenceNumber: 2,
-          status: "active",
-          originalStatus: "open",
-          originalAssignee: null,
-          lastError: null,
+          status: "running",
+          workspaceKey: "shared",
+          workspacePath: null,
+          failureContext: null,
           requestedAt: now,
           startedAt: now,
+          stopRequestedAt: null,
+          stoppedAt: null,
           completedAt: null,
           failedAt: null,
-          cancelledAt: null,
           updatedAt: now,
         },
       ],
@@ -1595,9 +1613,9 @@ describe("SwarmExecutionWorkflow", () => {
     const run = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
 
     expect(run?.status).toBe("failed");
-    expect(run?.lastError).toContain("multiple non-terminal task executions");
-    expect(run?.lastError).toContain(String(execution.executionId));
-    expect(run?.lastError).toContain("execution-duplicate");
+    expect(failureMessage(run)).toContain("multiple non-terminal task executions");
+    expect(failureMessage(run)).toContain(String(execution.executionId));
+    expect(failureMessage(run)).toContain("execution-duplicate");
   });
 
   it("rejects continuing blocked runs when hidden non-terminal execution drift remains", async () => {
@@ -1630,7 +1648,7 @@ describe("SwarmExecutionWorkflow", () => {
       ...current,
       swarmTaskExecutions: current.swarmTaskExecutions.map((entry) =>
         entry.executionId === execution.executionId
-          ? { ...entry, status: "active", failedAt: null, lastError: null, updatedAt: now }
+          ? { ...entry, status: "running", failedAt: null, failureContext: null, updatedAt: now }
           : entry,
       ),
     }));
@@ -1647,12 +1665,14 @@ describe("SwarmExecutionWorkflow", () => {
     const run = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
 
     expect(run?.status).toBe("blocked");
-    expect(run?.blockedContext).toEqual({
-      kind: "worker_failure",
-      issueId: "TASK-1",
-      executionId: execution.executionId,
-      workerThreadId: execution.workerThreadId,
-    });
+    expect(run?.failureContext).toEqual(
+      expect.objectContaining({
+        kind: "worker_failure",
+        issueId: "TASK-1",
+        executionId: execution.executionId,
+        workerThreadId: execution.workerThreadId,
+      }),
+    );
   });
 
   it("rejects resume on blocked runs with continue-specific error", async () => {
@@ -1721,15 +1741,16 @@ describe("SwarmExecutionWorkflow", () => {
           issueId: "TASK-2",
           workerThreadId: ThreadId.makeUnsafe("thread-shadow"),
           sequenceNumber: 2,
-          status: "active",
-          originalStatus: "open",
-          originalAssignee: null,
-          lastError: null,
+          status: "running",
+          workspaceKey: "shared",
+          workspacePath: null,
+          failureContext: null,
           requestedAt: now,
           startedAt: now,
+          stopRequestedAt: null,
+          stoppedAt: null,
           completedAt: null,
           failedAt: null,
-          cancelledAt: null,
           updatedAt: now,
         },
       ],
@@ -1745,8 +1766,8 @@ describe("SwarmExecutionWorkflow", () => {
     const run = snapshot.swarmRuns.find((entry) => entry.runId === started.runId);
 
     expect(cancelled.status).toBe("failed");
-    expect(run?.lastError).toContain("multiple non-terminal task executions");
-    expect(run?.lastError).toContain("execution-shadow");
+    expect(failureMessage(run)).toContain("multiple non-terminal task executions");
+    expect(failureMessage(run)).toContain("execution-shadow");
   });
 
   it("cancels an active worker and restores tracker ownership", async () => {
@@ -1879,12 +1900,7 @@ describe("SwarmExecutionWorkflow", () => {
 
     expect(continued.status).toBe("blocked");
     expect(run?.status).toBe("blocked");
-    expect(run?.blockedContext).toEqual({
-      kind: "tracker_waiting",
-      issueId: null,
-      executionId: null,
-      workerThreadId: null,
-    });
+    expect(run?.failureContext).toBeNull();
     expect(snapshot.swarmTaskExecutions).toHaveLength(1);
   });
 
@@ -1951,7 +1967,7 @@ describe("SwarmExecutionWorkflow", () => {
 
     expect(continued.status).toBe("running");
     expect(run?.status).toBe("running");
-    expect(run?.blockedContext).toBeNull();
+    expect(run?.failureContext).toBeNull();
     expect(nextExecution?.status).toBe("requested");
     expect(nextExecution?.issueId).toBe("TASK-2");
     expect(nextIssue?.status).toBe("open");
@@ -2132,8 +2148,8 @@ describe("SwarmExecutionWorkflow", () => {
     expect(continued.status).toBe("blocked");
     expect(run?.status).toBe("blocked");
     expect(snapshot.swarmTaskExecutions).toHaveLength(1);
-    expect(run?.lastError).toContain("every live ready issue was already attempted");
-    expect(run?.lastError).toContain("Previously attempted ready issues: TASK-1.");
+    expect(failureMessage(run)).toContain("every live ready issue was already attempted");
+    expect(failureMessage(run)).toContain("Previously attempted ready issues: TASK-1.");
   });
 
   it("blocks with retry-specific detail when the requested execution issue is no longer ready", async () => {
@@ -2180,17 +2196,12 @@ describe("SwarmExecutionWorkflow", () => {
 
     expect(retried.status).toBe("blocked");
     expect(run?.status).toBe("blocked");
-    expect(run?.blockedContext).toEqual({
-      kind: "tracker_waiting",
-      issueId: null,
-      executionId: null,
-      workerThreadId: null,
-    });
+    expect(run?.failureContext).toBeNull();
     expect(snapshot.swarmTaskExecutions).toHaveLength(1);
-    expect(run?.lastError).toContain(
+    expect(failureMessage(run)).toContain(
       "cannot retry issue 'TASK-1' because it is not currently live-ready",
     );
-    expect(run?.lastError).toContain("Ready issues: TASK-2.");
+    expect(failureMessage(run)).toContain("Ready issues: TASK-2.");
   });
 
   it("blocks immediately when only external blockers remain and does not dispatch a worker", async () => {
@@ -2220,13 +2231,8 @@ describe("SwarmExecutionWorkflow", () => {
 
     expect(started.status).toBe("blocked");
     expect(run?.status).toBe("blocked");
-    expect(run?.blockedContext).toEqual({
-      kind: "tracker_waiting",
-      issueId: null,
-      executionId: null,
-      workerThreadId: null,
-    });
-    expect(run?.lastError).toContain("externally blocked issue");
+    expect(run?.failureContext).toBeNull();
+    expect(failureMessage(run)).toContain("externally blocked issue");
     expect(snapshot.swarmTaskExecutions).toHaveLength(0);
     expect(snapshot.threads).toHaveLength(0);
   });

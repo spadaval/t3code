@@ -760,7 +760,7 @@ export function applyCommand(
 
 type SwarmExecutionWorkflowTestHarness = {
   engine: Omit<OrchestrationEngineShape, "getReadModel"> & {
-    getReadModel: () => Effect.Effect<any, never, never>;
+    getReadModel: () => Effect.Effect<OrchestrationReadModel, never, never>;
   };
   workflow: SwarmExecutionWorkflowShape;
   projectId: ProjectId;
@@ -781,7 +781,7 @@ type SwarmExecutionWorkflowTestHarness = {
   retryExecution: (
     input: Pick<OrchestrationRetrySwarmTaskExecutionInput, "runId" | "executionId">,
   ) => Promise<OrchestrationSwarmRunControlResult>;
-  getSnapshot: () => Promise<any>;
+  getSnapshot: () => Promise<OrchestrationReadModel>;
   getIssue: (issueId: string) => BeadsIssueDetail | null;
   patchIssue: (
     issueId: string,
@@ -807,9 +807,12 @@ type SwarmExecutionWorkflowTestHarness = {
   setTrackerStateSequence: (next: ReadonlyArray<TrackerState>) => void;
   getCreateEpicSwarmCallCount: () => number;
   getReadModelCallCount: () => number;
-  patchReadModel: (transform: (current: any) => any) => void;
-  patchExecution: (executionId: SwarmTaskExecutionId, patch: any) => void;
-  injectExecutionDrift: (execution: any) => void;
+  patchReadModel: (transform: (current: OrchestrationReadModel) => OrchestrationReadModel) => void;
+  patchExecution: (
+    executionId: SwarmTaskExecutionId,
+    patch: Partial<OrchestrationSwarmTaskExecution>,
+  ) => void;
+  injectExecutionDrift: (execution: OrchestrationSwarmTaskExecution) => void;
 };
 
 export type SwarmExecutionWorkflowHarnessRuntime = {
