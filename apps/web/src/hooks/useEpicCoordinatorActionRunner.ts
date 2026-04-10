@@ -1,11 +1,11 @@
 import type {
   BeadsCoordinatorEpicSnapshot,
   ModelSelection,
+  OrchestrationSwarmRun,
   ProjectId,
   RuntimeMode,
   ThreadId,
 } from "@t3tools/contracts";
-import type { OrchestrationSwarmRun, OrchestrationSwarmTaskExecution } from "@t3tools/contracts";
 import {
   DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE,
   DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE,
@@ -21,15 +21,7 @@ import { toastManager } from "~/components/ui/toast";
 export type CoordinatorActionInput =
   | { kind: "open_coordination_prep_thread"; epicIssueId: string }
   | { kind: "start_swarm"; epicIssueId: string }
-  | { kind: "run_next_swarm_task"; runId: OrchestrationSwarmRun["runId"] }
-  | { kind: "resume_paused_swarm_run"; runId: OrchestrationSwarmRun["runId"] }
-  | {
-      kind: "retry_swarm_task_execution";
-      runId: OrchestrationSwarmRun["runId"];
-      executionId: OrchestrationSwarmTaskExecution["executionId"];
-    }
-  | { kind: "pause_swarm"; runId: OrchestrationSwarmRun["runId"] }
-  | { kind: "cancel_swarm"; runId: OrchestrationSwarmRun["runId"] }
+  | { kind: "stop_swarm"; runId: OrchestrationSwarmRun["runId"] }
   | { kind: "refresh_swarm_state"; epicIssueId: string }
   | { kind: "open_coordinator"; epicIssueId: string };
 
@@ -39,16 +31,8 @@ export function getCoordinatorActionBusyKey(action: CoordinatorActionInput): str
       return `prep:${action.epicIssueId}`;
     case "start_swarm":
       return `start:${action.epicIssueId}`;
-    case "run_next_swarm_task":
-      return `run-next:${action.runId}`;
-    case "resume_paused_swarm_run":
-      return `resume:${action.runId}`;
-    case "retry_swarm_task_execution":
-      return `retry:${action.executionId}`;
-    case "pause_swarm":
-      return `pause:${action.runId}`;
-    case "cancel_swarm":
-      return `cancel:${action.runId}`;
+    case "stop_swarm":
+      return `stop:${action.runId}`;
     case "refresh_swarm_state":
       return `refresh:${action.epicIssueId}`;
     case "open_coordinator":
@@ -59,13 +43,20 @@ export function getCoordinatorActionBusyKey(action: CoordinatorActionInput): str
 export function getCoordinatorPrimaryActionInput(
   epic: BeadsCoordinatorEpicSnapshot,
 ): CoordinatorActionInput | null {
+  const primaryAction = epic.primaryAction as typeof epic.primaryAction & {
+    kind:
+      | "unsupported"
+      | "open_coordination_prep_thread"
+      | "refresh_swarm_state"
+      | "start_swarm"
+      | "stop_swarm"
+      | "open_coordinator";
+  };
   const activeRun = epic.activeRunId
     ? (epic.runs.find((run) => run.runId === epic.activeRunId) ?? null)
     : null;
-  const latestRun = epic.runs[0] ?? null;
-  const actionableRun = activeRun ?? latestRun;
 
-  switch (epic.primaryAction.kind) {
+  switch (primaryAction.kind) {
     case "open_coordination_prep_thread":
       return {
         kind: "open_coordination_prep_thread",
@@ -76,18 +67,11 @@ export function getCoordinatorPrimaryActionInput(
         kind: "start_swarm",
         epicIssueId: epic.epicId,
       };
-    case "run_next_swarm_task":
-      return actionableRun
+    case "stop_swarm":
+      return activeRun
         ? {
-            kind: "run_next_swarm_task",
-            runId: actionableRun.runId,
-          }
-        : null;
-    case "resume_paused_swarm_run":
-      return actionableRun
-        ? {
-            kind: "resume_paused_swarm_run",
-            runId: actionableRun.runId,
+            kind: "stop_swarm",
+            runId: activeRun.runId,
           }
         : null;
     case "refresh_swarm_state":
@@ -111,16 +95,8 @@ export function describeCoordinatorActionError(actionKind: CoordinatorActionInpu
       return "Unable to open prep thread";
     case "start_swarm":
       return "Unable to start run";
-    case "run_next_swarm_task":
-      return "Unable to run the next task";
-    case "resume_paused_swarm_run":
-      return "Unable to resume the paused run";
-    case "retry_swarm_task_execution":
-      return "Unable to retry the task";
-    case "pause_swarm":
-      return "Unable to pause run";
-    case "cancel_swarm":
-      return "Unable to cancel run";
+    case "stop_swarm":
+      return "Unable to stop run";
     case "refresh_swarm_state":
       return "Unable to refresh tracker status";
     case "open_coordinator":
@@ -176,22 +152,7 @@ export function useEpicCoordinatorActionRunner(input: {
             runtimeMode: input.runtimeMode,
           });
           return null;
-        case "run_next_swarm_task":
-          await api.orchestration.runNextSwarmTask({ runId: action.runId });
-          return null;
-        case "resume_paused_swarm_run":
-          await api.orchestration.resumePausedSwarmRun({ runId: action.runId });
-          return null;
-        case "retry_swarm_task_execution":
-          await api.orchestration.retrySwarmTaskExecution({
-            runId: action.runId,
-            executionId: action.executionId,
-          });
-          return null;
-        case "pause_swarm":
-          await api.orchestration.pauseSwarmRun({ runId: action.runId });
-          return null;
-        case "cancel_swarm":
+        case "stop_swarm":
           await api.orchestration.cancelSwarmRun({ runId: action.runId });
           return null;
         case "refresh_swarm_state":

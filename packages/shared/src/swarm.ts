@@ -7,8 +7,11 @@ import type {
   BeadsSwarmSupport,
   BeadsSwarmValidation,
   OrchestrationEvent,
+  OrchestrationSwarmFailureKind,
   OrchestrationSwarmRun,
   OrchestrationSwarmTaskExecution,
+  SwarmTaskExecutionId,
+  ThreadId,
 } from "@t3tools/contracts";
 
 export function compareSwarmReadyIssues(
@@ -79,6 +82,42 @@ export function deriveExecutionBlocking(
   };
 }
 
+export function inferSwarmFailureKind(reason: string): OrchestrationSwarmFailureKind {
+  const normalized = reason.toLowerCase();
+  if (normalized.includes("launch")) {
+    return "launch_failure";
+  }
+  if (normalized.includes("invariant")) {
+    return "invariant_violation";
+  }
+  if (normalized.includes("still open") || normalized.includes("not closed")) {
+    return "issue_incomplete";
+  }
+  if (
+    normalized.includes("stop") ||
+    normalized.includes("shutdown") ||
+    normalized.includes("interrupt")
+  ) {
+    return "environment_failure";
+  }
+  return "worker_failure";
+}
+
+export function createSwarmFailureContext(input: {
+  readonly reason: string;
+  readonly issueId?: string | null;
+  readonly executionId?: SwarmTaskExecutionId | null;
+  readonly workerThreadId?: ThreadId | null;
+}) {
+  return {
+    kind: inferSwarmFailureKind(input.reason),
+    message: input.reason,
+    issueId: input.issueId ?? null,
+    executionId: input.executionId ?? null,
+    workerThreadId: input.workerThreadId ?? null,
+  } as const;
+}
+
 export interface SwarmProjectionState {
   readonly swarmRunsById: Readonly<Record<string, OrchestrationSwarmRun>>;
   readonly swarmTaskExecutionsById: Readonly<Record<string, OrchestrationSwarmTaskExecution>>;
@@ -118,11 +157,9 @@ type SwarmTaskExecutionLifecycleEvent = Extract<
 >;
 
 const NON_TERMINAL_SWARM_RUN_STATUSES = new Set<OrchestrationSwarmRun["status"]>([
-  "requested",
+  "pending",
   "running",
-  "idle",
-  "paused",
-  "blocked",
+  "stopping",
 ]);
 
 export function createEmptySwarmProjectionState(): SwarmProjectionState {
@@ -171,13 +208,13 @@ export function compareSwarmTaskExecutions(
 
 export function isNonTerminalSwarmTaskExecutionStatus(
   status: OrchestrationSwarmTaskExecution["status"],
-): status is "requested" | "active" {
-  return status === "requested" || status === "active";
+): status is "launching" | "running" | "stopping" {
+  return status === "launching" || status === "running" || status === "stopping";
 }
 
 export function isNonTerminalSwarmRunStatus(
   status: OrchestrationSwarmRun["status"],
-): status is "requested" | "running" | "idle" | "paused" | "blocked" {
+): status is "pending" | "running" | "stopping" {
   return NON_TERMINAL_SWARM_RUN_STATUSES.has(status);
 }
 
@@ -206,11 +243,11 @@ export function compareSwarmRunsByAttentionPriority(
 }
 
 export function isNonTerminalSharedWorkspaceRun(run: OrchestrationSwarmRun): boolean {
-  return run.workspaceMode === "shared" && isNonTerminalSwarmRunStatus(run.status);
+  return isNonTerminalSwarmRunStatus(run.status);
 }
 
 export function formatSwarmRunStatusLabel(status: OrchestrationSwarmRun["status"]): string {
-  return status === "requested" ? "requested" : status.replace(/_/g, " ");
+  return status.replace(/_/g, " ");
 }
 
 export type SwarmCoordinatorFetchSource = "support" | "validation" | "status";
@@ -349,28 +386,22 @@ export function describeCoordinatorEpicState(input: {
             : `${input.completedIssueCount}/${input.totalIssueCount} issues done`,
         category: "active",
       };
-    case "idle":
+    case "stopping":
       return {
-        label: "Idle",
-        summary: "Waiting for the next issue in this epic.",
+        label: "Stopping",
+        summary: "Stopping the current run.",
         category: "active",
       };
-    case "paused":
+    case "stopped":
       return {
-        label: "Paused",
-        summary: "Epic paused. Resume to continue processing issues.",
-        category: "active",
-      };
-    case "blocked":
-      return {
-        label: "Blocked",
-        summary: input.lastError ?? "Needs manual intervention before it can continue.",
-        category: "blocked",
+        label: "Stopped",
+        summary: "Run stopped. Fix the issue and start a new run when ready.",
+        category: "done",
       };
     case "failed":
       return {
         label: "Failed",
-        summary: input.lastError ?? "The run failed. Retry or inspect the error.",
+        summary: input.lastError ?? "The run failed. Fix the issue and start a new run.",
         category: "blocked",
       };
     case "ready":
@@ -398,12 +429,6 @@ export function describeCoordinatorEpicState(input: {
           input.totalIssueCount > 0
             ? `All ${input.totalIssueCount} issues completed.`
             : "Run completed.",
-        category: "done",
-      };
-    case "cancelled":
-      return {
-        label: "Cancelled",
-        summary: "The run was cancelled.",
         category: "done",
       };
     case "checking":
@@ -434,7 +459,7 @@ export function describeCoordinatorEpicState(input: {
 }
 
 export function describeSharedWorkspaceProjectConflict(run: OrchestrationSwarmRun): string {
-  return `Shared workspace is already busy with ${run.epicIssueId} (${formatSwarmRunStatusLabel(run.status)}). Finish, cancel, or resume that epic before starting or resuming another epic in this project.`;
+  return `Shared workspace is already busy with ${run.epicIssueId} (${formatSwarmRunStatusLabel(run.status)}). Finish or stop that epic before starting another epic in this project.`;
 }
 
 export type SwarmCoordinatorFetchLifecycleKind =
@@ -458,11 +483,9 @@ export type EpicSwarmCoordinatorStateKind =
   | "needs_preparation"
   | "ready"
   | "running"
-  | "idle"
-  | "paused"
-  | "blocked"
+  | "stopping"
+  | "stopped"
   | "failed"
-  | "cancelled"
   | "completed";
 
 export interface EpicSwarmCoordinatorState {
@@ -478,8 +501,7 @@ export interface EpicSwarmCoordinatorPrimaryAction {
     | "open_coordination_prep_thread"
     | "refresh_swarm_state"
     | "start_swarm"
-    | "run_next_swarm_task"
-    | "resume_paused_swarm_run"
+    | "stop_swarm"
     | "open_coordinator";
   readonly label: string;
   readonly busyLabel: string;
@@ -703,7 +725,7 @@ export function deriveEpicSwarmCoordinatorState(input: {
 
   if (latestRun !== null) {
     return {
-      kind: latestRun.status === "requested" ? "running" : latestRun.status,
+      kind: latestRun.status === "pending" ? "running" : latestRun.status,
       latestRun,
       fetchLifecycle: input.fetchLifecycle,
     };
@@ -744,24 +766,7 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
   readonly fetchLifecycle: SwarmCoordinatorFetchLifecycle;
 }): EpicSwarmCoordinatorPrimaryAction {
   const state = deriveEpicSwarmCoordinatorState(input);
-  const latestRun = state.latestRun;
   const executionBlocking = deriveExecutionBlocking(input.status);
-  const recoverableWorkerFailureRun =
-    latestRun?.status === "blocked" && latestRun.blockedContext?.kind === "worker_failure";
-  const canContinueRecoverableRun =
-    recoverableWorkerFailureRun &&
-    input.swarmSupport?.supported === true &&
-    input.validation?.valid === true &&
-    (() => {
-      const nextReadyIssue = selectDeterministicReadyIssueFromList(input.status?.ready ?? []);
-      if (nextReadyIssue !== null) {
-        return !executionBlocking.hasExecutionBlockingIssues;
-      }
-
-      return (
-        (input.status?.active.length ?? 0) === 0 && !executionBlocking.hasExecutionBlockingIssues
-      );
-    })();
 
   switch (state.kind) {
     case "checking":
@@ -830,83 +835,30 @@ export function getEpicSwarmCoordinatorPrimaryAction(input: {
         disabled: false,
       };
     case "running":
-      if (input.hasProjectConflict) {
-        return {
-          kind: "open_coordinator",
-          label: "View active epic",
-          busyLabel: "Opening...",
-          disabled: false,
-        };
-      }
+      return {
+        kind: "stop_swarm",
+        label: "Stop run",
+        busyLabel: "Stopping...",
+        disabled: false,
+      };
+    case "stopping":
       return {
         kind: "open_coordinator",
         label: "Open epic",
         busyLabel: "Opening...",
         disabled: false,
       };
-    case "idle":
-      if (input.hasProjectConflict) {
-        return {
-          kind: "open_coordinator",
-          label: "View active epic",
-          busyLabel: "Opening...",
-          disabled: false,
-        };
-      }
-      if (latestRun?.schedulerMode === "semi-automatic") {
-        return {
-          kind: "run_next_swarm_task",
-          label: "Run next task",
-          busyLabel: "Running...",
-          disabled: false,
-        };
-      }
+    case "stopped":
       return {
         kind: "open_coordinator",
-        label: "Open epic",
+        label: input.hasProjectConflict ? "View active epic" : "Open epic",
         busyLabel: "Opening...",
         disabled: false,
       };
-    case "paused":
-      if (input.hasProjectConflict) {
-        return {
-          kind: "open_coordinator",
-          label: "View active epic",
-          busyLabel: "Opening...",
-          disabled: false,
-        };
-      }
-      return {
-        kind: "resume_paused_swarm_run",
-        label: "Resume epic",
-        busyLabel: "Resuming...",
-        disabled: false,
-      };
-    case "blocked":
-      return recoverableWorkerFailureRun
-        ? {
-            kind: "run_next_swarm_task",
-            label: "Run next task",
-            busyLabel: "Running...",
-            disabled: !canContinueRecoverableRun,
-          }
-        : {
-            kind: "open_coordinator",
-            label: "Open epic",
-            busyLabel: "Opening...",
-            disabled: false,
-          };
     case "failed":
       return {
         kind: "open_coordinator",
         label: "Open epic",
-        busyLabel: "Opening...",
-        disabled: false,
-      };
-    case "cancelled":
-      return {
-        kind: "open_coordinator",
-        label: input.hasProjectConflict ? "View active epic" : "Open epic",
         busyLabel: "Opening...",
         disabled: false,
       };
@@ -958,24 +910,19 @@ export function createRequestedSwarmRun(
     runId: payload.runId,
     projectId: payload.projectId,
     epicIssueId: payload.epicIssueId,
-    status: "requested",
-    schedulerMode: payload.schedulerMode,
-    workspaceMode: payload.workspaceMode,
+    status: "pending",
     provider: payload.provider,
     model: payload.model,
     modelOptions: payload.modelOptions,
     providerOptions: payload.providerOptions,
     assistantDeliveryMode: payload.assistantDeliveryMode,
     runtimeMode: payload.runtimeMode,
-    lastError: null,
+    failureContext: null,
     requestedAt: payload.requestedAt,
     startedAt: null,
-    idledAt: null,
-    pausedAt: null,
-    blockedAt: null,
-    blockedContext: null,
+    stopRequestedAt: null,
+    stoppedAt: null,
     failedAt: null,
-    cancelledAt: null,
     completedAt: null,
     updatedAt: payload.updatedAt,
   };
@@ -991,77 +938,79 @@ export function applySwarmRunLifecycleEvent(
         ...run,
         status: "running",
         startedAt: event.payload.startedAt,
-        lastError: null,
-        blockedContext: null,
-        cancelledAt: null,
+        failureContext: null,
         updatedAt: event.payload.updatedAt,
       };
     case "swarm-run.idled":
       return {
         ...run,
-        status: "idle",
-        idledAt: event.payload.idledAt,
-        lastError: null,
-        blockedContext: null,
-        cancelledAt: null,
+        status: "running",
         updatedAt: event.payload.updatedAt,
       };
     case "swarm-run.paused":
       return {
         ...run,
-        status: "paused",
-        pausedAt: event.payload.pausedAt,
-        lastError: null,
-        blockedContext: null,
-        cancelledAt: null,
+        status: "stopped",
+        stopRequestedAt: run.stopRequestedAt ?? event.payload.pausedAt,
+        stoppedAt: event.payload.pausedAt,
         updatedAt: event.payload.updatedAt,
       };
     case "swarm-run.resumed":
       return {
         ...run,
         status: "running",
-        lastError: null,
-        blockedContext: null,
-        cancelledAt: null,
+        failureContext: null,
+        stopRequestedAt: null,
+        stoppedAt: null,
         updatedAt: event.payload.updatedAt,
       };
     case "swarm-run.blocked":
+      if (event.payload.blockedContext?.kind === "tracker_waiting") {
+        return {
+          ...run,
+          status: "running",
+          updatedAt: event.payload.updatedAt,
+        };
+      }
       return {
         ...run,
-        status: "blocked",
-        lastError: event.payload.reason,
-        blockedAt: event.payload.blockedAt,
-        blockedContext: event.payload.blockedContext,
-        cancelledAt: null,
+        status: "failed",
+        failureContext: createSwarmFailureContext({
+          reason: event.payload.reason,
+          issueId: event.payload.blockedContext?.issueId ?? null,
+          executionId: event.payload.blockedContext?.executionId ?? null,
+          workerThreadId: event.payload.blockedContext?.workerThreadId ?? null,
+        }),
+        failedAt: event.payload.blockedAt,
         updatedAt: event.payload.updatedAt,
       };
     case "swarm-run.failed":
       return {
         ...run,
         status: "failed",
-        lastError: event.payload.reason,
-        blockedContext: null,
+        failureContext: createSwarmFailureContext({
+          reason: event.payload.reason,
+        }),
         failedAt: event.payload.failedAt,
-        cancelledAt: null,
         updatedAt: event.payload.updatedAt,
       };
     case "swarm-run.cancelled":
       return {
         ...run,
-        status: "cancelled",
-        lastError: null,
-        blockedContext: null,
-        cancelledAt: event.payload.cancelledAt,
+        status: "stopped",
+        failureContext: null,
+        stopRequestedAt: run.stopRequestedAt ?? event.payload.cancelledAt,
+        stoppedAt: event.payload.cancelledAt,
         updatedAt: event.payload.updatedAt,
       };
     case "swarm-run.completed":
       return {
         ...run,
         status: "completed",
-        lastError: null,
-        blockedContext: null,
+        failureContext: null,
+        stopRequestedAt: null,
+        stoppedAt: null,
         completedAt: event.payload.completedAt,
-        cancelledAt: null,
         updatedAt: event.payload.updatedAt,
       };
   }
@@ -1076,15 +1025,16 @@ export function createRequestedSwarmTaskExecution(
     issueId: payload.issueId,
     workerThreadId: payload.workerThreadId,
     sequenceNumber: payload.sequenceNumber,
-    status: "requested",
-    originalStatus: payload.originalStatus,
-    originalAssignee: payload.originalAssignee,
-    lastError: null,
+    status: "launching",
+    workspaceKey: "shared",
+    workspacePath: null,
+    failureContext: null,
     requestedAt: payload.requestedAt,
     startedAt: null,
+    stopRequestedAt: null,
+    stoppedAt: null,
     completedAt: null,
     failedAt: null,
-    cancelledAt: null,
     updatedAt: payload.updatedAt,
   };
 }
@@ -1100,15 +1050,16 @@ export function materializeStartedSwarmTaskExecution(input: {
     issueId: existingExecution?.issueId ?? "unknown-task",
     workerThreadId: existingExecution?.workerThreadId ?? null,
     sequenceNumber: existingExecution?.sequenceNumber ?? 0,
-    status: "active",
-    originalStatus: existingExecution?.originalStatus ?? "open",
-    originalAssignee: existingExecution?.originalAssignee ?? null,
-    lastError: null,
+    status: "running",
+    workspaceKey: existingExecution?.workspaceKey ?? "shared",
+    workspacePath: existingExecution?.workspacePath ?? null,
+    failureContext: null,
     requestedAt: existingExecution?.requestedAt ?? input.event.payload.startedAt,
     startedAt: input.event.payload.startedAt,
+    stopRequestedAt: existingExecution?.stopRequestedAt ?? null,
+    stoppedAt: existingExecution?.stoppedAt ?? null,
     completedAt: existingExecution?.completedAt ?? null,
     failedAt: existingExecution?.failedAt ?? null,
-    cancelledAt: existingExecution?.cancelledAt ?? null,
     updatedAt: input.event.payload.updatedAt,
   };
 }
@@ -1122,7 +1073,9 @@ export function applySwarmTaskExecutionLifecycleEvent(
       return {
         ...execution,
         status: "completed",
-        lastError: null,
+        failureContext: null,
+        stopRequestedAt: null,
+        stoppedAt: null,
         completedAt: event.payload.completedAt,
         updatedAt: event.payload.updatedAt,
       };
@@ -1130,16 +1083,22 @@ export function applySwarmTaskExecutionLifecycleEvent(
       return {
         ...execution,
         status: "failed",
-        lastError: event.payload.reason,
+        failureContext: createSwarmFailureContext({
+          reason: event.payload.reason,
+          issueId: execution.issueId,
+          executionId: execution.executionId,
+          workerThreadId: execution.workerThreadId,
+        }),
         failedAt: event.payload.failedAt,
         updatedAt: event.payload.updatedAt,
       };
     case "swarm-task-execution.cancelled":
       return {
         ...execution,
-        status: "cancelled",
-        lastError: null,
-        cancelledAt: event.payload.cancelledAt,
+        status: "stopped",
+        failureContext: null,
+        stopRequestedAt: execution.stopRequestedAt ?? event.payload.cancelledAt,
+        stoppedAt: event.payload.cancelledAt,
         updatedAt: event.payload.updatedAt,
       };
   }
@@ -1281,7 +1240,7 @@ export function deriveSwarmRunExecutionState(input: {
     }
 
     if (
-      execution.status === "active" &&
+      execution.status === "running" &&
       (activeExecution === null || compareSwarmTaskExecutions(activeExecution, execution) < 0)
     ) {
       activeExecution = execution;

@@ -301,6 +301,8 @@ export const OrchestrationPlanImplementationLaunchCleanupStatus = Schema.Literal
 export type OrchestrationPlanImplementationLaunchCleanupStatus =
   typeof OrchestrationPlanImplementationLaunchCleanupStatus.Type;
 
+// Browser-facing orchestration session status. This is a projected UX state,
+// not the raw provider runtime protocol state.
 export const OrchestrationSessionStatus = Schema.Literals([
   "idle",
   "starting",
@@ -374,17 +376,20 @@ export const OrchestrationThreadActivity = Schema.Struct({
 });
 export type OrchestrationThreadActivity = typeof OrchestrationThreadActivity.Type;
 
-const OrchestrationLatestTurnState = Schema.Literals([
+export const OrchestrationTurnStatus = Schema.Literals([
   "running",
   "interrupted",
   "completed",
   "error",
 ]);
-export type OrchestrationLatestTurnState = typeof OrchestrationLatestTurnState.Type;
+export type OrchestrationTurnStatus = typeof OrchestrationTurnStatus.Type;
+
+export const OrchestrationLatestTurnState = OrchestrationTurnStatus;
+export type OrchestrationLatestTurnState = OrchestrationTurnStatus;
 
 export const OrchestrationLatestTurn = Schema.Struct({
   turnId: TurnId,
-  state: OrchestrationLatestTurnState,
+  state: OrchestrationTurnStatus,
   requestedAt: IsoDateTime,
   startedAt: Schema.NullOr(IsoDateTime),
   completedAt: Schema.NullOr(IsoDateTime),
@@ -451,6 +456,8 @@ export const OrchestrationPlanImplementationLaunch = Schema.Struct({
 export type OrchestrationPlanImplementationLaunch =
   typeof OrchestrationPlanImplementationLaunch.Type;
 
+// Legacy command-surface scheduling/workspace options still exist on the write
+// path until the orchestrator refactor deletes the old command set.
 export const OrchestrationSwarmSchedulerMode = Schema.Literals(["automatic", "semi-automatic"]);
 export type OrchestrationSwarmSchedulerMode = typeof OrchestrationSwarmSchedulerMode.Type;
 export const DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE: OrchestrationSwarmSchedulerMode =
@@ -461,27 +468,28 @@ export type OrchestrationSwarmWorkspaceMode = typeof OrchestrationSwarmWorkspace
 export const DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE: OrchestrationSwarmWorkspaceMode = "shared";
 
 export const OrchestrationSwarmRunStatus = Schema.Literals([
-  "requested",
+  "pending",
   "running",
-  "idle",
-  "paused",
-  "blocked",
+  "stopping",
+  "stopped",
   "failed",
-  "cancelled",
   "completed",
 ]);
 export type OrchestrationSwarmRunStatus = typeof OrchestrationSwarmRunStatus.Type;
 
 export const OrchestrationSwarmTaskExecutionStatus = Schema.Literals([
-  "requested",
-  "active",
+  "launching",
+  "running",
+  "stopping",
+  "stopped",
   "completed",
   "failed",
-  "cancelled",
 ]);
 export type OrchestrationSwarmTaskExecutionStatus =
   typeof OrchestrationSwarmTaskExecutionStatus.Type;
 
+// Legacy blocked-context command/event payloads still exist until the
+// orchestrator refactor removes the old blocked-state write path.
 export const OrchestrationSwarmRunBlockedKind = Schema.Literals([
   "tracker_waiting",
   "worker_failure",
@@ -496,34 +504,47 @@ export const OrchestrationSwarmRunBlockedContext = Schema.Struct({
 });
 export type OrchestrationSwarmRunBlockedContext = typeof OrchestrationSwarmRunBlockedContext.Type;
 
+export const OrchestrationSwarmFailureKind = Schema.Literals([
+  "launch_failure",
+  "worker_failure",
+  "issue_incomplete",
+  "environment_failure",
+  "invariant_violation",
+]);
+export type OrchestrationSwarmFailureKind = typeof OrchestrationSwarmFailureKind.Type;
+
+export const OrchestrationSwarmFailureContext = Schema.Struct({
+  kind: OrchestrationSwarmFailureKind,
+  message: TrimmedNonEmptyString,
+  issueId: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  executionId: Schema.NullOr(SwarmTaskExecutionId).pipe(Schema.withDecodingDefault(() => null)),
+  workerThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
+});
+export type OrchestrationSwarmFailureContext = typeof OrchestrationSwarmFailureContext.Type;
+
+export const OrchestrationSwarmWorkspaceKey = TrimmedNonEmptyString;
+export type OrchestrationSwarmWorkspaceKey = typeof OrchestrationSwarmWorkspaceKey.Type;
+export const DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_KEY: OrchestrationSwarmWorkspaceKey = "shared";
+
 export const OrchestrationSwarmRun = Schema.Struct({
   runId: SwarmRunId,
   projectId: ProjectId,
   epicIssueId: TrimmedNonEmptyString,
   status: OrchestrationSwarmRunStatus,
-  schedulerMode: OrchestrationSwarmSchedulerMode.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE),
-  ),
-  workspaceMode: OrchestrationSwarmWorkspaceMode.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE),
-  ),
   provider: Schema.NullOr(ProviderKind),
   model: Schema.NullOr(TrimmedNonEmptyString),
   modelOptions: Schema.NullOr(ProviderModelOptions),
   providerOptions: Schema.NullOr(ProviderStartOptions),
   assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
-  lastError: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
-  requestedAt: IsoDateTime,
-  startedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
-  idledAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
-  pausedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
-  blockedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
-  blockedContext: Schema.NullOr(OrchestrationSwarmRunBlockedContext).pipe(
+  failureContext: Schema.NullOr(OrchestrationSwarmFailureContext).pipe(
     Schema.withDecodingDefault(() => null),
   ),
+  requestedAt: IsoDateTime,
+  startedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  stopRequestedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  stoppedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
   failedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
-  cancelledAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
   completedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
   updatedAt: IsoDateTime,
 });
@@ -536,16 +557,19 @@ export const OrchestrationSwarmTaskExecution = Schema.Struct({
   workerThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
   sequenceNumber: NonNegativeInt,
   status: OrchestrationSwarmTaskExecutionStatus,
-  originalStatus: TrimmedNonEmptyString.pipe(Schema.withDecodingDefault(() => "open")),
-  originalAssignee: Schema.NullOr(TrimmedNonEmptyString).pipe(
+  workspaceKey: OrchestrationSwarmWorkspaceKey.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_KEY),
+  ),
+  workspacePath: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  failureContext: Schema.NullOr(OrchestrationSwarmFailureContext).pipe(
     Schema.withDecodingDefault(() => null),
   ),
-  lastError: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
   requestedAt: IsoDateTime,
   startedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  stopRequestedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  stoppedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
   completedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
   failedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
-  cancelledAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
   updatedAt: IsoDateTime,
 });
 export type OrchestrationSwarmTaskExecution = typeof OrchestrationSwarmTaskExecution.Type;
@@ -1774,6 +1798,8 @@ export const ThreadTurnDiff = TurnCountRange.mapFields(
   { unsafePreserveChecks: true },
 );
 
+// Persisted provider-session runtime process status. This tracks the server's
+// process lifecycle and is intentionally narrower than OrchestrationSessionStatus.
 export const ProviderSessionRuntimeStatus = Schema.Literals([
   "starting",
   "running",
@@ -1782,13 +1808,8 @@ export const ProviderSessionRuntimeStatus = Schema.Literals([
 ]);
 export type ProviderSessionRuntimeStatus = typeof ProviderSessionRuntimeStatus.Type;
 
-const ProjectionThreadTurnStatus = Schema.Literals([
-  "running",
-  "completed",
-  "interrupted",
-  "error",
-]);
-export type ProjectionThreadTurnStatus = typeof ProjectionThreadTurnStatus.Type;
+const ProjectionThreadTurnStatus = OrchestrationTurnStatus;
+export type ProjectionThreadTurnStatus = OrchestrationTurnStatus;
 
 const ProjectionCheckpointRow = Schema.Struct({
   threadId: ThreadId,

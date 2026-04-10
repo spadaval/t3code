@@ -287,19 +287,16 @@ export function describeDisabledEpicCoordinatorAction(input: {
     );
   }
 
-  if (input.epic.primaryAction.kind === "run_next_swarm_task") {
+  if (input.epic.primaryAction.kind === "stop_swarm") {
     const executionBlocking = deriveExecutionBlocking(input.epic.status);
-    if (executionBlocking.externalBlockedIssues.length > 0) {
-      return `Externally blocked issues must be resolved before continuing: ${summarizeIssueIds(executionBlocking.externalBlockedIssues)}.`;
-    }
-    if (executionBlocking.unknownBlockedIssues.length > 0) {
-      return `Blocked issues with unknown provenance must be resolved before continuing: ${summarizeIssueIds(executionBlocking.unknownBlockedIssues)}.`;
-    }
     if ((input.epic.status?.active.length ?? 0) > 0) {
-      return `Beads still reports active work for this epic: ${summarizeIssueIds(input.epic.status?.active ?? [])}.`;
+      return `Wait for Beads to reconcile active work for this epic: ${summarizeIssueIds(input.epic.status?.active ?? [])}.`;
     }
-    if ((input.epic.status?.blocked.length ?? 0) > 0) {
-      return `Beads still reports blocked work for this epic: ${summarizeIssueIds(input.epic.status?.blocked ?? [])}.`;
+    if (
+      executionBlocking.externalBlockedIssues.length > 0 ||
+      executionBlocking.unknownBlockedIssues.length > 0
+    ) {
+      return "Blocked tracker work does not prevent opening the coordinator.";
     }
   }
 
@@ -374,7 +371,6 @@ export function partitionCoordinatorEpics<T extends object>(
       !item.coordinationSupported ||
       item.validationState === "invalid" ||
       item.projectConflict !== null ||
-      activeRun?.status === "blocked" ||
       activeRun?.status === "failed"
     ) {
       needsAttention.push(item);

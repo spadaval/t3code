@@ -33,24 +33,19 @@ function run(runId: string, overrides: Partial<OrchestrationSwarmRun> = {}): Orc
     runId: runId as never,
     projectId: "project-1" as never,
     epicIssueId: `EPIC-${runId}`,
-    status: "requested",
-    schedulerMode: "automatic",
-    workspaceMode: "shared",
+    status: "pending",
     provider: "codex",
     model: "gpt-5-codex",
     modelOptions: null,
     providerOptions: null,
     assistantDeliveryMode: null,
     runtimeMode: "full-access",
-    lastError: null,
+    failureContext: null,
     requestedAt: `2026-04-06T00:00:0${runId.at(-1) ?? "0"}.000Z`,
     startedAt: null,
-    idledAt: null,
-    pausedAt: null,
-    blockedAt: null,
-    blockedContext: null,
+    stopRequestedAt: null,
+    stoppedAt: null,
     failedAt: null,
-    cancelledAt: null,
     completedAt: null,
     updatedAt: `2026-04-06T00:00:0${runId.at(-1) ?? "0"}.000Z`,
     ...overrides,
@@ -67,15 +62,16 @@ function execution(
     issueId: `TASK-${executionId}`,
     workerThreadId: null,
     sequenceNumber: Number(executionId.replace(/\D/g, "")) || 1,
-    status: "requested",
-    originalStatus: "open",
-    originalAssignee: null,
-    lastError: null,
+    status: "launching",
+    workspaceKey: "shared",
+    workspacePath: null,
+    failureContext: null,
     requestedAt: `2026-04-06T00:00:0${executionId.replace(/\D/g, "") || "1"}.000Z`,
     startedAt: null,
+    stopRequestedAt: null,
+    stoppedAt: null,
     completedAt: null,
     failedAt: null,
-    cancelledAt: null,
     updatedAt: `2026-04-06T00:00:0${executionId.replace(/\D/g, "") || "1"}.000Z`,
     ...overrides,
   };
@@ -88,7 +84,14 @@ describe("swarmSchedulerPolicy", () => {
       updatedAt: "2026-04-06T00:00:10.000Z",
     });
     const loser = run("run-1", {
-      status: "blocked",
+      status: "failed",
+      failureContext: {
+        kind: "worker_failure",
+        message: "worker failed",
+        issueId: null,
+        executionId: null,
+        workerThreadId: null,
+      },
       updatedAt: "2026-04-06T00:00:05.000Z",
     });
 
@@ -130,10 +133,10 @@ describe("swarmSchedulerPolicy", () => {
 
     expect(invariant.nonTerminalExecutions).toHaveLength(2);
     expect(invariant.violationReason).toContain(
-      "exec-1 [status=requested, issue=TASK-1, worker=thread-1]",
+      "exec-1 [status=launching, issue=TASK-1, worker=thread-1]",
     );
     expect(invariant.violationReason).toContain(
-      "exec-2 [status=requested, issue=TASK-2, worker=thread-2]",
+      "exec-2 [status=launching, issue=TASK-2, worker=thread-2]",
     );
   });
 
@@ -208,11 +211,9 @@ describe("swarmSchedulerPolicy", () => {
       status: "completed",
       completedAt: "2026-04-06T00:01:00.000Z",
     });
-    const semiAutomaticRun = run("run-1", { schedulerMode: "semi-automatic" });
-
     expect(
       shouldIdleSemiAutomaticRun({
-        run: semiAutomaticRun,
+        schedulerMode: "semi-automatic",
         latestExecution,
         trigger: "execution_settled",
       }),
@@ -220,7 +221,7 @@ describe("swarmSchedulerPolicy", () => {
 
     expect(
       shouldIdleSemiAutomaticRun({
-        run: semiAutomaticRun,
+        schedulerMode: "semi-automatic",
         latestExecution,
         trigger: "periodic_reconcile",
       }),
@@ -228,7 +229,7 @@ describe("swarmSchedulerPolicy", () => {
 
     expect(
       shouldIdleSemiAutomaticRun({
-        run: semiAutomaticRun,
+        schedulerMode: "semi-automatic",
         latestExecution,
         trigger: "manual_run_next",
       }),
@@ -236,7 +237,7 @@ describe("swarmSchedulerPolicy", () => {
 
     expect(
       shouldIdleSemiAutomaticRun({
-        run: semiAutomaticRun,
+        schedulerMode: "semi-automatic",
         latestExecution,
         trigger: "manual_start",
       }),

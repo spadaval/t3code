@@ -45,6 +45,8 @@ const ProviderRefs = Schema.Struct({
 });
 export type ProviderRefs = typeof ProviderRefs.Type;
 
+// Raw runtime protocol session state emitted by provider runtimes. This is
+// intentionally separate from the orchestration/browser projection statuses.
 const RuntimeSessionState = Schema.Literals([
   "starting",
   "ready",

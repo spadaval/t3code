@@ -57,14 +57,15 @@ function makeExecution(
     workerThreadId: null,
     sequenceNumber,
     status,
-    originalStatus: "open",
-    originalAssignee: null,
-    lastError: null,
+    workspaceKey: "shared",
+    workspacePath: null,
+    failureContext: null,
     requestedAt: `2026-04-06T00:00:0${sequenceNumber}.000Z`,
-    startedAt: status === "requested" ? null : `2026-04-06T00:00:0${sequenceNumber}.000Z`,
+    startedAt: status === "launching" ? null : `2026-04-06T00:00:0${sequenceNumber}.000Z`,
+    stopRequestedAt: null,
+    stoppedAt: status === "stopped" ? `2026-04-06T00:00:1${sequenceNumber}.000Z` : null,
     completedAt: status === "completed" ? `2026-04-06T00:00:1${sequenceNumber}.000Z` : null,
     failedAt: status === "failed" ? `2026-04-06T00:00:1${sequenceNumber}.000Z` : null,
-    cancelledAt: status === "cancelled" ? `2026-04-06T00:00:1${sequenceNumber}.000Z` : null,
     updatedAt: `2026-04-06T00:00:2${sequenceNumber}.000Z`,
   };
 }
@@ -77,24 +78,19 @@ function makeRun(
     runId: runId as SwarmRunId,
     projectId: "project-1" as never,
     epicIssueId: "EPIC-1",
-    status: "requested",
-    schedulerMode: "automatic",
-    workspaceMode: "shared",
+    status: "pending",
     provider: "codex",
     model: "gpt-5.4",
     modelOptions: null,
     providerOptions: null,
     assistantDeliveryMode: null,
     runtimeMode: "full-access",
-    lastError: null,
+    failureContext: null,
     requestedAt: "2026-04-06T00:00:00.000Z",
     startedAt: null,
-    idledAt: null,
-    pausedAt: null,
-    blockedAt: null,
-    blockedContext: null,
+    stopRequestedAt: null,
+    stoppedAt: null,
     failedAt: null,
-    cancelledAt: null,
     completedAt: null,
     updatedAt: "2026-04-06T00:00:00.000Z",
     ...overrides,
@@ -275,9 +271,9 @@ describe("swarm", () => {
       deriveSwarmRunExecutionState({
         runId,
         executions: [
-          makeExecution("execution-2", runId, 2, "active"),
+          makeExecution("execution-2", runId, 2, "running"),
           makeExecution("execution-1", runId, 1, "completed"),
-          makeExecution("execution-3", "run-2" as SwarmRunId, 1, "active"),
+          makeExecution("execution-3", "run-2" as SwarmRunId, 1, "running"),
         ],
       }),
     ).toMatchObject({
@@ -295,8 +291,8 @@ describe("swarm", () => {
       deriveSwarmRunExecutionState({
         runId,
         executions: [
-          makeExecution("execution-2", runId, 2, "requested"),
-          makeExecution("execution-1", runId, 1, "active"),
+          makeExecution("execution-2", runId, 2, "launching"),
+          makeExecution("execution-1", runId, 1, "running"),
         ],
       }),
     ).toMatchObject({
@@ -308,8 +304,8 @@ describe("swarm", () => {
       deriveSwarmRunExecutionState({
         runId,
         executions: [
-          makeExecution("execution-2", runId, 2, "requested"),
-          makeExecution("execution-1", runId, 1, "active"),
+          makeExecution("execution-2", runId, 2, "launching"),
+          makeExecution("execution-1", runId, 1, "running"),
         ],
       }).nonTerminalExecutions.map((execution) => execution.executionId),
     ).toEqual(["execution-1", "execution-2"]);
@@ -317,7 +313,7 @@ describe("swarm", () => {
 
   it("selects the most relevant run and identifies shared-workspace conflicts", () => {
     const requested = makeRun("run-requested", {
-      status: "requested",
+      status: "pending",
       updatedAt: "2026-04-06T00:00:03.000Z",
     });
     const completed = makeRun("run-completed", {
@@ -388,14 +384,17 @@ describe("swarm", () => {
     expect(listSwarmRuns(blocked)).toEqual([
       expect.objectContaining({
         runId: "run-1",
-        status: "blocked",
-        lastError: "worker exited",
+        status: "failed",
+        failureContext: expect.objectContaining({
+          message: "worker exited",
+          kind: "worker_failure",
+        }),
       }),
     ]);
     expect(listSwarmTaskExecutions(blocked)).toEqual([
       expect.objectContaining({
         executionId: "execution-1",
-        status: "active",
+        status: "running",
         issueId: "unknown-task",
       }),
     ]);
@@ -409,7 +408,7 @@ describe("swarm", () => {
         validation: makeSwarmValidation(),
         swarmRuns: [
           makeRun("run-requested", {
-            status: "requested",
+            status: "pending",
             updatedAt: "2026-04-06T00:00:03.000Z",
           }),
         ],
@@ -417,7 +416,7 @@ describe("swarm", () => {
       }),
     ).toEqual({
       kind: "running",
-      latestRun: expect.objectContaining({ runId: "run-requested", status: "requested" }),
+      latestRun: expect.objectContaining({ runId: "run-requested", status: "pending" }),
       fetchLifecycle: { kind: "ready", detail: null },
     });
   });
@@ -503,7 +502,7 @@ describe("swarm", () => {
     ).toBe("blocked");
   });
 
-  it("keeps coordinator actions aligned for recoverable blocked runs", () => {
+  it("opens the coordinator for failed runs", () => {
     expect(
       getEpicSwarmCoordinatorPrimaryAction({
         swarmSupport: makeSwarmSupport(),
@@ -513,9 +512,10 @@ describe("swarm", () => {
         }),
         swarmRuns: [
           makeRun("run-blocked", {
-            status: "blocked",
-            blockedContext: {
+            status: "failed",
+            failureContext: {
               kind: "worker_failure",
+              message: "worker exited",
               issueId: "TASK-1",
               executionId: "execution-1" as never,
               workerThreadId: null,
@@ -526,9 +526,9 @@ describe("swarm", () => {
         fetchLifecycle: { kind: "ready", detail: null },
       }),
     ).toEqual({
-      kind: "run_next_swarm_task",
-      label: "Run next task",
-      busyLabel: "Running...",
+      kind: "open_coordinator",
+      label: "Open epic",
+      busyLabel: "Opening...",
       disabled: false,
     });
   });
@@ -581,25 +581,25 @@ describe("swarm", () => {
     });
   });
 
-  it("returns resume for paused runs and coordinator access for cancelled runs", () => {
+  it("returns stop for running runs and coordinator access for stopped runs", () => {
     expect(
       getEpicSwarmCoordinatorPrimaryAction({
         swarmSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
         swarmRuns: [
-          makeRun("run-paused", {
-            status: "paused",
-            pausedAt: "2026-04-06T00:00:02.000Z",
+          makeRun("run-running", {
+            status: "running",
+            startedAt: "2026-04-06T00:00:02.000Z",
           }),
         ],
         hasProjectConflict: false,
         fetchLifecycle: { kind: "ready", detail: null },
       }),
     ).toEqual({
-      kind: "resume_paused_swarm_run",
-      label: "Resume epic",
-      busyLabel: "Resuming...",
+      kind: "stop_swarm",
+      label: "Stop run",
+      busyLabel: "Stopping...",
       disabled: false,
     });
 
@@ -609,9 +609,9 @@ describe("swarm", () => {
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
         swarmRuns: [
-          makeRun("run-cancelled", {
-            status: "cancelled",
-            cancelledAt: "2026-04-06T00:00:02.000Z",
+          makeRun("run-stopped", {
+            status: "stopped",
+            stoppedAt: "2026-04-06T00:00:02.000Z",
           }),
         ],
         hasProjectConflict: false,
@@ -625,10 +625,11 @@ describe("swarm", () => {
     });
   });
 
-  it("clears cancelled metadata when a cancelled run resumes", () => {
+  it("clears stop metadata when a stopped run resumes", () => {
     const cancelled = makeRun("run-cancelled", {
-      status: "cancelled",
-      cancelledAt: "2026-04-06T00:00:02.000Z",
+      status: "stopped",
+      stopRequestedAt: "2026-04-06T00:00:02.000Z",
+      stoppedAt: "2026-04-06T00:00:02.000Z",
       updatedAt: "2026-04-06T00:00:02.000Z",
     });
 
@@ -644,8 +645,8 @@ describe("swarm", () => {
     ).toMatchObject({
       runId: "run-cancelled",
       status: "running",
-      cancelledAt: null,
-      blockedContext: null,
+      stopRequestedAt: null,
+      stoppedAt: null,
     });
   });
 

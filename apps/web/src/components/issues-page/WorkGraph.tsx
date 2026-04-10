@@ -46,20 +46,16 @@ import { WorkerActivityFeed } from "./WorkerActivityFeed";
 
 function formatRunStatus(status: OrchestrationSwarmRun["status"]): string {
   switch (status) {
-    case "requested":
-      return "Requested";
+    case "pending":
+      return "Pending";
     case "running":
       return "Running";
-    case "idle":
-      return "Idle";
-    case "paused":
-      return "Paused";
-    case "blocked":
-      return "Blocked";
+    case "stopping":
+      return "Stopping";
+    case "stopped":
+      return "Stopped";
     case "failed":
       return "Failed";
-    case "cancelled":
-      return "Cancelled";
     case "completed":
       return "Completed";
   }
@@ -67,16 +63,18 @@ function formatRunStatus(status: OrchestrationSwarmRun["status"]): string {
 
 function formatExecutionStatus(status: OrchestrationSwarmTaskExecution["status"]): string {
   switch (status) {
-    case "requested":
-      return "Requested";
-    case "active":
-      return "Active";
+    case "launching":
+      return "Launching";
+    case "running":
+      return "Running";
+    case "stopping":
+      return "Stopping";
+    case "stopped":
+      return "Stopped";
     case "completed":
       return "Completed";
     case "failed":
       return "Failed";
-    case "cancelled":
-      return "Cancelled";
   }
 }
 
@@ -87,11 +85,10 @@ function runStatusBadgeVariant(
     case "completed":
       return "success";
     case "failed":
-    case "cancelled":
       return "error";
-    case "blocked":
-    case "paused":
+    case "stopped":
       return "warning";
+    case "stopping":
     case "running":
       return "info";
     default:
@@ -106,9 +103,10 @@ function executionStatusBadgeVariant(
     case "completed":
       return "success";
     case "failed":
-    case "cancelled":
       return "error";
-    case "active":
+    case "stopped":
+      return "warning";
+    case "running":
       return "info";
     default:
       return "neutral";
@@ -308,7 +306,9 @@ function RunHistoryPopover(props: {
                   <td className="py-2 pr-3 text-muted-foreground">
                     {run.runId === props.activeRunId ? "Active" : "History"}
                   </td>
-                  <td className="py-2 pr-3 text-muted-foreground">{run.schedulerMode}</td>
+                  <td className="py-2 pr-3 text-muted-foreground">
+                    {run.failureContext?.kind ?? "\u2014"}
+                  </td>
                   <td className="py-2 pr-3 tabular-nums text-muted-foreground">
                     {run.startedAt ? formatRelativeTimeLabel(run.startedAt) : "\u2014"}
                   </td>
@@ -316,7 +316,7 @@ function RunHistoryPopover(props: {
                     {formatRelativeTimeLabel(run.updatedAt)}
                   </td>
                   <td className="max-w-48 truncate py-2 text-destructive">
-                    {run.lastError ?? "\u2014"}
+                    {run.failureContext?.message ?? "\u2014"}
                   </td>
                 </tr>
               ))}
@@ -401,9 +401,9 @@ function WorkGraphRunSectionView(props: {
       </button>
 
       {/* Run error (shown below header when expanded) */}
-      {section.run?.lastError && !collapsed ? (
+      {section.run?.failureContext?.message && !collapsed ? (
         <div className="mt-1.5 rounded border border-destructive/20 bg-destructive/5 px-2.5 py-1.5 text-xs text-destructive">
-          {section.run.lastError}
+          {section.run.failureContext.message}
         </div>
       ) : null}
 
@@ -565,7 +565,7 @@ function WorkGraphRow(props: {
   const { latestExecution, isActiveWorker } = node;
   const hasFailed =
     latestExecution !== null &&
-    (latestExecution.status === "failed" || latestExecution.status === "cancelled");
+    (latestExecution.status === "failed" || latestExecution.status === "stopped");
 
   return (
     <div
@@ -812,9 +812,9 @@ function WorkGraphRowDetail(props: {
                       {formatRelativeTimeLabel(exec.startedAt)}
                     </span>
                   ) : null}
-                  {exec.lastError ? (
+                  {exec.failureContext?.message ? (
                     <span className="min-w-0 flex-1 truncate text-destructive">
-                      {exec.lastError}
+                      {exec.failureContext.message}
                     </span>
                   ) : null}
                   {exec.workerThreadId ? (
@@ -870,9 +870,9 @@ function WorkGraphRowDetail(props: {
       ) : null}
 
       {/* Latest error (prominent display) */}
-      {node.latestExecution?.lastError ? (
+      {node.latestExecution?.failureContext?.message ? (
         <div className="rounded border border-destructive/20 bg-destructive/5 px-2.5 py-2 text-xs text-destructive">
-          {node.latestExecution.lastError}
+          {node.latestExecution.failureContext.message}
         </div>
       ) : null}
     </div>

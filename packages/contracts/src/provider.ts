@@ -23,6 +23,8 @@ import {
   RuntimeMode,
 } from "./orchestration";
 
+// ProviderSession is the provider-facing session API contract. Its statuses
+// model client/provider connection semantics rather than orchestration state.
 const ProviderSessionStatus = Schema.Literals([
   "connecting",
   "ready",

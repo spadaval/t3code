@@ -165,49 +165,24 @@ function deriveEpicPrimaryAction(input: {
 
   if (input.activeRun !== null) {
     switch (input.activeRun.status) {
-      case "paused":
+      case "running":
         return {
-          kind: "resume_paused_swarm_run",
-          label: "Resume run",
-          busyLabel: "Resuming...",
+          kind: "stop_swarm",
+          label: "Stop run",
+          busyLabel: "Stopping...",
           disabled: false,
         };
-      case "idle":
-        if (input.activeRun.schedulerMode === "semi-automatic") {
-          return {
-            kind: "run_next_swarm_task",
-            label: "Run next task",
-            busyLabel: "Running...",
-            disabled: false,
-          };
-        }
+      case "pending":
+      case "stopping":
         return {
           kind: "open_coordinator",
           label: "Open epic",
           busyLabel: "Opening...",
           disabled: false,
         };
-      case "blocked": {
-        const canContinue =
-          input.validationState === "valid" &&
-          !executionBlocking.hasExecutionBlockingIssues &&
-          ((input.status?.ready.length ?? 0) > 0 || (input.status?.active.length ?? 0) === 0);
-        if (input.activeRun.blockedContext?.kind === "worker_failure") {
-          return {
-            kind: "run_next_swarm_task",
-            label: "Run next task",
-            busyLabel: "Running...",
-            disabled: !canContinue,
-          };
-        }
-        return {
-          kind: "open_coordinator",
-          label: "Open epic",
-          busyLabel: "Opening...",
-          disabled: false,
-        };
-      }
-      default:
+      case "stopped":
+      case "failed":
+      case "completed":
         return {
           kind: "open_coordinator",
           label: "Open epic",
@@ -265,7 +240,9 @@ function deriveIntegrityError(input: {
   const nonTerminalExecutions = input.executions.filter(
     (execution) =>
       execution.runId === activeRun.runId &&
-      (execution.status === "requested" || execution.status === "active"),
+      (execution.status === "launching" ||
+        execution.status === "running" ||
+        execution.status === "stopping"),
   );
   if (nonTerminalExecutions.length > 1) {
     return `Coordinator integrity error for ${input.epicId}: run '${activeRun.runId}' has multiple non-terminal executions.`;

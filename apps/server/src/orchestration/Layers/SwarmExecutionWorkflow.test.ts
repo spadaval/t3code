@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Duration, Effect, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 

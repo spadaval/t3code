@@ -49,10 +49,6 @@ function formatDuration(startIso: string, endIso: string): string {
   return `${minutes}m ${seconds}s`;
 }
 
-function formatSchedulerMode(mode: OrchestrationSwarmRun["schedulerMode"]): string {
-  return mode === "semi-automatic" ? "semi-automatic" : "automatic";
-}
-
 // ---------------------------------------------------------------------------
 // Run lifecycle entries
 // ---------------------------------------------------------------------------
@@ -66,7 +62,7 @@ export function runEntries(run: OrchestrationSwarmRun): CoordinatorLogEntry[] {
     key: `run-requested:${run.runId}`,
     timestamp: run.requestedAt,
     kind: "run.requested",
-    summary: `Run requested (${formatSchedulerMode(run.schedulerMode)})`,
+    summary: "Run requested",
     tone: "info",
   });
 
@@ -81,46 +77,14 @@ export function runEntries(run: OrchestrationSwarmRun): CoordinatorLogEntry[] {
     });
   }
 
-  if (run.idledAt) {
+  if (run.stopRequestedAt && run.status === "stopping") {
     entries.push({
       ...base,
-      key: `run-idled:${run.runId}`,
-      timestamp: run.idledAt,
-      kind: "run.idled",
-      summary: "Run idle — waiting for manual trigger",
-      tone: "info",
-    });
-  }
-
-  if (run.pausedAt) {
-    entries.push({
-      ...base,
-      key: `run-paused:${run.runId}`,
-      timestamp: run.pausedAt,
-      kind: "run.paused",
-      summary: "Run paused by user",
+      key: `run-stopping:${run.runId}`,
+      timestamp: run.stopRequestedAt,
+      kind: "run.stopping",
+      summary: "Run stopping",
       tone: "warning",
-    });
-  }
-
-  if (run.blockedAt) {
-    const reason =
-      run.blockedContext?.kind === "worker_failure"
-        ? "Worker failed"
-        : run.blockedContext?.kind === "tracker_waiting"
-          ? "Waiting on tracker"
-          : "Manual intervention needed";
-    entries.push({
-      ...base,
-      key: `run-blocked:${run.runId}`,
-      timestamp: run.blockedAt,
-      kind: "run.blocked",
-      summary: `Run blocked: ${reason}`,
-      detail: run.lastError ?? undefined,
-      tone: "error",
-      issueId: run.blockedContext?.issueId ?? undefined,
-      executionId: run.blockedContext?.executionId ?? undefined,
-      workerThreadId: (run.blockedContext?.workerThreadId as ThreadId) ?? undefined,
     });
   }
 
@@ -131,18 +95,21 @@ export function runEntries(run: OrchestrationSwarmRun): CoordinatorLogEntry[] {
       timestamp: run.failedAt,
       kind: "run.failed",
       summary: "Run failed",
-      detail: run.lastError ?? undefined,
+      detail: run.failureContext?.message ?? undefined,
       tone: "error",
+      issueId: run.failureContext?.issueId ?? undefined,
+      executionId: run.failureContext?.executionId ?? undefined,
+      workerThreadId: run.failureContext?.workerThreadId ?? undefined,
     });
   }
 
-  if (run.cancelledAt) {
+  if (run.stoppedAt) {
     entries.push({
       ...base,
-      key: `run-cancelled:${run.runId}`,
-      timestamp: run.cancelledAt,
-      kind: "run.cancelled",
-      summary: "Run cancelled",
+      key: `run-stopped:${run.runId}`,
+      timestamp: run.stoppedAt,
+      kind: "run.stopped",
+      summary: "Run stopped",
       tone: "warning",
     });
   }
@@ -181,7 +148,7 @@ export function executionEntries(exec: OrchestrationSwarmTaskExecution): Coordin
     key: `exec-requested:${exec.executionId}`,
     timestamp: exec.requestedAt,
     kind: "execution.requested",
-    summary: `Task ${seq} requested: ${exec.issueId}`,
+    summary: `Task ${seq} queued: ${exec.issueId}`,
     tone: "info",
   });
 
@@ -216,18 +183,18 @@ export function executionEntries(exec: OrchestrationSwarmTaskExecution): Coordin
       timestamp: exec.failedAt,
       kind: "execution.failed",
       summary: `Task ${seq} failed: ${exec.issueId}${duration}`,
-      detail: exec.lastError ?? undefined,
+      detail: exec.failureContext?.message ?? undefined,
       tone: "error",
     });
   }
 
-  if (exec.cancelledAt) {
+  if (exec.stoppedAt) {
     entries.push({
       ...base,
-      key: `exec-cancelled:${exec.executionId}`,
-      timestamp: exec.cancelledAt,
-      kind: "execution.cancelled",
-      summary: `Task ${seq} cancelled: ${exec.issueId}`,
+      key: `exec-stopped:${exec.executionId}`,
+      timestamp: exec.stoppedAt,
+      kind: "execution.stopped",
+      summary: `Task ${seq} stopped: ${exec.issueId}`,
       tone: "warning",
     });
   }

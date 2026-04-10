@@ -1,5 +1,6 @@
 import type {
   BeadsIssueRelationSummary,
+  OrchestrationSwarmSchedulerMode,
   OrchestrationSwarmRun,
   OrchestrationSwarmTaskExecution,
   SwarmRunId,
@@ -166,11 +167,11 @@ export function describeRetryIssueNotLiveReady(input: {
 }
 
 export function shouldIdleSemiAutomaticRun(input: {
-  readonly run: Pick<OrchestrationSwarmRun, "schedulerMode">;
+  readonly schedulerMode?: OrchestrationSwarmSchedulerMode | null;
   readonly latestExecution: OrchestrationSwarmTaskExecution | null;
   readonly trigger: SwarmSchedulerTrigger;
 }): boolean {
-  if (input.run.schedulerMode !== "semi-automatic") {
+  if (input.schedulerMode !== "semi-automatic") {
     return false;
   }
 

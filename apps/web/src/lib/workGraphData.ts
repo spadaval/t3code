@@ -246,7 +246,7 @@ function computeSummary(nodes: readonly WorkGraphIssueNode[]): WorkGraphRunSecti
     else if (node.status === "active") active++;
     if (
       node.latestExecution !== null &&
-      (node.latestExecution.status === "failed" || node.latestExecution.status === "cancelled")
+      (node.latestExecution.status === "failed" || node.latestExecution.status === "stopped")
     ) {
       failed++;
     }
@@ -442,8 +442,9 @@ export function buildWorkGraphData(
       const latestExec = issueExecs[0]!;
       let histStatus: WorkGraphIssueStatus;
       if (latestExec.status === "completed") histStatus = "completed";
-      else if (latestExec.status === "active") histStatus = "active";
-      else if (latestExec.status === "failed" || latestExec.status === "cancelled")
+      else if (latestExec.status === "running" || latestExec.status === "launching")
+        histStatus = "active";
+      else if (latestExec.status === "failed" || latestExec.status === "stopped")
         histStatus = "blocked";
       else histStatus = "ready";
 

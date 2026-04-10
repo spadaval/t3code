@@ -710,7 +710,7 @@ it.effect("decodes swarm run history rows with null defaults", () =>
       runId: "run-1",
       projectId: "project-1",
       epicIssueId: "EPIC-1",
-      status: "requested",
+      status: "pending",
       requestedAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
       provider: null,
@@ -719,7 +719,8 @@ it.effect("decodes swarm run history rows with null defaults", () =>
       providerOptions: null,
       assistantDeliveryMode: null,
     });
-    assert.strictEqual(parsed.lastError, null);
+    assert.strictEqual(parsed.failureContext, null);
+    assert.strictEqual(parsed.stopRequestedAt, null);
   }),
 );
 
@@ -731,15 +732,15 @@ it.effect("decodes swarm task execution history rows", () =>
       issueId: "TASK-1",
       workerThreadId: "thread-9",
       sequenceNumber: 0,
-      status: "active",
-      originalStatus: "open",
-      originalAssignee: "issue-owner",
+      status: "running",
+      workspaceKey: "shared",
+      workspacePath: null,
       requestedAt: "2026-01-01T00:00:00.000Z",
       startedAt: "2026-01-01T00:00:01.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(parsed.workerThreadId, "thread-9");
-    assert.strictEqual(parsed.lastError, null);
+    assert.strictEqual(parsed.failureContext, null);
     assert.strictEqual(parsed.completedAt, null);
   }),
 );

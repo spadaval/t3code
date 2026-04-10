@@ -4,6 +4,7 @@ import {
   type ChatAttachment,
   type OrchestrationEvent,
 } from "@t3tools/contracts";
+import { createSwarmFailureContext } from "@t3tools/shared/swarm";
 import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -756,24 +757,19 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             runId: event.payload.runId,
             projectId: event.payload.projectId,
             epicIssueId: event.payload.epicIssueId,
-            status: "requested",
-            schedulerMode: event.payload.schedulerMode,
-            workspaceMode: event.payload.workspaceMode,
+            status: "pending",
             provider: event.payload.provider,
             model: event.payload.model,
             modelOptions: event.payload.modelOptions,
             providerOptions: event.payload.providerOptions,
             assistantDeliveryMode: event.payload.assistantDeliveryMode,
             runtimeMode: event.payload.runtimeMode,
-            lastError: null,
+            failureContext: null,
             requestedAt: event.payload.requestedAt,
             startedAt: null,
-            idledAt: null,
-            pausedAt: null,
-            blockedAt: null,
-            blockedContext: null,
+            stopRequestedAt: null,
+            stoppedAt: null,
             failedAt: null,
-            cancelledAt: null,
             completedAt: null,
             updatedAt: event.payload.updatedAt,
           });
@@ -800,9 +796,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 ...existingRow.value,
                 status: "running",
                 startedAt: event.payload.startedAt,
-                lastError: null,
-                blockedContext: null,
-                cancelledAt: null,
+                failureContext: null,
                 updatedAt: event.payload.updatedAt,
               });
               return;
@@ -810,11 +804,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             case "swarm-run.idled":
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
-                status: "idle",
-                idledAt: event.payload.idledAt,
-                lastError: null,
-                blockedContext: null,
-                cancelledAt: null,
+                status: "running",
                 updatedAt: event.payload.updatedAt,
               });
               return;
@@ -822,11 +812,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             case "swarm-run.paused":
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
-                status: "paused",
-                pausedAt: event.payload.pausedAt,
-                lastError: null,
-                blockedContext: null,
-                cancelledAt: null,
+                status: "stopped",
+                stopRequestedAt: existingRow.value.stopRequestedAt ?? event.payload.pausedAt,
+                stoppedAt: event.payload.pausedAt,
                 updatedAt: event.payload.updatedAt,
               });
               return;
@@ -835,21 +823,33 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
                 status: "running",
-                lastError: null,
-                blockedContext: null,
-                cancelledAt: null,
+                failureContext: null,
+                stopRequestedAt: null,
+                stoppedAt: null,
                 updatedAt: event.payload.updatedAt,
               });
               return;
 
             case "swarm-run.blocked":
+              if (event.payload.blockedContext?.kind === "tracker_waiting") {
+                yield* projectionSwarmRunRepository.upsert({
+                  ...existingRow.value,
+                  status: "running",
+                  updatedAt: event.payload.updatedAt,
+                });
+                return;
+              }
+
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
-                status: "blocked",
-                lastError: event.payload.reason,
-                blockedAt: event.payload.blockedAt,
-                blockedContext: event.payload.blockedContext,
-                cancelledAt: null,
+                status: "failed",
+                failureContext: createSwarmFailureContext({
+                  reason: event.payload.reason,
+                  issueId: event.payload.blockedContext?.issueId ?? null,
+                  executionId: event.payload.blockedContext?.executionId ?? null,
+                  workerThreadId: event.payload.blockedContext?.workerThreadId ?? null,
+                }),
+                failedAt: event.payload.blockedAt,
                 updatedAt: event.payload.updatedAt,
               });
               return;
@@ -858,10 +858,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
                 status: "failed",
-                lastError: event.payload.reason,
-                blockedContext: null,
+                failureContext: createSwarmFailureContext({
+                  reason: event.payload.reason,
+                }),
                 failedAt: event.payload.failedAt,
-                cancelledAt: null,
                 updatedAt: event.payload.updatedAt,
               });
               return;
@@ -869,10 +869,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             case "swarm-run.cancelled":
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
-                status: "cancelled",
-                lastError: null,
-                blockedContext: null,
-                cancelledAt: event.payload.cancelledAt,
+                status: "stopped",
+                failureContext: null,
+                stopRequestedAt: existingRow.value.stopRequestedAt ?? event.payload.cancelledAt,
+                stoppedAt: event.payload.cancelledAt,
                 updatedAt: event.payload.updatedAt,
               });
               return;
@@ -881,10 +881,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               yield* projectionSwarmRunRepository.upsert({
                 ...existingRow.value,
                 status: "completed",
-                lastError: null,
-                blockedContext: null,
+                failureContext: null,
+                stopRequestedAt: null,
+                stoppedAt: null,
                 completedAt: event.payload.completedAt,
-                cancelledAt: null,
                 updatedAt: event.payload.updatedAt,
               });
               return;
@@ -926,15 +926,16 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             issueId: event.payload.issueId,
             workerThreadId: event.payload.workerThreadId,
             sequenceNumber: event.payload.sequenceNumber,
-            status: "requested",
-            originalStatus: event.payload.originalStatus,
-            originalAssignee: event.payload.originalAssignee,
-            lastError: null,
+            status: "launching",
+            workspaceKey: "shared",
+            workspacePath: null,
+            failureContext: null,
             requestedAt: event.payload.requestedAt,
             startedAt: null,
+            stopRequestedAt: null,
+            stoppedAt: null,
             completedAt: null,
             failedAt: null,
-            cancelledAt: null,
             updatedAt: event.payload.updatedAt,
           });
           return;
@@ -958,21 +959,29 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               onNone: () => 0,
               onSome: (row) => row.sequenceNumber,
             }),
-            status: "active",
-            originalStatus: Option.match(existingRow, {
-              onNone: () => "open",
-              onSome: (row) => row.originalStatus,
+            status: "running",
+            workspaceKey: Option.match(existingRow, {
+              onNone: () => "shared",
+              onSome: (row) => row.workspaceKey,
             }),
-            originalAssignee: Option.match(existingRow, {
+            workspacePath: Option.match(existingRow, {
               onNone: () => null,
-              onSome: (row) => row.originalAssignee,
+              onSome: (row) => row.workspacePath,
             }),
-            lastError: null,
+            failureContext: null,
             requestedAt: Option.match(existingRow, {
               onNone: () => event.payload.startedAt,
               onSome: (row) => row.requestedAt,
             }),
             startedAt: event.payload.startedAt,
+            stopRequestedAt: Option.match(existingRow, {
+              onNone: () => null,
+              onSome: (row) => row.stopRequestedAt,
+            }),
+            stoppedAt: Option.match(existingRow, {
+              onNone: () => null,
+              onSome: (row) => row.stoppedAt,
+            }),
             completedAt: Option.match(existingRow, {
               onNone: () => null,
               onSome: (row) => row.completedAt,
@@ -980,10 +989,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             failedAt: Option.match(existingRow, {
               onNone: () => null,
               onSome: (row) => row.failedAt,
-            }),
-            cancelledAt: Option.match(existingRow, {
-              onNone: () => null,
-              onSome: (row) => row.cancelledAt,
             }),
             updatedAt: event.payload.updatedAt,
           });
@@ -1005,7 +1010,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               yield* projectionSwarmTaskExecutionRepository.upsert({
                 ...existingRow.value,
                 status: "completed",
-                lastError: null,
+                failureContext: null,
+                stopRequestedAt: null,
+                stoppedAt: null,
                 completedAt: event.payload.completedAt,
                 updatedAt: event.payload.updatedAt,
               });
@@ -1015,7 +1022,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               yield* projectionSwarmTaskExecutionRepository.upsert({
                 ...existingRow.value,
                 status: "failed",
-                lastError: event.payload.reason,
+                failureContext: createSwarmFailureContext({
+                  reason: event.payload.reason,
+                  issueId: existingRow.value.issueId,
+                  executionId: existingRow.value.executionId,
+                  workerThreadId: existingRow.value.workerThreadId,
+                }),
                 failedAt: event.payload.failedAt,
                 updatedAt: event.payload.updatedAt,
               });
@@ -1024,9 +1036,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             case "swarm-task-execution.cancelled":
               yield* projectionSwarmTaskExecutionRepository.upsert({
                 ...existingRow.value,
-                status: "cancelled",
-                lastError: null,
-                cancelledAt: event.payload.cancelledAt,
+                status: "stopped",
+                failureContext: null,
+                stopRequestedAt: existingRow.value.stopRequestedAt ?? event.payload.cancelledAt,
+                stoppedAt: event.payload.cancelledAt,
                 updatedAt: event.payload.updatedAt,
               });
               return;

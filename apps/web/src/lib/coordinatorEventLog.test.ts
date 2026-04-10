@@ -7,49 +7,45 @@ import { deriveCoordinatorEventLog } from "./coordinatorEventLog";
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const BASE_RUN: OrchestrationSwarmRun = {
+const BASE_RUN = {
   runId: "run-1" as never,
   projectId: "project-1" as never,
   epicIssueId: "EPIC-1",
   status: "completed",
-  schedulerMode: "semi-automatic",
-  workspaceMode: "shared",
   provider: "codex",
   model: "gpt-5",
   modelOptions: null,
   providerOptions: null,
   assistantDeliveryMode: null,
   runtimeMode: "full-access",
-  lastError: null,
+  failureContext: null,
   requestedAt: "2026-04-08T00:00:00.000Z",
   startedAt: "2026-04-08T00:00:01.000Z",
-  idledAt: null,
-  pausedAt: null,
-  blockedAt: null,
-  blockedContext: null,
+  stopRequestedAt: null,
+  stoppedAt: null,
   failedAt: null,
-  cancelledAt: null,
   completedAt: "2026-04-08T00:05:00.000Z",
   updatedAt: "2026-04-08T00:05:00.000Z",
-};
+} as unknown as OrchestrationSwarmRun;
 
-const BASE_EXECUTION: OrchestrationSwarmTaskExecution = {
+const BASE_EXECUTION = {
   executionId: "exec-1" as never,
   runId: "run-1" as never,
   issueId: "ISSUE-A",
   workerThreadId: "thread-1" as never,
   sequenceNumber: 1,
   status: "completed",
-  originalStatus: "open",
-  originalAssignee: null,
-  lastError: null,
+  workspaceKey: "shared",
+  workspacePath: null,
+  failureContext: null,
   requestedAt: "2026-04-08T00:00:02.000Z",
   startedAt: "2026-04-08T00:00:03.000Z",
+  stopRequestedAt: null,
+  stoppedAt: null,
   completedAt: "2026-04-08T00:02:00.000Z",
   failedAt: null,
-  cancelledAt: null,
   updatedAt: "2026-04-08T00:02:00.000Z",
-};
+} as unknown as OrchestrationSwarmTaskExecution;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -68,10 +64,10 @@ describe("deriveCoordinatorEventLog", () => {
     expect(kinds).toContain("run.completed");
   });
 
-  it("includes scheduler mode in requested entry", () => {
+  it("uses a simple requested summary", () => {
     const entries = deriveCoordinatorEventLog([BASE_RUN], []);
     const requested = entries.find((e) => e.kind === "run.requested");
-    expect(requested?.summary).toContain("semi-automatic");
+    expect(requested?.summary).toBe("Run requested");
   });
 
   it("includes duration in completed entry", () => {
@@ -104,25 +100,25 @@ describe("deriveCoordinatorEventLog", () => {
     }
   });
 
-  it("produces error-toned entries for blocked runs", () => {
+  it("produces error-toned entries for failed runs", () => {
     const blockedRun: OrchestrationSwarmRun = {
       ...BASE_RUN,
-      status: "blocked",
+      status: "failed",
       completedAt: null,
-      blockedAt: "2026-04-08T00:03:00.000Z",
-      blockedContext: {
+      failedAt: "2026-04-08T00:03:00.000Z",
+      failureContext: {
         kind: "worker_failure",
+        message: "Worker process crashed",
         issueId: "ISSUE-A",
         executionId: "exec-1" as never,
         workerThreadId: "thread-1" as never,
       },
-      lastError: "Worker process crashed",
-    };
+    } as unknown as OrchestrationSwarmRun;
     const entries = deriveCoordinatorEventLog([blockedRun], []);
-    const blocked = entries.find((e) => e.kind === "run.blocked");
+    const blocked = entries.find((e) => e.kind === "run.failed");
     expect(blocked?.tone).toBe("error");
     expect(blocked?.detail).toBe("Worker process crashed");
-    expect(blocked?.summary).toContain("Worker failed");
+    expect(blocked?.summary).toContain("Run failed");
   });
 
   it("produces error-toned entries for failed executions", () => {
@@ -131,23 +127,29 @@ describe("deriveCoordinatorEventLog", () => {
       status: "failed",
       completedAt: null,
       failedAt: "2026-04-08T00:02:00.000Z",
-      lastError: "Issue not closed after turn",
-    };
+      failureContext: {
+        kind: "issue_incomplete",
+        message: "Issue not closed after turn",
+        issueId: "ISSUE-A",
+        executionId: "exec-1" as never,
+        workerThreadId: "thread-1" as never,
+      },
+    } as unknown as OrchestrationSwarmTaskExecution;
     const entries = deriveCoordinatorEventLog([], [failedExec]);
     const failed = entries.find((e) => e.kind === "execution.failed");
     expect(failed?.tone).toBe("error");
     expect(failed?.detail).toBe("Issue not closed after turn");
   });
 
-  it("produces warning-toned entries for cancelled runs", () => {
+  it("produces warning-toned entries for stopped runs", () => {
     const cancelledRun: OrchestrationSwarmRun = {
       ...BASE_RUN,
-      status: "cancelled",
+      status: "stopped",
       completedAt: null,
-      cancelledAt: "2026-04-08T00:03:00.000Z",
-    };
+      stoppedAt: "2026-04-08T00:03:00.000Z",
+    } as unknown as OrchestrationSwarmRun;
     const entries = deriveCoordinatorEventLog([cancelledRun], []);
-    const cancelled = entries.find((e) => e.kind === "run.cancelled");
+    const cancelled = entries.find((e) => e.kind === "run.stopped");
     expect(cancelled?.tone).toBe("warning");
   });
 
@@ -181,10 +183,10 @@ describe("deriveCoordinatorEventLog", () => {
   it("omits entries for null timestamps", () => {
     const requestedOnlyRun: OrchestrationSwarmRun = {
       ...BASE_RUN,
-      status: "requested",
+      status: "pending",
       startedAt: null,
       completedAt: null,
-    };
+    } as unknown as OrchestrationSwarmRun;
     const entries = deriveCoordinatorEventLog([requestedOnlyRun], []);
     expect(entries).toHaveLength(1);
     expect(entries[0]?.kind).toBe("run.requested");

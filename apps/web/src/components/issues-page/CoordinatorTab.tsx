@@ -15,7 +15,6 @@ import {
   ExternalLinkIcon,
   Loader2Icon,
   OctagonAlertIcon,
-  PauseIcon,
   PlayIcon,
   RefreshCwIcon,
   XIcon,
@@ -142,7 +141,6 @@ function isNeedsAttention(epic: BeadsCoordinatorEpicSnapshot): boolean {
     !epic.coordinationSupported ||
     epic.validationState === "invalid" ||
     epic.projectConflict !== null ||
-    activeRun?.status === "blocked" ||
     activeRun?.status === "failed"
   );
 }
@@ -186,7 +184,9 @@ function describeEpic(epic: BeadsCoordinatorEpicSnapshot) {
   const activeRun = getActiveRun(epic);
   const latestRun = getLatestRun(epic);
   const lastError =
-    activeRun?.lastError ?? latestRun?.lastError ?? getActiveExecution(epic)?.lastError;
+    activeRun?.failureContext?.message ??
+    latestRun?.failureContext?.message ??
+    getActiveExecution(epic)?.failureContext?.message;
 
   if (epic.trackerLoadState === "timeout") {
     return {
@@ -223,7 +223,7 @@ function describeEpic(epic: BeadsCoordinatorEpicSnapshot) {
 
   if (activeRun !== null) {
     switch (activeRun.status) {
-      case "requested":
+      case "pending":
       case "running":
         return {
           label: "Run Active",
@@ -233,31 +233,24 @@ function describeEpic(epic: BeadsCoordinatorEpicSnapshot) {
               : `${epic.progress.completedIssueCount}/${epic.progress.totalIssueCount} issues done`,
           category: "active",
         } satisfies CoordinatorStatusDescription;
-      case "idle":
+      case "stopping":
         return {
-          label: "Waiting",
-          summary: "Run is idle and waiting for the next issue.",
+          label: "Stopping",
+          summary: "Stopping the run.",
           category: "active",
-        } satisfies CoordinatorStatusDescription;
-      case "paused":
-        return {
-          label: "Paused",
-          summary: "Run is paused. Resume to continue.",
-          category: "active",
-        } satisfies CoordinatorStatusDescription;
-      case "blocked":
-        return {
-          label: "Blocked",
-          summary: lastError ?? "Run needs manual intervention before it can continue.",
-          category: "blocked",
         } satisfies CoordinatorStatusDescription;
       case "failed":
         return {
           label: "Failed",
-          summary: lastError ?? "The latest run failed.",
+          summary: lastError ?? "The latest run failed. Fix the issue and start a new run.",
           category: "blocked",
         } satisfies CoordinatorStatusDescription;
-      case "cancelled":
+      case "stopped":
+        return {
+          label: "Stopped",
+          summary: "The latest run was stopped. Start a new run to continue.",
+          category: "done",
+        } satisfies CoordinatorStatusDescription;
       case "completed":
         break;
     }
@@ -310,8 +303,8 @@ function describeEpic(epic: BeadsCoordinatorEpicSnapshot) {
       return {
         label: "Ready",
         summary:
-          latestRun?.status === "cancelled"
-            ? "The latest run was cancelled. Start a new run to continue."
+          latestRun?.status === "stopped"
+            ? "The latest run was stopped. Start a new run to continue."
             : latestRun?.status === "completed"
               ? "The latest run completed. Start a new run if more work remains."
               : "Tracker is ready for a run.",
@@ -334,20 +327,16 @@ function progressPercent(epic: BeadsCoordinatorEpicSnapshot): number | null {
 
 function formatRunStatus(status: OrchestrationSwarmRun["status"]): string {
   switch (status) {
-    case "requested":
-      return "Requested";
+    case "pending":
+      return "Pending";
     case "running":
       return "Running";
-    case "idle":
-      return "Idle";
-    case "paused":
-      return "Paused";
-    case "blocked":
-      return "Blocked";
+    case "stopping":
+      return "Stopping";
+    case "stopped":
+      return "Stopped";
     case "failed":
       return "Failed";
-    case "cancelled":
-      return "Cancelled";
     case "completed":
       return "Completed";
   }
@@ -360,11 +349,10 @@ function runStatusBadgeVariant(
     case "completed":
       return "success";
     case "failed":
-    case "cancelled":
       return "error";
-    case "blocked":
-    case "paused":
+    case "stopped":
       return "warning";
+    case "stopping":
     case "running":
       return "info";
     default:
@@ -772,9 +760,9 @@ function EpicDetail(props: {
       ) : null}
 
       {/* Latest run error */}
-      {latestRun?.lastError && desc.category === "blocked" ? (
+      {latestRun?.failureContext?.message && desc.category === "blocked" ? (
         <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
-          {latestRun.lastError}
+          {latestRun.failureContext.message}
         </div>
       ) : null}
 
@@ -807,21 +795,16 @@ function CoordinatorActionBar(props: {
 }) {
   const { epic } = props;
   const run = getActiveRun(epic);
-  const activeExecution = getActiveExecution(epic);
-  const primaryAction = epic.primaryAction;
-  const retryableExecution =
-    epic.executions
-      .filter(
-        (execution) =>
-          run !== null &&
-          execution.runId === run.runId &&
-          (execution.status === "failed" || execution.status === "cancelled"),
-      )
-      .toSorted(
-        (left, right) =>
-          right.sequenceNumber - left.sequenceNumber ||
-          right.updatedAt.localeCompare(left.updatedAt),
-      )[0] ?? null;
+  const primaryAction = epic.primaryAction as typeof epic.primaryAction & {
+    kind:
+      | "checking"
+      | "unsupported"
+      | "open_coordination_prep_thread"
+      | "refresh_swarm_state"
+      | "start_swarm"
+      | "stop_swarm"
+      | "open_coordinator";
+  };
   const actions: CoordinatorAction[] = [];
 
   switch (primaryAction.kind) {
@@ -846,27 +829,16 @@ function CoordinatorActionBar(props: {
         onClick: () => props.onRunAction({ kind: "start_swarm", epicIssueId: epic.epicId }),
       });
       break;
-    case "run_next_swarm_task":
+    case "stop_swarm":
       if (run) {
         actions.push({
-          key: `run-next:${run.runId}`,
+          key: `stop:${run.runId}`,
           label: primaryAction.label,
           busyLabel: primaryAction.busyLabel,
           disabled: primaryAction.disabled,
-          icon: <PlayIcon className="size-3" />,
-          onClick: () => props.onRunAction({ kind: "run_next_swarm_task", runId: run.runId }),
-        });
-      }
-      break;
-    case "resume_paused_swarm_run":
-      if (run) {
-        actions.push({
-          key: `resume:${run.runId}`,
-          label: primaryAction.label,
-          busyLabel: primaryAction.busyLabel,
-          disabled: primaryAction.disabled,
-          icon: <PlayIcon className="size-3" />,
-          onClick: () => props.onRunAction({ kind: "resume_paused_swarm_run", runId: run.runId }),
+          variant: "destructive-outline",
+          icon: <XIcon className="size-3" />,
+          onClick: () => props.onRunAction({ kind: "stop_swarm", runId: run.runId }),
         });
       }
       break;
@@ -896,48 +868,6 @@ function CoordinatorActionBar(props: {
       break;
     case "unsupported":
       break;
-  }
-
-  if (
-    run?.status === "blocked" &&
-    run.blockedContext?.kind === "worker_failure" &&
-    retryableExecution !== null
-  ) {
-    actions.push({
-      key: `retry:${retryableExecution.executionId}`,
-      label: "Retry failed task",
-      busyLabel: "Retrying...",
-      variant: "outline",
-      icon: <RefreshCwIcon className="size-3" />,
-      onClick: () =>
-        props.onRunAction({
-          kind: "retry_swarm_task_execution",
-          runId: run.runId,
-          executionId: retryableExecution.executionId,
-        }),
-    });
-  }
-
-  if (run?.status === "running" && activeExecution === null) {
-    actions.push({
-      key: `pause:${run.runId}`,
-      label: "Pause run",
-      busyLabel: "Pausing...",
-      variant: "outline",
-      icon: <PauseIcon className="size-3" />,
-      onClick: () => props.onRunAction({ kind: "pause_swarm", runId: run.runId }),
-    });
-  }
-
-  if (run) {
-    actions.push({
-      key: `cancel:${run.runId}`,
-      label: "Cancel run",
-      busyLabel: "Cancelling...",
-      variant: "destructive-outline",
-      icon: <XIcon className="size-3" />,
-      onClick: () => props.onRunAction({ kind: "cancel_swarm", runId: run.runId }),
-    });
   }
 
   if (actions.length === 0) {

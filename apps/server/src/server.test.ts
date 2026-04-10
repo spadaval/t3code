@@ -549,7 +549,7 @@ const buildAppUnderTest = (options?: {
           pauseSwarmRun: () =>
             Effect.succeed({
               runId: "run-1" as any,
-              status: "paused",
+              status: "stopped",
             }),
           resumePausedSwarmRun: () =>
             Effect.succeed({
@@ -569,7 +569,7 @@ const buildAppUnderTest = (options?: {
           cancelSwarmRun: () =>
             Effect.succeed({
               runId: "run-1" as any,
-              status: "cancelled",
+              status: "stopped",
             }),
           ...options?.layers?.swarmScheduler,
         }),

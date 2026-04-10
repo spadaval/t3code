@@ -36,7 +36,7 @@ function makeExecution(
   id: string,
   issueId: string,
   seq: number,
-  overrides?: Partial<OrchestrationSwarmTaskExecution>,
+  overrides?: Record<string, unknown>,
 ): OrchestrationSwarmTaskExecution {
   return {
     executionId: id as never,
@@ -45,50 +45,46 @@ function makeExecution(
     workerThreadId: null,
     sequenceNumber: seq,
     status: "completed",
-    originalStatus: "open",
-    originalAssignee: null,
-    lastError: null,
+    workspaceKey: "shared",
+    workspacePath: null,
+    failureContext: null,
     requestedAt: "2026-04-08T00:00:00.000Z",
     startedAt: "2026-04-08T00:00:01.000Z",
+    stopRequestedAt: null,
+    stoppedAt: null,
     completedAt: "2026-04-08T00:00:10.000Z",
     failedAt: null,
-    cancelledAt: null,
     updatedAt: "2026-04-08T00:00:10.000Z",
     ...overrides,
-  } as OrchestrationSwarmTaskExecution;
+  } as unknown as OrchestrationSwarmTaskExecution;
 }
 
 function makeRun(
   id: string,
   status: OrchestrationSwarmRun["status"],
-  overrides?: Partial<OrchestrationSwarmRun>,
+  overrides?: Record<string, unknown>,
 ): OrchestrationSwarmRun {
   return {
     runId: id as never,
     projectId: "project-1" as never,
     epicIssueId: "EPIC-1",
     status,
-    schedulerMode: "automatic",
-    workspaceMode: "shared",
     provider: "codex",
     model: "gpt-5.4",
     modelOptions: null,
     providerOptions: null,
     assistantDeliveryMode: null,
     runtimeMode: "full-access",
-    lastError: null,
+    failureContext: null,
     requestedAt: "2026-04-08T00:00:00.000Z",
     startedAt: "2026-04-08T00:00:01.000Z",
-    idledAt: null,
-    pausedAt: null,
-    blockedAt: null,
-    blockedContext: null,
+    stopRequestedAt: null,
+    stoppedAt: null,
     failedAt: null,
-    cancelledAt: null,
     completedAt: null,
     updatedAt: "2026-04-08T00:00:01.000Z",
     ...overrides,
-  } as OrchestrationSwarmRun;
+  } as unknown as OrchestrationSwarmRun;
 }
 
 function makeStatus(
@@ -433,9 +429,9 @@ describe("buildWorkGraphData", () => {
   it("creates separate sections for multiple runs in chronological order", () => {
     const issueA = makeIssue("A", "Task A");
     const issueB = makeIssue("B", "Task B");
-    const run1 = makeRun("run-1", "cancelled", {
+    const run1 = makeRun("run-1", "stopped", {
       requestedAt: "2026-04-08T00:00:00.000Z",
-      cancelledAt: "2026-04-08T00:00:05.000Z",
+      stoppedAt: "2026-04-08T00:00:05.000Z",
       updatedAt: "2026-04-08T00:00:05.000Z",
     });
     const run2 = makeRun("run-2", "running", {
@@ -445,11 +441,11 @@ describe("buildWorkGraphData", () => {
     });
     const exec1 = makeExecution("exec-1", "A", 1, {
       runId: "run-1" as never,
-      status: "cancelled",
+      status: "stopped",
     });
     const exec2 = makeExecution("exec-2", "A", 2, {
       runId: "run-2" as never,
-      status: "active",
+      status: "running",
     });
     const exec3 = makeExecution("exec-3", "B", 1, {
       runId: "run-2" as never,
@@ -515,7 +511,13 @@ describe("buildWorkGraphData", () => {
     const issueA = makeIssue("A", "Task A");
     const run1 = makeRun("run-1", "failed", {
       failedAt: "2026-04-08T00:00:05.000Z",
-      lastError: "Task failed",
+      failureContext: {
+        kind: "worker_failure",
+        message: "Task failed",
+        issueId: "A",
+        executionId: "exec-1" as never,
+        workerThreadId: null,
+      },
     });
     const run2 = makeRun("run-2", "running", {
       requestedAt: "2026-04-08T00:01:00.000Z",
@@ -525,7 +527,13 @@ describe("buildWorkGraphData", () => {
     const exec1 = makeExecution("exec-1", "A", 1, {
       runId: "run-1" as never,
       status: "failed",
-      lastError: "Test failure",
+      failureContext: {
+        kind: "worker_failure",
+        message: "Test failure",
+        issueId: "A",
+        executionId: "exec-1" as never,
+        workerThreadId: null,
+      },
     });
 
     const result = buildWorkGraphData({
@@ -543,15 +551,15 @@ describe("buildWorkGraphData", () => {
     expect(histNode.latestExecution!.status).toBe("failed");
   });
 
-  it("cancelled run with no active run does not claim unexecuted issues", () => {
+  it("stopped run with no active run does not claim unexecuted issues", () => {
     const issueA = makeIssue("A", "Task A");
     const issueB = makeIssue("B", "Task B");
-    const run = makeRun("run-1", "cancelled", {
-      cancelledAt: "2026-04-08T00:00:05.000Z",
+    const run = makeRun("run-1", "stopped", {
+      stoppedAt: "2026-04-08T00:00:05.000Z",
     });
     const exec1 = makeExecution("exec-1", "A", 1, {
       runId: "run-1" as never,
-      status: "cancelled",
+      status: "stopped",
     });
 
     const result = buildWorkGraphData({

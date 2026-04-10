@@ -116,24 +116,25 @@ const readModel: OrchestrationReadModel = {
       runId: "run-1" as never,
       projectId: ProjectId.makeUnsafe("project-a"),
       epicIssueId: "EPIC-1",
-      status: "blocked",
-      schedulerMode: "automatic",
-      workspaceMode: "shared",
+      status: "failed",
       provider: "codex",
       model: "gpt-5-codex",
       modelOptions: null,
       providerOptions: null,
       assistantDeliveryMode: null,
       runtimeMode: "full-access",
-      lastError: null,
+      failureContext: {
+        kind: "worker_failure",
+        message: "boom",
+        issueId: null,
+        executionId: null,
+        workerThreadId: null,
+      },
       requestedAt: now,
       startedAt: now,
-      idledAt: null,
-      pausedAt: null,
-      blockedAt: now,
-      blockedContext: null,
+      stopRequestedAt: null,
+      stoppedAt: null,
       failedAt: null,
-      cancelledAt: null,
       completedAt: null,
       updatedAt: now,
     },
@@ -141,24 +142,19 @@ const readModel: OrchestrationReadModel = {
       runId: "run-2" as never,
       projectId: ProjectId.makeUnsafe("project-a"),
       epicIssueId: "EPIC-2",
-      status: "cancelled",
-      schedulerMode: "automatic",
-      workspaceMode: "shared",
+      status: "stopped",
       provider: "codex",
       model: "gpt-5-codex",
       modelOptions: null,
       providerOptions: null,
       assistantDeliveryMode: null,
       runtimeMode: "full-access",
-      lastError: null,
+      failureContext: null,
       requestedAt: now,
       startedAt: now,
-      idledAt: null,
-      pausedAt: null,
-      blockedAt: null,
-      blockedContext: null,
+      stopRequestedAt: now,
+      stoppedAt: now,
       failedAt: null,
-      cancelledAt: now,
       completedAt: null,
       updatedAt: now,
     },
@@ -170,15 +166,16 @@ const readModel: OrchestrationReadModel = {
       issueId: "TASK-1",
       workerThreadId: null,
       sequenceNumber: 1,
-      status: "requested",
-      originalStatus: "open",
-      originalAssignee: "issue-owner",
-      lastError: null,
+      status: "launching",
+      workspaceKey: "shared",
+      workspacePath: null,
+      failureContext: null,
       requestedAt: now,
       startedAt: null,
+      stopRequestedAt: null,
+      stoppedAt: null,
       completedAt: null,
       failedAt: null,
-      cancelledAt: null,
       updatedAt: now,
     },
     {
@@ -188,14 +185,15 @@ const readModel: OrchestrationReadModel = {
       workerThreadId: null,
       sequenceNumber: 1,
       status: "completed",
-      originalStatus: "open",
-      originalAssignee: null,
-      lastError: null,
+      workspaceKey: "shared",
+      workspacePath: null,
+      failureContext: null,
       requestedAt: now,
       startedAt: now,
+      stopRequestedAt: null,
+      stoppedAt: null,
       completedAt: now,
       failedAt: null,
-      cancelledAt: null,
       updatedAt: now,
     },
   ],
@@ -379,55 +377,38 @@ describe("commandInvariants", () => {
   it("checks swarm run status transitions", async () => {
     expect(
       isAllowedSwarmRunStatusTransition({
-        commandType: "swarm-run.resume",
-        status: "blocked",
+        commandType: "swarm-run.fail",
+        status: "running",
       }),
     ).toBe(true);
     expect(
       isAllowedSwarmRunStatusTransition({
         commandType: "swarm-run.resume",
-        status: "cancelled",
-      }),
-    ).toBe(true);
-    expect(
-      isAllowedSwarmRunStatusTransition({
-        commandType: "swarm-run.resume",
-        status: "completed",
+        status: "stopped",
       }),
     ).toBe(false);
 
-    await Effect.runPromise(
-      requireSwarmRunInAllowedStatus({
-        readModel,
-        command: {
-          type: "swarm-run.resume",
-          commandId: CommandId.makeUnsafe("cmd-run-resume"),
+    await expect(
+      Effect.runPromise(
+        requireSwarmRunInAllowedStatus({
+          readModel,
+          command: {
+            type: "swarm-run.resume",
+            commandId: CommandId.makeUnsafe("cmd-run-resume"),
+            runId: "run-1" as never,
+            createdAt: now,
+          },
           runId: "run-1" as never,
-          createdAt: now,
-        },
-        runId: "run-1" as never,
-      }),
-    );
-
-    await Effect.runPromise(
-      requireSwarmRunInAllowedStatus({
-        readModel,
-        command: {
-          type: "swarm-run.resume",
-          commandId: CommandId.makeUnsafe("cmd-run-resume-cancelled"),
-          runId: "run-2" as never,
-          createdAt: now,
-        },
-        runId: "run-2" as never,
-      }),
-    );
+        }),
+      ),
+    ).rejects.toThrow("cannot transition via 'swarm-run.resume'");
   });
 
   it("checks swarm task execution run ownership and status transitions", async () => {
     expect(
       isAllowedSwarmTaskExecutionStatusTransition({
         commandType: "swarm-task-execution.complete",
-        status: "requested",
+        status: "launching",
       }),
     ).toBe(true);
     expect(
@@ -501,15 +482,16 @@ describe("commandInvariants", () => {
           issueId: "TASK-3",
           workerThreadId: null,
           sequenceNumber: 2,
-          status: "requested",
-          originalStatus: "open",
-          originalAssignee: null,
-          lastError: null,
+          status: "launching",
+          workspaceKey: "shared",
+          workspacePath: null,
+          failureContext: null,
           requestedAt: now,
           startedAt: null,
+          stopRequestedAt: null,
+          stoppedAt: null,
           completedAt: null,
           failedAt: null,
-          cancelledAt: null,
           updatedAt: now,
         },
       ],
@@ -534,44 +516,44 @@ describe("commandInvariants", () => {
   });
 
   it("rejects requested executions even when the run itself is otherwise manually advanceable", async () => {
-    const readModelWithIdleRun: OrchestrationReadModel = {
+    const readModelWithPendingRun: OrchestrationReadModel = {
       ...readModel,
       swarmRuns: readModel.swarmRuns.map((run) =>
-        run.runId === ("run-1" as never) ? { ...run, status: "idle" } : run,
+        run.runId === ("run-1" as never) ? { ...run, status: "pending" } : run,
       ),
     };
 
     await expect(
       Effect.runPromise(
         requireSwarmRunWithoutCurrentExecution({
-          readModel: readModelWithIdleRun,
+          readModel: readModelWithPendingRun,
           command: {
             type: "swarm-run.complete",
-            commandId: CommandId.makeUnsafe("cmd-run-complete-idle-requested"),
+            commandId: CommandId.makeUnsafe("cmd-run-complete-pending-launching"),
             runId: "run-1" as never,
             createdAt: now,
           },
           runId: "run-1" as never,
         }),
       ),
-    ).rejects.toThrow("still has non-terminal task execution 'execution-1' in status 'requested'");
+    ).rejects.toThrow("still has non-terminal task execution 'execution-1' in status 'launching'");
   });
 
-  it("rejects scheduler execution commands from paused and cancelled runs", async () => {
-    const readModelWithPausedRun: OrchestrationReadModel = {
+  it("rejects scheduler execution commands from stopped runs", async () => {
+    const readModelWithStoppedRun: OrchestrationReadModel = {
       ...readModel,
       swarmRuns: readModel.swarmRuns.map((run) =>
-        run.runId === ("run-1" as never) ? { ...run, status: "paused" } : run,
+        run.runId === ("run-1" as never) ? { ...run, status: "stopped" } : run,
       ),
     };
 
     await expect(
       Effect.runPromise(
         requireSwarmRunInAllowedStatus({
-          readModel: readModelWithPausedRun,
+          readModel: readModelWithStoppedRun,
           command: {
             type: "swarm-task-execution.request",
-            commandId: CommandId.makeUnsafe("cmd-run-request-paused"),
+            commandId: CommandId.makeUnsafe("cmd-run-request-stopped"),
             runId: "run-1" as never,
             executionId: "execution-1" as never,
             issueId: "TASK-1",
@@ -592,7 +574,7 @@ describe("commandInvariants", () => {
           readModel,
           command: {
             type: "swarm-task-execution.request",
-            commandId: CommandId.makeUnsafe("cmd-run-request-cancelled"),
+            commandId: CommandId.makeUnsafe("cmd-run-request-stopped-terminal"),
             runId: "run-2" as never,
             executionId: "execution-2" as never,
             issueId: "TASK-2",
@@ -612,7 +594,7 @@ describe("commandInvariants", () => {
     expect(
       isAllowedSwarmTaskExecutionStatusTransition({
         commandType: "swarm-task-execution.start",
-        status: "active",
+        status: "running",
       }),
     ).toBe(false);
     expect(
@@ -624,7 +606,7 @@ describe("commandInvariants", () => {
     expect(
       isAllowedSwarmTaskExecutionStatusTransition({
         commandType: "swarm-task-execution.cancel",
-        status: "cancelled",
+        status: "stopped",
       }),
     ).toBe(false);
   });

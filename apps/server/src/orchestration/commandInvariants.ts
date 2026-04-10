@@ -3,6 +3,7 @@ import type {
   OrchestrationPlanImplementationLaunch,
   OrchestrationProject,
   OrchestrationReadModel,
+  OrchestrationStartSwarmRunInput,
   OrchestrationSwarmRun,
   OrchestrationSwarmRunStatus,
   OrchestrationSwarmTaskExecution,
@@ -65,28 +66,28 @@ export function findSwarmTaskExecutionById(
 }
 
 const SWARM_RUN_ALLOWED_TRANSITIONS = {
-  "swarm-run.mark-started": ["requested"],
+  "swarm-run.mark-started": ["pending"],
   "swarm-run.mark-idle": ["running"],
-  "swarm-run.pause": ["requested", "running", "idle", "blocked"],
-  "swarm-run.resume": ["idle", "paused", "blocked", "cancelled"],
-  "swarm-run.block": ["requested", "running", "idle", "blocked"],
-  "swarm-run.fail": ["requested", "running", "idle", "paused", "blocked"],
-  "swarm-run.cancel": ["requested", "running", "idle", "paused", "blocked"],
-  "swarm-run.complete": ["requested", "running", "idle", "blocked"],
-  "swarm-task-execution.request": ["requested", "running", "idle", "blocked"],
-  "swarm-task-execution.start": ["requested", "running", "idle", "blocked"],
-  "swarm-task-execution.complete": ["requested", "running", "idle", "blocked"],
-  "swarm-task-execution.fail": ["requested", "running", "idle", "blocked"],
-  "swarm-task-execution.cancel": ["requested", "running", "idle", "blocked"],
+  "swarm-run.pause": ["pending", "running", "stopping"],
+  "swarm-run.resume": [],
+  "swarm-run.block": ["pending", "running", "stopping"],
+  "swarm-run.fail": ["pending", "running", "stopping"],
+  "swarm-run.cancel": ["pending", "running", "stopping"],
+  "swarm-run.complete": ["pending", "running"],
+  "swarm-task-execution.request": ["pending", "running"],
+  "swarm-task-execution.start": ["pending", "running"],
+  "swarm-task-execution.complete": ["pending", "running", "stopping"],
+  "swarm-task-execution.fail": ["pending", "running", "stopping"],
+  "swarm-task-execution.cancel": ["pending", "running", "stopping"],
 } as const satisfies Partial<
   Record<OrchestrationCommand["type"], ReadonlyArray<OrchestrationSwarmRunStatus>>
 >;
 
 const SWARM_TASK_EXECUTION_ALLOWED_TRANSITIONS = {
-  "swarm-task-execution.start": ["requested"],
-  "swarm-task-execution.complete": ["requested", "active"],
-  "swarm-task-execution.fail": ["requested", "active"],
-  "swarm-task-execution.cancel": ["requested", "active"],
+  "swarm-task-execution.start": ["launching"],
+  "swarm-task-execution.complete": ["launching", "running", "stopping"],
+  "swarm-task-execution.fail": ["launching", "running", "stopping"],
+  "swarm-task-execution.cancel": ["launching", "running", "stopping"],
 } as const satisfies Partial<
   Record<OrchestrationCommand["type"], ReadonlyArray<OrchestrationSwarmTaskExecutionStatus>>
 >;
@@ -352,7 +353,7 @@ export function requireNoConflictingSharedWorkspaceRun(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
   readonly projectId: ProjectId;
-  readonly workspaceMode: OrchestrationSwarmRun["workspaceMode"];
+  readonly workspaceMode: OrchestrationStartSwarmRunInput["workspaceMode"];
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
   if (input.workspaceMode !== "shared") {
     return Effect.void;

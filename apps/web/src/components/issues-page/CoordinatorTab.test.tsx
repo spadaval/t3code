@@ -18,7 +18,7 @@ const SWARM_SUPPORT = {
   },
 } as const;
 
-const BASE_EPIC: BeadsCoordinatorEpicSnapshot = {
+const BASE_EPIC = {
   epicId: "EPIC-1",
   epicTitle: "Epic 1",
   issue: null,
@@ -58,30 +58,25 @@ const BASE_EPIC: BeadsCoordinatorEpicSnapshot = {
       runId: "run-1" as never,
       projectId: "project-1" as never,
       epicIssueId: "EPIC-1",
-      status: "cancelled",
-      schedulerMode: "automatic",
-      workspaceMode: "shared",
+      status: "stopped",
       provider: "codex",
       model: "gpt-5.4",
       modelOptions: null,
       providerOptions: null,
       assistantDeliveryMode: null,
       runtimeMode: "full-access",
-      lastError: null,
+      failureContext: null,
       requestedAt: "2026-04-08T00:00:00.000Z",
       startedAt: "2026-04-08T00:00:01.000Z",
-      idledAt: null,
-      pausedAt: null,
-      blockedAt: null,
-      blockedContext: null,
+      stopRequestedAt: "2026-04-08T00:00:02.000Z",
+      stoppedAt: "2026-04-08T00:00:02.000Z",
       failedAt: null,
-      cancelledAt: "2026-04-08T00:00:02.000Z",
       completedAt: null,
       updatedAt: "2026-04-08T00:00:02.000Z",
     },
   ],
   executions: [],
-} as BeadsCoordinatorEpicSnapshot;
+} as unknown as BeadsCoordinatorEpicSnapshot;
 
 function renderCoordinatorTab(epicOverrides?: Partial<BeadsCoordinatorEpicSnapshot>) {
   const queryClient = new QueryClient();
@@ -166,7 +161,8 @@ describe("WorkGraph integration", () => {
         {
           ...BASE_EPIC.runs[0]!,
           status: "running",
-          cancelledAt: null,
+          stopRequestedAt: null,
+          stoppedAt: null,
         },
       ],
       status: {
@@ -229,7 +225,8 @@ describe("WorkGraph integration", () => {
         {
           ...BASE_EPIC.runs[0]!,
           status: "running",
-          cancelledAt: null,
+          stopRequestedAt: null,
+          stoppedAt: null,
         },
       ],
       status: {
@@ -281,7 +278,8 @@ describe("WorkGraph integration", () => {
         {
           ...BASE_EPIC.runs[0]!,
           status: "completed",
-          cancelledAt: null,
+          stopRequestedAt: null,
+          stoppedAt: null,
           completedAt: "2026-04-08T00:00:10.000Z",
         },
       ],
@@ -303,16 +301,17 @@ describe("WorkGraph integration", () => {
           workerThreadId: null,
           sequenceNumber: 1,
           status: "completed",
-          originalStatus: "open",
-          originalAssignee: null,
-          lastError: null,
+          workspaceKey: "shared",
+          workspacePath: null,
+          failureContext: null,
           requestedAt: "2026-04-08T00:00:00.000Z",
           startedAt: "2026-04-08T00:00:01.000Z",
+          stopRequestedAt: null,
+          stoppedAt: null,
           completedAt: "2026-04-08T00:00:10.000Z",
           failedAt: null,
-          cancelledAt: null,
           updatedAt: "2026-04-08T00:00:10.000Z",
-        },
+        } as unknown as BeadsCoordinatorEpicSnapshot["executions"][number],
       ],
       progress: {
         totalIssueCount: 1,
@@ -341,7 +340,7 @@ describe("Activity log integration", () => {
     expect(markup).toContain("Activity");
     // Should contain run lifecycle entries.
     expect(markup).toContain("Run requested");
-    expect(markup).toContain("Run cancelled");
+    expect(markup).toContain("Run stopped");
   });
 
   it("does not render Activity section when no runs or executions", () => {
@@ -360,16 +359,17 @@ describe("Activity log integration", () => {
           workerThreadId: null,
           sequenceNumber: 1,
           status: "completed",
-          originalStatus: "open",
-          originalAssignee: null,
-          lastError: null,
+          workspaceKey: "shared",
+          workspacePath: null,
+          failureContext: null,
           requestedAt: "2026-04-08T00:00:02.000Z",
           startedAt: "2026-04-08T00:00:03.000Z",
+          stopRequestedAt: null,
+          stoppedAt: null,
           completedAt: "2026-04-08T00:00:10.000Z",
           failedAt: null,
-          cancelledAt: null,
           updatedAt: "2026-04-08T00:00:10.000Z",
-        },
+        } as unknown as BeadsCoordinatorEpicSnapshot["executions"][number],
       ],
     });
     expect(markup).toContain("Task #1 started: ISSUE-A");

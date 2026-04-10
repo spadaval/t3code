@@ -22,23 +22,18 @@ function makeSwarmRun(overrides: Partial<OrchestrationSwarmRun> = {}): Orchestra
     projectId: ProjectId.makeUnsafe("project-1"),
     epicIssueId: "EPIC-1",
     status: "running",
-    schedulerMode: "automatic",
-    workspaceMode: "shared",
     provider: "codex",
     model: "gpt-5.4-mini",
     modelOptions: null,
     providerOptions: null,
     assistantDeliveryMode: "buffered",
     runtimeMode: "full-access",
-    lastError: null,
+    failureContext: null,
     requestedAt: "2026-01-01T00:00:00.000Z",
     startedAt: "2026-01-01T00:01:00.000Z",
-    idledAt: null,
-    pausedAt: null,
-    blockedAt: null,
-    blockedContext: null,
+    stopRequestedAt: null,
+    stoppedAt: null,
     failedAt: null,
-    cancelledAt: null,
     completedAt: null,
     updatedAt: "2026-01-01T00:02:00.000Z",
     ...overrides,
@@ -49,7 +44,13 @@ describe("buildCoordinatorEpicSnapshot", () => {
   it("keeps tracker state separate from terminal run history", () => {
     const failedRun = makeSwarmRun({
       status: "failed",
-      lastError: "boom",
+      failureContext: {
+        kind: "worker_failure",
+        message: "boom",
+        issueId: null,
+        executionId: null,
+        workerThreadId: null,
+      },
       failedAt: "2026-01-01T00:02:00.000Z",
     });
     const swarmSummary = {
@@ -116,7 +117,13 @@ describe("buildCoordinatorEpicSnapshot", () => {
   it("surfaces invalid tracker state separately from run history", () => {
     const failedRun = makeSwarmRun({
       status: "failed",
-      lastError: "boom",
+      failureContext: {
+        kind: "worker_failure",
+        message: "boom",
+        issueId: null,
+        executionId: null,
+        workerThreadId: null,
+      },
       failedAt: "2026-01-01T00:02:00.000Z",
     });
     const swarmSummary = {
@@ -199,17 +206,17 @@ describe("buildCoordinatorEpicSnapshot", () => {
     );
   });
 
-  it("offers run-next for worker-failure runs when a fresh ready issue exists", () => {
-    const blockedRun = makeSwarmRun({
-      status: "blocked",
-      lastError: "Worker crashed",
-      blockedAt: "2026-01-01T00:02:00.000Z",
-      blockedContext: {
+  it("offers restart for worker-failure runs when a fresh ready issue exists", () => {
+    const failedRun = makeSwarmRun({
+      status: "failed",
+      failureContext: {
         kind: "worker_failure",
+        message: "Worker crashed",
         issueId: "TASK-1",
         executionId: "exec-1" as never,
         workerThreadId: "thread-1" as never,
       },
+      failedAt: "2026-01-01T00:02:00.000Z",
     });
 
     const snapshot = buildCoordinatorEpicSnapshot({
@@ -253,32 +260,32 @@ describe("buildCoordinatorEpicSnapshot", () => {
       },
       validationError: null,
       statusError: null,
-      projectSwarmRuns: [blockedRun],
-      epicSwarmRuns: [blockedRun],
+      projectSwarmRuns: [failedRun],
+      epicSwarmRuns: [failedRun],
       epicExecutions: [],
       fallbackEpicId: "EPIC-1",
       fallbackEpicTitle: "Epic",
     });
 
     expect(snapshot.primaryAction).toEqual({
-      kind: "run_next_swarm_task",
-      label: "Run next task",
-      busyLabel: "Running...",
+      kind: "start_swarm",
+      label: "Start run",
+      busyLabel: "Starting...",
       disabled: false,
     });
   });
 
   it("keeps external tracker blockers as coordinator-open actions instead of continue", () => {
-    const blockedRun = makeSwarmRun({
-      status: "blocked",
-      lastError: "Waiting on external dependency",
-      blockedAt: "2026-01-01T00:02:00.000Z",
-      blockedContext: {
-        kind: "tracker_waiting",
+    const failedRun = makeSwarmRun({
+      status: "failed",
+      failureContext: {
+        kind: "worker_failure",
+        message: "Waiting on external dependency",
         issueId: null,
         executionId: null,
         workerThreadId: null,
       },
+      failedAt: "2026-01-01T00:02:00.000Z",
     });
 
     const snapshot = buildCoordinatorEpicSnapshot({
@@ -333,8 +340,8 @@ describe("buildCoordinatorEpicSnapshot", () => {
       },
       validationError: null,
       statusError: null,
-      projectSwarmRuns: [blockedRun],
-      epicSwarmRuns: [blockedRun],
+      projectSwarmRuns: [failedRun],
+      epicSwarmRuns: [failedRun],
       epicExecutions: [],
       fallbackEpicId: "EPIC-1",
       fallbackEpicTitle: "Epic",

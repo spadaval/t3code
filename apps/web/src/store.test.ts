@@ -272,26 +272,27 @@ describe("store read model sync", () => {
           projectId: ProjectId.makeUnsafe("project-1"),
           epicIssueId: "EPIC-1",
           status: "running",
-          schedulerMode: "automatic",
-          workspaceMode: "shared",
           provider: "codex",
           model: "gpt-5.4",
           modelOptions: null,
           providerOptions: null,
           assistantDeliveryMode: "streaming",
           runtimeMode: "full-access",
-          lastError: null,
+          failureContext: null,
           requestedAt: "2026-04-06T00:00:00.000Z",
           startedAt: "2026-04-06T00:00:01.000Z",
-          idledAt: null,
-          pausedAt: null,
-          blockedAt: null,
-          blockedContext: null,
+          stopRequestedAt: null,
+          stoppedAt: null,
           failedAt: null,
-          cancelledAt: null,
           completedAt: null,
           updatedAt: "2026-04-06T00:00:02.000Z",
-        },
+        } as unknown as typeof makeReadModel extends (...args: any[]) => infer R
+          ? R extends { swarmRuns: infer Runs }
+            ? Runs extends ReadonlyArray<infer Run>
+              ? Run
+              : never
+            : never
+          : never,
       ],
       swarmTaskExecutions: [
         {
@@ -300,17 +301,24 @@ describe("store read model sync", () => {
           issueId: "TASK-1",
           workerThreadId: ThreadId.makeUnsafe("thread-1"),
           sequenceNumber: 1,
-          status: "active",
-          originalStatus: "open",
-          originalAssignee: "issue-owner",
-          lastError: null,
+          status: "running",
+          workspaceKey: "shared",
+          workspacePath: null,
+          failureContext: null,
           requestedAt: "2026-04-06T00:00:00.000Z",
           startedAt: "2026-04-06T00:00:01.000Z",
+          stopRequestedAt: null,
+          stoppedAt: null,
           completedAt: null,
           failedAt: null,
-          cancelledAt: null,
           updatedAt: "2026-04-06T00:00:02.000Z",
-        },
+        } as unknown as typeof makeReadModel extends (...args: any[]) => infer R
+          ? R extends { swarmTaskExecutions: infer Executions }
+            ? Executions extends ReadonlyArray<infer Execution>
+              ? Execution
+              : never
+            : never
+          : never,
       ],
     });
 

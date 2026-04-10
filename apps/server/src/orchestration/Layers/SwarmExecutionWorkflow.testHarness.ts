@@ -23,6 +23,7 @@ import {
   type SwarmRunId,
   TurnId,
 } from "@t3tools/contracts";
+import { createSwarmFailureContext } from "@t3tools/shared/swarm";
 import {
   BeadsTrackerService,
   type BeadsTrackerServiceShape,
@@ -447,24 +448,19 @@ export function applyCommand(
             runId: command.runId,
             projectId: command.projectId,
             epicIssueId: command.epicIssueId,
-            status: "requested",
-            schedulerMode: command.schedulerMode,
-            workspaceMode: command.workspaceMode,
+            status: "pending",
             provider: command.provider ?? null,
             model: command.model ?? null,
             modelOptions: command.modelOptions ?? null,
             providerOptions: command.providerOptions ?? null,
             assistantDeliveryMode: command.assistantDeliveryMode ?? null,
             runtimeMode: command.runtimeMode,
-            lastError: null,
+            failureContext: null,
             requestedAt: command.createdAt,
             startedAt: null,
-            idledAt: null,
-            pausedAt: null,
-            blockedAt: null,
-            blockedContext: null,
+            stopRequestedAt: null,
+            stoppedAt: null,
             failedAt: null,
-            cancelledAt: null,
             completedAt: null,
             updatedAt: command.createdAt,
           },
@@ -483,8 +479,7 @@ export function applyCommand(
           ...run,
           status: "running",
           startedAt: command.createdAt,
-          lastError: null,
-          blockedContext: null,
+          failureContext: null,
           updatedAt: command.createdAt,
         }),
       );
@@ -499,10 +494,7 @@ export function applyCommand(
         command.runId,
         (run) => ({
           ...run,
-          status: "idle",
-          idledAt: command.createdAt,
-          lastError: null,
-          blockedContext: null,
+          status: "running",
           updatedAt: command.createdAt,
         }),
       );
@@ -517,10 +509,10 @@ export function applyCommand(
         command.runId,
         (run) => ({
           ...run,
-          status: "paused",
-          pausedAt: command.createdAt,
-          lastError: null,
-          blockedContext: null,
+          status: "stopped",
+          stopRequestedAt: command.createdAt,
+          stoppedAt: command.createdAt,
+          failureContext: null,
           updatedAt: command.createdAt,
         }),
       );
@@ -536,8 +528,9 @@ export function applyCommand(
         (run) => ({
           ...run,
           status: "running",
-          lastError: null,
-          blockedContext: null,
+          failureContext: null,
+          stopRequestedAt: null,
+          stoppedAt: null,
           updatedAt: command.createdAt,
         }),
       );
@@ -552,10 +545,18 @@ export function applyCommand(
         command.runId,
         (run) => ({
           ...run,
-          status: "blocked",
-          blockedAt: command.createdAt,
-          lastError: command.reason,
-          blockedContext: command.blockedContext,
+          status: command.blockedContext?.kind === "tracker_waiting" ? "running" : "failed",
+          failureContext:
+            command.blockedContext?.kind === "tracker_waiting"
+              ? null
+              : createSwarmFailureContext({
+                  reason: command.reason,
+                  issueId: command.blockedContext?.issueId ?? null,
+                  executionId: command.blockedContext?.executionId ?? null,
+                  workerThreadId: command.blockedContext?.workerThreadId ?? null,
+                }),
+          failedAt:
+            command.blockedContext?.kind === "tracker_waiting" ? run.failedAt : command.createdAt,
           updatedAt: command.createdAt,
         }),
       );
@@ -572,8 +573,9 @@ export function applyCommand(
           ...run,
           status: "failed",
           failedAt: command.createdAt,
-          lastError: command.reason,
-          blockedContext: null,
+          failureContext: createSwarmFailureContext({
+            reason: command.reason,
+          }),
           updatedAt: command.createdAt,
         }),
       );
@@ -588,10 +590,10 @@ export function applyCommand(
         command.runId,
         (run) => ({
           ...run,
-          status: "cancelled",
-          cancelledAt: command.createdAt,
-          lastError: null,
-          blockedContext: null,
+          status: "stopped",
+          stopRequestedAt: command.createdAt,
+          stoppedAt: command.createdAt,
+          failureContext: null,
           updatedAt: command.createdAt,
         }),
       );
@@ -608,8 +610,9 @@ export function applyCommand(
           ...run,
           status: "completed",
           completedAt: command.createdAt,
-          lastError: null,
-          blockedContext: null,
+          failureContext: null,
+          stopRequestedAt: null,
+          stoppedAt: null,
           updatedAt: command.createdAt,
         }),
       );
@@ -636,15 +639,16 @@ export function applyCommand(
             issueId: command.issueId,
             workerThreadId: command.workerThreadId,
             sequenceNumber: command.sequenceNumber,
-            status: "requested",
-            originalStatus: command.originalStatus,
-            originalAssignee: command.originalAssignee,
-            lastError: null,
+            status: "launching",
+            workspaceKey: "shared",
+            workspacePath: null,
+            failureContext: null,
             requestedAt: command.createdAt,
             startedAt: null,
+            stopRequestedAt: null,
+            stoppedAt: null,
             completedAt: null,
             failedAt: null,
-            cancelledAt: null,
             updatedAt: command.createdAt,
           },
         ],
@@ -667,7 +671,7 @@ export function applyCommand(
         command.executionId,
         (execution) => ({
           ...execution,
-          status: "active",
+          status: "running",
           startedAt: command.createdAt,
           updatedAt: command.createdAt,
         }),
@@ -714,7 +718,12 @@ export function applyCommand(
         (execution) => ({
           ...execution,
           status: "failed",
-          lastError: command.reason,
+          failureContext: createSwarmFailureContext({
+            reason: command.reason,
+            issueId: execution.issueId,
+            executionId: execution.executionId,
+            workerThreadId: execution.workerThreadId,
+          }),
           failedAt: command.createdAt,
           updatedAt: command.createdAt,
         }),
@@ -737,8 +746,9 @@ export function applyCommand(
         command.executionId,
         (execution) => ({
           ...execution,
-          status: "cancelled",
-          cancelledAt: command.createdAt,
+          status: "stopped",
+          stopRequestedAt: command.createdAt,
+          stoppedAt: command.createdAt,
           updatedAt: command.createdAt,
         }),
       );
@@ -749,7 +759,9 @@ export function applyCommand(
 }
 
 type SwarmExecutionWorkflowTestHarness = {
-  engine: OrchestrationEngineShape;
+  engine: Omit<OrchestrationEngineShape, "getReadModel"> & {
+    getReadModel: () => Effect.Effect<any, never, never>;
+  };
   workflow: SwarmExecutionWorkflowShape;
   projectId: ProjectId;
   runPromise: <A, E, R extends OrchestrationEngineService | SwarmExecutionWorkflow>(
@@ -769,7 +781,7 @@ type SwarmExecutionWorkflowTestHarness = {
   retryExecution: (
     input: Pick<OrchestrationRetrySwarmTaskExecutionInput, "runId" | "executionId">,
   ) => Promise<OrchestrationSwarmRunControlResult>;
-  getSnapshot: () => Promise<OrchestrationReadModel>;
+  getSnapshot: () => Promise<any>;
   getIssue: (issueId: string) => BeadsIssueDetail | null;
   patchIssue: (
     issueId: string,
@@ -795,12 +807,9 @@ type SwarmExecutionWorkflowTestHarness = {
   setTrackerStateSequence: (next: ReadonlyArray<TrackerState>) => void;
   getCreateEpicSwarmCallCount: () => number;
   getReadModelCallCount: () => number;
-  patchReadModel: (transform: (current: OrchestrationReadModel) => OrchestrationReadModel) => void;
-  patchExecution: (
-    executionId: SwarmTaskExecutionId,
-    patch: Partial<OrchestrationSwarmTaskExecution>,
-  ) => void;
-  injectExecutionDrift: (execution: OrchestrationSwarmTaskExecution) => void;
+  patchReadModel: (transform: (current: any) => any) => void;
+  patchExecution: (executionId: SwarmTaskExecutionId, patch: any) => void;
+  injectExecutionDrift: (execution: any) => void;
 };
 
 export type SwarmExecutionWorkflowHarnessRuntime = {

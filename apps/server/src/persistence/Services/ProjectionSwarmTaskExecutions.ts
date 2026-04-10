@@ -1,6 +1,8 @@
 import {
+  DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_KEY,
   IsoDateTime,
   NonNegativeInt,
+  OrchestrationSwarmFailureContext,
   OrchestrationSwarmTaskExecutionStatus,
   SwarmRunId,
   SwarmTaskExecutionId,
@@ -19,14 +21,17 @@ export const ProjectionSwarmTaskExecution = Schema.Struct({
   workerThreadId: Schema.NullOr(ThreadId),
   sequenceNumber: NonNegativeInt,
   status: OrchestrationSwarmTaskExecutionStatus,
-  originalStatus: TrimmedNonEmptyString,
-  originalAssignee: Schema.NullOr(TrimmedNonEmptyString),
-  lastError: Schema.NullOr(TrimmedNonEmptyString),
+  workspaceKey: TrimmedNonEmptyString.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_KEY),
+  ),
+  workspacePath: Schema.NullOr(TrimmedNonEmptyString),
+  failureContext: Schema.NullOr(OrchestrationSwarmFailureContext),
   requestedAt: IsoDateTime,
   startedAt: Schema.NullOr(IsoDateTime),
+  stopRequestedAt: Schema.NullOr(IsoDateTime),
+  stoppedAt: Schema.NullOr(IsoDateTime),
   completedAt: Schema.NullOr(IsoDateTime),
   failedAt: Schema.NullOr(IsoDateTime),
-  cancelledAt: Schema.NullOr(IsoDateTime),
   updatedAt: IsoDateTime,
 });
 export type ProjectionSwarmTaskExecution = typeof ProjectionSwarmTaskExecution.Type;

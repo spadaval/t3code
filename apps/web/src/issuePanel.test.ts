@@ -49,33 +49,28 @@ function makeIssue(
   } satisfies BeadsIssueSummary;
 }
 
-function makeSwarmRun(overrides: Partial<OrchestrationSwarmRun> = {}): OrchestrationSwarmRun {
+function makeSwarmRun(overrides: Record<string, unknown> = {}): OrchestrationSwarmRun {
   return {
     runId: SwarmRunId.makeUnsafe("run-1"),
     projectId: ProjectId.makeUnsafe("project-1"),
     epicIssueId: "EPIC-1",
     status: "running",
-    schedulerMode: "automatic",
-    workspaceMode: "shared",
     provider: "codex",
     model: "gpt-5.4-mini",
     modelOptions: null,
     providerOptions: null,
     assistantDeliveryMode: null,
     runtimeMode: "full-access",
-    lastError: null,
+    failureContext: null,
     requestedAt: "2026-01-01T00:00:00.000Z",
     startedAt: "2026-01-01T00:01:00.000Z",
-    idledAt: null,
-    pausedAt: null,
-    blockedAt: null,
-    blockedContext: null,
+    stopRequestedAt: null,
+    stoppedAt: null,
     failedAt: null,
-    cancelledAt: null,
     completedAt: null,
     updatedAt: "2026-01-01T00:02:00.000Z",
     ...overrides,
-  } satisfies OrchestrationSwarmRun;
+  } as unknown as OrchestrationSwarmRun;
 }
 
 const READY_FETCH_LIFECYCLE = {
@@ -448,23 +443,29 @@ describe("deriveEpicCoordinatorState", () => {
   });
 
   it.each([
-    ["requested", "running"],
+    ["pending", "running"],
     ["running", "running"],
-    ["idle", "idle"],
-    ["paused", "paused"],
-    ["blocked", "blocked"],
+    ["stopping", "stopping"],
     ["failed", "failed"],
-    ["cancelled", "cancelled"],
+    ["stopped", "stopped"],
     ["completed", "completed"],
   ] as const)("maps run status %s to %s", (runStatus, expectedKind) => {
     const run = makeSwarmRun({
       status: runStatus,
-      ...(runStatus === "failed" ? { lastError: "boom" } : {}),
+      ...(runStatus === "failed"
+        ? {
+            failureContext: {
+              kind: "worker_failure",
+              message: "boom",
+              issueId: null,
+              executionId: null,
+              workerThreadId: null,
+            },
+          }
+        : {}),
       ...(runStatus === "completed" ? { completedAt: "2026-01-01T00:03:00.000Z" } : {}),
-      ...(runStatus === "cancelled" ? { cancelledAt: "2026-01-01T00:03:00.000Z" } : {}),
-      ...(runStatus === "paused" ? { pausedAt: "2026-01-01T00:03:00.000Z" } : {}),
-      ...(runStatus === "blocked" ? { blockedAt: "2026-01-01T00:03:00.000Z" } : {}),
-      ...(runStatus === "idle" ? { idledAt: "2026-01-01T00:03:00.000Z" } : {}),
+      ...(runStatus === "stopped" ? { stoppedAt: "2026-01-01T00:03:00.000Z" } : {}),
+      ...(runStatus === "stopping" ? { stopRequestedAt: "2026-01-01T00:03:00.000Z" } : {}),
     });
 
     expect(
@@ -702,17 +703,16 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         swarmRuns: [
           makeSwarmRun({
-            status: "paused",
-            pausedAt: "2026-01-01T00:02:00.000Z",
+            status: "running",
           }),
         ],
         projectConflict: null,
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "resume_paused_swarm_run",
-      label: "Resume epic",
-      busyLabel: "Resuming...",
+      kind: "stop_swarm",
+      label: "Stop run",
+      busyLabel: "Stopping...",
       disabled: false,
     });
 
@@ -737,8 +737,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         swarmRuns: [
           makeSwarmRun({
-            status: "cancelled",
-            cancelledAt: "2026-01-01T00:02:00.000Z",
+            status: "stopped",
+            stoppedAt: "2026-01-01T00:02:00.000Z",
           }),
         ],
         projectConflict: null,
@@ -752,7 +752,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     });
   });
 
-  it("returns Continue swarm for semi-automatic idle runs", () => {
+  it("opens the coordinator for non-running stopped history", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         swarmSupport: { supported: true },
@@ -774,18 +774,17 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         swarmRuns: [
           makeSwarmRun({
-            status: "idle",
-            schedulerMode: "semi-automatic",
-            idledAt: "2026-01-01T00:02:00.000Z",
+            status: "stopping",
+            stopRequestedAt: "2026-01-01T00:02:00.000Z",
           }),
         ],
         projectConflict: null,
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "run_next_swarm_task",
-      label: "Run next task",
-      busyLabel: "Running...",
+      kind: "open_coordinator",
+      label: "Open epic",
+      busyLabel: "Opening...",
       disabled: false,
     });
   });
@@ -1195,9 +1194,9 @@ describe("describeDisabledEpicCoordinatorAction", () => {
       describeDisabledEpicCoordinatorAction({
         epic: {
           primaryAction: {
-            kind: "run_next_swarm_task",
-            label: "Run next task",
-            busyLabel: "Running...",
+            kind: "stop_swarm",
+            label: "Stop run",
+            busyLabel: "Stopping...",
             disabled: true,
           },
           trackerLoadState: "ready",
