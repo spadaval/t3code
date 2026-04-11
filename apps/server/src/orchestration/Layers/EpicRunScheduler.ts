@@ -1,4 +1,6 @@
 import {
+  type BeadsIssueRelationSummary,
+  type BeadsEpicTrackerStatus,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_MODEL_BY_PROVIDER,
@@ -12,14 +14,12 @@ import {
   type OrchestrationEpicRunControlResult,
   type OrchestrationEpicRunStatus,
   type OrchestrationEpicIssueExecution,
+  type OrchestrationEvent,
+  type OrchestrationSessionStatus,
 } from "@t3tools/contracts";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
-import {
-  deriveExecutionBlocking,
-  deriveEpicRunExecutionState,
-  isEpicTrackerSummaryComplete,
-} from "@t3tools/shared/epicRun";
-import { Cause, Deferred, Duration, Effect, Fiber, Layer } from "effect";
+import { deriveEpicRunExecutionState } from "@t3tools/shared/epicRun";
+import { Cause, Deferred, Duration, Effect, Fiber, Layer, Stream } from "effect";
 import type { Scope } from "effect";
 
 import { BeadsTrackerService } from "../../beads/Services/BeadsTrackerService.ts";
@@ -38,14 +38,14 @@ import {
 } from "../FailurePolicy.ts";
 import { EpicRunSchedulerError } from "../Errors.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { EpicTrackerSnapshotReader } from "../Services/EpicTrackerSnapshotReader.ts";
 import { EpicRunScheduler, type EpicRunSchedulerShape } from "../Services/EpicRunScheduler.ts";
 import {
-  countLaunchableReadyIssues,
-  describeReadyIssueExhaustion,
+  decideDriveRun,
+  decideLaunchNextTask,
   describeSharedWorkspaceProjectInvariantViolation,
   evaluateRunExecutionInvariant,
   evaluateSharedWorkspaceProjectInvariant,
-  getAttemptedIssueIds,
   isBackgroundEpicRunSchedulerTrigger,
   selectLaunchableReadyIssue,
   type EpicRunDriveRequest,
@@ -57,6 +57,7 @@ import {
   buildEpicRunWorkerPrompt,
   buildEpicRunWorkerThreadTitle,
 } from "../epicRunWorker.ts";
+import { EpicTrackerSnapshotReaderLive } from "./EpicTrackerSnapshotReader.ts";
 
 const RECONCILIATION_INTERVAL = Duration.seconds(15);
 const WORKER_STOP_POLL_INTERVAL = Duration.millis(250);
@@ -91,6 +92,24 @@ interface CancelEpicIssueExecutionInput {
 type QueuedEpicRunDriveRequest = EpicRunDriveRequest & {
   readonly completion?: Deferred.Deferred<void, never>;
 };
+
+interface DriveRunSnapshot {
+  readonly request: EpicRunDriveRequest;
+  readonly run: OrchestrationEpicRun;
+  readonly projectInvariant: {
+    readonly winnerRunId: EpicRunId | null;
+    readonly failureReason: string | null;
+  };
+  readonly executionInvariant: ReturnType<typeof evaluateRunExecutionInvariant>;
+}
+
+interface LaunchSnapshot {
+  readonly request: EpicRunDriveRequest;
+  readonly run: OrchestrationEpicRun;
+  readonly project: OrchestrationProject;
+  readonly trackerStatus: BeadsEpicTrackerStatus;
+  readonly executions: ReadonlyArray<OrchestrationEpicIssueExecution>;
+}
 
 function workflowError(operation: string, detail: string, cause?: unknown): EpicRunSchedulerError {
   return new EpicRunSchedulerError({
@@ -161,6 +180,25 @@ function workerTurnStopped(input: Parameters<typeof workerThreadStillHasActiveTu
   return !workerThreadStillHasActiveTurn(input);
 }
 
+function isTerminalWorkerSessionStatus(status: OrchestrationSessionStatus): boolean {
+  return (
+    status === "ready" || status === "interrupted" || status === "stopped" || status === "error"
+  );
+}
+
+function isNonTerminalExecutionStatus(status: OrchestrationEpicIssueExecution["status"]): boolean {
+  return status === "launching" || status === "running" || status === "stopping";
+}
+
+function isWorkerTerminalObservationEvent(
+  event: OrchestrationEvent,
+): event is Extract<OrchestrationEvent, { type: "thread.session-set" }> {
+  return (
+    event.type === "thread.session-set" &&
+    isTerminalWorkerSessionStatus(event.payload.session.status)
+  );
+}
+
 function prioritizeDriveRequests(
   requests: ReadonlyArray<QueuedEpicRunDriveRequest>,
 ): Array<QueuedEpicRunDriveRequest> {
@@ -188,6 +226,7 @@ function prioritizeDriveRequests(
 const makeEpicRunScheduler = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const beadsTracker = yield* BeadsTrackerService;
+  const trackerSnapshotReader = yield* EpicTrackerSnapshotReader;
   const activeProjectFibers = new Map<OrchestrationProject["id"], Fiber.Fiber<void, never>>();
 
   type DispatchInput = Parameters<typeof orchestrationEngine.dispatch>[0];
@@ -264,6 +303,30 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       }),
     );
 
+  const findRunForWorkerThread = (threadId: ThreadId) =>
+    getReadModel().pipe(
+      Effect.map((readModel) => {
+        const execution =
+          readModel.epicIssueExecutions.find(
+            (entry) =>
+              entry.workerThreadId === threadId && isNonTerminalExecutionStatus(entry.status),
+          ) ?? null;
+        if (execution === null) {
+          return null;
+        }
+
+        const run =
+          readModel.epicRuns.find(
+            (entry) => entry.runId === execution.runId && !isTerminalRunStatus(entry.status),
+          ) ?? null;
+        if (run === null) {
+          return null;
+        }
+
+        return { run, execution } as const;
+      }),
+    );
+
   const getRunExecutionState = (runId: EpicRunId) =>
     getReadModel().pipe(
       Effect.map((readModel) =>
@@ -292,38 +355,6 @@ const makeEpicRunScheduler = Effect.gen(function* () {
 
       const [execution] = nonTerminalExecutions;
       return { ok: true as const, execution };
-    }).pipe(
-      Effect.mapError((error) =>
-        isWorkflowExecutionError(error)
-          ? error
-          : workflowError(operation, truncateEpicRunFailureDetail(toErrorMessage(error)), error),
-      ),
-    );
-
-  const enforceSharedWorkspaceProjectInvariant = (
-    operation: string,
-    projectId: OrchestrationProject["id"],
-  ) =>
-    Effect.gen(function* () {
-      const projectRuns = yield* getRunsForProject(projectId);
-      const invariant = evaluateSharedWorkspaceProjectInvariant(projectRuns);
-      const winner = invariant.winner;
-      if (winner === null) {
-        return { winner: null as OrchestrationEpicRun | null };
-      }
-
-      for (const loser of invariant.losers) {
-        yield* failRun({
-          runId: loser.runId,
-          reason: describeSharedWorkspaceProjectInvariantViolation({
-            projectId,
-            winner,
-            loser,
-          }),
-        });
-      }
-
-      return { winner: yield* getRunById(winner.runId) };
     }).pipe(
       Effect.mapError((error) =>
         isWorkflowExecutionError(error)
@@ -489,37 +520,28 @@ const makeEpicRunScheduler = Effect.gen(function* () {
   const getTrackerState = (input: { projectId: OrchestrationProject["id"]; epicIssueId: string }) =>
     Effect.gen(function* () {
       const project = yield* getProjectById(input.projectId);
-      const cwd = project.workspaceRoot;
-      const [support, validation, status] = yield* Effect.all(
-        [
-          beadsTracker.getEpicRunSupport({ cwd }),
-          beadsTracker.validateEpicRun({
-            cwd,
-            epicIssueId: input.epicIssueId,
-          }),
-          beadsTracker.getEpicTrackerStatus({
-            cwd,
-            epicIssueId: input.epicIssueId,
-          }),
-        ],
-        { concurrency: "unbounded" },
-      ).pipe(
-        Effect.mapError((error) =>
-          workflowError(
-            "getTrackerState",
-            truncateEpicRunFailureDetail(toErrorMessage(error)),
-            error,
+      const snapshot = yield* trackerSnapshotReader
+        .readSnapshot({
+          cwd: project.workspaceRoot,
+          epicIssueId: input.epicIssueId,
+        })
+        .pipe(
+          Effect.mapError((error) =>
+            workflowError(
+              "getTrackerState",
+              truncateEpicRunFailureDetail(toErrorMessage(error)),
+              error,
+            ),
           ),
-        ),
-      );
+        );
 
       return {
         project,
-        support,
-        validation,
-        status,
+        support: snapshot.support,
+        validation: snapshot.validation,
+        status: snapshot.status,
         nextReadyIssue: selectLaunchableReadyIssue({
-          readyIssues: status.ready,
+          readyIssues: snapshot.status.ready,
           attemptedIssueIds: new Set(),
         }),
       } as const;
@@ -889,101 +911,86 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       ),
     );
 
-  const launchNextTaskExecution = (input: {
-    readonly runId: EpicRunId;
-    readonly trigger: EpicRunSchedulerTrigger;
-  }) =>
+  const gatherDriveRunSnapshot = (
+    request: EpicRunDriveRequest,
+  ): Effect.Effect<DriveRunSnapshot, EpicRunSchedulerError> =>
     Effect.gen(function* () {
-      const run = yield* getRunById(input.runId);
-      const { currentExecution } = yield* getRunExecutionState(run.runId);
-      if (isTerminalRunStatus(run.status) || currentExecution !== null) {
-        return run;
-      }
-
-      const invariant = yield* enforceSharedWorkspaceExecutionInvariant(
-        "launchNextTaskExecution",
-        run,
+      const run = yield* getRunById(request.runId);
+      const projectInvariant = evaluateSharedWorkspaceProjectInvariant(
+        yield* getRunsForProject(run.projectId),
       );
-      if (!invariant.ok) {
-        return invariant.run;
-      }
+      const winner = projectInvariant.winner;
+      const executionInvariant = evaluateRunExecutionInvariant({
+        runId: run.runId,
+        executions: yield* getExecutionsForRun(run.runId),
+      });
 
+      return {
+        request,
+        run,
+        projectInvariant: {
+          winnerRunId: winner?.runId ?? null,
+          failureReason:
+            winner !== null && winner.runId !== run.runId
+              ? describeSharedWorkspaceProjectInvariantViolation({
+                  projectId: run.projectId,
+                  winner,
+                  loser: run,
+                })
+              : null,
+        },
+        executionInvariant,
+      };
+    });
+
+  const gatherLaunchSnapshot = (
+    snapshot: DriveRunSnapshot,
+  ): Effect.Effect<LaunchSnapshot, EpicRunSchedulerError> =>
+    Effect.gen(function* () {
+      const run = yield* getRunById(snapshot.run.runId);
       const project = yield* getProjectById(run.projectId);
-      const trackerStatus = yield* beadsTracker
-        .getEpicTrackerStatus({
+      const trackerSnapshot = yield* trackerSnapshotReader
+        .readSnapshot({
           cwd: project.workspaceRoot,
           epicIssueId: run.epicIssueId,
         })
         .pipe(
           Effect.mapError((error) =>
             workflowError(
-              "launchNextTaskExecution:getEpicTrackerStatus",
+              "gatherLaunchSnapshot",
               truncateEpicRunFailureDetail(toErrorMessage(error)),
               error,
             ),
           ),
         );
-
-      const executionBlocking = deriveExecutionBlocking(trackerStatus);
-      if (executionBlocking.hasExecutionBlockingIssues) {
-        return run;
-      }
-
-      if (trackerStatus.active.length > 0) {
-        return run;
-      }
-
       const executions = yield* getExecutionsForRun(run.runId);
-      const attemptedIssueIds = getAttemptedIssueIds(executions);
 
-      const nextReadyIssue = selectLaunchableReadyIssue({
-        readyIssues: trackerStatus.ready,
-        attemptedIssueIds,
-      });
+      return {
+        request: snapshot.request,
+        run,
+        project,
+        trackerStatus: trackerSnapshot.status,
+        executions,
+      };
+    });
 
-      if (!nextReadyIssue) {
-        if (
-          trackerStatus.ready.length > 0 &&
-          countLaunchableReadyIssues({
-            readyIssues: trackerStatus.ready,
-            attemptedIssueIds,
-          }) === 0
-        ) {
-          yield* failRun({
-            runId: run.runId,
-            reason: describeReadyIssueExhaustion({
-              runId: run.runId,
-              attemptedIssueIds,
-              readyIssues: trackerStatus.ready,
-            }),
-          });
-          return yield* getRunById(run.runId);
-        }
-
-        if (trackerStatus.blocked.length > 0) {
-          return run;
-        }
-
-        if (!isEpicTrackerSummaryComplete(trackerStatus.trackerSummary)) {
-          return run;
-        }
-
-        yield* completeRun(run.runId);
-        return yield* getRunById(run.runId);
-      }
-
+  const executeLaunchIssue = (
+    snapshot: LaunchSnapshot,
+    nextReadyIssue: BeadsIssueRelationSummary,
+  ): Effect.Effect<OrchestrationEpicRun, EpicRunSchedulerError> =>
+    Effect.gen(function* () {
       yield* Effect.logDebug("epic run launching next issue execution").pipe(
         Effect.annotateLogs({
-          runId: run.runId,
+          runId: snapshot.run.runId,
           issueId: nextReadyIssue.id,
         }),
       );
 
       const issueId = nextReadyIssue.id;
-      const cwd = project.workspaceRoot;
+      const cwd = snapshot.project.workspaceRoot;
       const workerThreadId = nextThreadId();
       const executionId = nextExecutionId();
-      const sequenceNumber = yield* nextExecutionSequenceNumber(run.runId);
+      const sequenceNumber = yield* nextExecutionSequenceNumber(snapshot.run.runId);
       const threadTitle = buildEpicRunWorkerThreadTitle(nextReadyIssue);
 
       let threadCreated = false;
@@ -992,8 +999,8 @@ const makeEpicRunScheduler = Effect.gen(function* () {
 
       const launchAttempt = Effect.gen(function* () {
         yield* createWorkerThread({
-          run,
-          project,
+          run: snapshot.run,
+          project: snapshot.project,
           threadId: workerThreadId,
           title: threadTitle,
           issueLink: buildEpicRunIssueLink({
@@ -1005,7 +1012,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         threadCreated = true;
 
         yield* requestTaskExecutionCommand({
-          runId: run.runId,
+          runId: snapshot.run.runId,
           executionId,
           issueId,
           workerThreadId,
@@ -1014,14 +1021,14 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         executionRequested = true;
 
         yield* startWorkerThreadTurn({
-          run,
+          run: snapshot.run,
           threadId: workerThreadId,
           title: threadTitle,
           promptText: buildEpicRunWorkerPrompt({
             issueId,
             issueTitle: nextReadyIssue.title,
-            epicIssueId: run.epicIssueId,
-            runId: run.runId,
+            epicIssueId: snapshot.run.epicIssueId,
+            runId: snapshot.run.runId,
             executionId,
             sequenceNumber,
           }),
@@ -1029,14 +1036,14 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         turnStartDispatched = true;
 
         yield* promoteRequestedExecutionIfWorkerObserved({
-          runId: run.runId,
+          runId: snapshot.run.runId,
           executionId,
           issueId,
           workerThreadId,
           sequenceNumber,
         });
 
-        return yield* getRunById(run.runId);
+        return yield* getRunById(snapshot.run.runId);
       });
 
       return yield* launchAttempt.pipe(
@@ -1055,8 +1062,8 @@ const makeEpicRunScheduler = Effect.gen(function* () {
 
             if (executionRequested && !turnStartDispatched) {
               return yield* cleanupFailedRequestedExecutionLaunch({
-                run,
-                project,
+                run: snapshot.run,
+                project: snapshot.project,
                 executionId,
                 issueId,
                 workerThreadId,
@@ -1069,23 +1076,65 @@ const makeEpicRunScheduler = Effect.gen(function* () {
             }
 
             yield* failRun({
-              runId: run.runId,
+              runId: snapshot.run.runId,
               reason,
               issueId,
               executionId: executionRequested ? executionId : null,
               workerThreadId: threadCreated ? workerThreadId : null,
             });
 
-            return yield* getRunById(run.runId);
+            return yield* getRunById(snapshot.run.runId);
           }),
         ),
       );
     });
 
+  const executeLaunchDecision = (input: {
+    readonly snapshot: LaunchSnapshot;
+    readonly decision: ReturnType<typeof decideLaunchNextTask>;
+  }): Effect.Effect<
+    { readonly run: OrchestrationEpicRun; readonly continueReconcile: boolean },
+    EpicRunSchedulerError
+  > =>
+    Effect.gen(function* () {
+      switch (input.decision.type) {
+        case "noop":
+        case "block_run":
+        case "idle_run":
+          return {
+            run: yield* getRunById(input.snapshot.run.runId),
+            continueReconcile: false,
+          } as const;
+        case "fail_run":
+          yield* failRun({
+            runId: input.snapshot.run.runId,
+            reason: input.decision.reason,
+          });
+          return {
+            run: yield* getRunById(input.snapshot.run.runId),
+            continueReconcile: false,
+          } as const;
+        case "complete_run":
+          yield* completeRun(input.snapshot.run.runId);
+          return {
+            run: yield* getRunById(input.snapshot.run.runId),
+            continueReconcile: false,
+          } as const;
+        case "launch_issue":
+          return {
+            run: yield* executeLaunchIssue(input.snapshot, input.decision.issue),
+            continueReconcile: false,
+          } as const;
+      }
+    });
+
   const reconcileRequestedTaskExecution = (input: {
     readonly run: OrchestrationEpicRun;
     readonly execution: OrchestrationEpicIssueExecution;
-  }): Effect.Effect<OrchestrationEpicRun, EpicRunSchedulerError> =>
+  }): Effect.Effect<
+    { readonly run: OrchestrationEpicRun; readonly settledExecution: boolean },
+    EpicRunSchedulerError
+  > =>
     Effect.gen(function* () {
       const project = yield* getProjectById(input.run.projectId);
       const threadOption =
@@ -1101,30 +1150,34 @@ const makeEpicRunScheduler = Effect.gen(function* () {
 
       switch (decision.type) {
         case "cleanup_failed_launch":
-          return yield* cleanupFailedRequestedExecutionLaunch({
-            run: input.run,
-            project,
-            executionId: input.execution.executionId,
-            issueId: input.execution.issueId,
-            workerThreadId: input.execution.workerThreadId,
-            reason: truncateEpicRunFailureDetail(decision.reason, 500),
-          });
+          return {
+            run: yield* cleanupFailedRequestedExecutionLaunch({
+              run: input.run,
+              project,
+              executionId: input.execution.executionId,
+              issueId: input.execution.issueId,
+              workerThreadId: input.execution.workerThreadId,
+              reason: truncateEpicRunFailureDetail(decision.reason, 500),
+            }),
+            settledExecution: true,
+          } as const;
         case "complete":
-          yield* completeEpicIssueExecution({
-            runId: input.run.runId,
-            executionId: input.execution.executionId,
-          });
-          return yield* driveRun({
-            runId: input.run.runId,
-            trigger: "execution_settled",
-          });
+          return {
+            run: yield* completeEpicIssueExecution({
+              runId: input.run.runId,
+              executionId: input.execution.executionId,
+            }),
+            settledExecution: true,
+          } as const;
         case "fail":
-          yield* failEpicIssueExecution({
-            runId: input.run.runId,
-            executionId: input.execution.executionId,
-            reason: decision.reason,
-          });
-          return yield* getRunById(input.run.runId);
+          return {
+            run: yield* failEpicIssueExecution({
+              runId: input.run.runId,
+              executionId: input.execution.executionId,
+              reason: decision.reason,
+            }),
+            settledExecution: true,
+          } as const;
         case "promote_to_active":
           yield* startTaskExecutionCommand({
             runId: input.run.runId,
@@ -1133,20 +1186,32 @@ const makeEpicRunScheduler = Effect.gen(function* () {
             workerThreadId: input.execution.workerThreadId!,
             sequenceNumber: input.execution.sequenceNumber,
           });
-          return yield* getRunById(input.run.runId);
+          return {
+            run: yield* getRunById(input.run.runId),
+            settledExecution: false,
+          } as const;
         case "noop":
-          return yield* getRunById(input.run.runId);
+          return {
+            run: yield* getRunById(input.run.runId),
+            settledExecution: false,
+          } as const;
       }
     });
 
   const reconcileCurrentTaskExecution = (
     runId: EpicRunId,
-  ): Effect.Effect<OrchestrationEpicRun, EpicRunSchedulerError> =>
+  ): Effect.Effect<
+    { readonly run: OrchestrationEpicRun; readonly settledExecution: boolean },
+    EpicRunSchedulerError
+  > =>
     Effect.gen(function* () {
       const run = yield* getRunById(runId);
       const { currentExecution } = yield* getRunExecutionState(run.runId);
       if (currentExecution === null || isTerminalRunStatus(run.status)) {
-        return run;
+        return {
+          run,
+          settledExecution: false,
+        } as const;
       }
 
       const invariant = yield* enforceSharedWorkspaceExecutionInvariant(
@@ -1154,7 +1219,10 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         run,
       );
       if (!invariant.ok) {
-        return invariant.run;
+        return {
+          run: invariant.run,
+          settledExecution: false,
+        } as const;
       }
 
       const execution = invariant.execution;
@@ -1181,23 +1249,88 @@ const makeEpicRunScheduler = Effect.gen(function* () {
             execution,
           });
         case "complete_execution":
-          yield* completeEpicIssueExecution({
-            runId: run.runId,
-            executionId: execution.executionId,
-          });
-          return yield* driveRun({
-            runId: run.runId,
-            trigger: "execution_settled",
-          });
+          return {
+            run: yield* completeEpicIssueExecution({
+              runId: run.runId,
+              executionId: execution.executionId,
+            }),
+            settledExecution: true,
+          } as const;
         case "fail_execution":
-          yield* failEpicIssueExecution({
-            runId: run.runId,
-            executionId: execution.executionId,
-            reason: decision.reason,
-          });
-          return yield* getRunById(run.runId);
+          return {
+            run: yield* failEpicIssueExecution({
+              runId: run.runId,
+              executionId: execution.executionId,
+              reason: decision.reason,
+            }),
+            settledExecution: true,
+          } as const;
         case "noop":
-          return yield* getRunById(run.runId);
+          return {
+            run: yield* getRunById(run.runId),
+            settledExecution: false,
+          } as const;
+      }
+    });
+
+  const executeDriveRunDecision = (input: {
+    readonly snapshot: DriveRunSnapshot;
+    readonly decision: ReturnType<typeof decideDriveRun>;
+  }): Effect.Effect<
+    { readonly run: OrchestrationEpicRun; readonly continueReconcile: boolean },
+    EpicRunSchedulerError
+  > =>
+    Effect.gen(function* () {
+      switch (input.decision.type) {
+        case "noop":
+          return {
+            run: yield* getRunById(input.snapshot.run.runId),
+            continueReconcile: false,
+          } as const;
+        case "fail_run":
+          yield* failRun({
+            runId: input.snapshot.run.runId,
+            reason: input.decision.reason,
+          });
+          return {
+            run: yield* getRunById(input.snapshot.run.runId),
+            continueReconcile: false,
+          } as const;
+        case "reconcile_current": {
+          const outcome = yield* reconcileCurrentTaskExecution(input.snapshot.run.runId);
+          return {
+            run: outcome.run,
+            continueReconcile: outcome.settledExecution,
+          } as const;
+        }
+        case "launch": {
+          if (input.snapshot.run.status === "pending") {
+            yield* markRunStarted(input.snapshot.run.runId);
+          }
+
+          const run = yield* getRunById(input.snapshot.run.runId);
+          if (run.status !== "running") {
+            return {
+              run,
+              continueReconcile: false,
+            } as const;
+          }
+
+          const launchSnapshot = yield* gatherLaunchSnapshot({
+            ...input.snapshot,
+            run,
+          });
+          const launchDecision = decideLaunchNextTask({
+            run: launchSnapshot.run,
+            trigger: launchSnapshot.request.trigger,
+            trackerStatus: launchSnapshot.trackerStatus,
+            executions: launchSnapshot.executions,
+          });
+          return yield* executeLaunchDecision({
+            snapshot: launchSnapshot,
+            decision: launchDecision,
+          });
+        }
       }
     });
 
@@ -1205,58 +1338,28 @@ const makeEpicRunScheduler = Effect.gen(function* () {
     request: EpicRunDriveRequest,
   ): Effect.Effect<OrchestrationEpicRun, EpicRunSchedulerError> =>
     Effect.gen(function* () {
-      let run = yield* getRunById(request.runId);
-      if (isTerminalRunStatus(run.status)) {
-        return run;
+      const snapshot = yield* gatherDriveRunSnapshot(request);
+      if (isTerminalRunStatus(snapshot.run.status)) {
+        return snapshot.run;
       }
 
-      const projectInvariant = yield* enforceSharedWorkspaceProjectInvariant(
-        "driveRun",
-        run.projectId,
-      );
-      run = yield* getRunById(request.runId);
-      if (isTerminalRunStatus(run.status)) {
-        return run;
-      }
-
-      if (projectInvariant.winner !== null && projectInvariant.winner.runId !== run.runId) {
-        return run;
-      }
-
-      const executionInvariant = evaluateRunExecutionInvariant({
-        runId: run.runId,
-        executions: yield* getExecutionsForRun(run.runId),
+      const decision = decideDriveRun({
+        run: snapshot.run,
+        trigger: snapshot.request.trigger,
+        projectInvariant: snapshot.projectInvariant,
+        executionInvariant: snapshot.executionInvariant,
       });
-      if (executionInvariant.violationReason) {
-        yield* failRun({
-          runId: run.runId,
-          reason: executionInvariant.violationReason,
-        });
-        return yield* getRunById(run.runId);
-      }
-
-      if (executionInvariant.currentExecution !== null) {
-        yield* reconcileCurrentTaskExecution(run.runId);
-        return yield* getRunById(run.runId);
-      }
-
-      if (run.status === "stopped") {
-        return run;
-      }
-
-      if (run.status === "pending") {
-        yield* markRunStarted(run.runId);
-        run = yield* getRunById(run.runId);
-      }
-
-      if (run.status !== "running") {
-        return run;
-      }
-
-      return yield* launchNextTaskExecution({
-        runId: run.runId,
-        trigger: request.trigger,
+      const outcome = yield* executeDriveRunDecision({
+        snapshot,
+        decision,
       });
+
+      return outcome.continueReconcile
+        ? yield* driveRun({
+            runId: request.runId,
+            trigger: "execution_settled",
+          })
+        : outcome.run;
     });
 
   const driveRunSafely = (request: EpicRunDriveRequest) =>
@@ -1530,7 +1633,9 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       return asControlResult(yield* getRunById(run.runId));
     });
 
-  const completeEpicIssueExecution = (input: CompleteEpicIssueExecutionInput) =>
+  const completeEpicIssueExecution = (
+    input: CompleteEpicIssueExecutionInput,
+  ): Effect.Effect<OrchestrationEpicRun, EpicRunSchedulerError> =>
     Effect.gen(function* () {
       const { run, project, execution } = yield* getWorkerExecutionContext(
         input.runId,
@@ -1560,7 +1665,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
           executionId: execution.executionId,
           reason,
         });
-        return asControlResult(yield* getRunById(run.runId));
+        return yield* getRunById(run.runId);
       }
 
       yield* syncIssueForExecutionSettlement({
@@ -1573,7 +1678,9 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       return yield* getRunById(run.runId);
     });
 
-  const failEpicIssueExecution = (input: FailEpicIssueExecutionInput) =>
+  const failEpicIssueExecution = (
+    input: FailEpicIssueExecutionInput,
+  ): Effect.Effect<OrchestrationEpicRun, EpicRunSchedulerError> =>
     Effect.gen(function* () {
       const { run, project, execution } = yield* getWorkerExecutionContext(
         input.runId,
@@ -1602,7 +1709,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         executionId: execution.executionId,
         workerThreadId: execution.workerThreadId,
       });
-      return asControlResult(yield* getRunById(run.runId));
+      return yield* getRunById(run.runId);
     });
 
   const enqueueAllRuns = (
@@ -1622,9 +1729,47 @@ const makeEpicRunScheduler = Effect.gen(function* () {
 
   const reconcileAllSafely = () => enqueueAllRuns("startup_reconcile");
 
+  const notifyWorkerStateChanged: EpicRunSchedulerShape["notifyWorkerStateChanged"] = (threadId) =>
+    findRunForWorkerThread(threadId).pipe(
+      Effect.flatMap((match) =>
+        match === null
+          ? Effect.void
+          : scheduleDriveRequest(match.run.projectId, {
+              runId: match.run.runId,
+              trigger: "worker_state_changed",
+            }),
+      ),
+      Effect.catchCause((cause) => {
+        if (Cause.hasInterruptsOnly(cause)) {
+          return Effect.failCause(cause);
+        }
+
+        return Effect.logWarning(
+          "epic-run scheduler failed to process worker terminal observation",
+          {
+            threadId,
+            cause: Cause.pretty(cause),
+          },
+        );
+      }),
+    );
+
+  const processWorkerTerminalObservation = (
+    event: Extract<OrchestrationEvent, { type: "thread.session-set" }>,
+  ) => notifyWorkerStateChanged(event.payload.threadId);
+
   const start: EpicRunSchedulerShape["start"] = Effect.gen(function* () {
     yield* reconcileAllSafely();
     yield* drain();
+    yield* Effect.forkScoped(
+      Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
+        if (!isWorkerTerminalObservationEvent(event)) {
+          return Effect.void;
+        }
+
+        return processWorkerTerminalObservation(event);
+      }),
+    );
     yield* Effect.forever(
       Effect.sleep(RECONCILIATION_INTERVAL).pipe(
         Effect.flatMap(() => enqueueAllRuns("periodic_reconcile")),
@@ -1637,7 +1782,10 @@ const makeEpicRunScheduler = Effect.gen(function* () {
     drain: drain(),
     startEpicRun,
     stopEpicRun,
+    notifyWorkerStateChanged,
   } satisfies EpicRunSchedulerShape;
 });
 
-export const EpicRunSchedulerLive = Layer.effect(EpicRunScheduler, makeEpicRunScheduler);
+export const EpicRunSchedulerLive = Layer.effect(EpicRunScheduler, makeEpicRunScheduler).pipe(
+  Layer.provideMerge(EpicTrackerSnapshotReaderLive),
+);

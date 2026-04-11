@@ -144,6 +144,68 @@ describe("EpicRunScheduler", () => {
     expect(issue?.assignee).toBeNull();
   });
 
+  it("wakes the scheduler when a worker thread reports a state change", async () => {
+    const harness = await createHarness();
+
+    const started = await harness.startRun();
+    await harness.drainScheduler();
+
+    const initialSnapshot = await harness.getSnapshot();
+    const execution = initialSnapshot.epicIssueExecutions[0];
+    if (!execution?.workerThreadId) {
+      throw new Error("Expected a worker thread for the requested execution.");
+    }
+
+    harness.patchThread(execution.workerThreadId, {
+      latestTurn: makeErroredLatestTurn("turn-worker-failed"),
+      session: makeErroredSession(execution.workerThreadId, "Provider worker crashed."),
+    });
+
+    await runtime!.runPromise(harness.workflow.notifyWorkerStateChanged(execution.workerThreadId));
+
+    await expect
+      .poll(
+        async () => {
+          await harness.drainScheduler();
+          const nextSnapshot = await harness.getSnapshot();
+          return nextSnapshot.epicRuns.find((entry) => entry.runId === started.runId)?.status;
+        },
+        { timeout: 500, interval: 20 },
+      )
+      .toBe("failed");
+
+    const snapshot = await harness.getSnapshot();
+    const run = snapshot.epicRuns.find((entry) => entry.runId === started.runId);
+    const settledExecution = snapshot.epicIssueExecutions.find(
+      (entry) => entry.executionId === execution.executionId,
+    );
+
+    expect(run?.status).toBe("failed");
+    expect(failureMessage(run)).toContain("Provider worker crashed.");
+    expect(settledExecution?.status).toBe("failed");
+    expect(failureMessage(settledExecution)).toContain("Provider worker crashed.");
+  });
+
+  it("ignores worker state change wakeups for unrelated threads", async () => {
+    const harness = await createHarness();
+
+    const started = await harness.startRun();
+    await harness.drainScheduler();
+
+    const unrelatedThreadId = ThreadId.makeUnsafe("thread-unrelated");
+    await runtime!.runPromise(harness.workflow.notifyWorkerStateChanged(unrelatedThreadId));
+    await harness.drainScheduler();
+
+    const snapshot = await harness.getSnapshot();
+    const run = snapshot.epicRuns.find((entry) => entry.runId === started.runId);
+    const execution = snapshot.epicIssueExecutions[0];
+
+    expect(run?.status).toBe("running");
+    expect(run?.failureContext).toBeNull();
+    expect(execution?.status).toBe("launching");
+    expect(execution?.failureContext).toBeNull();
+  });
+
   it("deterministically keeps one admitted epic run and fails the loser when another starts", async () => {
     const harness = await createHarness();
 

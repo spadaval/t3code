@@ -70,6 +70,7 @@ describe("OrchestrationReactor", () => {
             drain: Effect.void,
             startEpicRun: () => Effect.die("unused"),
             stopEpicRun: () => Effect.die("unused"),
+            notifyWorkerStateChanged: () => Effect.void,
           }),
         ),
       ),

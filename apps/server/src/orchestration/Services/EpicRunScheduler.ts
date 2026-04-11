@@ -2,6 +2,7 @@ import type {
   OrchestrationStopEpicRunInput,
   OrchestrationStartEpicRunInput,
   OrchestrationEpicRunControlResult,
+  ThreadId,
 } from "@t3tools/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Scope } from "effect";
@@ -17,6 +18,7 @@ export interface EpicRunSchedulerShape {
   readonly stopEpicRun: (
     input: OrchestrationStopEpicRunInput,
   ) => Effect.Effect<OrchestrationEpicRunControlResult, EpicRunSchedulerError>;
+  readonly notifyWorkerStateChanged: (threadId: ThreadId) => Effect.Effect<void>;
 }
 
 export class EpicRunScheduler extends ServiceMap.Service<EpicRunScheduler, EpicRunSchedulerShape>()(
