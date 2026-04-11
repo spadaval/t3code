@@ -2,6 +2,7 @@
 import "../index.css";
 
 import {
+  BEADS_WS_METHODS,
   EventId,
   ORCHESTRATION_WS_METHODS,
   type MessageId,
@@ -299,6 +300,7 @@ function createSnapshotForTargetUser(options: {
         activities: [],
         proposedPlans: [],
         checkpoints: [],
+        pendingCheckpointCaptures: [],
         session: {
           threadId: THREAD_ID,
           status: options.sessionStatus ?? "ready",
@@ -311,9 +313,37 @@ function createSnapshotForTargetUser(options: {
       },
     ],
     planImplementationLaunches: [],
-    swarmRuns: [],
-    swarmTaskExecutions: [],
+    epicRuns: [],
+    epicIssueExecutions: [],
     updatedAt: NOW_ISO,
+  };
+}
+
+function createSnapshotWithLinkedIssue(options: { issueId: string }): OrchestrationReadModel {
+  const snapshot = createSnapshotForTargetUser({
+    targetMessageId: "msg-user-linked-issue-target" as MessageId,
+    targetText: "linked issue thread",
+  });
+
+  return {
+    ...snapshot,
+    threads: snapshot.threads.map((thread) =>
+      thread.id === THREAD_ID
+        ? {
+            ...thread,
+            issueLink: {
+              issueId: options.issueId,
+              title: "Linked browser issue",
+              status: "open",
+              priority: 1,
+              repoRoot: "/repo/project",
+              linkedAt: NOW_ISO,
+            },
+            updatedAt: isoAt(60),
+          }
+        : thread,
+    ),
+    updatedAt: isoAt(60),
   };
 }
 
@@ -361,6 +391,7 @@ function addThreadToSnapshot(
         activities: [],
         proposedPlans: [],
         checkpoints: [],
+        pendingCheckpointCaptures: [],
         session: {
           threadId,
           status: "ready",
@@ -1102,13 +1133,6 @@ async function waitForPlanSidebarCloseButton() {
   return waitForElement(
     () => document.querySelector<HTMLButtonElement>('[aria-label="Close plan sidebar"]'),
     "Unable to find the plan sidebar close button.",
-  );
-}
-
-async function waitForIssuesCloseButton() {
-  return waitForElement(
-    () => document.querySelector<HTMLButtonElement>('[aria-label="Close issues"]'),
-    "Unable to find the issues close button.",
   );
 }
 
@@ -3008,7 +3032,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("reopens the issues sidebar from the top bar", async () => {
+  it("opens the issue sidebar from the top bar", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -3021,13 +3045,98 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const openIssuesButton = await waitForIssuesToggle("Show issues");
       openIssuesButton.click();
 
-      await expect.element(await waitForIssuesCloseButton()).toBeInTheDocument();
       await waitForURL(
         mounted.router,
         (path) =>
           path === `/${THREAD_ID}` && mounted.router.state.location.search.rightPane === "issues",
-        "Route search should open the issues pane.",
+        "Route should stay on the thread while opening the issue sidebar.",
       );
+      await expect.element(await waitForIssuesToggle("Hide issues")).toBeInTheDocument();
+      await expect.element(page.getByText("Issues")).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("returns from linked issue detail back to the sidebar issue list", async () => {
+    const issueId = "ISS-123";
+    const issueTitle = "Repair broken issue sidebar back button";
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithLinkedIssue({ issueId }),
+      resolveRpc: (body) => {
+        if (body._tag === BEADS_WS_METHODS.queryIssues) {
+          return {
+            issues: [
+              {
+                id: issueId,
+                title: issueTitle,
+                description: "Keep the sidebar navigation working.",
+                notes: null,
+                status: "open",
+                priority: 1,
+                issueType: "bug",
+                assignee: null,
+                owner: null,
+                createdAt: NOW_ISO,
+                createdBy: null,
+                updatedAt: NOW_ISO,
+                labels: ["sidebar"],
+                parent: null,
+                dependencyCount: 0,
+                dependentCount: 0,
+                commentCount: 0,
+              },
+            ],
+          };
+        }
+        if (body._tag === BEADS_WS_METHODS.getIssue) {
+          return {
+            id: issueId,
+            title: issueTitle,
+            description: "Keep the sidebar navigation working.",
+            notes: null,
+            status: "open",
+            priority: 1,
+            issueType: "bug",
+            assignee: null,
+            owner: null,
+            createdAt: NOW_ISO,
+            createdBy: null,
+            updatedAt: NOW_ISO,
+            labels: ["sidebar"],
+            parent: null,
+            dependencyCount: 0,
+            dependentCount: 0,
+            commentCount: 0,
+            dependencies: [],
+            comments: [],
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      const openIssuesButton = await waitForIssuesToggle("Show issues");
+      openIssuesButton.click();
+
+      await expect.element(await waitForIssuesToggle("Hide issues")).toBeInTheDocument();
+      await expect.element(await waitForButtonByText("Back")).toBeInTheDocument();
+      await expect.element(page.getByRole("heading", { name: issueTitle })).toBeInTheDocument();
+
+      const backButton = await waitForButtonByText("Back");
+      backButton.click();
+
+      await vi.waitFor(
+        () => {
+          expect(mounted.router.state.location.search.issueId).toBeUndefined();
+          expect(mounted.router.state.location.search.rightPane).toBe("issues");
+          expect(findButtonByText("Back")).toBeNull();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+      await expect.element(page.getByRole("heading", { name: issueTitle })).not.toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }

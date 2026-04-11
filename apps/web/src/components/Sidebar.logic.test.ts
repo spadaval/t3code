@@ -8,8 +8,10 @@ import {
   getVisibleThreadsForProject,
   getProjectSortTimestamp,
   hasUnseenCompletion,
+  isProjectTrackerPath,
   isContextMenuPointerDown,
   orderItemsByPreferredIds,
+  projectTrackerPath,
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
@@ -55,6 +57,18 @@ describe("hasUnseenCompletion", () => {
         session: null,
       }),
     ).toBe(true);
+  });
+});
+
+describe("project tracker paths", () => {
+  it("builds the project tracker route for a project", () => {
+    expect(projectTrackerPath("project-1")).toBe("/projects/project-1/issues");
+  });
+
+  it("matches the tracker route exactly for active sidebar styling", () => {
+    expect(isProjectTrackerPath("/projects/project-1/issues", "project-1")).toBe(true);
+    expect(isProjectTrackerPath("/projects/project-1/issues/details", "project-1")).toBe(false);
+    expect(isProjectTrackerPath("/projects/project-2/issues", "project-1")).toBe(false);
   });
 });
 
@@ -662,6 +676,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     latestTurn: null,
     branch: null,
     worktreePath: null,
+    issueLink: null,
     turnDiffSummaries: [],
     activities: [],
     ...overrides,

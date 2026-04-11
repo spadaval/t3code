@@ -4,6 +4,7 @@ import {
   ChevronRightIcon,
   FolderIcon,
   GitPullRequestIcon,
+  ListTodoIcon,
   PlusIcon,
   SettingsIcon,
   SquarePenIcon,
@@ -120,6 +121,7 @@ import {
   resolveThreadStatusPill,
   orderItemsByPreferredIds,
   shouldClearThreadSelectionOnMouseDown,
+  isProjectTrackerPath,
   sortProjectsForSidebar,
   sortThreadsForSidebar,
   useThreadJumpHintVisibility,
@@ -1635,6 +1637,7 @@ export default function Sidebar() {
       shouldShowThreadPanel,
       isThreadListExpanded,
     } = renderedProject;
+    const projectTrackerActive = isProjectTrackerPath(pathname, project.id);
     return (
       <>
         <div className="group/project-header relative">
@@ -1781,6 +1784,28 @@ export default function Sidebar() {
           ref={attachThreadListAutoAnimateRef}
           className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0"
         >
+          {project.expanded && (
+            <SidebarMenuSubItem className="w-full">
+              <SidebarMenuSubButton
+                render={
+                  <Link
+                    to="/projects/$projectId/issues"
+                    params={{ projectId: project.id }}
+                    search={{ tab: "coordinator" }}
+                    activeOptions={{ exact: true }}
+                  />
+                }
+                data-thread-selection-safe
+                isActive={projectTrackerActive}
+                size="sm"
+                className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px]"
+                title={`Open tracker for ${project.name}`}
+              >
+                <ListTodoIcon className="size-3.5" />
+                <span>Tracker</span>
+              </SidebarMenuSubButton>
+            </SidebarMenuSubItem>
+          )}
           {shouldShowThreadPanel && showEmptyThreadState ? (
             <SidebarMenuSubItem className="w-full" data-thread-selection-safe>
               <div

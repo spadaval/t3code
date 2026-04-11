@@ -59,6 +59,14 @@ export interface ThreadJumpHintVisibilityController {
   dispose: () => void;
 }
 
+export function projectTrackerPath(projectId: string): string {
+  return `/projects/${projectId}/issues`;
+}
+
+export function isProjectTrackerPath(pathname: string, projectId: string): boolean {
+  return pathname === projectTrackerPath(projectId);
+}
+
 export function createThreadJumpHintVisibilityController(input: {
   delayMs: number;
   onVisibilityChange: (visible: boolean) => void;

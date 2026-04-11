@@ -4,6 +4,7 @@ import {
   type ClaudeCodeEffort,
   type MessageId,
   type ModelSelection,
+  type OrchestrationThreadIssueLink,
   type ProjectScript,
   type ProviderKind,
   type ProjectEntry,
@@ -31,7 +32,7 @@ import { useGitStatus } from "~/lib/gitStatusState";
 import { gitBranchesQueryOptions } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { isElectron } from "../env";
-import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
+import { parseChatRouteSearch, stripRightPaneSearchParams } from "../chatRouteSearch";
 import {
   canCancelPlanImplementationLaunch,
   canRetryPlanImplementationLaunch,
@@ -77,10 +78,13 @@ import {
 import { useStore } from "../store";
 import { useProjectById, useThreadById } from "../storeSelectors";
 import { useUiStateStore } from "../uiStateStore";
+import { getIssuePaneState, useIssuePaneStore } from "../issuePaneStore";
 import { usePlanSidebarStore } from "../planSidebarStore";
 import {
   buildPlanImplementationThreadTitle,
   buildPlanImplementationPrompt,
+  buildPlanToBeadsPrompt,
+  buildPlanToBeadsThreadTitle,
   proposedPlanTitle,
   resolvePlanFollowUpSubmission,
 } from "../proposedPlan";
@@ -166,7 +170,7 @@ import { selectThreadTerminalState, useTerminalStateStore } from "../terminalSta
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
-import { ChatHeader } from "./chat/ChatHeader";
+import { ChatHeader, type ChatHeaderIssueSummary } from "./chat/ChatHeader";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { AVAILABLE_PROVIDER_OPTIONS, ProviderModelPicker } from "./chat/ProviderModelPicker";
@@ -219,6 +223,61 @@ const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
+
+function issueSummaryFromLink(issueLink: OrchestrationThreadIssueLink): ChatHeaderIssueSummary {
+  return {
+    id: issueLink.issueId,
+    title: issueLink.title,
+  };
+}
+
+function resolveSessionStatus(input: {
+  phase: SessionPhase;
+  isConnecting: boolean;
+  isPreparingWorktree: boolean;
+  isRevertingCheckpoint: boolean;
+  isSendBusy: boolean;
+  hasPendingApproval: boolean;
+  hasPendingUserInput: boolean;
+}): {
+  label: string;
+  tone: "neutral" | "warning" | "active";
+} {
+  if (input.isRevertingCheckpoint) {
+    return { label: "Reverting", tone: "active" };
+  }
+  if (input.isPreparingWorktree) {
+    return { label: "Preparing", tone: "active" };
+  }
+  if (input.hasPendingApproval) {
+    return { label: "Awaiting approval", tone: "warning" };
+  }
+  if (input.hasPendingUserInput) {
+    return { label: "Awaiting input", tone: "warning" };
+  }
+  if (input.isConnecting || input.phase === "connecting") {
+    return { label: "Connecting", tone: "active" };
+  }
+  if (input.isSendBusy || input.phase === "running") {
+    return { label: "Running", tone: "active" };
+  }
+  if (input.phase === "disconnected") {
+    return { label: "Disconnected", tone: "warning" };
+  }
+  return { label: "Ready", tone: "neutral" };
+}
+
+function composerSessionStatusClassName(
+  tone: ReturnType<typeof resolveSessionStatus>["tone"],
+): string {
+  if (tone === "active") {
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  }
+  if (tone === "warning") {
+    return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  }
+  return "border-border/70 bg-muted/35 text-muted-foreground";
+}
 
 function formatOutgoingPrompt(params: {
   provider: ProviderKind;
@@ -567,7 +626,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const navigate = useNavigate();
   const rawSearch = useSearch({
     strict: false,
-    select: (params) => parseDiffRouteSearch(params),
+    select: (params) => parseChatRouteSearch(params),
   });
   const { resolvedTheme } = useTheme();
   const composerDraft = useComposerThreadDraft(threadId);
@@ -827,13 +886,36 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
-  const diffOpen = rawSearch.diff === "1";
+  const diffOpen = rawSearch.rightPane === "diff";
+  const issuesOpen = rawSearch.rightPane === "issues";
+  const issuePaneState = useIssuePaneStore(
+    (store) => store.byThreadId[threadId as string] ?? getIssuePaneState(threadId),
+  );
+  const setIssuePaneSelectedIssueId = useIssuePaneStore((store) => store.setSelectedIssueId);
   const activeThreadId = activeThread?.id ?? null;
   const existingOpenTerminalThreadIds = useMemo(() => {
     const existingThreadIds = new Set<ThreadId>([...serverThreadIds, ...draftThreadIds]);
     return openTerminalThreadIds.filter((nextThreadId) => existingThreadIds.has(nextThreadId));
   }, [draftThreadIds, openTerminalThreadIds, serverThreadIds]);
   const activeLatestTurn = activeThread?.latestTurn ?? null;
+  useEffect(() => {
+    if (rawSearch.rightPane !== "issues") {
+      return;
+    }
+    if (!rawSearch.issueId) {
+      return;
+    }
+    if (issuePaneState.selectedIssueId === rawSearch.issueId) {
+      return;
+    }
+    setIssuePaneSelectedIssueId(threadId, rawSearch.issueId);
+  }, [
+    issuePaneState.selectedIssueId,
+    rawSearch.issueId,
+    rawSearch.rightPane,
+    setIssuePaneSelectedIssueId,
+    threadId,
+  ]);
   const activeContextWindow = useMemo(
     () => deriveLatestContextWindowSnapshot(activeThread?.activities ?? []),
     [activeThread?.activities],
@@ -1123,6 +1205,19 @@ export default function ChatView({ threadId }: ChatViewProps) {
     activePendingApproval: activePendingApproval?.requestId ?? null,
     activePendingUserInput: activePendingUserInput?.requestId ?? null,
     threadError: activeThread?.error,
+  });
+  const linkedIssueSummary = activeThread?.issueLink
+    ? issueSummaryFromLink(activeThread.issueLink)
+    : null;
+  const currentIssueForHeader = linkedIssueSummary;
+  const sessionStatus = resolveSessionStatus({
+    phase,
+    isConnecting,
+    isPreparingWorktree,
+    isRevertingCheckpoint,
+    isSendBusy,
+    hasPendingApproval: activePendingApproval !== null,
+    hasPendingUserInput: activePendingUserInput !== null,
   });
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
   const nowIso = new Date(nowTick).toISOString();
@@ -1591,10 +1686,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }),
     [terminalState.terminalOpen],
   );
-  const terminalToggleShortcutLabel = useMemo(
-    () => shortcutLabelForCommand(keybindings, "terminal.toggle"),
-    [keybindings],
-  );
   const splitTerminalShortcutLabel = useMemo(
     () => shortcutLabelForCommand(keybindings, "terminal.split", terminalShortcutLabelOptions),
     [keybindings, terminalShortcutLabelOptions],
@@ -1616,12 +1707,29 @@ export default function ChatView({ threadId }: ChatViewProps) {
       to: "/$threadId",
       params: { threadId },
       replace: true,
-      search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
-        return diffOpen ? { ...rest, diff: undefined } : { ...rest, diff: "1" };
-      },
+      search: diffOpen ? {} : { rightPane: "diff" as const },
     });
   }, [diffOpen, navigate, threadId]);
+  const onToggleIssues = useCallback(() => {
+    const selectedIssueId = issuePaneState.selectedIssueId ?? activeThread?.issueLink?.issueId;
+    void navigate({
+      to: "/$threadId",
+      params: { threadId },
+      replace: true,
+      search: issuesOpen
+        ? {}
+        : {
+            rightPane: "issues" as const,
+            ...(selectedIssueId ? { issueId: selectedIssueId } : {}),
+          },
+    });
+  }, [
+    activeThread?.issueLink?.issueId,
+    issuePaneState.selectedIssueId,
+    issuesOpen,
+    navigate,
+    threadId,
+  ]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -2054,7 +2162,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     setThreadPlanSidebarOpen,
     threadId,
   ]);
-
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: {
       threadId: ThreadId;
@@ -3502,122 +3609,149 @@ export default function ChatView({ threadId }: ChatViewProps) {
     ],
   );
 
+  const launchPlanPromptInNewThread = useCallback(
+    async (input: { prompt: string; title: string; errorTitle: string }) => {
+      const api = readNativeApi();
+      if (
+        !api ||
+        !activeThread ||
+        !activeProject ||
+        !activeProposedPlan ||
+        !isServerThread ||
+        isSendBusy ||
+        isConnecting ||
+        sendInFlightRef.current
+      ) {
+        return;
+      }
+
+      const createdAt = new Date().toISOString();
+      const nextThreadId = newThreadId();
+      const outgoingPrompt = formatOutgoingPrompt({
+        provider: selectedProvider,
+        model: selectedModel,
+        models: selectedProviderModels,
+        effort: selectedPromptEffort,
+        text: input.prompt,
+      });
+
+      sendInFlightRef.current = true;
+      beginLocalDispatch({ preparingWorktree: false });
+      const finish = () => {
+        sendInFlightRef.current = false;
+        resetLocalDispatch();
+      };
+
+      await api.orchestration
+        .dispatchCommand({
+          type: "thread.create",
+          commandId: newCommandId(),
+          threadId: nextThreadId,
+          projectId: activeProject.id,
+          title: input.title,
+          modelSelection: selectedModelSelection,
+          runtimeMode,
+          interactionMode: "default",
+          branch: activeThread.branch,
+          worktreePath: activeThread.worktreePath,
+          createdAt,
+        })
+        .then(() => {
+          return api.orchestration.dispatchCommand({
+            type: "thread.turn.start",
+            commandId: newCommandId(),
+            threadId: nextThreadId,
+            message: {
+              messageId: newMessageId(),
+              role: "user",
+              text: outgoingPrompt,
+              attachments: [],
+            },
+            modelSelection: selectedModelSelection,
+            titleSeed: input.title,
+            runtimeMode,
+            interactionMode: "default",
+            sourceProposedPlan: {
+              threadId: activeThread.id,
+              planId: activeProposedPlan.id,
+            },
+            createdAt,
+          });
+        })
+        .then(() => {
+          return waitForStartedServerThread(nextThreadId);
+        })
+        .then(() => {
+          setThreadPlanSidebarOpen(nextThreadId, true);
+          return navigate({
+            to: "/$threadId",
+            params: { threadId: nextThreadId },
+          });
+        })
+        .catch(async (err) => {
+          await api.orchestration
+            .dispatchCommand({
+              type: "thread.delete",
+              commandId: newCommandId(),
+              threadId: nextThreadId,
+            })
+            .catch(() => undefined);
+          toastManager.add({
+            type: "error",
+            title: input.errorTitle,
+            description:
+              err instanceof Error
+                ? err.message
+                : "An error occurred while creating the new thread.",
+          });
+        })
+        .then(finish, finish);
+    },
+    [
+      activeProject,
+      activeProposedPlan,
+      activeThread,
+      beginLocalDispatch,
+      isConnecting,
+      isSendBusy,
+      isServerThread,
+      navigate,
+      resetLocalDispatch,
+      runtimeMode,
+      selectedPromptEffort,
+      selectedModelSelection,
+      selectedProvider,
+      selectedProviderModels,
+      selectedModel,
+      setThreadPlanSidebarOpen,
+    ],
+  );
+
   const onImplementPlanInNewThread = useCallback(async () => {
-    const api = readNativeApi();
-    if (
-      !api ||
-      !activeThread ||
-      !activeProject ||
-      !activeProposedPlan ||
-      !isServerThread ||
-      isSendBusy ||
-      isConnecting ||
-      sendInFlightRef.current
-    ) {
+    if (!activeProposedPlan) {
       return;
     }
 
-    const createdAt = new Date().toISOString();
-    const nextThreadId = newThreadId();
     const planMarkdown = activeProposedPlan.planMarkdown;
-    const implementationPrompt = buildPlanImplementationPrompt(planMarkdown);
-    const outgoingImplementationPrompt = formatOutgoingPrompt({
-      provider: selectedProvider,
-      model: selectedModel,
-      models: selectedProviderModels,
-      effort: selectedPromptEffort,
-      text: implementationPrompt,
+    await launchPlanPromptInNewThread({
+      prompt: buildPlanImplementationPrompt(planMarkdown),
+      title: truncate(buildPlanImplementationThreadTitle(planMarkdown)),
+      errorTitle: "Could not start implementation thread",
     });
-    const nextThreadTitle = truncate(buildPlanImplementationThreadTitle(planMarkdown));
-    const nextThreadModelSelection: ModelSelection = selectedModelSelection;
+  }, [activeProposedPlan, launchPlanPromptInNewThread]);
 
-    sendInFlightRef.current = true;
-    beginLocalDispatch({ preparingWorktree: false });
-    const finish = () => {
-      sendInFlightRef.current = false;
-      resetLocalDispatch();
-    };
+  const onConvertPlanToBeads = useCallback(async () => {
+    if (!activeProposedPlan) {
+      return;
+    }
 
-    await api.orchestration
-      .dispatchCommand({
-        type: "thread.create",
-        commandId: newCommandId(),
-        threadId: nextThreadId,
-        projectId: activeProject.id,
-        title: nextThreadTitle,
-        modelSelection: nextThreadModelSelection,
-        runtimeMode,
-        interactionMode: "default",
-        branch: activeThread.branch,
-        worktreePath: activeThread.worktreePath,
-        createdAt,
-      })
-      .then(() => {
-        return api.orchestration.dispatchCommand({
-          type: "thread.turn.start",
-          commandId: newCommandId(),
-          threadId: nextThreadId,
-          message: {
-            messageId: newMessageId(),
-            role: "user",
-            text: outgoingImplementationPrompt,
-            attachments: [],
-          },
-          modelSelection: selectedModelSelection,
-          titleSeed: nextThreadTitle,
-          runtimeMode,
-          interactionMode: "default",
-          sourceProposedPlan: {
-            threadId: activeThread.id,
-            planId: activeProposedPlan.id,
-          },
-          createdAt,
-        });
-      })
-      .then(() => {
-        return waitForStartedServerThread(nextThreadId);
-      })
-      .then(() => {
-        setThreadPlanSidebarOpen(nextThreadId, true);
-        return navigate({
-          to: "/$threadId",
-          params: { threadId: nextThreadId },
-        });
-      })
-      .catch(async (err) => {
-        await api.orchestration
-          .dispatchCommand({
-            type: "thread.delete",
-            commandId: newCommandId(),
-            threadId: nextThreadId,
-          })
-          .catch(() => undefined);
-        toastManager.add({
-          type: "error",
-          title: "Could not start implementation thread",
-          description:
-            err instanceof Error ? err.message : "An error occurred while creating the new thread.",
-        });
-      })
-      .then(finish, finish);
-  }, [
-    activeProject,
-    activeProposedPlan,
-    activeThread,
-    beginLocalDispatch,
-    isConnecting,
-    isSendBusy,
-    isServerThread,
-    navigate,
-    resetLocalDispatch,
-    runtimeMode,
-    selectedPromptEffort,
-    selectedModelSelection,
-    selectedProvider,
-    selectedProviderModels,
-    selectedModel,
-    setThreadPlanSidebarOpen,
-  ]);
+    const planMarkdown = activeProposedPlan.planMarkdown;
+    await launchPlanPromptInNewThread({
+      prompt: buildPlanToBeadsPrompt(planMarkdown),
+      title: truncate(buildPlanToBeadsThreadTitle(planMarkdown)),
+      errorTitle: "Could not start beads conversion thread",
+    });
+  }, [activeProposedPlan, launchPlanPromptInNewThread]);
 
   const onImplementPlanInNewWorktree = useCallback(async () => {
     const api = readNativeApi();
@@ -3653,6 +3787,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         ...(composerModelOptions ? { modelOptions: composerModelOptions } : {}),
         assistantDeliveryMode,
         runtimeMode,
+        launchMode: "worktree",
         runSetup: true,
       })
       .then((result) => {
@@ -4087,12 +4222,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
       void navigate({
         to: "/$threadId",
         params: { threadId },
-        search: (previous) => {
-          const rest = stripDiffSearchParams(previous);
-          return filePath
-            ? { ...rest, diff: "1", diffTurnId: turnId, diffFilePath: filePath }
-            : { ...rest, diff: "1", diffTurnId: turnId };
-        },
+        search: (previous) => ({
+          ...stripRightPaneSearchParams(previous),
+          rightPane: "diff" as const,
+          diffTurnId: turnId,
+          ...(filePath ? { diffFilePath: filePath } : {}),
+        }),
       });
     },
     [navigate, threadId],
@@ -4152,25 +4287,23 @@ export default function ChatView({ threadId }: ChatViewProps) {
           }
           keybindings={keybindings}
           availableEditors={availableEditors}
-          terminalAvailable={activeProject !== undefined}
-          terminalOpen={terminalState.terminalOpen}
-          terminalToggleShortcutLabel={terminalToggleShortcutLabel}
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
+          issuesOpen={issuesOpen}
+          currentIssue={currentIssueForHeader}
           onRunProjectScript={(script) => {
             void runProjectScript(script);
           }}
           onAddProjectScript={saveProjectScript}
           onUpdateProjectScript={updateProjectScript}
           onDeleteProjectScript={deleteProjectScript}
-          onToggleTerminal={toggleTerminalVisibility}
+          onToggleIssues={onToggleIssues}
           onToggleDiff={onToggleDiff}
         />
       </header>
 
       {/* Error banner */}
-      <ProviderStatusBanner status={activeProviderStatus} />
       <ProviderStatusBanner status={activeProviderStatus} />
       <PlanImplementationLaunchBanner
         launch={
@@ -4432,106 +4565,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
                         )}
                         onRespondToApproval={onRespondToApproval}
                       />
-
-                      {isComposerFooterCompact ? (
-                        <CompactComposerControlsMenu
-                          planSidebarAvailable={planSidebarAvailable}
-                          interactionMode={interactionMode}
-                          planSidebarOpen={planSidebarOpen}
-                          runtimeMode={runtimeMode}
-                          traitsMenuContent={providerTraitsPicker}
-                          onToggleInteractionMode={toggleInteractionMode}
-                          onTogglePlanSidebar={togglePlanSidebar}
-                          onToggleRuntimeMode={toggleRuntimeMode}
-                        />
-                      ) : (
-                        <>
-                          {providerTraitsPicker ? (
-                            <>
-                              <Separator
-                                orientation="vertical"
-                                className="mx-0.5 hidden h-4 sm:block"
-                              />
-                              {providerTraitsPicker}
-                            </>
-                          ) : null}
-
-                          <Separator
-                            orientation="vertical"
-                            className="mx-0.5 hidden h-4 sm:block"
-                          />
-
-                          <Button
-                            variant="ghost"
-                            className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
-                            size="sm"
-                            type="button"
-                            onClick={toggleInteractionMode}
-                            title={
-                              interactionMode === "plan"
-                                ? "Plan mode — click to return to normal chat mode"
-                                : "Default mode — click to enter plan mode"
-                            }
-                          >
-                            <BotIcon />
-                            <span className="sr-only sm:not-sr-only">
-                              {interactionMode === "plan" ? "Plan" : "Chat"}
-                            </span>
-                          </Button>
-
-                          <Separator
-                            orientation="vertical"
-                            className="mx-0.5 hidden h-4 sm:block"
-                          />
-
-                          <Button
-                            variant="ghost"
-                            className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
-                            size="sm"
-                            type="button"
-                            onClick={() =>
-                              void handleRuntimeModeChange(
-                                runtimeMode === "full-access" ? "approval-required" : "full-access",
-                              )
-                            }
-                            title={
-                              runtimeMode === "full-access"
-                                ? "Full access — click to require approvals"
-                                : "Approval required — click for full access"
-                            }
-                          >
-                            {runtimeMode === "full-access" ? <LockOpenIcon /> : <LockIcon />}
-                            <span className="sr-only sm:not-sr-only">
-                              {runtimeMode === "full-access" ? "Full access" : "Supervised"}
-                            </span>
-                          </Button>
-
-                          {planSidebarAvailable ? (
-                            <>
-                              <Separator
-                                orientation="vertical"
-                                className="mx-0.5 hidden h-4 sm:block"
-                              />
-                              <Button
-                                variant="ghost"
-                                className={cn(
-                                  "shrink-0 whitespace-nowrap px-2 sm:px-3",
-                                  planSidebarOpen
-                                    ? "text-blue-400 hover:text-blue-300"
-                                    : "text-muted-foreground/70 hover:text-foreground/80",
-                                )}
-                                size="sm"
-                                type="button"
-                                onClick={togglePlanSidebar}
-                                title={planSidebarOpen ? "Hide plan sidebar" : "Show plan sidebar"}
-                              >
-                                <ListTodoIcon />
-                                <span className="sr-only sm:not-sr-only">Plan</span>
-                              </Button>
-                            </>
-                          ) : null}
-                        </>
-                      )}
                     </div>
                   ) : (
                     <div
@@ -4552,7 +4585,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
                             : "gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
                         )}
                       >
-                        {/* Provider/model picker */}
                         <ProviderModelPicker
                           compact={isComposerFooterCompact}
                           provider={selectedProvider}
@@ -4625,13 +4657,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
                               size="sm"
                               type="button"
-                              onClick={() =>
-                                void handleRuntimeModeChange(
-                                  runtimeMode === "full-access"
-                                    ? "approval-required"
-                                    : "full-access",
-                                )
-                              }
+                              onClick={toggleRuntimeMode}
                               title={
                                 runtimeMode === "full-access"
                                   ? "Full access — click to require approvals"
@@ -4644,7 +4670,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               </span>
                             </Button>
 
-                            {activePlan || sidebarProposedPlan || planSidebarOpen ? (
+                            {planSidebarAvailable ? (
                               <>
                                 <Separator
                                   orientation="vertical"
@@ -4683,13 +4709,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
                         }
                         className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                       >
+                        <span
+                          className={cn(
+                            "shrink-0 rounded-md border px-2 py-1 text-xs",
+                            composerSessionStatusClassName(sessionStatus.tone),
+                          )}
+                        >
+                          {sessionStatus.label}
+                        </span>
                         {activeContextWindow ? (
                           <ContextWindowMeter usage={activeContextWindow} />
-                        ) : null}
-                        {isPreparingWorktree ? (
-                          <span className="text-muted-foreground/70 text-xs">
-                            Preparing worktree...
-                          </span>
                         ) : null}
                         {activePendingProgress ? (
                           <div className="flex items-center gap-2">
@@ -4761,68 +4790,76 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                     {activePlanLaunchStatusLabel}
                                   </span>
                                 ) : null}
-                                <Button
-                                  type="submit"
-                                  size="sm"
-                                  className="h-9 rounded-l-full rounded-r-none px-4 sm:h-8"
-                                  disabled={isSendBusy || isConnecting}
-                                >
-                                  {isConnecting || isSendBusy ? "Sending..." : "Implement"}
-                                </Button>
-                                <Menu>
-                                  <MenuTrigger
-                                    render={
-                                      <Button
-                                        size="sm"
-                                        variant="default"
-                                        className="h-9 rounded-l-none rounded-r-full border-l-white/12 px-2 sm:h-8"
-                                        aria-label="Implementation actions"
-                                        disabled={isSendBusy || isConnecting}
-                                      />
-                                    }
+                                <div className="flex items-center gap-0">
+                                  <Button
+                                    type="submit"
+                                    size="sm"
+                                    className="h-9 rounded-l-full rounded-r-none px-4 sm:h-8"
+                                    disabled={isSendBusy || isConnecting}
                                   >
-                                    <ChevronDownIcon className="size-3.5" />
-                                  </MenuTrigger>
-                                  <MenuPopup align="end" side="top">
-                                    <MenuItem
-                                      disabled={isSendBusy || isConnecting}
-                                      onClick={() => void onImplementPlanInNewThread()}
+                                    {isConnecting || isSendBusy ? "Sending..." : "Implement"}
+                                  </Button>
+                                  <Menu>
+                                    <MenuTrigger
+                                      render={
+                                        <Button
+                                          size="sm"
+                                          variant="default"
+                                          className="h-9 rounded-l-none rounded-r-full border-l-white/12 px-2 sm:h-8"
+                                          aria-label="Implementation actions"
+                                          disabled={isSendBusy || isConnecting}
+                                        />
+                                      }
                                     >
-                                      Implement in a new thread
-                                    </MenuItem>
-                                    {isImplementInNewWorktreeActionDisabled &&
-                                    implementInNewWorktreeDisabledReason ? (
-                                      <Tooltip>
-                                        <TooltipTrigger
-                                          render={
-                                            <span className="block w-full cursor-not-allowed" />
+                                      <ChevronDownIcon className="size-3.5" />
+                                    </MenuTrigger>
+                                    <MenuPopup align="end" side="top">
+                                      <MenuItem
+                                        disabled={isSendBusy || isConnecting}
+                                        onClick={() => void onImplementPlanInNewThread()}
+                                      >
+                                        Implement in a new thread
+                                      </MenuItem>
+                                      <MenuItem
+                                        disabled={isSendBusy || isConnecting}
+                                        onClick={() => void onConvertPlanToBeads()}
+                                      >
+                                        Convert to beads
+                                      </MenuItem>
+                                      {isImplementInNewWorktreeActionDisabled &&
+                                      implementInNewWorktreeDisabledReason ? (
+                                        <Tooltip>
+                                          <TooltipTrigger
+                                            render={
+                                              <span className="block w-full cursor-not-allowed" />
+                                            }
+                                          >
+                                            <MenuItem className="w-full" disabled>
+                                              {implementInNewWorktreeActionLabel}
+                                            </MenuItem>
+                                          </TooltipTrigger>
+                                          <TooltipPopup
+                                            side="left"
+                                            align="center"
+                                            className="max-w-64 whitespace-normal leading-tight"
+                                          >
+                                            {implementInNewWorktreeDisabledReason}
+                                          </TooltipPopup>
+                                        </Tooltip>
+                                      ) : (
+                                        <MenuItem
+                                          onClick={() =>
+                                            void (canRetryActivePlanImplementationLaunch
+                                              ? onRetryPlanImplementationLaunch()
+                                              : onImplementPlanInNewWorktree())
                                           }
                                         >
-                                          <MenuItem className="w-full" disabled>
-                                            {implementInNewWorktreeActionLabel}
-                                          </MenuItem>
-                                        </TooltipTrigger>
-                                        <TooltipPopup
-                                          side="left"
-                                          align="center"
-                                          className="max-w-64 whitespace-normal leading-tight"
-                                        >
-                                          {implementInNewWorktreeDisabledReason}
-                                        </TooltipPopup>
-                                      </Tooltip>
-                                    ) : (
-                                      <MenuItem
-                                        onClick={() =>
-                                          void (canRetryActivePlanImplementationLaunch
-                                            ? onRetryPlanImplementationLaunch()
-                                            : onImplementPlanInNewWorktree())
-                                        }
-                                      >
-                                        {implementInNewWorktreeActionLabel}
-                                      </MenuItem>
-                                    )}
-                                  </MenuPopup>
-                                </Menu>
+                                          {implementInNewWorktreeActionLabel}
+                                        </MenuItem>
+                                      )}
+                                    </MenuPopup>
+                                  </Menu>
+                                </div>
                               </div>
                             )
                           ) : (
