@@ -515,7 +515,7 @@ export function buildWorkGraphData(
     }
 
     // Only the active run claims all remaining issues from the status buckets.
-    // A cancelled/completed/historical run should NOT claim issues it never executed.
+    // A stopped/completed/historical run should NOT claim issues it never executed.
     if (isPrimaryActive) {
       for (const { issue, status: issueStatus } of taggedIssues) {
         if (seenInPrimary.has(issue.id)) continue;

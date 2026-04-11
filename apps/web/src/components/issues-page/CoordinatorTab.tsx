@@ -136,13 +136,13 @@ function getActiveExecution(
 }
 
 function isNeedsAttention(epic: BeadsCoordinatorEpicSnapshot): boolean {
-  const activeRun = getActiveRun(epic);
+  const latestRun = getLatestRun(epic);
   return (
     epic.trackerLoadState !== "ready" ||
     !epic.coordinationSupported ||
     epic.validationState === "invalid" ||
     epic.projectConflict !== null ||
-    activeRun?.status === "failed"
+    latestRun?.status === "failed"
   );
 }
 
@@ -184,7 +184,7 @@ function compareEpics(
 function describeEpic(epic: BeadsCoordinatorEpicSnapshot) {
   const activeRun = getActiveRun(epic);
   const latestRun = getLatestRun(epic);
-  const lastError =
+  const failureReason =
     activeRun?.failureContext?.message ??
     latestRun?.failureContext?.message ??
     getActiveExecution(epic)?.failureContext?.message;
@@ -243,7 +243,8 @@ function describeEpic(epic: BeadsCoordinatorEpicSnapshot) {
       case "failed":
         return {
           label: "Failed",
-          summary: lastError ?? "The latest run failed. Fix the issue and start a new run.",
+          summary:
+            failureReason ?? "The latest run failed. Fix the underlying issue and start a new run.",
           category: "blocked",
         } satisfies CoordinatorStatusDescription;
       case "stopped":
@@ -255,6 +256,15 @@ function describeEpic(epic: BeadsCoordinatorEpicSnapshot) {
       case "completed":
         break;
     }
+  }
+
+  if (latestRun?.status === "failed") {
+    return {
+      label: "Failed",
+      summary:
+        failureReason ?? "The latest run failed. Fix the underlying issue and start a new run.",
+      category: "blocked",
+    } satisfies CoordinatorStatusDescription;
   }
 
   switch (epic.trackerState) {
@@ -470,7 +480,7 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
             <EpicListSection
               label="History"
               epics={sections.history}
-              emptyText="No completed or cancelled runs."
+              emptyText="No completed or stopped runs."
               selectedEpicId={effectiveSelectedEpic?.epicId ?? null}
               onSelect={props.onSelectEpic}
               onOpenEpicIssue={props.onOpenEpicIssue}
@@ -777,7 +787,10 @@ function EpicDetail(props: {
       {/* Latest run error */}
       {latestRun?.failureContext?.message && desc.category === "blocked" ? (
         <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
-          {latestRun.failureContext.message}
+          <p>{latestRun.failureContext.message}</p>
+          <p className="mt-1 text-xs text-destructive/80">
+            Fix the underlying issue, then start a new run.
+          </p>
         </div>
       ) : null}
 

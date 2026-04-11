@@ -142,15 +142,15 @@ describe("deriveCoordinatorEventLog", () => {
   });
 
   it("produces warning-toned entries for stopped runs", () => {
-    const cancelledRun: OrchestrationEpicRun = {
+    const stoppedRun: OrchestrationEpicRun = {
       ...BASE_RUN,
       status: "stopped",
       completedAt: null,
       stoppedAt: "2026-04-08T00:03:00.000Z",
     } as unknown as OrchestrationEpicRun;
-    const entries = deriveCoordinatorEventLog([cancelledRun], []);
-    const cancelled = entries.find((e) => e.kind === "run.stopped");
-    expect(cancelled?.tone).toBe("warning");
+    const entries = deriveCoordinatorEventLog([stoppedRun], []);
+    const stopped = entries.find((e) => e.kind === "run.stopped");
+    expect(stopped?.tone).toBe("warning");
   });
 
   it("handles multiple runs and executions", () => {

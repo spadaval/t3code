@@ -824,7 +824,18 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           },
           readyFronts: [],
         },
-        epicRuns: [makeEpicRun({ status: "failed", lastError: "boom" })],
+        epicRuns: [
+          makeEpicRun({
+            status: "failed",
+            failureContext: {
+              kind: "worker_failure",
+              message: "boom",
+              issueId: null,
+              executionId: null,
+              workerThreadId: null,
+            },
+          }),
+        ],
         projectConflict: null,
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
@@ -871,7 +882,18 @@ describe("getEpicCoordinatorPrimaryAction", () => {
           },
           readyFronts: [],
         },
-        epicRuns: [makeEpicRun({ status: "failed", lastError: "boom" })],
+        epicRuns: [
+          makeEpicRun({
+            status: "failed",
+            failureContext: {
+              kind: "worker_failure",
+              message: "boom",
+              issueId: null,
+              executionId: null,
+              workerThreadId: null,
+            },
+          }),
+        ],
         projectConflict: null,
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
@@ -889,7 +911,18 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         coordinationSupport: { supported: true },
         status: { swarm: null, ready: [], active: [], blocked: [] },
         validation: { valid: false, swarm: null, readyFronts: [] },
-        epicRuns: [makeEpicRun({ status: "failed", lastError: "boom" })],
+        epicRuns: [
+          makeEpicRun({
+            status: "failed",
+            failureContext: {
+              kind: "worker_failure",
+              message: "boom",
+              issueId: null,
+              executionId: null,
+              workerThreadId: null,
+            },
+          }),
+        ],
         projectConflict: null,
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
