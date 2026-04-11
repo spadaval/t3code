@@ -11,6 +11,7 @@ import {
 import { Effect } from "effect";
 
 import {
+  requireActionableProposedPlan,
   findThreadById,
   listThreadsByProjectId,
   requireNonNegativeInteger,
@@ -99,6 +100,7 @@ const readModel: OrchestrationReadModel = {
       deletedAt: null,
     },
   ],
+  planImplementationLaunches: [],
 };
 
 const messageSendCommand: OrchestrationCommand = {
@@ -196,6 +198,64 @@ describe("commandInvariants", () => {
         }),
       ),
     ).rejects.toThrow("already exists");
+  });
+
+  it("requires proposed plans without terminal follow-up outcomes", async () => {
+    const readModelWithPlan: OrchestrationReadModel = {
+      ...readModel,
+      threads: readModel.threads.map((thread) =>
+        thread.id !== ThreadId.makeUnsafe("thread-1")
+          ? thread
+          : {
+              ...thread,
+              proposedPlans: [
+                {
+                  id: "plan-open" as never,
+                  turnId: null,
+                  planMarkdown: "# Open plan",
+                  planIntent: "code-implementation",
+                  followUpOutcome: null,
+                  createdAt: now,
+                  updatedAt: now,
+                },
+                {
+                  id: "plan-closed" as never,
+                  turnId: null,
+                  planMarkdown: "# Closed plan",
+                  planIntent: "tracker-refinement",
+                  followUpOutcome: {
+                    kind: "convert-to-tracker",
+                    completedAt: now,
+                    targetThreadId: null,
+                  },
+                  createdAt: now,
+                  updatedAt: now,
+                },
+              ],
+            },
+      ),
+    };
+
+    const actionablePlan = await Effect.runPromise(
+      requireActionableProposedPlan({
+        readModel: readModelWithPlan,
+        command: messageSendCommand,
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        planId: "plan-open",
+      }),
+    );
+    expect(actionablePlan.id).toBe("plan-open");
+
+    await expect(
+      Effect.runPromise(
+        requireActionableProposedPlan({
+          readModel: readModelWithPlan,
+          command: messageSendCommand,
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          planId: "plan-closed",
+        }),
+      ),
+    ).rejects.toThrow("already has terminal follow-up");
   });
 
   it("requires non-negative integers", async () => {

@@ -1,5 +1,6 @@
 import type {
   OrchestrationCommand,
+  OrchestrationPlanImplementationLaunch,
   OrchestrationProject,
   OrchestrationReadModel,
   OrchestrationThread,
@@ -29,6 +30,13 @@ export function findProjectById(
   projectId: ProjectId,
 ): OrchestrationProject | undefined {
   return readModel.projects.find((project) => project.id === projectId);
+}
+
+export function findPlanImplementationLaunchById(
+  readModel: OrchestrationReadModel,
+  launchId: OrchestrationPlanImplementationLaunch["launchId"],
+): OrchestrationPlanImplementationLaunch | undefined {
+  return readModel.planImplementationLaunches.find((launch) => launch.launchId === launchId);
 }
 
 export function listThreadsByProjectId(
@@ -88,6 +96,45 @@ export function requireThread(input: {
   );
 }
 
+export function requireActionableProposedPlan(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly threadId: ThreadId;
+  readonly planId: string;
+}): Effect.Effect<
+  OrchestrationThread["proposedPlans"][number],
+  OrchestrationCommandInvariantError
+> {
+  return requireThread({
+    readModel: input.readModel,
+    command: input.command,
+    threadId: input.threadId,
+  }).pipe(
+    Effect.flatMap((thread) => {
+      const proposedPlan = thread.proposedPlans.find((entry) => entry.id === input.planId);
+      if (!proposedPlan) {
+        return Effect.fail(
+          invariantError(
+            input.command.type,
+            `Proposed plan '${input.planId}' does not exist on thread '${input.threadId}'.`,
+          ),
+        );
+      }
+
+      if (proposedPlan.followUpOutcome !== null) {
+        return Effect.fail(
+          invariantError(
+            input.command.type,
+            `Proposed plan '${input.planId}' on thread '${input.threadId}' already has terminal follow-up '${proposedPlan.followUpOutcome.kind}'.`,
+          ),
+        );
+      }
+
+      return Effect.succeed(proposedPlan);
+    }),
+  );
+}
+
 export function requireThreadArchived(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
@@ -138,6 +185,39 @@ export function requireThreadAbsent(input: {
     invariantError(
       input.command.type,
       `Thread '${input.threadId}' already exists and cannot be created twice.`,
+    ),
+  );
+}
+
+export function requirePlanImplementationLaunch(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly launchId: OrchestrationPlanImplementationLaunch["launchId"];
+}): Effect.Effect<OrchestrationPlanImplementationLaunch, OrchestrationCommandInvariantError> {
+  const launch = findPlanImplementationLaunchById(input.readModel, input.launchId);
+  if (launch) {
+    return Effect.succeed(launch);
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Plan implementation launch '${input.launchId}' does not exist for command '${input.command.type}'.`,
+    ),
+  );
+}
+
+export function requirePlanImplementationLaunchAbsent(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: OrchestrationCommand;
+  readonly launchId: OrchestrationPlanImplementationLaunch["launchId"];
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (!findPlanImplementationLaunchById(input.readModel, input.launchId)) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Plan implementation launch '${input.launchId}' already exists and cannot be created twice.`,
     ),
   );
 }

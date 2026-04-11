@@ -1,5 +1,10 @@
-import { Option, Schema, SchemaIssue, Struct } from "effect";
-import { ClaudeModelOptions, CodexModelOptions } from "./model";
+import { Option, Schema, SchemaGetter, SchemaIssue, Struct } from "effect";
+import {
+  ClaudeModelOptions,
+  CodexModelOptions,
+  ProviderModelOptions,
+  ProviderStartOptions,
+} from "./model";
 import {
   ApprovalRequestId,
   CheckpointRef,
@@ -8,8 +13,11 @@ import {
   IsoDateTime,
   MessageId,
   NonNegativeInt,
+  PlanImplementationLaunchId,
   ProjectId,
   ProviderItemId,
+  SwarmRunId,
+  SwarmTaskExecutionId,
   ThreadId,
   TrimmedNonEmptyString,
   TurnId,
@@ -21,6 +29,14 @@ export const ORCHESTRATION_WS_METHODS = {
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
   replayEvents: "orchestration.replayEvents",
+  launchPlanImplementation: "orchestration.launchPlanImplementation",
+  cancelPlanImplementationLaunch: "orchestration.cancelPlanImplementationLaunch",
+  retryPlanImplementationLaunch: "orchestration.retryPlanImplementationLaunch",
+  startSwarmRun: "orchestration.startSwarmRun",
+  continueSwarmRun: "orchestration.continueSwarmRun",
+  pauseSwarmRun: "orchestration.pauseSwarmRun",
+  resumeSwarmRun: "orchestration.resumeSwarmRun",
+  cancelSwarmRun: "orchestration.cancelSwarmRun",
 } as const;
 
 export const ProviderKind = Schema.Literals(["codex", "claudeAgent"]);
@@ -167,21 +183,122 @@ export type OrchestrationMessage = typeof OrchestrationMessage.Type;
 export const OrchestrationProposedPlanId = TrimmedNonEmptyString;
 export type OrchestrationProposedPlanId = typeof OrchestrationProposedPlanId.Type;
 
-export const OrchestrationProposedPlan = Schema.Struct({
+export const OrchestrationProposedPlanIntent = Schema.Literals([
+  "code-implementation",
+  "tracker-refinement",
+]);
+export type OrchestrationProposedPlanIntent = typeof OrchestrationProposedPlanIntent.Type;
+export const DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT: OrchestrationProposedPlanIntent =
+  "code-implementation";
+
+export const OrchestrationProposedPlanFollowUpOutcomeKind = Schema.Literals([
+  "implement-code",
+  "convert-to-tracker",
+]);
+export type OrchestrationProposedPlanFollowUpOutcomeKind =
+  typeof OrchestrationProposedPlanFollowUpOutcomeKind.Type;
+
+export const OrchestrationProposedPlanFollowUpOutcome = Schema.Struct({
+  kind: OrchestrationProposedPlanFollowUpOutcomeKind,
+  completedAt: IsoDateTime,
+  targetThreadId: Schema.NullOr(ThreadId),
+});
+export type OrchestrationProposedPlanFollowUpOutcome =
+  typeof OrchestrationProposedPlanFollowUpOutcome.Type;
+
+export const OrchestrationPlanImplementationLaunchMode = Schema.Literals([
+  "worktree",
+  "tracker-only",
+]);
+export type OrchestrationPlanImplementationLaunchMode =
+  typeof OrchestrationPlanImplementationLaunchMode.Type;
+export const DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE: OrchestrationPlanImplementationLaunchMode =
+  "worktree";
+
+const OrchestrationProposedPlanShape = Schema.Struct({
   id: OrchestrationProposedPlanId,
   turnId: Schema.NullOr(TurnId),
   planMarkdown: TrimmedNonEmptyString,
-  implementedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
-  implementationThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
+  planIntent: OrchestrationProposedPlanIntent.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT),
+  ),
+  followUpOutcome: Schema.NullOr(OrchestrationProposedPlanFollowUpOutcome).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
+
+const OrchestrationProposedPlanLegacyShape = Schema.Struct({
+  ...OrchestrationProposedPlanShape.fields,
+  implementedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  implementationThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
+});
+
+type OrchestrationProposedPlanLegacyCompatible =
+  | typeof OrchestrationProposedPlanShape.Type
+  | typeof OrchestrationProposedPlanLegacyShape.Type;
+
+export const OrchestrationProposedPlan = Schema.Union([
+  OrchestrationProposedPlanLegacyShape,
+  OrchestrationProposedPlanShape,
+]).pipe(
+  Schema.decode({
+    decode: SchemaGetter.transform((input: OrchestrationProposedPlanLegacyCompatible) => ({
+      id: input.id,
+      turnId: input.turnId,
+      planMarkdown: input.planMarkdown,
+      planIntent: input.planIntent,
+      followUpOutcome:
+        input.followUpOutcome ??
+        ("implementedAt" in input && input.implementedAt
+          ? {
+              kind: "implement-code" as const,
+              completedAt: input.implementedAt,
+              targetThreadId: input.implementationThreadId,
+            }
+          : null),
+      createdAt: input.createdAt,
+      updatedAt: input.updatedAt,
+    })),
+    encode: SchemaGetter.transform((input: OrchestrationProposedPlanLegacyCompatible) => input),
+  }),
+) as unknown as typeof OrchestrationProposedPlanShape;
 export type OrchestrationProposedPlan = typeof OrchestrationProposedPlan.Type;
 
 const SourceProposedPlanReference = Schema.Struct({
   threadId: ThreadId,
   planId: OrchestrationProposedPlanId,
 });
+
+export const OrchestrationThreadIssueLink = Schema.Struct({
+  issueId: TrimmedNonEmptyString,
+  title: TrimmedNonEmptyString,
+  status: TrimmedNonEmptyString,
+  priority: Schema.NullOr(NonNegativeInt).pipe(Schema.withDecodingDefault(() => null)),
+  repoRoot: TrimmedNonEmptyString,
+  linkedAt: IsoDateTime,
+});
+export type OrchestrationThreadIssueLink = typeof OrchestrationThreadIssueLink.Type;
+
+export const OrchestrationPlanImplementationLaunchStatus = Schema.Literals([
+  "requested",
+  "prepared",
+  "started",
+  "failed",
+  "cancelled",
+]);
+export type OrchestrationPlanImplementationLaunchStatus =
+  typeof OrchestrationPlanImplementationLaunchStatus.Type;
+
+export const OrchestrationPlanImplementationLaunchCleanupStatus = Schema.Literals([
+  "not-required",
+  "pending",
+  "succeeded",
+  "failed",
+]);
+export type OrchestrationPlanImplementationLaunchCleanupStatus =
+  typeof OrchestrationPlanImplementationLaunchCleanupStatus.Type;
 
 export const OrchestrationSessionStatus = Schema.Literals([
   "idle",
@@ -277,6 +394,9 @@ export const OrchestrationThread = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  issueLink: Schema.NullOr(OrchestrationThreadIssueLink).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -290,10 +410,144 @@ export const OrchestrationThread = Schema.Struct({
 });
 export type OrchestrationThread = typeof OrchestrationThread.Type;
 
+export const OrchestrationPlanImplementationLaunch = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  sourceThreadId: ThreadId,
+  sourcePlanId: OrchestrationProposedPlanId,
+  projectId: ProjectId,
+  targetThreadId: ThreadId,
+  retryOfLaunchId: Schema.NullOr(PlanImplementationLaunchId),
+  status: OrchestrationPlanImplementationLaunchStatus,
+  launchMode: OrchestrationPlanImplementationLaunchMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE),
+  ),
+  branch: Schema.NullOr(TrimmedNonEmptyString),
+  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  failureReason: Schema.NullOr(TrimmedNonEmptyString),
+  cleanupStatus: OrchestrationPlanImplementationLaunchCleanupStatus,
+  cleanupError: Schema.NullOr(TrimmedNonEmptyString),
+  title: TrimmedNonEmptyString,
+  setupEnabled: Schema.Boolean,
+  requestedAt: IsoDateTime,
+  preparedAt: Schema.NullOr(IsoDateTime),
+  startedAt: Schema.NullOr(IsoDateTime),
+  failedAt: Schema.NullOr(IsoDateTime),
+  cancelledAt: Schema.NullOr(IsoDateTime),
+  updatedAt: IsoDateTime,
+});
+export type OrchestrationPlanImplementationLaunch =
+  typeof OrchestrationPlanImplementationLaunch.Type;
+
+export const OrchestrationSwarmSchedulerMode = Schema.Literals(["automatic", "semi-automatic"]);
+export type OrchestrationSwarmSchedulerMode = typeof OrchestrationSwarmSchedulerMode.Type;
+export const DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE: OrchestrationSwarmSchedulerMode =
+  "automatic";
+
+export const OrchestrationSwarmWorkspaceMode = Schema.Literals(["shared"]);
+export type OrchestrationSwarmWorkspaceMode = typeof OrchestrationSwarmWorkspaceMode.Type;
+export const DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE: OrchestrationSwarmWorkspaceMode = "shared";
+
+export const OrchestrationSwarmRunStatus = Schema.Literals([
+  "requested",
+  "running",
+  "idle",
+  "paused",
+  "blocked",
+  "failed",
+  "cancelled",
+  "completed",
+]);
+export type OrchestrationSwarmRunStatus = typeof OrchestrationSwarmRunStatus.Type;
+
+export const OrchestrationSwarmTaskExecutionStatus = Schema.Literals([
+  "requested",
+  "active",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+export type OrchestrationSwarmTaskExecutionStatus =
+  typeof OrchestrationSwarmTaskExecutionStatus.Type;
+
+export const OrchestrationSwarmRunBlockedKind = Schema.Literals([
+  "tracker_waiting",
+  "worker_failure",
+]);
+export type OrchestrationSwarmRunBlockedKind = typeof OrchestrationSwarmRunBlockedKind.Type;
+
+export const OrchestrationSwarmRunBlockedContext = Schema.Struct({
+  kind: OrchestrationSwarmRunBlockedKind,
+  issueId: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  executionId: Schema.NullOr(SwarmTaskExecutionId).pipe(Schema.withDecodingDefault(() => null)),
+  workerThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
+});
+export type OrchestrationSwarmRunBlockedContext = typeof OrchestrationSwarmRunBlockedContext.Type;
+
+export const OrchestrationSwarmRun = Schema.Struct({
+  runId: SwarmRunId,
+  projectId: ProjectId,
+  epicIssueId: TrimmedNonEmptyString,
+  status: OrchestrationSwarmRunStatus,
+  schedulerMode: OrchestrationSwarmSchedulerMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE),
+  ),
+  workspaceMode: OrchestrationSwarmWorkspaceMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE),
+  ),
+  provider: Schema.NullOr(ProviderKind),
+  model: Schema.NullOr(TrimmedNonEmptyString),
+  modelOptions: Schema.NullOr(ProviderModelOptions),
+  providerOptions: Schema.NullOr(ProviderStartOptions),
+  assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  lastError: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  requestedAt: IsoDateTime,
+  startedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  idledAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  pausedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  blockedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  blockedContext: Schema.NullOr(OrchestrationSwarmRunBlockedContext).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  failedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  cancelledAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  completedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  updatedAt: IsoDateTime,
+});
+export type OrchestrationSwarmRun = typeof OrchestrationSwarmRun.Type;
+
+export const OrchestrationSwarmTaskExecution = Schema.Struct({
+  executionId: SwarmTaskExecutionId,
+  runId: SwarmRunId,
+  issueId: TrimmedNonEmptyString,
+  workerThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
+  sequenceNumber: NonNegativeInt,
+  status: OrchestrationSwarmTaskExecutionStatus,
+  originalStatus: TrimmedNonEmptyString.pipe(Schema.withDecodingDefault(() => "open")),
+  originalAssignee: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  lastError: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  requestedAt: IsoDateTime,
+  startedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  completedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  failedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  cancelledAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  updatedAt: IsoDateTime,
+});
+export type OrchestrationSwarmTaskExecution = typeof OrchestrationSwarmTaskExecution.Type;
+
 export const OrchestrationReadModel = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   projects: Schema.Array(OrchestrationProject),
   threads: Schema.Array(OrchestrationThread),
+  planImplementationLaunches: Schema.Array(OrchestrationPlanImplementationLaunch).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
+  swarmRuns: Schema.Array(OrchestrationSwarmRun).pipe(Schema.withDecodingDefault(() => [])),
+  swarmTaskExecutions: Schema.Array(OrchestrationSwarmTaskExecution).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
   updatedAt: IsoDateTime,
 });
 export type OrchestrationReadModel = typeof OrchestrationReadModel.Type;
@@ -337,6 +591,7 @@ const ThreadCreateCommand = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  issueLink: Schema.optional(Schema.NullOr(OrchestrationThreadIssueLink)),
   createdAt: IsoDateTime,
 });
 
@@ -366,6 +621,7 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  issueLink: Schema.optional(Schema.NullOr(OrchestrationThreadIssueLink)),
 });
 
 const ThreadRuntimeModeSetCommand = Schema.Struct({
@@ -596,6 +852,196 @@ const ThreadRevertCompleteCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const PlanImplementationLaunchRequestCommand = Schema.Struct({
+  type: Schema.Literal("plan-implementation-launch.request"),
+  commandId: CommandId,
+  launchId: PlanImplementationLaunchId,
+  sourceThreadId: ThreadId,
+  sourcePlanId: OrchestrationProposedPlanId,
+  projectId: ProjectId,
+  targetThreadId: ThreadId,
+  retryOfLaunchId: Schema.optional(PlanImplementationLaunchId),
+  title: TrimmedNonEmptyString,
+  setupEnabled: Schema.Boolean,
+  launchMode: OrchestrationPlanImplementationLaunchMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE),
+  ),
+  promptText: Schema.String,
+  provider: Schema.optional(ProviderKind),
+  model: Schema.optional(TrimmedNonEmptyString),
+  modelOptions: Schema.optional(ProviderModelOptions),
+  providerOptions: Schema.optional(ProviderStartOptions),
+  assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  createdAt: IsoDateTime,
+});
+
+const PlanImplementationLaunchMarkWorktreePreparedCommand = Schema.Struct({
+  type: Schema.Literal("plan-implementation-launch.mark-worktree-prepared"),
+  commandId: CommandId,
+  launchId: PlanImplementationLaunchId,
+  branch: TrimmedNonEmptyString,
+  worktreePath: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+});
+
+const PlanImplementationLaunchMarkStartedCommand = Schema.Struct({
+  type: Schema.Literal("plan-implementation-launch.mark-started"),
+  commandId: CommandId,
+  launchId: PlanImplementationLaunchId,
+  createdAt: IsoDateTime,
+});
+
+const PlanImplementationLaunchFailCommand = Schema.Struct({
+  type: Schema.Literal("plan-implementation-launch.fail"),
+  commandId: CommandId,
+  launchId: PlanImplementationLaunchId,
+  failureReason: TrimmedNonEmptyString,
+  cleanupStatus: OrchestrationPlanImplementationLaunchCleanupStatus,
+  cleanupError: Schema.optional(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+});
+
+const PlanImplementationLaunchCancelCommand = Schema.Struct({
+  type: Schema.Literal("plan-implementation-launch.cancel"),
+  commandId: CommandId,
+  launchId: PlanImplementationLaunchId,
+  cleanupStatus: OrchestrationPlanImplementationLaunchCleanupStatus,
+  cleanupError: Schema.optional(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+});
+
+const SwarmRunRequestCommand = Schema.Struct({
+  type: Schema.Literal("swarm-run.request"),
+  commandId: CommandId,
+  runId: SwarmRunId,
+  projectId: ProjectId,
+  epicIssueId: TrimmedNonEmptyString,
+  swarmId: TrimmedNonEmptyString,
+  schedulerMode: OrchestrationSwarmSchedulerMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE),
+  ),
+  workspaceMode: OrchestrationSwarmWorkspaceMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE),
+  ),
+  provider: Schema.optional(ProviderKind),
+  model: Schema.optional(TrimmedNonEmptyString),
+  modelOptions: Schema.optional(ProviderModelOptions),
+  providerOptions: Schema.optional(ProviderStartOptions),
+  assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  createdAt: IsoDateTime,
+});
+
+const SwarmRunMarkStartedCommand = Schema.Struct({
+  type: Schema.Literal("swarm-run.mark-started"),
+  commandId: CommandId,
+  runId: SwarmRunId,
+  createdAt: IsoDateTime,
+});
+
+const SwarmRunMarkIdleCommand = Schema.Struct({
+  type: Schema.Literal("swarm-run.mark-idle"),
+  commandId: CommandId,
+  runId: SwarmRunId,
+  createdAt: IsoDateTime,
+});
+
+const SwarmRunPauseCommand = Schema.Struct({
+  type: Schema.Literal("swarm-run.pause"),
+  commandId: CommandId,
+  runId: SwarmRunId,
+  createdAt: IsoDateTime,
+});
+
+const SwarmRunResumeCommand = Schema.Struct({
+  type: Schema.Literal("swarm-run.resume"),
+  commandId: CommandId,
+  runId: SwarmRunId,
+  createdAt: IsoDateTime,
+});
+
+const SwarmRunBlockCommand = Schema.Struct({
+  type: Schema.Literal("swarm-run.block"),
+  commandId: CommandId,
+  runId: SwarmRunId,
+  reason: TrimmedNonEmptyString,
+  blockedContext: Schema.NullOr(OrchestrationSwarmRunBlockedContext).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  createdAt: IsoDateTime,
+});
+
+const SwarmRunFailCommand = Schema.Struct({
+  type: Schema.Literal("swarm-run.fail"),
+  commandId: CommandId,
+  runId: SwarmRunId,
+  reason: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+});
+
+const SwarmRunCancelCommand = Schema.Struct({
+  type: Schema.Literal("swarm-run.cancel"),
+  commandId: CommandId,
+  runId: SwarmRunId,
+  createdAt: IsoDateTime,
+});
+
+const SwarmRunCompleteCommand = Schema.Struct({
+  type: Schema.Literal("swarm-run.complete"),
+  commandId: CommandId,
+  runId: SwarmRunId,
+  createdAt: IsoDateTime,
+});
+
+const SwarmTaskExecutionRequestCommand = Schema.Struct({
+  type: Schema.Literal("swarm-task-execution.request"),
+  commandId: CommandId,
+  executionId: SwarmTaskExecutionId,
+  runId: SwarmRunId,
+  issueId: TrimmedNonEmptyString,
+  workerThreadId: ThreadId,
+  sequenceNumber: NonNegativeInt,
+  originalStatus: TrimmedNonEmptyString,
+  originalAssignee: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  createdAt: IsoDateTime,
+});
+
+const SwarmTaskExecutionStartCommand = Schema.Struct({
+  type: Schema.Literal("swarm-task-execution.start"),
+  commandId: CommandId,
+  executionId: SwarmTaskExecutionId,
+  runId: SwarmRunId,
+  createdAt: IsoDateTime,
+});
+
+const SwarmTaskExecutionCompleteCommand = Schema.Struct({
+  type: Schema.Literal("swarm-task-execution.complete"),
+  commandId: CommandId,
+  executionId: SwarmTaskExecutionId,
+  runId: SwarmRunId,
+  createdAt: IsoDateTime,
+});
+
+const SwarmTaskExecutionFailCommand = Schema.Struct({
+  type: Schema.Literal("swarm-task-execution.fail"),
+  commandId: CommandId,
+  executionId: SwarmTaskExecutionId,
+  runId: SwarmRunId,
+  reason: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+});
+
+const SwarmTaskExecutionCancelCommand = Schema.Struct({
+  type: Schema.Literal("swarm-task-execution.cancel"),
+  commandId: CommandId,
+  executionId: SwarmTaskExecutionId,
+  runId: SwarmRunId,
+  createdAt: IsoDateTime,
+});
+
 const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
@@ -604,6 +1050,25 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadTurnDiffCompleteCommand,
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
+  PlanImplementationLaunchRequestCommand,
+  PlanImplementationLaunchMarkWorktreePreparedCommand,
+  PlanImplementationLaunchMarkStartedCommand,
+  PlanImplementationLaunchFailCommand,
+  PlanImplementationLaunchCancelCommand,
+  SwarmRunRequestCommand,
+  SwarmRunMarkStartedCommand,
+  SwarmRunMarkIdleCommand,
+  SwarmRunPauseCommand,
+  SwarmRunResumeCommand,
+  SwarmRunBlockCommand,
+  SwarmRunFailCommand,
+  SwarmRunCancelCommand,
+  SwarmRunCompleteCommand,
+  SwarmTaskExecutionRequestCommand,
+  SwarmTaskExecutionStartCommand,
+  SwarmTaskExecutionCompleteCommand,
+  SwarmTaskExecutionFailCommand,
+  SwarmTaskExecutionCancelCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -636,10 +1101,35 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
   "thread.activity-appended",
+  "plan-implementation-launch.requested",
+  "plan-implementation-launch.worktree-prepared",
+  "plan-implementation-launch.started",
+  "plan-implementation-launch.failed",
+  "plan-implementation-launch.cancelled",
+  "swarm-run.requested",
+  "swarm-run.started",
+  "swarm-run.idled",
+  "swarm-run.paused",
+  "swarm-run.resumed",
+  "swarm-run.blocked",
+  "swarm-run.failed",
+  "swarm-run.cancelled",
+  "swarm-run.completed",
+  "swarm-task-execution.requested",
+  "swarm-task-execution.started",
+  "swarm-task-execution.completed",
+  "swarm-task-execution.failed",
+  "swarm-task-execution.cancelled",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
-export const OrchestrationAggregateKind = Schema.Literals(["project", "thread"]);
+export const OrchestrationAggregateKind = Schema.Literals([
+  "project",
+  "thread",
+  "planImplementationLaunch",
+  "swarmRun",
+  "swarmTaskExecution",
+]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
 export const OrchestrationActorKind = Schema.Literals(["client", "server", "provider"]);
 
@@ -678,6 +1168,9 @@ export const ThreadCreatedPayload = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  issueLink: Schema.NullOr(OrchestrationThreadIssueLink).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -704,6 +1197,7 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  issueLink: Schema.optional(Schema.NullOr(OrchestrationThreadIssueLink)),
   updatedAt: IsoDateTime,
 });
 
@@ -808,6 +1302,177 @@ export const ThreadActivityAppendedPayload = Schema.Struct({
   activity: OrchestrationThreadActivity,
 });
 
+export const PlanImplementationLaunchRequestedPayload = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  sourceThreadId: ThreadId,
+  sourcePlanId: OrchestrationProposedPlanId,
+  projectId: ProjectId,
+  targetThreadId: ThreadId,
+  retryOfLaunchId: Schema.NullOr(PlanImplementationLaunchId),
+  title: TrimmedNonEmptyString,
+  setupEnabled: Schema.Boolean,
+  launchMode: OrchestrationPlanImplementationLaunchMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE),
+  ),
+  promptText: Schema.String,
+  provider: Schema.NullOr(ProviderKind),
+  model: Schema.NullOr(TrimmedNonEmptyString),
+  modelOptions: Schema.NullOr(ProviderModelOptions),
+  providerOptions: Schema.NullOr(ProviderStartOptions),
+  assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
+  runtimeMode: RuntimeMode,
+  requestedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const PlanImplementationLaunchWorktreePreparedPayload = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  branch: TrimmedNonEmptyString,
+  worktreePath: TrimmedNonEmptyString,
+  preparedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const PlanImplementationLaunchStartedPayload = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  startedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const PlanImplementationLaunchFailedPayload = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  failureReason: TrimmedNonEmptyString,
+  cleanupStatus: OrchestrationPlanImplementationLaunchCleanupStatus,
+  cleanupError: Schema.NullOr(TrimmedNonEmptyString),
+  failedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const PlanImplementationLaunchCancelledPayload = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  cleanupStatus: OrchestrationPlanImplementationLaunchCleanupStatus,
+  cleanupError: Schema.NullOr(TrimmedNonEmptyString),
+  cancelledAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const SwarmRunRequestedPayload = Schema.Struct({
+  runId: SwarmRunId,
+  projectId: ProjectId,
+  epicIssueId: TrimmedNonEmptyString,
+  swarmId: TrimmedNonEmptyString,
+  schedulerMode: OrchestrationSwarmSchedulerMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE),
+  ),
+  workspaceMode: OrchestrationSwarmWorkspaceMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE),
+  ),
+  provider: Schema.NullOr(ProviderKind),
+  model: Schema.NullOr(TrimmedNonEmptyString),
+  modelOptions: Schema.NullOr(ProviderModelOptions),
+  providerOptions: Schema.NullOr(ProviderStartOptions),
+  assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
+  runtimeMode: RuntimeMode,
+  requestedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const SwarmRunStartedPayload = Schema.Struct({
+  runId: SwarmRunId,
+  startedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const SwarmRunIdledPayload = Schema.Struct({
+  runId: SwarmRunId,
+  idledAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const SwarmRunPausedPayload = Schema.Struct({
+  runId: SwarmRunId,
+  pausedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const SwarmRunResumedPayload = Schema.Struct({
+  runId: SwarmRunId,
+  resumedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const SwarmRunBlockedPayload = Schema.Struct({
+  runId: SwarmRunId,
+  reason: TrimmedNonEmptyString,
+  blockedAt: IsoDateTime,
+  blockedContext: Schema.NullOr(OrchestrationSwarmRunBlockedContext).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  updatedAt: IsoDateTime,
+});
+
+export const SwarmRunFailedPayload = Schema.Struct({
+  runId: SwarmRunId,
+  reason: TrimmedNonEmptyString,
+  failedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const SwarmRunCancelledPayload = Schema.Struct({
+  runId: SwarmRunId,
+  cancelledAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const SwarmRunCompletedPayload = Schema.Struct({
+  runId: SwarmRunId,
+  completedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const SwarmTaskExecutionStartedPayload = Schema.Struct({
+  executionId: SwarmTaskExecutionId,
+  runId: SwarmRunId,
+  startedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const SwarmTaskExecutionRequestedPayload = Schema.Struct({
+  executionId: SwarmTaskExecutionId,
+  runId: SwarmRunId,
+  issueId: TrimmedNonEmptyString,
+  workerThreadId: ThreadId,
+  sequenceNumber: NonNegativeInt,
+  originalStatus: TrimmedNonEmptyString,
+  originalAssignee: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  requestedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const SwarmTaskExecutionCompletedPayload = Schema.Struct({
+  executionId: SwarmTaskExecutionId,
+  runId: SwarmRunId,
+  completedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const SwarmTaskExecutionFailedPayload = Schema.Struct({
+  executionId: SwarmTaskExecutionId,
+  runId: SwarmRunId,
+  reason: TrimmedNonEmptyString,
+  failedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const SwarmTaskExecutionCancelledPayload = Schema.Struct({
+  executionId: SwarmTaskExecutionId,
+  runId: SwarmRunId,
+  cancelledAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
 export const OrchestrationEventMetadata = Schema.Struct({
   providerTurnId: Schema.optional(TrimmedNonEmptyString),
   providerItemId: Schema.optional(ProviderItemId),
@@ -821,7 +1486,13 @@ const EventBaseFields = {
   sequence: NonNegativeInt,
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([ProjectId, ThreadId]),
+  aggregateId: Schema.Union([
+    ProjectId,
+    ThreadId,
+    PlanImplementationLaunchId,
+    SwarmRunId,
+    SwarmTaskExecutionId,
+  ]),
   occurredAt: IsoDateTime,
   commandId: Schema.NullOr(CommandId),
   causationEventId: Schema.NullOr(EventId),
@@ -940,6 +1611,101 @@ export const OrchestrationEvent = Schema.Union([
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
   }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("plan-implementation-launch.requested"),
+    payload: PlanImplementationLaunchRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("plan-implementation-launch.worktree-prepared"),
+    payload: PlanImplementationLaunchWorktreePreparedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("plan-implementation-launch.started"),
+    payload: PlanImplementationLaunchStartedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("plan-implementation-launch.failed"),
+    payload: PlanImplementationLaunchFailedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("plan-implementation-launch.cancelled"),
+    payload: PlanImplementationLaunchCancelledPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("swarm-run.requested"),
+    payload: SwarmRunRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("swarm-run.started"),
+    payload: SwarmRunStartedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("swarm-run.idled"),
+    payload: SwarmRunIdledPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("swarm-run.paused"),
+    payload: SwarmRunPausedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("swarm-run.resumed"),
+    payload: SwarmRunResumedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("swarm-run.blocked"),
+    payload: SwarmRunBlockedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("swarm-run.failed"),
+    payload: SwarmRunFailedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("swarm-run.cancelled"),
+    payload: SwarmRunCancelledPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("swarm-run.completed"),
+    payload: SwarmRunCompletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("swarm-task-execution.requested"),
+    payload: SwarmTaskExecutionRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("swarm-task-execution.started"),
+    payload: SwarmTaskExecutionStartedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("swarm-task-execution.completed"),
+    payload: SwarmTaskExecutionCompletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("swarm-task-execution.failed"),
+    payload: SwarmTaskExecutionFailedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("swarm-task-execution.cancelled"),
+    payload: SwarmTaskExecutionCancelledPayload,
+  }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;
 
@@ -1038,6 +1804,92 @@ export type OrchestrationReplayEventsInput = typeof OrchestrationReplayEventsInp
 const OrchestrationReplayEventsResult = Schema.Array(OrchestrationEvent);
 export type OrchestrationReplayEventsResult = typeof OrchestrationReplayEventsResult.Type;
 
+export const OrchestrationLaunchPlanImplementationInput = Schema.Struct({
+  sourceThreadId: ThreadId,
+  planId: OrchestrationProposedPlanId,
+  titleOverride: Schema.optional(TrimmedNonEmptyString),
+  provider: Schema.optional(ProviderKind),
+  model: Schema.optional(TrimmedNonEmptyString),
+  modelOptions: Schema.optional(ProviderModelOptions),
+  providerOptions: Schema.optional(ProviderStartOptions),
+  assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  launchMode: OrchestrationPlanImplementationLaunchMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE),
+  ),
+  runSetup: Schema.Boolean,
+});
+export type OrchestrationLaunchPlanImplementationInput =
+  typeof OrchestrationLaunchPlanImplementationInput.Type;
+
+export const OrchestrationLaunchPlanImplementationResult = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  targetThreadId: ThreadId,
+  status: OrchestrationPlanImplementationLaunchStatus,
+});
+export type OrchestrationLaunchPlanImplementationResult =
+  typeof OrchestrationLaunchPlanImplementationResult.Type;
+
+export const OrchestrationCancelPlanImplementationLaunchInput = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+});
+export type OrchestrationCancelPlanImplementationLaunchInput =
+  typeof OrchestrationCancelPlanImplementationLaunchInput.Type;
+
+export const OrchestrationCancelPlanImplementationLaunchResult = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  status: OrchestrationPlanImplementationLaunchStatus,
+});
+export type OrchestrationCancelPlanImplementationLaunchResult =
+  typeof OrchestrationCancelPlanImplementationLaunchResult.Type;
+
+export const OrchestrationRetryPlanImplementationLaunchInput = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+});
+export type OrchestrationRetryPlanImplementationLaunchInput =
+  typeof OrchestrationRetryPlanImplementationLaunchInput.Type;
+
+export const OrchestrationStartSwarmRunInput = Schema.Struct({
+  projectId: ProjectId,
+  epicIssueId: TrimmedNonEmptyString,
+  schedulerMode: OrchestrationSwarmSchedulerMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE),
+  ),
+  workspaceMode: OrchestrationSwarmWorkspaceMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE),
+  ),
+  provider: Schema.optional(ProviderKind),
+  model: Schema.optional(TrimmedNonEmptyString),
+  modelOptions: Schema.optional(ProviderModelOptions),
+  providerOptions: Schema.optional(ProviderStartOptions),
+  assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+});
+export type OrchestrationStartSwarmRunInput = typeof OrchestrationStartSwarmRunInput.Type;
+
+const OrchestrationSwarmRunControlInput = Schema.Struct({
+  runId: SwarmRunId,
+});
+export type OrchestrationSwarmRunControlInput = typeof OrchestrationSwarmRunControlInput.Type;
+
+export const OrchestrationContinueSwarmRunInput = OrchestrationSwarmRunControlInput;
+export type OrchestrationContinueSwarmRunInput = typeof OrchestrationContinueSwarmRunInput.Type;
+
+export const OrchestrationPauseSwarmRunInput = OrchestrationSwarmRunControlInput;
+export type OrchestrationPauseSwarmRunInput = typeof OrchestrationPauseSwarmRunInput.Type;
+
+export const OrchestrationResumeSwarmRunInput = OrchestrationSwarmRunControlInput;
+export type OrchestrationResumeSwarmRunInput = typeof OrchestrationResumeSwarmRunInput.Type;
+
+export const OrchestrationCancelSwarmRunInput = OrchestrationSwarmRunControlInput;
+export type OrchestrationCancelSwarmRunInput = typeof OrchestrationCancelSwarmRunInput.Type;
+
+export const OrchestrationSwarmRunControlResult = Schema.Struct({
+  runId: SwarmRunId,
+  status: OrchestrationSwarmRunStatus,
+});
+export type OrchestrationSwarmRunControlResult = typeof OrchestrationSwarmRunControlResult.Type;
+
 export const OrchestrationRpcSchemas = {
   getSnapshot: {
     input: OrchestrationGetSnapshotInput,
@@ -1058,6 +1910,38 @@ export const OrchestrationRpcSchemas = {
   replayEvents: {
     input: OrchestrationReplayEventsInput,
     output: OrchestrationReplayEventsResult,
+  },
+  launchPlanImplementation: {
+    input: OrchestrationLaunchPlanImplementationInput,
+    output: OrchestrationLaunchPlanImplementationResult,
+  },
+  cancelPlanImplementationLaunch: {
+    input: OrchestrationCancelPlanImplementationLaunchInput,
+    output: OrchestrationCancelPlanImplementationLaunchResult,
+  },
+  retryPlanImplementationLaunch: {
+    input: OrchestrationRetryPlanImplementationLaunchInput,
+    output: OrchestrationLaunchPlanImplementationResult,
+  },
+  startSwarmRun: {
+    input: OrchestrationStartSwarmRunInput,
+    output: OrchestrationSwarmRunControlResult,
+  },
+  continueSwarmRun: {
+    input: OrchestrationContinueSwarmRunInput,
+    output: OrchestrationSwarmRunControlResult,
+  },
+  pauseSwarmRun: {
+    input: OrchestrationPauseSwarmRunInput,
+    output: OrchestrationSwarmRunControlResult,
+  },
+  resumeSwarmRun: {
+    input: OrchestrationResumeSwarmRunInput,
+    output: OrchestrationSwarmRunControlResult,
+  },
+  cancelSwarmRun: {
+    input: OrchestrationCancelSwarmRunInput,
+    output: OrchestrationSwarmRunControlResult,
   },
 } as const;
 

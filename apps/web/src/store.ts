@@ -12,15 +12,31 @@ import {
   type OrchestrationSessionStatus,
 } from "@t3tools/contracts";
 import { resolveModelSlugForProvider } from "@t3tools/shared/model";
+import {
+  createEmptySwarmProjectionState,
+  createSwarmProjectionState,
+  listSwarmRuns,
+  listSwarmTaskExecutions,
+  projectSwarmEvent,
+  type SwarmProjectionState,
+} from "@t3tools/shared/swarm";
 import { create } from "zustand";
 import {
-  findLatestProposedPlan,
-  hasActionableProposedPlan,
   derivePendingApprovals,
   derivePendingUserInputs,
+  findLatestProposedPlan,
+  hasActionableProposedPlan,
 } from "./session-logic";
 import { sanitizeThreadErrorMessage } from "./rpc/transportError";
-import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread } from "./types";
+import {
+  type ChatMessage,
+  type PlanImplementationLaunch,
+  type Project,
+  type SidebarThreadSummary,
+  type SwarmRun,
+  type SwarmTaskExecution,
+  type Thread,
+} from "./types";
 
 // ── State ────────────────────────────────────────────────────────────
 
@@ -30,6 +46,9 @@ export interface AppState {
   sidebarThreadsById: Record<string, SidebarThreadSummary>;
   threadIdsByProjectId: Record<string, ThreadId[]>;
   bootstrapComplete: boolean;
+  planImplementationLaunches: PlanImplementationLaunch[];
+  swarmProjection: SwarmProjectionState;
+  threadsHydrated: boolean;
 }
 
 const initialState: AppState = {
@@ -38,6 +57,9 @@ const initialState: AppState = {
   sidebarThreadsById: {},
   threadIdsByProjectId: {},
   bootstrapComplete: false,
+  planImplementationLaunches: [],
+  swarmProjection: createEmptySwarmProjectionState(),
+  threadsHydrated: false,
 };
 const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
@@ -133,8 +155,8 @@ function mapProposedPlan(proposedPlan: OrchestrationProposedPlan): Thread["propo
     id: proposedPlan.id,
     turnId: proposedPlan.turnId,
     planMarkdown: proposedPlan.planMarkdown,
-    implementedAt: proposedPlan.implementedAt,
-    implementationThreadId: proposedPlan.implementationThreadId,
+    planIntent: proposedPlan.planIntent,
+    followUpOutcome: proposedPlan.followUpOutcome,
     createdAt: proposedPlan.createdAt,
     updatedAt: proposedPlan.updatedAt,
   };
@@ -174,6 +196,7 @@ function mapThread(thread: OrchestrationThread): Thread {
     pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    issueLink: thread.issueLink,
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
   };
@@ -588,10 +611,26 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     sidebarThreadsById,
     threadIdsByProjectId,
     bootstrapComplete: true,
+    planImplementationLaunches: readModel.planImplementationLaunches.map((launch) => ({
+      ...launch,
+    })),
+    swarmProjection: createSwarmProjectionState({
+      swarmRuns: readModel.swarmRuns.map((run) => ({ ...run })),
+      swarmTaskExecutions: readModel.swarmTaskExecutions.map((execution) => ({ ...execution })),
+    }),
+    threadsHydrated: true,
   };
 }
 
 export function applyOrchestrationEvent(state: AppState, event: OrchestrationEvent): AppState {
+  const nextSwarmProjection = projectSwarmEvent(state.swarmProjection, event);
+  if (nextSwarmProjection !== state.swarmProjection) {
+    return {
+      ...state,
+      swarmProjection: nextSwarmProjection,
+    };
+  }
+
   switch (event.type) {
     case "project.created": {
       const existingIndex = state.projects.findIndex(
@@ -653,6 +692,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         interactionMode: event.payload.interactionMode,
         branch: event.payload.branch,
         worktreePath: event.payload.worktreePath,
+        issueLink: event.payload.issueLink,
         latestTurn: null,
         createdAt: event.payload.createdAt,
         updatedAt: event.payload.updatedAt,
@@ -742,6 +782,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         ...(event.payload.worktreePath !== undefined
           ? { worktreePath: event.payload.worktreePath }
           : {}),
+        ...(event.payload.issueLink !== undefined ? { issueLink: event.payload.issueLink } : {}),
         updatedAt: event.payload.updatedAt,
       }));
     }
@@ -1114,6 +1155,12 @@ export const selectThreadIdsByProjectId =
   (projectId: ProjectId | null | undefined) =>
   (state: AppState): ThreadId[] =>
     projectId ? (state.threadIdsByProjectId[projectId] ?? EMPTY_THREAD_IDS) : EMPTY_THREAD_IDS;
+
+export const selectSwarmRuns = (state: AppState): SwarmRun[] =>
+  listSwarmRuns(state.swarmProjection);
+
+export const selectSwarmTaskExecutions = (state: AppState): SwarmTaskExecution[] =>
+  listSwarmTaskExecutions(state.swarmProjection);
 
 export function setError(state: AppState, threadId: ThreadId, error: string | null): AppState {
   return updateThreadState(state, threadId, (t) => {

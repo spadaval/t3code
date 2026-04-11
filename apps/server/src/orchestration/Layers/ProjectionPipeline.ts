@@ -1,3 +1,4 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ApprovalRequestId,
   type ChatAttachment,
@@ -8,9 +9,12 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
+import { ProjectionPlanImplementationLaunchRepository } from "../../persistence/Services/ProjectionPlanImplementationLaunches.ts";
 import { ProjectionPendingApprovalRepository } from "../../persistence/Services/ProjectionPendingApprovals.ts";
 import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
+import { ProjectionSwarmRunRepository } from "../../persistence/Services/ProjectionSwarmRuns.ts";
+import { ProjectionSwarmTaskExecutionRepository } from "../../persistence/Services/ProjectionSwarmTaskExecutions.ts";
 import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
 import { type ProjectionThreadActivity } from "../../persistence/Services/ProjectionThreadActivities.ts";
 import {
@@ -28,8 +32,11 @@ import {
 } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
+import { ProjectionPlanImplementationLaunchRepositoryLive } from "../../persistence/Layers/ProjectionPlanImplementationLaunches.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
+import { ProjectionSwarmRunRepositoryLive } from "../../persistence/Layers/ProjectionSwarmRuns.ts";
+import { ProjectionSwarmTaskExecutionRepositoryLive } from "../../persistence/Layers/ProjectionSwarmTaskExecutions.ts";
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
 import { ProjectionThreadMessageRepositoryLive } from "../../persistence/Layers/ProjectionThreadMessages.ts";
 import { ProjectionThreadProposedPlanRepositoryLive } from "../../persistence/Layers/ProjectionThreadProposedPlans.ts";
@@ -51,6 +58,9 @@ import {
 export const ORCHESTRATION_PROJECTOR_NAMES = {
   projects: "projection.projects",
   threads: "projection.threads",
+  planImplementationLaunches: "projection.plan-implementation-launches",
+  swarmRuns: "projection.swarm-runs",
+  swarmTaskExecutions: "projection.swarm-task-executions",
   threadMessages: "projection.thread-messages",
   threadProposedPlans: "projection.thread-proposed-plans",
   threadActivities: "projection.thread-activities",
@@ -362,6 +372,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionStateRepository = yield* ProjectionStateRepository;
     const projectionProjectRepository = yield* ProjectionProjectRepository;
     const projectionThreadRepository = yield* ProjectionThreadRepository;
+    const projectionPlanImplementationLaunchRepository =
+      yield* ProjectionPlanImplementationLaunchRepository;
+    const projectionSwarmRunRepository = yield* ProjectionSwarmRunRepository;
+    const projectionSwarmTaskExecutionRepository = yield* ProjectionSwarmTaskExecutionRepository;
     const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
     const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
     const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
@@ -446,6 +460,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             interactionMode: event.payload.interactionMode,
             branch: event.payload.branch,
             worktreePath: event.payload.worktreePath,
+            issueLink: event.payload.issueLink,
             latestTurnId: null,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
@@ -500,6 +515,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...(event.payload.branch !== undefined ? { branch: event.payload.branch } : {}),
             ...(event.payload.worktreePath !== undefined
               ? { worktreePath: event.payload.worktreePath }
+              : {}),
+            ...(event.payload.issueLink !== undefined
+              ? { issueLink: event.payload.issueLink }
               : {}),
             updatedAt: event.payload.updatedAt,
           });
@@ -618,6 +636,390 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       }
     });
 
+    const applyPlanImplementationLaunchesProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyPlanImplementationLaunchesProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "plan-implementation-launch.requested": {
+          yield* projectionPlanImplementationLaunchRepository.upsert({
+            launchId: event.payload.launchId,
+            sourceThreadId: event.payload.sourceThreadId,
+            sourcePlanId: event.payload.sourcePlanId,
+            projectId: event.payload.projectId,
+            targetThreadId: event.payload.targetThreadId,
+            retryOfLaunchId: event.payload.retryOfLaunchId,
+            status: "requested",
+            launchMode: event.payload.launchMode,
+            branch: null,
+            worktreePath: null,
+            failureReason: null,
+            cleanupStatus: "not-required",
+            cleanupError: null,
+            title: event.payload.title,
+            setupEnabled: event.payload.setupEnabled,
+            promptText: event.payload.promptText,
+            provider: event.payload.provider,
+            model: event.payload.model,
+            modelOptions: event.payload.modelOptions,
+            providerOptions: event.payload.providerOptions,
+            assistantDeliveryMode: event.payload.assistantDeliveryMode,
+            runtimeMode: event.payload.runtimeMode,
+            requestedAt: event.payload.requestedAt,
+            preparedAt: null,
+            startedAt: null,
+            failedAt: null,
+            cancelledAt: null,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "plan-implementation-launch.worktree-prepared":
+        case "plan-implementation-launch.started":
+        case "plan-implementation-launch.failed":
+        case "plan-implementation-launch.cancelled": {
+          const existingRow = yield* projectionPlanImplementationLaunchRepository.getById({
+            launchId: event.payload.launchId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+
+          switch (event.type) {
+            case "plan-implementation-launch.worktree-prepared":
+              yield* projectionPlanImplementationLaunchRepository.upsert({
+                ...existingRow.value,
+                status: "prepared",
+                branch: event.payload.branch,
+                worktreePath: event.payload.worktreePath,
+                preparedAt: event.payload.preparedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "plan-implementation-launch.started":
+              yield* projectionPlanImplementationLaunchRepository.upsert({
+                ...existingRow.value,
+                status: "started",
+                startedAt: event.payload.startedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "plan-implementation-launch.failed":
+              yield* projectionPlanImplementationLaunchRepository.upsert({
+                ...existingRow.value,
+                status: "failed",
+                failureReason: event.payload.failureReason,
+                cleanupStatus: event.payload.cleanupStatus,
+                cleanupError: event.payload.cleanupError,
+                failedAt: event.payload.failedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "plan-implementation-launch.cancelled":
+              yield* projectionPlanImplementationLaunchRepository.upsert({
+                ...existingRow.value,
+                status: "cancelled",
+                cleanupStatus: event.payload.cleanupStatus,
+                cleanupError: event.payload.cleanupError,
+                cancelledAt: event.payload.cancelledAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+          }
+        }
+
+        default:
+          return;
+      }
+    });
+
+    const applySwarmRunsProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applySwarmRunsProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "swarm-run.requested":
+          yield* projectionSwarmRunRepository.upsert({
+            runId: event.payload.runId,
+            projectId: event.payload.projectId,
+            epicIssueId: event.payload.epicIssueId,
+            status: "requested",
+            schedulerMode: event.payload.schedulerMode,
+            workspaceMode: event.payload.workspaceMode,
+            provider: event.payload.provider,
+            model: event.payload.model,
+            modelOptions: event.payload.modelOptions,
+            providerOptions: event.payload.providerOptions,
+            assistantDeliveryMode: event.payload.assistantDeliveryMode,
+            runtimeMode: event.payload.runtimeMode,
+            lastError: null,
+            requestedAt: event.payload.requestedAt,
+            startedAt: null,
+            idledAt: null,
+            pausedAt: null,
+            blockedAt: null,
+            blockedContext: null,
+            failedAt: null,
+            cancelledAt: null,
+            completedAt: null,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+
+        case "swarm-run.started":
+        case "swarm-run.idled":
+        case "swarm-run.paused":
+        case "swarm-run.resumed":
+        case "swarm-run.blocked":
+        case "swarm-run.failed":
+        case "swarm-run.cancelled":
+        case "swarm-run.completed": {
+          const existingRow = yield* projectionSwarmRunRepository.getById({
+            runId: event.payload.runId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+
+          switch (event.type) {
+            case "swarm-run.started":
+              yield* projectionSwarmRunRepository.upsert({
+                ...existingRow.value,
+                status: "running",
+                startedAt: event.payload.startedAt,
+                lastError: null,
+                blockedContext: null,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "swarm-run.idled":
+              yield* projectionSwarmRunRepository.upsert({
+                ...existingRow.value,
+                status: "idle",
+                idledAt: event.payload.idledAt,
+                lastError: null,
+                blockedContext: null,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "swarm-run.paused":
+              yield* projectionSwarmRunRepository.upsert({
+                ...existingRow.value,
+                status: "paused",
+                pausedAt: event.payload.pausedAt,
+                lastError: null,
+                blockedContext: null,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "swarm-run.resumed":
+              yield* projectionSwarmRunRepository.upsert({
+                ...existingRow.value,
+                status: "running",
+                lastError: null,
+                blockedContext: null,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "swarm-run.blocked":
+              yield* projectionSwarmRunRepository.upsert({
+                ...existingRow.value,
+                status: "blocked",
+                lastError: event.payload.reason,
+                blockedAt: event.payload.blockedAt,
+                blockedContext: event.payload.blockedContext,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "swarm-run.failed":
+              yield* projectionSwarmRunRepository.upsert({
+                ...existingRow.value,
+                status: "failed",
+                lastError: event.payload.reason,
+                blockedContext: null,
+                failedAt: event.payload.failedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "swarm-run.cancelled":
+              yield* projectionSwarmRunRepository.upsert({
+                ...existingRow.value,
+                status: "cancelled",
+                lastError: null,
+                blockedContext: null,
+                cancelledAt: event.payload.cancelledAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "swarm-run.completed":
+              yield* projectionSwarmRunRepository.upsert({
+                ...existingRow.value,
+                status: "completed",
+                lastError: null,
+                blockedContext: null,
+                completedAt: event.payload.completedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+          }
+        }
+
+        case "swarm-task-execution.requested":
+        case "swarm-task-execution.started":
+        case "swarm-task-execution.completed":
+        case "swarm-task-execution.failed":
+        case "swarm-task-execution.cancelled": {
+          const existingRow = yield* projectionSwarmRunRepository.getById({
+            runId: event.payload.runId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+
+          yield* projectionSwarmRunRepository.upsert({
+            ...existingRow.value,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        default:
+          return;
+      }
+    });
+
+    const applySwarmTaskExecutionsProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applySwarmTaskExecutionsProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "swarm-task-execution.requested":
+          yield* projectionSwarmTaskExecutionRepository.upsert({
+            executionId: event.payload.executionId,
+            runId: event.payload.runId,
+            issueId: event.payload.issueId,
+            workerThreadId: event.payload.workerThreadId,
+            sequenceNumber: event.payload.sequenceNumber,
+            status: "requested",
+            originalStatus: event.payload.originalStatus,
+            originalAssignee: event.payload.originalAssignee,
+            lastError: null,
+            requestedAt: event.payload.requestedAt,
+            startedAt: null,
+            completedAt: null,
+            failedAt: null,
+            cancelledAt: null,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+
+        case "swarm-task-execution.started": {
+          const existingRow = yield* projectionSwarmTaskExecutionRepository.getById({
+            executionId: event.payload.executionId,
+          });
+          yield* projectionSwarmTaskExecutionRepository.upsert({
+            executionId: event.payload.executionId,
+            runId: event.payload.runId,
+            issueId: Option.match(existingRow, {
+              onNone: () => "unknown-task",
+              onSome: (row) => row.issueId,
+            }),
+            workerThreadId: Option.match(existingRow, {
+              onNone: () => null,
+              onSome: (row) => row.workerThreadId,
+            }),
+            sequenceNumber: Option.match(existingRow, {
+              onNone: () => 0,
+              onSome: (row) => row.sequenceNumber,
+            }),
+            status: "active",
+            originalStatus: Option.match(existingRow, {
+              onNone: () => "open",
+              onSome: (row) => row.originalStatus,
+            }),
+            originalAssignee: Option.match(existingRow, {
+              onNone: () => null,
+              onSome: (row) => row.originalAssignee,
+            }),
+            lastError: null,
+            requestedAt: Option.match(existingRow, {
+              onNone: () => event.payload.startedAt,
+              onSome: (row) => row.requestedAt,
+            }),
+            startedAt: event.payload.startedAt,
+            completedAt: Option.match(existingRow, {
+              onNone: () => null,
+              onSome: (row) => row.completedAt,
+            }),
+            failedAt: Option.match(existingRow, {
+              onNone: () => null,
+              onSome: (row) => row.failedAt,
+            }),
+            cancelledAt: Option.match(existingRow, {
+              onNone: () => null,
+              onSome: (row) => row.cancelledAt,
+            }),
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "swarm-task-execution.completed":
+        case "swarm-task-execution.failed":
+        case "swarm-task-execution.cancelled": {
+          const existingRow = yield* projectionSwarmTaskExecutionRepository.getById({
+            executionId: event.payload.executionId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+
+          switch (event.type) {
+            case "swarm-task-execution.completed":
+              yield* projectionSwarmTaskExecutionRepository.upsert({
+                ...existingRow.value,
+                status: "completed",
+                lastError: null,
+                completedAt: event.payload.completedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "swarm-task-execution.failed":
+              yield* projectionSwarmTaskExecutionRepository.upsert({
+                ...existingRow.value,
+                status: "failed",
+                lastError: event.payload.reason,
+                failedAt: event.payload.failedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "swarm-task-execution.cancelled":
+              yield* projectionSwarmTaskExecutionRepository.upsert({
+                ...existingRow.value,
+                status: "cancelled",
+                lastError: null,
+                cancelledAt: event.payload.cancelledAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+          }
+        }
+
+        default:
+          return;
+      }
+    });
+
     const applyThreadMessagesProjection: ProjectorDefinition["apply"] = Effect.fn(
       "applyThreadMessagesProjection",
     )(function* (event, attachmentSideEffects) {
@@ -707,8 +1109,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             threadId: event.payload.threadId,
             turnId: event.payload.proposedPlan.turnId,
             planMarkdown: event.payload.proposedPlan.planMarkdown,
-            implementedAt: event.payload.proposedPlan.implementedAt,
-            implementationThreadId: event.payload.proposedPlan.implementationThreadId,
+            planIntent: event.payload.proposedPlan.planIntent,
+            followUpOutcome: event.payload.proposedPlan.followUpOutcome,
             createdAt: event.payload.proposedPlan.createdAt,
             updatedAt: event.payload.proposedPlan.updatedAt,
           });
@@ -1169,6 +1571,18 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         apply: applyProjectsProjection,
       },
       {
+        name: ORCHESTRATION_PROJECTOR_NAMES.planImplementationLaunches,
+        apply: applyPlanImplementationLaunchesProjection,
+      },
+      {
+        name: ORCHESTRATION_PROJECTOR_NAMES.swarmRuns,
+        apply: applySwarmRunsProjection,
+      },
+      {
+        name: ORCHESTRATION_PROJECTOR_NAMES.swarmTaskExecutions,
+        apply: applySwarmTaskExecutionsProjection,
+      },
+      {
         name: ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
         apply: applyThreadMessagesProjection,
       },
@@ -1294,7 +1708,11 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   OrchestrationProjectionPipeline,
   makeOrchestrationProjectionPipeline(),
 ).pipe(
+  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(ProjectionPlanImplementationLaunchRepositoryLive),
   Layer.provideMerge(ProjectionProjectRepositoryLive),
+  Layer.provideMerge(ProjectionSwarmRunRepositoryLive),
+  Layer.provideMerge(ProjectionSwarmTaskExecutionRepositoryLive),
   Layer.provideMerge(ProjectionThreadRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),

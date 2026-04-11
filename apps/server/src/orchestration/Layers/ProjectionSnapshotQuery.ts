@@ -5,17 +5,28 @@ import {
   NonNegativeInt,
   OrchestrationCheckpointFile,
   OrchestrationProposedPlanId,
+  OrchestrationProposedPlanFollowUpOutcome,
+  OrchestrationPlanImplementationLaunchStatus,
   OrchestrationReadModel,
+  OrchestrationSwarmRunBlockedKind,
+  ProviderModelOptions,
+  ProviderStartOptions,
   ProjectScript,
+  SwarmTaskExecutionId,
+  TrimmedNonEmptyString,
   TurnId,
   type OrchestrationCheckpointSummary,
   type OrchestrationLatestTurn,
   type OrchestrationMessage,
+  type OrchestrationPlanImplementationLaunch,
   type OrchestrationProposedPlan,
   type OrchestrationProject,
   type OrchestrationSession,
+  type OrchestrationSwarmRun,
+  type OrchestrationSwarmTaskExecution,
   type OrchestrationThread,
   type OrchestrationThreadActivity,
+  OrchestrationThreadIssueLink,
   ModelSelection,
   ProjectId,
   ThreadId,
@@ -31,8 +42,11 @@ import {
   type ProjectionRepositoryError,
 } from "../../persistence/Errors.ts";
 import { ProjectionCheckpoint } from "../../persistence/Services/ProjectionCheckpoints.ts";
+import { ProjectionPlanImplementationLaunch } from "../../persistence/Services/ProjectionPlanImplementationLaunches.ts";
 import { ProjectionProject } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionState } from "../../persistence/Services/ProjectionState.ts";
+import { ProjectionSwarmRun } from "../../persistence/Services/ProjectionSwarmRuns.ts";
+import { ProjectionSwarmTaskExecution } from "../../persistence/Services/ProjectionSwarmTaskExecutions.ts";
 import { ProjectionThreadActivity } from "../../persistence/Services/ProjectionThreadActivities.ts";
 import { ProjectionThreadMessage } from "../../persistence/Services/ProjectionThreadMessages.ts";
 import { ProjectionThreadProposedPlan } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
@@ -59,10 +73,15 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
   }),
 );
-const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
+const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan.mapFields(
+  Struct.assign({
+    followUpOutcome: Schema.NullOr(Schema.fromJsonString(OrchestrationProposedPlanFollowUpOutcome)),
+  }),
+);
 const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
+    issueLink: Schema.NullOr(Schema.fromJsonString(OrchestrationThreadIssueLink)),
   }),
 );
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
@@ -72,11 +91,47 @@ const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
   }),
 );
 const ProjectionThreadSessionDbRowSchema = ProjectionThreadSession;
+const ProjectionPlanImplementationLaunchDbRowSchema = ProjectionPlanImplementationLaunch.mapFields(
+  Struct.assign({
+    setupEnabled: Schema.Number,
+    modelOptions: Schema.NullOr(Schema.fromJsonString(Schema.Unknown)),
+    providerOptions: Schema.NullOr(Schema.fromJsonString(Schema.Unknown)),
+  }),
+);
 const ProjectionCheckpointDbRowSchema = ProjectionCheckpoint.mapFields(
   Struct.assign({
     files: Schema.fromJsonString(Schema.Array(OrchestrationCheckpointFile)),
   }),
 );
+const ProjectionSwarmRunDbRowSchema = Schema.Struct({
+  runId: ProjectionSwarmRun.fields.runId,
+  projectId: ProjectionSwarmRun.fields.projectId,
+  epicIssueId: ProjectionSwarmRun.fields.epicIssueId,
+  status: ProjectionSwarmRun.fields.status,
+  schedulerMode: ProjectionSwarmRun.fields.schedulerMode,
+  workspaceMode: ProjectionSwarmRun.fields.workspaceMode,
+  provider: ProjectionSwarmRun.fields.provider,
+  model: ProjectionSwarmRun.fields.model,
+  modelOptions: Schema.NullOr(Schema.fromJsonString(ProviderModelOptions)),
+  providerOptions: Schema.NullOr(Schema.fromJsonString(ProviderStartOptions)),
+  assistantDeliveryMode: ProjectionSwarmRun.fields.assistantDeliveryMode,
+  runtimeMode: ProjectionSwarmRun.fields.runtimeMode,
+  lastError: ProjectionSwarmRun.fields.lastError,
+  requestedAt: ProjectionSwarmRun.fields.requestedAt,
+  startedAt: ProjectionSwarmRun.fields.startedAt,
+  idledAt: ProjectionSwarmRun.fields.idledAt,
+  pausedAt: ProjectionSwarmRun.fields.pausedAt,
+  blockedAt: ProjectionSwarmRun.fields.blockedAt,
+  blockedKind: Schema.NullOr(OrchestrationSwarmRunBlockedKind),
+  blockedExecutionId: Schema.NullOr(SwarmTaskExecutionId),
+  blockedIssueId: Schema.NullOr(TrimmedNonEmptyString),
+  blockedWorkerThreadId: Schema.NullOr(ThreadId),
+  failedAt: ProjectionSwarmRun.fields.failedAt,
+  cancelledAt: ProjectionSwarmRun.fields.cancelledAt,
+  completedAt: ProjectionSwarmRun.fields.completedAt,
+  updatedAt: ProjectionSwarmRun.fields.updatedAt,
+});
+const ProjectionSwarmTaskExecutionDbRowSchema = ProjectionSwarmTaskExecution;
 const ProjectionLatestTurnDbRowSchema = Schema.Struct({
   threadId: ProjectionThread.fields.threadId,
   turnId: TurnId,
@@ -116,6 +171,9 @@ const ProjectionThreadCheckpointContextThreadRowSchema = Schema.Struct({
 const REQUIRED_SNAPSHOT_PROJECTORS = [
   ORCHESTRATION_PROJECTOR_NAMES.projects,
   ORCHESTRATION_PROJECTOR_NAMES.threads,
+  ORCHESTRATION_PROJECTOR_NAMES.planImplementationLaunches,
+  ORCHESTRATION_PROJECTOR_NAMES.swarmRuns,
+  ORCHESTRATION_PROJECTOR_NAMES.swarmTaskExecutions,
   ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
   ORCHESTRATION_PROJECTOR_NAMES.threadProposedPlans,
   ORCHESTRATION_PROJECTOR_NAMES.threadActivities,
@@ -197,6 +255,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           interaction_mode AS "interactionMode",
           branch,
           worktree_path AS "worktreePath",
+          issue_link_json AS "issueLink",
           latest_turn_id AS "latestTurnId",
           created_at AS "createdAt",
           updated_at AS "updatedAt",
@@ -237,8 +296,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           turn_id AS "turnId",
           plan_markdown AS "planMarkdown",
-          implemented_at AS "implementedAt",
-          implementation_thread_id AS "implementationThreadId",
+          plan_intent AS "planIntent",
+          follow_up_outcome_json AS "followUpOutcome",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_proposed_plans
@@ -291,6 +350,45 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
+  const listPlanImplementationLaunchRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionPlanImplementationLaunchDbRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          launch_id AS "launchId",
+          source_thread_id AS "sourceThreadId",
+          source_plan_id AS "sourcePlanId",
+          project_id AS "projectId",
+          target_thread_id AS "targetThreadId",
+          retry_of_launch_id AS "retryOfLaunchId",
+          status,
+          launch_mode AS "launchMode",
+          branch,
+          worktree_path AS "worktreePath",
+          failure_reason AS "failureReason",
+          cleanup_status AS "cleanupStatus",
+          cleanup_error AS "cleanupError",
+          title,
+          setup_enabled AS "setupEnabled",
+          prompt_text AS "promptText",
+          provider,
+          model,
+          model_options_json AS "modelOptions",
+          provider_options_json AS "providerOptions",
+          assistant_delivery_mode AS "assistantDeliveryMode",
+          runtime_mode AS "runtimeMode",
+          requested_at AS "requestedAt",
+          prepared_at AS "preparedAt",
+          started_at AS "startedAt",
+          failed_at AS "failedAt",
+          cancelled_at AS "cancelledAt",
+          updated_at AS "updatedAt"
+        FROM projection_plan_implementation_launches
+        ORDER BY requested_at ASC, launch_id ASC
+      `,
+  });
+
   const listCheckpointRows = SqlSchema.findAll({
     Request: Schema.Void,
     Result: ProjectionCheckpointDbRowSchema,
@@ -308,6 +406,69 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         FROM projection_turns
         WHERE checkpoint_turn_count IS NOT NULL
         ORDER BY thread_id ASC, checkpoint_turn_count ASC
+      `,
+  });
+
+  const listSwarmRunRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionSwarmRunDbRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          run_id AS "runId",
+          project_id AS "projectId",
+          epic_issue_id AS "epicIssueId",
+          status,
+          scheduler_mode AS "schedulerMode",
+          workspace_mode AS "workspaceMode",
+          provider,
+          model,
+          model_options_json AS "modelOptions",
+          provider_options_json AS "providerOptions",
+          assistant_delivery_mode AS "assistantDeliveryMode",
+          runtime_mode AS "runtimeMode",
+          last_error AS "lastError",
+          requested_at AS "requestedAt",
+          started_at AS "startedAt",
+          idled_at AS "idledAt",
+          paused_at AS "pausedAt",
+          blocked_at AS "blockedAt",
+          blocked_kind AS "blockedKind",
+          blocked_execution_id AS "blockedExecutionId",
+          blocked_issue_id AS "blockedIssueId",
+          blocked_worker_thread_id AS "blockedWorkerThreadId",
+          failed_at AS "failedAt",
+          cancelled_at AS "cancelledAt",
+          completed_at AS "completedAt",
+          updated_at AS "updatedAt"
+        FROM projection_swarm_runs
+        ORDER BY requested_at ASC, run_id ASC
+      `,
+  });
+
+  const listSwarmTaskExecutionRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionSwarmTaskExecutionDbRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          execution_id AS "executionId",
+          run_id AS "runId",
+          issue_id AS "issueId",
+          worker_thread_id AS "workerThreadId",
+          sequence_number AS "sequenceNumber",
+          status,
+          original_status AS "originalStatus",
+          original_assignee AS "originalAssignee",
+          last_error AS "lastError",
+          requested_at AS "requestedAt",
+          started_at AS "startedAt",
+          completed_at AS "completedAt",
+          failed_at AS "failedAt",
+          cancelled_at AS "cancelledAt",
+          updated_at AS "updatedAt"
+        FROM projection_swarm_task_executions
+        ORDER BY run_id ASC, sequence_number ASC, execution_id ASC
       `,
   });
 
@@ -444,6 +605,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             proposedPlanRows,
             activityRows,
             sessionRows,
+            launchRows,
+            swarmRunRows,
+            swarmTaskExecutionRows,
             checkpointRows,
             latestTurnRows,
             stateRows,
@@ -496,6 +660,30 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 ),
               ),
             ),
+            listPlanImplementationLaunchRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getSnapshot:listPlanImplementationLaunches:query",
+                  "ProjectionSnapshotQuery.getSnapshot:listPlanImplementationLaunches:decodeRows",
+                ),
+              ),
+            ),
+            listSwarmRunRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getSnapshot:listSwarmRuns:query",
+                  "ProjectionSnapshotQuery.getSnapshot:listSwarmRuns:decodeRows",
+                ),
+              ),
+            ),
+            listSwarmTaskExecutionRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getSnapshot:listSwarmTaskExecutions:query",
+                  "ProjectionSnapshotQuery.getSnapshot:listSwarmTaskExecutions:decodeRows",
+                ),
+              ),
+            ),
             listCheckpointRows(undefined).pipe(
               Effect.mapError(
                 toPersistenceSqlOrDecodeError(
@@ -537,6 +725,19 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           for (const row of threadRows) {
             updatedAt = maxIso(updatedAt, row.updatedAt);
           }
+          for (const row of launchRows) {
+            updatedAt = maxIso(updatedAt, row.updatedAt);
+          }
+          for (const row of swarmRunRows) {
+            updatedAt = maxIso(updatedAt, row.updatedAt);
+          }
+          for (const row of swarmTaskExecutionRows) {
+            updatedAt = maxIso(updatedAt, row.requestedAt);
+            if (row.startedAt !== null) {
+              updatedAt = maxIso(updatedAt, row.startedAt);
+            }
+            updatedAt = maxIso(updatedAt, row.updatedAt);
+          }
           for (const row of stateRows) {
             updatedAt = maxIso(updatedAt, row.updatedAt);
           }
@@ -564,8 +765,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               id: row.planId,
               turnId: row.turnId,
               planMarkdown: row.planMarkdown,
-              implementedAt: row.implementedAt,
-              implementationThreadId: row.implementationThreadId,
+              planIntent: row.planIntent,
+              followUpOutcome: row.followUpOutcome,
               createdAt: row.createdAt,
               updatedAt: row.updatedAt,
             });
@@ -672,6 +873,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             interactionMode: row.interactionMode,
             branch: row.branch,
             worktreePath: row.worktreePath,
+            issueLink: row.issueLink,
             latestTurn: latestTurnByThread.get(row.threadId) ?? null,
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,
@@ -684,10 +886,98 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             session: sessionsByThread.get(row.threadId) ?? null,
           }));
 
+          const planImplementationLaunches: Array<OrchestrationPlanImplementationLaunch> =
+            launchRows.map((row) => ({
+              launchId: row.launchId,
+              sourceThreadId: row.sourceThreadId,
+              sourcePlanId: row.sourcePlanId,
+              projectId: row.projectId,
+              targetThreadId: row.targetThreadId,
+              retryOfLaunchId: row.retryOfLaunchId,
+              status:
+                row.status === "requested" ||
+                row.status === "prepared" ||
+                row.status === "started" ||
+                row.status === "failed" ||
+                row.status === "cancelled"
+                  ? (row.status as OrchestrationPlanImplementationLaunchStatus)
+                  : "failed",
+              launchMode: row.launchMode,
+              branch: row.branch,
+              worktreePath: row.worktreePath,
+              failureReason: row.failureReason,
+              cleanupStatus: row.cleanupStatus,
+              cleanupError: row.cleanupError,
+              title: row.title,
+              setupEnabled: row.setupEnabled === 1,
+              requestedAt: row.requestedAt,
+              preparedAt: row.preparedAt,
+              startedAt: row.startedAt,
+              failedAt: row.failedAt,
+              cancelledAt: row.cancelledAt,
+              updatedAt: row.updatedAt,
+            }));
+
+          const swarmRuns: Array<OrchestrationSwarmRun> = swarmRunRows.map((row) => ({
+            runId: row.runId,
+            projectId: row.projectId,
+            epicIssueId: row.epicIssueId,
+            status: row.status,
+            schedulerMode: row.schedulerMode,
+            workspaceMode: row.workspaceMode,
+            provider: row.provider,
+            model: row.model,
+            modelOptions: row.modelOptions,
+            providerOptions: row.providerOptions,
+            assistantDeliveryMode: row.assistantDeliveryMode,
+            runtimeMode: row.runtimeMode,
+            lastError: row.lastError,
+            requestedAt: row.requestedAt,
+            startedAt: row.startedAt,
+            idledAt: row.idledAt,
+            pausedAt: row.pausedAt,
+            blockedAt: row.blockedAt,
+            blockedContext:
+              row.blockedKind === null
+                ? null
+                : {
+                    kind: row.blockedKind,
+                    issueId: row.blockedIssueId,
+                    executionId: row.blockedExecutionId,
+                    workerThreadId: row.blockedWorkerThreadId,
+                  },
+            failedAt: row.failedAt,
+            cancelledAt: row.cancelledAt,
+            completedAt: row.completedAt,
+            updatedAt: row.updatedAt,
+          }));
+
+          const swarmTaskExecutions: Array<OrchestrationSwarmTaskExecution> =
+            swarmTaskExecutionRows.map((row) => ({
+              executionId: row.executionId,
+              runId: row.runId,
+              issueId: row.issueId,
+              workerThreadId: row.workerThreadId,
+              sequenceNumber: row.sequenceNumber,
+              status: row.status,
+              originalStatus: row.originalStatus,
+              originalAssignee: row.originalAssignee,
+              lastError: row.lastError,
+              requestedAt: row.requestedAt,
+              startedAt: row.startedAt,
+              completedAt: row.completedAt,
+              failedAt: row.failedAt,
+              cancelledAt: row.cancelledAt,
+              updatedAt: row.updatedAt,
+            }));
+
           const snapshot = {
             snapshotSequence: computeSnapshotSequence(stateRows),
             projects,
             threads,
+            planImplementationLaunches,
+            swarmRuns,
+            swarmTaskExecutions,
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           };
 

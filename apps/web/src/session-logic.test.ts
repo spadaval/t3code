@@ -21,6 +21,7 @@ import {
   hasActionableProposedPlan,
   hasToolActivityForTurn,
   isLatestTurnSettled,
+  resolvePlanSidebarProposedPlan,
 } from "./session-logic";
 
 function makeActivity(overrides: {
@@ -354,8 +355,8 @@ describe("findLatestProposedPlan", () => {
             id: "plan:thread-1:turn:turn-1",
             turnId: TurnId.makeUnsafe("turn-1"),
             planMarkdown: "# Older",
-            implementedAt: null,
-            implementationThreadId: null,
+            planIntent: "code-implementation",
+            followUpOutcome: null,
             createdAt: "2026-02-23T00:00:01.000Z",
             updatedAt: "2026-02-23T00:00:01.000Z",
           },
@@ -363,8 +364,8 @@ describe("findLatestProposedPlan", () => {
             id: "plan:thread-1:turn:turn-1",
             turnId: TurnId.makeUnsafe("turn-1"),
             planMarkdown: "# Latest",
-            implementedAt: null,
-            implementationThreadId: null,
+            planIntent: "code-implementation",
+            followUpOutcome: null,
             createdAt: "2026-02-23T00:00:01.000Z",
             updatedAt: "2026-02-23T00:00:02.000Z",
           },
@@ -372,8 +373,8 @@ describe("findLatestProposedPlan", () => {
             id: "plan:thread-1:turn:turn-2",
             turnId: TurnId.makeUnsafe("turn-2"),
             planMarkdown: "# Different turn",
-            implementedAt: null,
-            implementationThreadId: null,
+            planIntent: "code-implementation",
+            followUpOutcome: null,
             createdAt: "2026-02-23T00:00:03.000Z",
             updatedAt: "2026-02-23T00:00:03.000Z",
           },
@@ -384,8 +385,8 @@ describe("findLatestProposedPlan", () => {
       id: "plan:thread-1:turn:turn-1",
       turnId: "turn-1",
       planMarkdown: "# Latest",
-      implementedAt: null,
-      implementationThreadId: null,
+      planIntent: "code-implementation",
+      followUpOutcome: null,
       createdAt: "2026-02-23T00:00:01.000Z",
       updatedAt: "2026-02-23T00:00:02.000Z",
     });
@@ -398,8 +399,8 @@ describe("findLatestProposedPlan", () => {
           id: "plan:thread-1:turn:turn-1",
           turnId: TurnId.makeUnsafe("turn-1"),
           planMarkdown: "# First",
-          implementedAt: null,
-          implementationThreadId: null,
+          planIntent: "code-implementation",
+          followUpOutcome: null,
           createdAt: "2026-02-23T00:00:01.000Z",
           updatedAt: "2026-02-23T00:00:01.000Z",
         },
@@ -407,8 +408,8 @@ describe("findLatestProposedPlan", () => {
           id: "plan:thread-1:turn:turn-2",
           turnId: TurnId.makeUnsafe("turn-2"),
           planMarkdown: "# Latest",
-          implementedAt: null,
-          implementationThreadId: null,
+          planIntent: "code-implementation",
+          followUpOutcome: null,
           createdAt: "2026-02-23T00:00:02.000Z",
           updatedAt: "2026-02-23T00:00:03.000Z",
         },
@@ -421,28 +422,32 @@ describe("findLatestProposedPlan", () => {
 });
 
 describe("hasActionableProposedPlan", () => {
-  it("returns true for an unimplemented proposed plan", () => {
+  it("returns true when a proposed plan has no terminal follow-up outcome", () => {
     expect(
       hasActionableProposedPlan({
         id: "plan-1",
         turnId: TurnId.makeUnsafe("turn-1"),
         planMarkdown: "# Plan",
-        implementedAt: null,
-        implementationThreadId: null,
+        planIntent: "code-implementation",
+        followUpOutcome: null,
         createdAt: "2026-02-23T00:00:00.000Z",
         updatedAt: "2026-02-23T00:00:01.000Z",
       }),
     ).toBe(true);
   });
 
-  it("returns false for a proposed plan already implemented elsewhere", () => {
+  it("returns false when a proposed plan already has a terminal follow-up outcome", () => {
     expect(
       hasActionableProposedPlan({
         id: "plan-1",
         turnId: TurnId.makeUnsafe("turn-1"),
         planMarkdown: "# Plan",
-        implementedAt: "2026-02-23T00:00:02.000Z",
-        implementationThreadId: ThreadId.makeUnsafe("thread-implement"),
+        planIntent: "code-implementation",
+        followUpOutcome: {
+          kind: "implement-code",
+          completedAt: "2026-02-23T00:00:02.000Z",
+          targetThreadId: ThreadId.makeUnsafe("thread-implement"),
+        },
         createdAt: "2026-02-23T00:00:00.000Z",
         updatedAt: "2026-02-23T00:00:02.000Z",
       }),
@@ -462,8 +467,12 @@ describe("findSidebarProposedPlan", () => {
                 id: "plan-1",
                 turnId: TurnId.makeUnsafe("turn-plan"),
                 planMarkdown: "# Source plan",
-                implementedAt: "2026-02-23T00:00:03.000Z",
-                implementationThreadId: ThreadId.makeUnsafe("thread-2"),
+                planIntent: "code-implementation",
+                followUpOutcome: {
+                  kind: "implement-code",
+                  completedAt: "2026-02-23T00:00:03.000Z",
+                  targetThreadId: ThreadId.makeUnsafe("thread-2"),
+                },
                 createdAt: "2026-02-23T00:00:01.000Z",
                 updatedAt: "2026-02-23T00:00:02.000Z",
               },
@@ -476,8 +485,8 @@ describe("findSidebarProposedPlan", () => {
                 id: "plan-2",
                 turnId: TurnId.makeUnsafe("turn-other"),
                 planMarkdown: "# Latest elsewhere",
-                implementedAt: null,
-                implementationThreadId: null,
+                planIntent: "code-implementation",
+                followUpOutcome: null,
                 createdAt: "2026-02-23T00:00:04.000Z",
                 updatedAt: "2026-02-23T00:00:05.000Z",
               },
@@ -498,8 +507,12 @@ describe("findSidebarProposedPlan", () => {
       id: "plan-1",
       turnId: "turn-plan",
       planMarkdown: "# Source plan",
-      implementedAt: "2026-02-23T00:00:03.000Z",
-      implementationThreadId: "thread-2",
+      planIntent: "code-implementation",
+      followUpOutcome: {
+        kind: "implement-code",
+        completedAt: "2026-02-23T00:00:03.000Z",
+        targetThreadId: "thread-2",
+      },
       createdAt: "2026-02-23T00:00:01.000Z",
       updatedAt: "2026-02-23T00:00:02.000Z",
     });
@@ -516,8 +529,8 @@ describe("findSidebarProposedPlan", () => {
                 id: "plan-1",
                 turnId: TurnId.makeUnsafe("turn-plan"),
                 planMarkdown: "# Older",
-                implementedAt: null,
-                implementationThreadId: null,
+                planIntent: "code-implementation",
+                followUpOutcome: null,
                 createdAt: "2026-02-23T00:00:01.000Z",
                 updatedAt: "2026-02-23T00:00:02.000Z",
               },
@@ -525,8 +538,8 @@ describe("findSidebarProposedPlan", () => {
                 id: "plan-2",
                 turnId: TurnId.makeUnsafe("turn-latest"),
                 planMarkdown: "# Latest",
-                implementedAt: null,
-                implementationThreadId: null,
+                planIntent: "code-implementation",
+                followUpOutcome: null,
                 createdAt: "2026-02-23T00:00:03.000Z",
                 updatedAt: "2026-02-23T00:00:04.000Z",
               },
@@ -544,6 +557,52 @@ describe("findSidebarProposedPlan", () => {
         threadId: ThreadId.makeUnsafe("thread-1"),
       })?.planMarkdown,
     ).toBe("# Latest");
+  });
+});
+
+describe("resolvePlanSidebarProposedPlan", () => {
+  it("falls back to the source plan for implementation target threads", () => {
+    const resolved = resolvePlanSidebarProposedPlan({
+      activeProposedPlan: null,
+      activeThread: {
+        id: ThreadId.makeUnsafe("thread-target"),
+        proposedPlans: [],
+      },
+      activeThreadLaunch: {
+        sourceThreadId: ThreadId.makeUnsafe("thread-source"),
+        sourcePlanId: "plan-source-1",
+      },
+      threads: [
+        {
+          id: ThreadId.makeUnsafe("thread-source"),
+          proposedPlans: [
+            {
+              id: "plan-source-1",
+              turnId: TurnId.makeUnsafe("turn-plan-source"),
+              planIntent: "code-implementation",
+              followUpOutcome: null,
+              planMarkdown: "# Source plan",
+              createdAt: "2026-02-23T00:00:01.000Z",
+              updatedAt: "2026-02-23T00:00:02.000Z",
+            },
+          ],
+        },
+        {
+          id: ThreadId.makeUnsafe("thread-target"),
+          proposedPlans: [],
+        },
+      ],
+    });
+
+    expect(resolved).toEqual({
+      id: "plan-source-1",
+      turnId: "turn-plan-source",
+      planIntent: "code-implementation",
+      followUpOutcome: null,
+      planMarkdown: "# Source plan",
+      createdAt: "2026-02-23T00:00:01.000Z",
+      updatedAt: "2026-02-23T00:00:02.000Z",
+    });
   });
 });
 
@@ -1034,8 +1093,8 @@ describe("deriveTimelineEntries", () => {
           id: "plan:thread-1:turn:turn-1",
           turnId: TurnId.makeUnsafe("turn-1"),
           planMarkdown: "# Ship it",
-          implementedAt: null,
-          implementationThreadId: null,
+          planIntent: "code-implementation",
+          followUpOutcome: null,
           createdAt: "2026-02-23T00:00:02.000Z",
           updatedAt: "2026-02-23T00:00:02.000Z",
         },
@@ -1055,8 +1114,7 @@ describe("deriveTimelineEntries", () => {
       kind: "proposed-plan",
       proposedPlan: {
         planMarkdown: "# Ship it",
-        implementedAt: null,
-        implementationThreadId: null,
+        followUpOutcome: null,
       },
     });
   });

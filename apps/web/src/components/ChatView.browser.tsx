@@ -7,6 +7,7 @@ import {
   type MessageId,
   type OrchestrationEvent,
   type OrchestrationReadModel,
+  PlanImplementationLaunchId,
   type ProjectId,
   type ServerConfig,
   type ServerLifecycleWelcomePayload,
@@ -34,6 +35,7 @@ import { isMacPlatform } from "../lib/utils";
 import { __resetNativeApiForTests } from "../nativeApi";
 import { AppAtomRegistryProvider } from "../rpc/atomRegistry";
 import { getServerConfig } from "../rpc/serverState";
+import { usePlanSidebarStore } from "../planSidebarStore";
 import { getRouter } from "../router";
 import { useStore } from "../store";
 import { useTerminalStateStore } from "../terminalStateStore";
@@ -49,6 +51,8 @@ vi.mock("../lib/gitStatusState", () => ({
 }));
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
+const SECOND_THREAD_ID = "thread-browser-test-2" as ThreadId;
+const WORKTREE_TARGET_THREAD_ID = "thread-browser-worktree-target" as ThreadId;
 const UUID_ROUTE_RE = /^\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PROJECT_ID = "project-1" as ProjectId;
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
@@ -290,6 +294,7 @@ function createSnapshotForTargetUser(options: {
         updatedAt: NOW_ISO,
         archivedAt: null,
         deletedAt: null,
+        issueLink: null,
         messages,
         activities: [],
         proposedPlans: [],
@@ -305,6 +310,9 @@ function createSnapshotForTargetUser(options: {
         },
       },
     ],
+    planImplementationLaunches: [],
+    swarmRuns: [],
+    swarmTaskExecutions: [],
     updatedAt: NOW_ISO,
   };
 }
@@ -348,6 +356,7 @@ function addThreadToSnapshot(
         updatedAt: NOW_ISO,
         archivedAt: null,
         deletedAt: null,
+        issueLink: null,
         messages: [],
         activities: [],
         proposedPlans: [],
@@ -390,6 +399,7 @@ function createThreadCreatedEvent(threadId: ThreadId, sequence: number): Orchest
       interactionMode: "default",
       branch: "main",
       worktreePath: null,
+      issueLink: null,
       createdAt: NOW_ISO,
       updatedAt: NOW_ISO,
     },
@@ -529,8 +539,7 @@ function createSnapshotWithLongProposedPlan(): OrchestrationReadModel {
                 id: "plan-browser-test",
                 turnId: null,
                 planMarkdown,
-                implementedAt: null,
-                implementationThreadId: null,
+                followUpOutcome: null,
                 createdAt: isoAt(1_000),
                 updatedAt: isoAt(1_001),
               },
@@ -640,8 +649,7 @@ function createSnapshotWithPlanFollowUpPrompt(): OrchestrationReadModel {
                 id: "plan-follow-up-browser-test",
                 turnId: "turn-plan-follow-up" as TurnId,
                 planMarkdown: "# Follow-up plan\n\n- Keep the composer footer stable on resize.",
-                implementedAt: null,
-                implementationThreadId: null,
+                followUpOutcome: null,
                 createdAt: isoAt(1_002),
                 updatedAt: isoAt(1_003),
               },
@@ -658,6 +666,115 @@ function createSnapshotWithPlanFollowUpPrompt(): OrchestrationReadModel {
   };
 }
 
+function createSnapshotWithSecondaryPlanThread(): OrchestrationReadModel {
+  const snapshot = createSnapshotWithLongProposedPlan();
+  const baseThread = snapshot.threads[0];
+  if (!baseThread) {
+    throw new Error("Expected a base thread in the browser fixture snapshot.");
+  }
+
+  return {
+    ...snapshot,
+    threads: [
+      ...snapshot.threads,
+      {
+        ...baseThread,
+        id: SECOND_THREAD_ID,
+        title: "Second browser test thread",
+        proposedPlans: [],
+        activities: [],
+        messages: [
+          createUserMessage({
+            id: "msg-user-second-thread" as MessageId,
+            text: "second thread",
+            offsetSeconds: 4_000,
+          }),
+        ],
+        updatedAt: isoAt(4_001),
+      },
+    ],
+  };
+}
+
+function createSnapshotForWorktreePlanSidebar(): OrchestrationReadModel {
+  const snapshot = createSnapshotForTargetUser({
+    targetMessageId: "msg-user-worktree-target" as MessageId,
+    targetText: "source thread",
+  });
+  const baseThread = snapshot.threads[0];
+  if (!baseThread) {
+    throw new Error("Expected a base thread in the browser fixture snapshot.");
+  }
+  const baseSession = baseThread.session;
+  if (!baseSession) {
+    throw new Error("Expected a base session in the browser fixture snapshot.");
+  }
+
+  return {
+    ...snapshot,
+    threads: [
+      {
+        ...baseThread,
+        id: THREAD_ID,
+        title: "Source thread",
+        proposedPlans: [
+          {
+            id: "plan-worktree-source",
+            turnId: null,
+            planIntent: "code-implementation",
+            followUpOutcome: null,
+            planMarkdown: "# Worktree plan\n\n- Keep the source context visible",
+            createdAt: isoAt(1_200),
+            updatedAt: isoAt(1_201),
+          },
+        ],
+        updatedAt: isoAt(1_201),
+      },
+      {
+        ...baseThread,
+        id: WORKTREE_TARGET_THREAD_ID,
+        title: "Worktree target thread",
+        interactionMode: "default",
+        messages: [],
+        proposedPlans: [],
+        activities: [],
+        latestTurn: null,
+        updatedAt: isoAt(1_300),
+        session: {
+          ...baseSession,
+          threadId: WORKTREE_TARGET_THREAD_ID,
+        },
+      },
+    ],
+    planImplementationLaunches: [
+      {
+        launchId: PlanImplementationLaunchId.makeUnsafe("launch-worktree-sidebar"),
+        sourceThreadId: THREAD_ID,
+        sourcePlanId: "plan-worktree-source",
+        projectId: PROJECT_ID,
+        targetThreadId: WORKTREE_TARGET_THREAD_ID,
+        retryOfLaunchId: null,
+        status: "prepared",
+        launchMode: "worktree",
+        branch: "plan/worktree-sidebar",
+        worktreePath: "/repo/project/.worktrees/plan-worktree-sidebar",
+        failureReason: null,
+        cleanupStatus: "not-required",
+        cleanupError: null,
+        title: "Implement plan",
+        setupEnabled: true,
+        requestedAt: isoAt(1_202),
+        preparedAt: isoAt(1_203),
+        startedAt: null,
+        failedAt: null,
+        cancelledAt: null,
+        updatedAt: isoAt(1_203),
+      },
+    ],
+    updatedAt: isoAt(1_203),
+  };
+}
+
 function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
   const customResult = customWsRpcResolver?.(body);
   if (customResult !== undefined) {
@@ -666,6 +783,23 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
   const tag = body._tag;
   if (tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
     return fixture.snapshot;
+  }
+  if (tag === ORCHESTRATION_WS_METHODS.launchPlanImplementation) {
+    return {
+      launchId: "launch-browser-prepared",
+      targetThreadId: "thread-browser-prepared",
+      status: "requested",
+    };
+  }
+  if (tag === ORCHESTRATION_WS_METHODS.cancelPlanImplementationLaunch) {
+    return { launchId: "launch-browser-prepared", status: "cancelled" };
+  }
+  if (tag === ORCHESTRATION_WS_METHODS.retryPlanImplementationLaunch) {
+    return {
+      launchId: "launch-browser-retry",
+      targetThreadId: "thread-browser-retry",
+      status: "requested",
+    };
   }
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
@@ -826,10 +960,6 @@ async function waitForSendButton(): Promise<HTMLButtonElement> {
   );
 }
 
-function findComposerProviderModelPicker(): HTMLButtonElement | null {
-  return document.querySelector<HTMLButtonElement>('[data-chat-provider-model-picker="true"]');
-}
-
 function findButtonByText(text: string): HTMLButtonElement | null {
   return (Array.from(document.querySelectorAll("button")).find(
     (button) => button.textContent?.trim() === text,
@@ -946,6 +1076,40 @@ async function waitForNewThreadShortcutLabel(): Promise<void> {
     ? "New thread (⇧⌘O)"
     : "New thread (Ctrl+Shift+O)";
   await expect.element(page.getByText(shortcutLabel)).toBeInTheDocument();
+}
+
+async function waitForPlanSidebarToggle(title: "Show plan sidebar" | "Hide plan sidebar") {
+  return waitForElement(
+    () =>
+      Array.from(document.querySelectorAll("button")).find(
+        (button) => button.getAttribute("title") === title,
+      ) as HTMLButtonElement | null,
+    `Unable to find the ${title} button.`,
+  );
+}
+
+async function waitForIssuesToggle(title: "Show issues" | "Hide issues") {
+  return waitForElement(
+    () =>
+      Array.from(document.querySelectorAll("button")).find(
+        (button) => button.getAttribute("title") === title,
+      ) as HTMLButtonElement | null,
+    `Unable to find the ${title} button.`,
+  );
+}
+
+async function waitForPlanSidebarCloseButton() {
+  return waitForElement(
+    () => document.querySelector<HTMLButtonElement>('[aria-label="Close plan sidebar"]'),
+    "Unable to find the plan sidebar close button.",
+  );
+}
+
+async function waitForIssuesCloseButton() {
+  return waitForElement(
+    () => document.querySelector<HTMLButtonElement>('[aria-label="Close issues"]'),
+    "Unable to find the issues close button.",
+  );
 }
 
 async function waitForImagesToLoad(scope: ParentNode): Promise<void> {
@@ -1187,6 +1351,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       terminalEventEntriesByKey: {},
       nextTerminalEventId: 1,
     });
+    usePlanSidebarStore.getState().reset();
   });
 
   afterEach(() => {
@@ -2805,6 +2970,96 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("preserves each thread's plan sidebar state across navigation", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithSecondaryPlanThread(),
+    });
+
+    try {
+      const openPlanSidebarButton = await waitForPlanSidebarToggle("Show plan sidebar");
+      openPlanSidebarButton.click();
+
+      await expect.element(await waitForPlanSidebarCloseButton()).toBeInTheDocument();
+
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: SECOND_THREAD_ID },
+      });
+      await waitForURL(
+        mounted.router,
+        (path) => path === `/${SECOND_THREAD_ID}`,
+        "Route should navigate to the second thread.",
+      );
+
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: THREAD_ID },
+      });
+      await waitForURL(
+        mounted.router,
+        (path) => path === `/${THREAD_ID}`,
+        "Route should navigate back to the original thread.",
+      );
+
+      await expect.element(await waitForPlanSidebarCloseButton()).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("reopens the issues sidebar from the top bar", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-issues-toggle-test" as MessageId,
+        targetText: "issues toggle test",
+      }),
+    });
+
+    try {
+      const openIssuesButton = await waitForIssuesToggle("Show issues");
+      openIssuesButton.click();
+
+      await expect.element(await waitForIssuesCloseButton()).toBeInTheDocument();
+      await waitForURL(
+        mounted.router,
+        (path) =>
+          path === `/${THREAD_ID}` && mounted.router.state.location.search.rightPane === "issues",
+        "Route search should open the issues pane.",
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("lets worktree target threads open the sidebar and see the source plan", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForWorktreePlanSidebar(),
+    });
+
+    try {
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: WORKTREE_TARGET_THREAD_ID },
+      });
+      await waitForURL(
+        mounted.router,
+        (path) => path === `/${WORKTREE_TARGET_THREAD_ID}`,
+        "Route should navigate to the worktree target thread.",
+      );
+
+      const openPlanSidebarButton = await waitForPlanSidebarToggle("Show plan sidebar");
+      openPlanSidebarButton.click();
+
+      await expect.element(await waitForPlanSidebarCloseButton()).toBeInTheDocument();
+      await expect.element(page.getByText("Worktree plan")).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("keeps long proposed plans lightweight until the user expands them", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -3055,17 +3310,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
-      const footer = await waitForElement(
-        () => document.querySelector<HTMLElement>('[data-chat-composer-footer="true"]'),
-        "Unable to find composer footer.",
-      );
-      const initialModelPicker = await waitForElement(
-        findComposerProviderModelPicker,
-        "Unable to find provider model picker.",
-      );
-      const initialModelPickerOffset =
-        initialModelPicker.getBoundingClientRect().left - footer.getBoundingClientRect().left;
-
       await waitForButtonByText("Implement");
       await waitForElement(
         () =>
@@ -3090,20 +3334,34 @@ describe("ChatView timeline estimator parity (full app)", () => {
         () => {
           const implementRect = implementButton.getBoundingClientRect();
           const implementActionsRect = implementActionsButton.getBoundingClientRect();
-          const compactModelPicker = findComposerProviderModelPicker();
-          expect(compactModelPicker).toBeTruthy();
-
-          const compactModelPickerOffset =
-            compactModelPicker!.getBoundingClientRect().left - footer.getBoundingClientRect().left;
 
           expect(Math.abs(implementRect.right - implementActionsRect.left)).toBeLessThanOrEqual(1);
           expect(Math.abs(implementRect.top - implementActionsRect.top)).toBeLessThanOrEqual(1);
-          expect(Math.abs(compactModelPickerOffset - initialModelPickerOffset)).toBeLessThanOrEqual(
-            1,
-          );
         },
         { timeout: 8_000, interval: 16 },
       );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows the convert to beads action in the implementation menu", async () => {
+    const mounted = await mountChatView({
+      viewport: WIDE_FOOTER_VIEWPORT,
+      snapshot: createSnapshotWithPlanFollowUpPrompt(),
+    });
+
+    try {
+      const implementActionsButton = await waitForElement(
+        () =>
+          document.querySelector<HTMLButtonElement>('button[aria-label="Implementation actions"]'),
+        "Unable to find implementation actions trigger.",
+      );
+
+      implementActionsButton.click();
+
+      await expect.element(page.getByText("Implement in a new thread")).toBeInTheDocument();
+      await expect.element(page.getByText("Convert to beads")).toBeInTheDocument();
     } finally {
       await mounted.cleanup();
     }

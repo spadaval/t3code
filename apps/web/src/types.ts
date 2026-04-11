@@ -1,8 +1,13 @@
 import type {
   ModelSelection,
+  OrchestrationPlanImplementationLaunch,
   OrchestrationLatestTurn,
+  OrchestrationProposedPlanFollowUpOutcome,
   OrchestrationProposedPlanId,
   OrchestrationSessionStatus,
+  OrchestrationSwarmRun,
+  OrchestrationSwarmTaskExecution,
+  OrchestrationThreadIssueLink,
   OrchestrationThreadActivity,
   ProjectScript as ContractProjectScript,
   ThreadId,
@@ -23,6 +28,9 @@ export const DEFAULT_THREAD_TERMINAL_HEIGHT = 280;
 export const DEFAULT_THREAD_TERMINAL_ID = "default";
 export const MAX_TERMINALS_PER_GROUP = 4;
 export type ProjectScript = ContractProjectScript;
+export type PlanImplementationLaunch = OrchestrationPlanImplementationLaunch;
+export type SwarmRun = OrchestrationSwarmRun;
+export type SwarmTaskExecution = OrchestrationSwarmTaskExecution;
 
 export interface ThreadTerminalGroup {
   id: string;
@@ -55,8 +63,8 @@ export interface ProposedPlan {
   id: OrchestrationProposedPlanId;
   turnId: TurnId | null;
   planMarkdown: string;
-  implementedAt: string | null;
-  implementationThreadId: ThreadId | null;
+  planIntent: "code-implementation" | "tracker-refinement";
+  followUpOutcome: OrchestrationProposedPlanFollowUpOutcome | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -107,6 +115,7 @@ export interface Thread {
   pendingSourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"];
   branch: string | null;
   worktreePath: string | null;
+  issueLink: OrchestrationThreadIssueLink | null;
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
 }

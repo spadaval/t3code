@@ -12,6 +12,7 @@ import {
   TerminalNotRunningError,
   type OrchestrationCommand,
   type OrchestrationEvent,
+  type OrchestrationLaunchPlanImplementationInput,
   ORCHESTRATION_WS_METHODS,
   ProjectId,
   ResolvedKeybindingRule,
@@ -62,6 +63,10 @@ import {
 } from "./orchestration/Services/OrchestrationEngine.ts";
 import { OrchestrationListenerCallbackError } from "./orchestration/Errors.ts";
 import {
+  PlanImplementationWorkflow,
+  type PlanImplementationWorkflowShape,
+} from "./orchestration/Services/PlanImplementationWorkflow.ts";
+import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -99,6 +104,7 @@ const makeDefaultOrchestrationReadModel = () => {
   return {
     snapshotSequence: 0,
     updatedAt: now,
+    planImplementationLaunches: [],
     projects: [
       {
         id: defaultProjectId,
@@ -265,6 +271,7 @@ const buildAppUnderTest = (options?: {
     projectSetupScriptRunner?: Partial<ProjectSetupScriptRunnerShape>;
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
+    planImplementationWorkflow?: Partial<PlanImplementationWorkflowShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
     browserTraceCollector?: Partial<BrowserTraceCollectorShape>;
@@ -373,6 +380,30 @@ const buildAppUnderTest = (options?: {
         Layer.mock(ProjectionSnapshotQuery)({
           getSnapshot: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
           ...options?.layers?.projectionSnapshotQuery,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(PlanImplementationWorkflow)({
+          start: Effect.void,
+          drain: Effect.void,
+          launchPlanImplementation: () =>
+            Effect.succeed({
+              launchId: "launch-1" as any,
+              targetThreadId: defaultThreadId,
+              status: "requested",
+            }),
+          cancelPlanImplementationLaunch: () =>
+            Effect.succeed({
+              launchId: "launch-1" as any,
+              status: "cancelled",
+            }),
+          retryPlanImplementationLaunch: () =>
+            Effect.succeed({
+              launchId: "launch-2" as any,
+              targetThreadId: defaultThreadId,
+              status: "requested",
+            }),
+          ...options?.layers?.planImplementationWorkflow,
         }),
       ),
       Layer.provide(
@@ -1882,6 +1913,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const snapshot = {
         snapshotSequence: 1,
         updatedAt: now,
+        planImplementationLaunches: [],
         projects: [
           {
             id: ProjectId.makeUnsafe("project-a"),
@@ -1993,6 +2025,62 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
       assert.deepEqual(replayResult, []);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("forwards optional launchPlanImplementation fields unchanged", () =>
+    Effect.gen(function* () {
+      let capturedInput: OrchestrationLaunchPlanImplementationInput | null = null;
+
+      yield* buildAppUnderTest({
+        layers: {
+          planImplementationWorkflow: {
+            launchPlanImplementation: (input) =>
+              Effect.sync(() => {
+                capturedInput = input;
+                return {
+                  launchId: "launch-1" as any,
+                  targetThreadId: defaultThreadId,
+                  status: "requested" as const,
+                };
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const request: OrchestrationLaunchPlanImplementationInput = {
+        sourceThreadId: defaultThreadId,
+        planId: "plan-1" as any,
+        titleOverride: "Implement API transport fix",
+        provider: "claudeAgent",
+        model: "claude-sonnet-4-6",
+        modelOptions: {
+          claudeAgent: {
+            thinking: true,
+            effort: "max",
+            fastMode: false,
+            contextWindow: "128k",
+          },
+        },
+        providerOptions: {
+          permissionMode: "bypassPermissions",
+          cwd: "/tmp/launch-worktree",
+        },
+        assistantDeliveryMode: "streaming",
+        runtimeMode: "full-access",
+        launchMode: "worktree",
+        runSetup: true,
+      };
+
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.launchPlanImplementation](request),
+        ),
+      );
+
+      assert.equal(result.status, "requested");
+      assert.deepEqual(capturedInput, request);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

@@ -78,6 +78,31 @@ export class OrchestrationListenerCallbackError extends Schema.TaggedErrorClass<
   }
 }
 
+export class PlanImplementationWorkflowError extends Schema.TaggedErrorClass<PlanImplementationWorkflowError>()(
+  "PlanImplementationWorkflowError",
+  {
+    operation: Schema.String,
+    detail: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {
+  override get message(): string {
+    return `Plan implementation workflow failed in ${this.operation}: ${this.detail}`;
+  }
+}
+
+export class ProjectScriptRunnerError extends Schema.TaggedErrorClass<ProjectScriptRunnerError>()(
+  "ProjectScriptRunnerError",
+  {
+    detail: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {
+  override get message(): string {
+    return `Project script runner failed: ${this.detail}`;
+  }
+}
+
 export type OrchestrationDispatchError =
   | ProjectionRepositoryError
   | OrchestrationCommandInvariantError

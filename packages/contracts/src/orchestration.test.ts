@@ -2,17 +2,28 @@ import assert from "node:assert/strict";
 import { it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
+import { SwarmRunId, SwarmTaskExecutionId } from "./baseSchemas";
 import {
+  DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE,
+  DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT,
+  DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE,
+  DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   OrchestrationCommand,
+  OrchestrationContinueSwarmRunInput,
   OrchestrationEvent,
   OrchestrationGetTurnDiffInput,
   OrchestrationLatestTurn,
+  OrchestrationLaunchPlanImplementationInput,
+  OrchestrationStartSwarmRunInput,
+  OrchestrationSwarmRun,
+  OrchestrationSwarmTaskExecution,
   ProjectCreatedPayload,
   ProjectMetaUpdatedPayload,
   OrchestrationProposedPlan,
   OrchestrationSession,
+  PlanImplementationLaunchRequestedPayload,
   ProjectCreateCommand,
   ThreadMetaUpdatedPayload,
   ThreadTurnStartCommand,
@@ -21,12 +32,22 @@ import {
   ThreadTurnStartRequestedPayload,
 } from "./orchestration";
 
+const decodeSwarmRunId = Schema.decodeUnknownEffect(SwarmRunId);
+const decodeSwarmTaskExecutionId = Schema.decodeUnknownEffect(SwarmTaskExecutionId);
+const encodeSwarmRunId = Schema.encodeSync(SwarmRunId);
+const encodeSwarmTaskExecutionId = Schema.encodeSync(SwarmTaskExecutionId);
 const decodeTurnDiffInput = Schema.decodeUnknownEffect(OrchestrationGetTurnDiffInput);
 const decodeThreadTurnDiff = Schema.decodeUnknownEffect(ThreadTurnDiff);
 const decodeProjectCreateCommand = Schema.decodeUnknownEffect(ProjectCreateCommand);
 const decodeProjectCreatedPayload = Schema.decodeUnknownEffect(ProjectCreatedPayload);
 const decodeProjectMetaUpdatedPayload = Schema.decodeUnknownEffect(ProjectMetaUpdatedPayload);
 const decodeThreadTurnStartCommand = Schema.decodeUnknownEffect(ThreadTurnStartCommand);
+const decodePlanImplementationLaunchRequestedPayload = Schema.decodeUnknownEffect(
+  PlanImplementationLaunchRequestedPayload,
+);
+const decodeOrchestrationLaunchPlanImplementationInput = Schema.decodeUnknownEffect(
+  OrchestrationLaunchPlanImplementationInput,
+);
 const decodeThreadTurnStartRequestedPayload = Schema.decodeUnknownEffect(
   ThreadTurnStartRequestedPayload,
 );
@@ -37,6 +58,16 @@ const decodeThreadCreatedPayload = Schema.decodeUnknownEffect(ThreadCreatedPaylo
 const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationCommand);
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
 const decodeThreadMetaUpdatedPayload = Schema.decodeUnknownEffect(ThreadMetaUpdatedPayload);
+const decodeOrchestrationStartSwarmRunInput = Schema.decodeUnknownEffect(
+  OrchestrationStartSwarmRunInput,
+);
+const decodeOrchestrationContinueSwarmRunInput = Schema.decodeUnknownEffect(
+  OrchestrationContinueSwarmRunInput,
+);
+const decodeOrchestrationSwarmRun = Schema.decodeUnknownEffect(OrchestrationSwarmRun);
+const decodeOrchestrationSwarmTaskExecution = Schema.decodeUnknownEffect(
+  OrchestrationSwarmTaskExecution,
+);
 
 it.effect("parses turn diff input when fromTurnCount <= toTurnCount", () =>
   Effect.gen(function* () {
@@ -404,6 +435,52 @@ it.effect("accepts a source proposed plan reference in thread.turn.start", () =>
   }),
 );
 
+it.effect("decodes plan implementation launch requested payload execution snapshot", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodePlanImplementationLaunchRequestedPayload({
+      launchId: "launch-1",
+      sourceThreadId: " thread-1 ",
+      sourcePlanId: " plan-1 ",
+      projectId: " project-1 ",
+      targetThreadId: " thread-2 ",
+      retryOfLaunchId: null,
+      title: " Implement auth flow ",
+      setupEnabled: true,
+      promptText: "Implement this plan",
+      provider: "codex",
+      model: " gpt-5-codex ",
+      modelOptions: { codex: { reasoningEffort: "high" } },
+      providerOptions: null,
+      assistantDeliveryMode: "buffered",
+      runtimeMode: "full-access",
+      requestedAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(parsed.sourceThreadId, "thread-1");
+    assert.strictEqual(parsed.sourcePlanId, "plan-1");
+    assert.strictEqual(parsed.projectId, "project-1");
+    assert.strictEqual(parsed.targetThreadId, "thread-2");
+    assert.strictEqual(parsed.title, "Implement auth flow");
+    assert.strictEqual(parsed.model, "gpt-5-codex");
+    assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
+    assert.strictEqual(parsed.launchMode, DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE);
+  }),
+);
+
+it.effect("decodes launch plan input tracker-only mode when requested", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationLaunchPlanImplementationInput({
+      sourceThreadId: "thread-1",
+      planId: "plan-1",
+      runSetup: false,
+      launchMode: "tracker-only",
+    });
+
+    assert.strictEqual(parsed.launchMode, "tracker-only");
+    assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
+  }),
+);
+
 it.effect(
   "decodes thread.turn-start-requested defaults for provider, runtime mode, and interaction mode",
   () =>
@@ -487,7 +564,7 @@ it.effect("decodes orchestration session runtime mode defaults", () =>
   }),
 );
 
-it.effect("defaults proposed plan implementation metadata for historical rows", () =>
+it.effect("defaults proposed plan follow-up outcome for historical rows", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeOrchestrationProposedPlan({
       id: "plan-1",
@@ -496,23 +573,208 @@ it.effect("defaults proposed plan implementation metadata for historical rows", 
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
-    assert.strictEqual(parsed.implementedAt, null);
-    assert.strictEqual(parsed.implementationThreadId, null);
+    assert.strictEqual(parsed.planIntent, DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT);
+    assert.strictEqual(parsed.followUpOutcome, null);
   }),
 );
 
-it.effect("preserves proposed plan implementation metadata when present", () =>
+it.effect("decodes legacy implementation metadata into an implement-code follow-up outcome", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeOrchestrationProposedPlan({
       id: "plan-2",
       turnId: "turn-2",
       planMarkdown: "# Plan",
+      planIntent: "tracker-refinement",
       implementedAt: "2026-01-02T00:00:00.000Z",
       implementationThreadId: "thread-2",
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-02T00:00:00.000Z",
     });
-    assert.strictEqual(parsed.implementedAt, "2026-01-02T00:00:00.000Z");
-    assert.strictEqual(parsed.implementationThreadId, "thread-2");
+    assert.strictEqual(parsed.planIntent, "tracker-refinement");
+    assert.deepStrictEqual(parsed.followUpOutcome, {
+      kind: "implement-code",
+      completedAt: "2026-01-02T00:00:00.000Z",
+      targetThreadId: "thread-2",
+    });
+  }),
+);
+
+it.effect("preserves explicit follow-up outcomes when present", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationProposedPlan({
+      id: "plan-3",
+      turnId: "turn-3",
+      planMarkdown: "# Plan",
+      planIntent: "tracker-refinement",
+      followUpOutcome: {
+        kind: "convert-to-tracker",
+        completedAt: "2026-01-03T00:00:00.000Z",
+        targetThreadId: null,
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-03T00:00:00.000Z",
+    });
+    assert.strictEqual(parsed.planIntent, "tracker-refinement");
+    assert.deepStrictEqual(parsed.followUpOutcome, {
+      kind: "convert-to-tracker",
+      completedAt: "2026-01-03T00:00:00.000Z",
+      targetThreadId: null,
+    });
+  }),
+);
+
+it.effect("defaults swarm run start input scheduler and workspace modes", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationStartSwarmRunInput({
+      projectId: "project-1",
+      epicIssueId: "EPIC-1",
+      runtimeMode: "full-access",
+    });
+    assert.strictEqual(parsed.schedulerMode, DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE);
+    assert.strictEqual(parsed.workspaceMode, DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE);
+    assert.strictEqual(parsed.runtimeMode, "full-access");
+  }),
+);
+
+it.effect("decodes and encodes branded swarm identifiers", () =>
+  Effect.gen(function* () {
+    const runId = yield* decodeSwarmRunId(" run-1 ");
+    const executionId = yield* decodeSwarmTaskExecutionId(" execution-1 ");
+
+    assert.strictEqual(runId, "run-1");
+    assert.strictEqual(executionId, "execution-1");
+    assert.strictEqual(encodeSwarmRunId(runId), "run-1");
+    assert.strictEqual(encodeSwarmTaskExecutionId(executionId), "execution-1");
+  }),
+);
+
+it.effect("decodes swarm lifecycle commands", () =>
+  Effect.gen(function* () {
+    const requestCommand = yield* decodeOrchestrationCommand({
+      type: "swarm-run.request",
+      commandId: "cmd-run-request",
+      runId: "run-1",
+      projectId: "project-1",
+      epicIssueId: "EPIC-1",
+      swarmId: "SWARM-1",
+      schedulerMode: "semi-automatic",
+      workspaceMode: "shared",
+      provider: "codex",
+      model: "gpt-5.4-mini",
+      assistantDeliveryMode: "buffered",
+      runtimeMode: "approval-required",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const startExecutionCommand = yield* decodeOrchestrationCommand({
+      type: "swarm-task-execution.request",
+      commandId: "cmd-execution-request",
+      executionId: "execution-1",
+      runId: "run-1",
+      issueId: "TASK-1",
+      workerThreadId: "thread-1",
+      sequenceNumber: 1,
+      originalStatus: "open",
+      originalAssignee: "issue-owner",
+      createdAt: "2026-01-01T00:00:01.000Z",
+    });
+    const promoteExecutionCommand = yield* decodeOrchestrationCommand({
+      type: "swarm-task-execution.start",
+      commandId: "cmd-execution-start",
+      executionId: "execution-1",
+      runId: "run-1",
+      createdAt: "2026-01-01T00:00:02.000Z",
+    });
+
+    assert.strictEqual(requestCommand.type, "swarm-run.request");
+    assert.strictEqual(requestCommand.runId, "run-1");
+    assert.strictEqual(requestCommand.schedulerMode, "semi-automatic");
+    assert.strictEqual(startExecutionCommand.type, "swarm-task-execution.request");
+    assert.strictEqual(startExecutionCommand.executionId, "execution-1");
+    assert.strictEqual(startExecutionCommand.workerThreadId, "thread-1");
+    assert.strictEqual(promoteExecutionCommand.type, "swarm-task-execution.start");
+  }),
+);
+
+it.effect("decodes swarm run control input", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationContinueSwarmRunInput({
+      runId: "run-1",
+    });
+    assert.strictEqual(parsed.runId, "run-1");
+  }),
+);
+
+it.effect("decodes swarm run history rows with null defaults", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationSwarmRun({
+      runId: "run-1",
+      projectId: "project-1",
+      epicIssueId: "EPIC-1",
+      status: "requested",
+      requestedAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      provider: null,
+      model: null,
+      modelOptions: null,
+      providerOptions: null,
+      assistantDeliveryMode: null,
+    });
+    assert.strictEqual(parsed.lastError, null);
+  }),
+);
+
+it.effect("decodes swarm task execution history rows", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationSwarmTaskExecution({
+      executionId: "execution-1",
+      runId: "run-1",
+      issueId: "TASK-1",
+      workerThreadId: "thread-9",
+      sequenceNumber: 0,
+      status: "active",
+      originalStatus: "open",
+      originalAssignee: "issue-owner",
+      requestedAt: "2026-01-01T00:00:00.000Z",
+      startedAt: "2026-01-01T00:00:01.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(parsed.workerThreadId, "thread-9");
+    assert.strictEqual(parsed.lastError, null);
+    assert.strictEqual(parsed.completedAt, null);
+  }),
+);
+
+it.effect("decodes swarm lifecycle events", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationEvent({
+      sequence: 1,
+      eventId: "event-1",
+      aggregateKind: "swarmRun",
+      aggregateId: "run-1",
+      occurredAt: "2026-01-01T00:00:00.000Z",
+      commandId: "cmd-1",
+      causationEventId: null,
+      correlationId: "cmd-1",
+      metadata: {},
+      type: "swarm-run.requested",
+      payload: {
+        runId: "run-1",
+        projectId: "project-1",
+        epicIssueId: "EPIC-1",
+        swarmId: "SWARM-1",
+        provider: null,
+        model: null,
+        modelOptions: null,
+        providerOptions: null,
+        assistantDeliveryMode: null,
+        runtimeMode: "full-access",
+        schedulerMode: "automatic",
+        workspaceMode: "shared",
+        requestedAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
+    assert.strictEqual(parsed.type, "swarm-run.requested");
+    assert.strictEqual(parsed.aggregateKind, "swarmRun");
   }),
 );

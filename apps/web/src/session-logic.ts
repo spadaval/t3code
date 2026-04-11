@@ -13,6 +13,7 @@ import {
 
 import type {
   ChatMessage,
+  PlanImplementationLaunch,
   ProposedPlan,
   SessionPhase,
   Thread,
@@ -80,8 +81,8 @@ export interface LatestProposedPlanState {
   updatedAt: string;
   turnId: TurnId | null;
   planMarkdown: string;
-  implementedAt: string | null;
-  implementationThreadId: ThreadId | null;
+  planIntent: "code-implementation" | "tracker-refinement";
+  followUpOutcome: ProposedPlan["followUpOutcome"];
 }
 
 export type TimelineEntry =
@@ -451,9 +452,62 @@ export function findSidebarProposedPlan(input: {
 }
 
 export function hasActionableProposedPlan(
-  proposedPlan: LatestProposedPlanState | Pick<ProposedPlan, "implementedAt"> | null,
+  proposedPlan: LatestProposedPlanState | Pick<ProposedPlan, "followUpOutcome"> | null,
 ): boolean {
-  return proposedPlan !== null && proposedPlan.implementedAt === null;
+  return proposedPlan !== null && proposedPlan.followUpOutcome === null;
+}
+
+export function resolvePlanSidebarProposedPlan(input: {
+  activeProposedPlan: LatestProposedPlanState | null;
+  activeThread: Pick<Thread, "id" | "proposedPlans"> | null;
+  activeThreadLaunch: Pick<PlanImplementationLaunch, "sourceThreadId" | "sourcePlanId"> | null;
+  threads: ReadonlyArray<Pick<Thread, "id" | "proposedPlans">>;
+}): LatestProposedPlanState | null {
+  if (input.activeProposedPlan) {
+    return input.activeProposedPlan;
+  }
+
+  if (input.activeThread && input.activeThreadLaunch) {
+    const activeThread = input.activeThread;
+    const launchSourceThreadId = input.activeThreadLaunch.sourceThreadId;
+    const launchSourcePlanId = input.activeThreadLaunch.sourcePlanId;
+    const exactCurrentThreadPlan = activeThread.proposedPlans.find(
+      (proposedPlan) =>
+        activeThread.id === launchSourceThreadId && proposedPlan.id === launchSourcePlanId,
+    );
+    if (exactCurrentThreadPlan) {
+      return toLatestProposedPlanState(exactCurrentThreadPlan);
+    }
+  }
+
+  if (input.activeThread) {
+    const latestCurrentThreadPlan = findLatestProposedPlan(input.activeThread.proposedPlans, null);
+    if (latestCurrentThreadPlan) {
+      return latestCurrentThreadPlan;
+    }
+  }
+
+  if (!input.activeThreadLaunch) {
+    return null;
+  }
+
+  const activeThreadLaunch = input.activeThreadLaunch;
+
+  const sourceThread = input.threads.find(
+    (thread) => thread.id === activeThreadLaunch.sourceThreadId,
+  );
+  if (!sourceThread) {
+    return null;
+  }
+
+  const exactSourcePlan = sourceThread.proposedPlans.find(
+    (proposedPlan) => proposedPlan.id === activeThreadLaunch.sourcePlanId,
+  );
+  if (exactSourcePlan) {
+    return toLatestProposedPlanState(exactSourcePlan);
+  }
+
+  return findLatestProposedPlan(sourceThread.proposedPlans, null);
 }
 
 export function deriveWorkLogEntries(
@@ -626,8 +680,8 @@ function toLatestProposedPlanState(proposedPlan: ProposedPlan): LatestProposedPl
     updatedAt: proposedPlan.updatedAt,
     turnId: proposedPlan.turnId,
     planMarkdown: proposedPlan.planMarkdown,
-    implementedAt: proposedPlan.implementedAt,
-    implementationThreadId: proposedPlan.implementationThreadId,
+    planIntent: proposedPlan.planIntent,
+    followUpOutcome: proposedPlan.followUpOutcome,
   };
 }
 

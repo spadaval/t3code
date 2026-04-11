@@ -7,8 +7,16 @@ import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
+  requireActionableProposedPlan,
+  requireCurrentSwarmTaskExecutionForRunInAllowedStatus,
+  requirePlanImplementationLaunch,
+  requirePlanImplementationLaunchAbsent,
   requireProject,
   requireProjectAbsent,
+  requireSwarmRunInAllowedStatus,
+  requireSwarmRunAbsent,
+  requireSwarmTaskExecutionAbsent,
+  requireSwarmRunWithoutCurrentExecution,
   requireThread,
   requireThreadArchived,
   requireThreadAbsent,
@@ -163,6 +171,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           interactionMode: command.interactionMode,
           branch: command.branch,
           worktreePath: command.worktreePath,
+          issueLink: command.issueLink ?? null,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -259,6 +268,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(command.branch !== undefined ? { branch: command.branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
+          ...(command.issueLink !== undefined ? { issueLink: command.issueLink } : {}),
           updatedAt: occurredAt,
         },
       };
@@ -324,14 +334,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             threadId: sourceProposedPlan.threadId,
           })
         : null;
-      const sourcePlan =
-        sourceProposedPlan && sourceThread
-          ? sourceThread.proposedPlans.find((entry) => entry.id === sourceProposedPlan.planId)
-          : null;
-      if (sourceProposedPlan && !sourcePlan) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Proposed plan '${sourceProposedPlan.planId}' does not exist on thread '${sourceProposedPlan.threadId}'.`,
+      if (sourceProposedPlan && sourceThread) {
+        yield* requireActionableProposedPlan({
+          readModel,
+          command,
+          threadId: sourceProposedPlan.threadId,
+          planId: sourceProposedPlan.planId,
         });
       }
       if (sourceThread && sourceThread.projectId !== targetThread.projectId) {
@@ -673,6 +681,495 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           activity: command.activity,
+        },
+      };
+    }
+
+    case "plan-implementation-launch.request": {
+      yield* requirePlanImplementationLaunchAbsent({
+        readModel,
+        command,
+        launchId: command.launchId,
+      });
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.sourceThreadId,
+      });
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "planImplementationLaunch",
+          aggregateId: command.launchId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "plan-implementation-launch.requested",
+        payload: {
+          launchId: command.launchId,
+          sourceThreadId: command.sourceThreadId,
+          sourcePlanId: command.sourcePlanId,
+          projectId: command.projectId,
+          targetThreadId: command.targetThreadId,
+          retryOfLaunchId: command.retryOfLaunchId ?? null,
+          title: command.title,
+          setupEnabled: command.setupEnabled,
+          launchMode: command.launchMode,
+          promptText: command.promptText,
+          provider: command.provider ?? null,
+          model: command.model ?? null,
+          modelOptions: command.modelOptions ?? null,
+          providerOptions: command.providerOptions ?? null,
+          assistantDeliveryMode: command.assistantDeliveryMode ?? null,
+          runtimeMode: command.runtimeMode,
+          requestedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "plan-implementation-launch.mark-worktree-prepared": {
+      yield* requirePlanImplementationLaunch({
+        readModel,
+        command,
+        launchId: command.launchId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "planImplementationLaunch",
+          aggregateId: command.launchId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "plan-implementation-launch.worktree-prepared",
+        payload: {
+          launchId: command.launchId,
+          branch: command.branch,
+          worktreePath: command.worktreePath,
+          preparedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "plan-implementation-launch.mark-started": {
+      yield* requirePlanImplementationLaunch({
+        readModel,
+        command,
+        launchId: command.launchId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "planImplementationLaunch",
+          aggregateId: command.launchId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "plan-implementation-launch.started",
+        payload: {
+          launchId: command.launchId,
+          startedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "plan-implementation-launch.fail": {
+      yield* requirePlanImplementationLaunch({
+        readModel,
+        command,
+        launchId: command.launchId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "planImplementationLaunch",
+          aggregateId: command.launchId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "plan-implementation-launch.failed",
+        payload: {
+          launchId: command.launchId,
+          failureReason: command.failureReason,
+          cleanupStatus: command.cleanupStatus,
+          cleanupError: command.cleanupError ?? null,
+          failedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "plan-implementation-launch.cancel": {
+      yield* requirePlanImplementationLaunch({
+        readModel,
+        command,
+        launchId: command.launchId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "planImplementationLaunch",
+          aggregateId: command.launchId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "plan-implementation-launch.cancelled",
+        payload: {
+          launchId: command.launchId,
+          cleanupStatus: command.cleanupStatus,
+          cleanupError: command.cleanupError ?? null,
+          cancelledAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "swarm-run.request": {
+      yield* requireSwarmRunAbsent({
+        readModel,
+        command,
+        runId: command.runId,
+      });
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "swarmRun",
+          aggregateId: command.runId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "swarm-run.requested",
+        payload: {
+          runId: command.runId,
+          projectId: command.projectId,
+          epicIssueId: command.epicIssueId,
+          swarmId: command.swarmId,
+          schedulerMode: command.schedulerMode,
+          workspaceMode: command.workspaceMode,
+          provider: command.provider ?? null,
+          model: command.model ?? null,
+          modelOptions: command.modelOptions ?? null,
+          providerOptions: command.providerOptions ?? null,
+          assistantDeliveryMode: command.assistantDeliveryMode ?? null,
+          runtimeMode: command.runtimeMode,
+          requestedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "swarm-run.mark-started": {
+      yield* requireSwarmRunInAllowedStatus({
+        readModel,
+        command,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "swarmRun",
+          aggregateId: command.runId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "swarm-run.started",
+        payload: {
+          runId: command.runId,
+          startedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "swarm-run.mark-idle": {
+      yield* requireSwarmRunWithoutCurrentExecution({
+        readModel,
+        command,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "swarmRun",
+          aggregateId: command.runId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "swarm-run.idled",
+        payload: {
+          runId: command.runId,
+          idledAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "swarm-run.pause": {
+      yield* requireSwarmRunWithoutCurrentExecution({
+        readModel,
+        command,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "swarmRun",
+          aggregateId: command.runId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "swarm-run.paused",
+        payload: {
+          runId: command.runId,
+          pausedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "swarm-run.resume": {
+      yield* requireSwarmRunWithoutCurrentExecution({
+        readModel,
+        command,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "swarmRun",
+          aggregateId: command.runId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "swarm-run.resumed",
+        payload: {
+          runId: command.runId,
+          resumedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "swarm-run.block": {
+      yield* requireSwarmRunWithoutCurrentExecution({
+        readModel,
+        command,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "swarmRun",
+          aggregateId: command.runId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "swarm-run.blocked",
+        payload: {
+          runId: command.runId,
+          reason: command.reason,
+          blockedAt: command.createdAt,
+          blockedContext: command.blockedContext,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "swarm-run.fail": {
+      yield* requireSwarmRunInAllowedStatus({
+        readModel,
+        command,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "swarmRun",
+          aggregateId: command.runId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "swarm-run.failed",
+        payload: {
+          runId: command.runId,
+          reason: command.reason,
+          failedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "swarm-run.cancel": {
+      yield* requireSwarmRunWithoutCurrentExecution({
+        readModel,
+        command,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "swarmRun",
+          aggregateId: command.runId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "swarm-run.cancelled",
+        payload: {
+          runId: command.runId,
+          cancelledAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "swarm-run.complete": {
+      yield* requireSwarmRunWithoutCurrentExecution({
+        readModel,
+        command,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "swarmRun",
+          aggregateId: command.runId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "swarm-run.completed",
+        payload: {
+          runId: command.runId,
+          completedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "swarm-task-execution.request": {
+      yield* requireSwarmRunWithoutCurrentExecution({
+        readModel,
+        command,
+        runId: command.runId,
+      });
+      yield* requireSwarmTaskExecutionAbsent({
+        readModel,
+        command,
+        executionId: command.executionId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "swarmTaskExecution",
+          aggregateId: command.executionId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "swarm-task-execution.requested",
+        payload: {
+          executionId: command.executionId,
+          runId: command.runId,
+          issueId: command.issueId,
+          workerThreadId: command.workerThreadId,
+          sequenceNumber: command.sequenceNumber,
+          originalStatus: command.originalStatus,
+          originalAssignee: command.originalAssignee,
+          requestedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "swarm-task-execution.start": {
+      yield* requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
+        readModel,
+        command,
+        executionId: command.executionId,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "swarmTaskExecution",
+          aggregateId: command.executionId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "swarm-task-execution.started",
+        payload: {
+          executionId: command.executionId,
+          runId: command.runId,
+          startedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "swarm-task-execution.complete": {
+      yield* requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
+        readModel,
+        command,
+        executionId: command.executionId,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "swarmTaskExecution",
+          aggregateId: command.executionId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "swarm-task-execution.completed",
+        payload: {
+          executionId: command.executionId,
+          runId: command.runId,
+          completedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "swarm-task-execution.fail": {
+      yield* requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
+        readModel,
+        command,
+        executionId: command.executionId,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "swarmTaskExecution",
+          aggregateId: command.executionId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "swarm-task-execution.failed",
+        payload: {
+          executionId: command.executionId,
+          runId: command.runId,
+          reason: command.reason,
+          failedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "swarm-task-execution.cancel": {
+      yield* requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
+        readModel,
+        command,
+        executionId: command.executionId,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "swarmTaskExecution",
+          aggregateId: command.executionId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "swarm-task-execution.cancelled",
+        payload: {
+          executionId: command.executionId,
+          runId: command.runId,
+          cancelledAt: command.createdAt,
+          updatedAt: command.createdAt,
         },
       };
     }

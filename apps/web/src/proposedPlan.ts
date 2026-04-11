@@ -1,3 +1,11 @@
+import {
+  buildPlanImplementationPrompt as buildPlanImplementationPromptShared,
+  buildPlanImplementationThreadTitle as buildPlanImplementationThreadTitleShared,
+  buildPlanToBeadsPrompt as buildPlanToBeadsPromptShared,
+  buildPlanToBeadsThreadTitle as buildPlanToBeadsThreadTitleShared,
+  describeProposedPlanFollowUpOutcome as describeProposedPlanFollowUpOutcomeShared,
+} from "@t3tools/shared/plan";
+
 export function proposedPlanTitle(planMarkdown: string): string | null {
   const heading = planMarkdown.match(/^\s{0,3}#{1,6}\s+(.+)$/m)?.[1]?.trim();
   return heading && heading.length > 0 ? heading : null;
@@ -71,7 +79,17 @@ function sanitizePlanFileSegment(input: string): string {
 }
 
 export function buildPlanImplementationPrompt(planMarkdown: string): string {
-  return `PLEASE IMPLEMENT THIS PLAN:\n${planMarkdown.trim()}`;
+  return buildPlanImplementationPromptShared(planMarkdown);
+}
+
+export function buildPlanToBeadsPrompt(planMarkdown: string): string {
+  return buildPlanToBeadsPromptShared(planMarkdown);
+}
+
+export function describeProposedPlanFollowUpOutcome(outcome: {
+  kind: "implement-code" | "convert-to-tracker";
+}): string {
+  return describeProposedPlanFollowUpOutcomeShared(outcome);
 }
 
 export function resolvePlanFollowUpSubmission(input: { draftText: string; planMarkdown: string }): {
@@ -93,11 +111,11 @@ export function resolvePlanFollowUpSubmission(input: { draftText: string; planMa
 }
 
 export function buildPlanImplementationThreadTitle(planMarkdown: string): string {
-  const title = proposedPlanTitle(planMarkdown);
-  if (!title) {
-    return "Implement plan";
-  }
-  return `Implement ${title}`;
+  return buildPlanImplementationThreadTitleShared(planMarkdown);
+}
+
+export function buildPlanToBeadsThreadTitle(planMarkdown: string): string {
+  return buildPlanToBeadsThreadTitleShared(planMarkdown);
 }
 
 export function buildProposedPlanMarkdownFilename(planMarkdown: string): string {

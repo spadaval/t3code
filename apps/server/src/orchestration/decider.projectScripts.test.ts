@@ -203,6 +203,150 @@ describe("decider project scripts", () => {
     });
   });
 
+  it("rejects thread.turn.start when the source proposed plan already has a terminal follow-up", async () => {
+    const now = new Date().toISOString();
+    const initial = createEmptyReadModel(now);
+    const withProject = await Effect.runPromise(
+      projectEvent(initial, {
+        sequence: 1,
+        eventId: asEventId("evt-project-create-follow-up"),
+        aggregateKind: "project",
+        aggregateId: asProjectId("project-1"),
+        type: "project.created",
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-project-create-follow-up"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-project-create-follow-up"),
+        metadata: {},
+        payload: {
+          projectId: asProjectId("project-1"),
+          title: "Project",
+          workspaceRoot: "/tmp/project",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+    );
+    const withSourceThread = await Effect.runPromise(
+      projectEvent(withProject, {
+        sequence: 2,
+        eventId: asEventId("evt-thread-create-follow-up-source"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-source"),
+        type: "thread.created",
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-thread-create-follow-up-source"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-thread-create-follow-up-source"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-source"),
+          projectId: asProjectId("project-1"),
+          title: "Source",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          interactionMode: "plan",
+          runtimeMode: "approval-required",
+          branch: null,
+          worktreePath: null,
+          issueLink: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+    );
+    const withTargetThread = await Effect.runPromise(
+      projectEvent(withSourceThread, {
+        sequence: 3,
+        eventId: asEventId("evt-thread-create-follow-up-target"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-target"),
+        type: "thread.created",
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-thread-create-follow-up-target"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-thread-create-follow-up-target"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-target"),
+          projectId: asProjectId("project-1"),
+          title: "Target",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: null,
+          worktreePath: null,
+          issueLink: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+    );
+    const readModel = await Effect.runPromise(
+      projectEvent(withTargetThread, {
+        sequence: 4,
+        eventId: asEventId("evt-plan-upsert-follow-up"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-source"),
+        type: "thread.proposed-plan-upserted",
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-plan-upsert-follow-up"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-plan-upsert-follow-up"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-source"),
+          proposedPlan: {
+            id: "plan-1" as never,
+            turnId: null,
+            planMarkdown: "# Plan",
+            planIntent: "tracker-refinement",
+            followUpOutcome: {
+              kind: "convert-to-tracker",
+              completedAt: now,
+              targetThreadId: null,
+            },
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+      }),
+    );
+
+    await expect(
+      Effect.runPromise(
+        decideOrchestrationCommand({
+          command: {
+            type: "thread.turn.start",
+            commandId: CommandId.makeUnsafe("cmd-turn-start-follow-up"),
+            threadId: ThreadId.makeUnsafe("thread-target"),
+            sourceProposedPlan: {
+              threadId: ThreadId.makeUnsafe("thread-source"),
+              planId: "plan-1" as never,
+            },
+            message: {
+              messageId: asMessageId("message-user-follow-up"),
+              role: "user",
+              text: "follow up",
+              attachments: [],
+            },
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            runtimeMode: "approval-required",
+            createdAt: now,
+          },
+          readModel,
+        }),
+      ),
+    ).rejects.toThrow("already has terminal follow-up");
+  });
+
   it("emits thread.runtime-mode-set from thread.runtime-mode.set", async () => {
     const now = new Date().toISOString();
     const initial = createEmptyReadModel(now);

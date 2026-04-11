@@ -146,6 +146,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         },
       },
     ],
+    planImplementationLaunches: [],
     updatedAt: NOW_ISO,
   };
 }

@@ -98,6 +98,15 @@ function proposedPlanIdFromEvent(event: ProviderRuntimeEvent, threadId: ThreadId
   return `plan:${threadId}:event:${event.eventId}`;
 }
 
+function inferDefaultProposedPlanIntent(input: {
+  interactionMode: "default" | "plan";
+  hasIssueLink: boolean;
+}): "code-implementation" | "tracker-refinement" {
+  return input.interactionMode === "plan" && input.hasIssueLink
+    ? "tracker-refinement"
+    : "code-implementation";
+}
+
 function buildContextWindowActivityPayload(
   event: ProviderRuntimeEvent,
 ): ThreadTokenUsageSnapshot | undefined {
@@ -139,6 +148,42 @@ function orchestrationSessionStatusFromRuntimeState(
     case "error":
       return "error";
   }
+}
+
+function lastErrorFromSessionLifecycleEvent(input: {
+  readonly event: ProviderRuntimeEvent;
+  readonly activeTurnId: TurnId | null;
+  readonly previousLastError: string | null;
+}): string | null {
+  const { event, activeTurnId, previousLastError } = input;
+
+  if (event.type === "turn.completed") {
+    return normalizeRuntimeTurnState(event.payload.state) === "failed"
+      ? (event.payload.errorMessage ?? previousLastError ?? "Turn failed")
+      : null;
+  }
+
+  if (event.type === "session.state.changed") {
+    if (event.payload.state === "ready") {
+      return null;
+    }
+
+    if (event.payload.state === "error") {
+      return event.payload.reason ?? previousLastError ?? "Provider session error";
+    }
+
+    if (event.payload.state === "stopped" && activeTurnId !== null) {
+      return event.payload.reason ?? previousLastError ?? null;
+    }
+
+    return previousLastError ?? null;
+  }
+
+  if (event.type === "session.exited") {
+    return activeTurnId !== null ? (event.payload.reason ?? previousLastError ?? null) : null;
+  }
+
+  return previousLastError ?? null;
 }
 
 function requestKindFromCanonicalRequestType(
@@ -691,9 +736,14 @@ const make = Effect.fn("make")(function* () {
     threadProposedPlans: ReadonlyArray<{
       id: string;
       createdAt: string;
-      implementedAt: string | null;
-      implementationThreadId: ThreadId | null;
+      planIntent: "code-implementation" | "tracker-refinement";
+      followUpOutcome: {
+        kind: "implement-code" | "convert-to-tracker";
+        completedAt: string;
+        targetThreadId: ThreadId | null;
+      } | null;
     }>;
+    defaultPlanIntent: "code-implementation" | "tracker-refinement";
     planId: string;
     turnId?: TurnId;
     planMarkdown: string | undefined;
@@ -714,8 +764,8 @@ const make = Effect.fn("make")(function* () {
         id: input.planId,
         turnId: input.turnId ?? null,
         planMarkdown,
-        implementedAt: existingPlan?.implementedAt ?? null,
-        implementationThreadId: existingPlan?.implementationThreadId ?? null,
+        planIntent: existingPlan?.planIntent ?? input.defaultPlanIntent,
+        followUpOutcome: existingPlan?.followUpOutcome ?? null,
         createdAt: existingPlan?.createdAt ?? input.createdAt,
         updatedAt: input.updatedAt,
       },
@@ -729,9 +779,14 @@ const make = Effect.fn("make")(function* () {
     threadProposedPlans: ReadonlyArray<{
       id: string;
       createdAt: string;
-      implementedAt: string | null;
-      implementationThreadId: ThreadId | null;
+      planIntent: "code-implementation" | "tracker-refinement";
+      followUpOutcome: {
+        kind: "implement-code" | "convert-to-tracker";
+        completedAt: string;
+        targetThreadId: ThreadId | null;
+      } | null;
     }>;
+    defaultPlanIntent: "code-implementation" | "tracker-refinement";
     planId: string;
     turnId?: TurnId;
     fallbackMarkdown?: string;
@@ -749,6 +804,7 @@ const make = Effect.fn("make")(function* () {
       event: input.event,
       threadId: input.threadId,
       threadProposedPlans: input.threadProposedPlans,
+      defaultPlanIntent: input.defaultPlanIntent,
       planId: input.planId,
       ...(input.turnId ? { turnId: input.turnId } : {}),
       planMarkdown,
@@ -841,36 +897,38 @@ const make = Effect.fn("make")(function* () {
     return yield* getSourceProposedPlanReferenceForPendingTurnStart(threadId);
   });
 
-  const markSourceProposedPlanImplemented = Effect.fn("markSourceProposedPlanImplemented")(
-    function* (
-      sourceThreadId: ThreadId,
-      sourcePlanId: OrchestrationProposedPlanId,
-      implementationThreadId: ThreadId,
-      implementedAt: string,
-    ) {
-      const readModel = yield* orchestrationEngine.getReadModel();
-      const sourceThread = readModel.threads.find((entry) => entry.id === sourceThreadId);
-      const sourcePlan = sourceThread?.proposedPlans.find((entry) => entry.id === sourcePlanId);
-      if (!sourceThread || !sourcePlan || sourcePlan.implementedAt !== null) {
-        return;
-      }
-
-      yield* orchestrationEngine.dispatch({
-        type: "thread.proposed-plan.upsert",
-        commandId: CommandId.makeUnsafe(
-          `provider:source-proposed-plan-implemented:${implementationThreadId}:${crypto.randomUUID()}`,
-        ),
-        threadId: sourceThread.id,
-        proposedPlan: {
-          ...sourcePlan,
-          implementedAt,
-          implementationThreadId,
-          updatedAt: implementedAt,
-        },
-        createdAt: implementedAt,
-      });
+  const markSourceProposedPlanFollowUpCompleted = Effect.fn(
+    "markSourceProposedPlanFollowUpCompleted",
+  )(function* (
+    sourceThreadId: ThreadId,
+    sourcePlanId: OrchestrationProposedPlanId,
+    followUpOutcome: {
+      kind: "implement-code" | "convert-to-tracker";
+      completedAt: string;
+      targetThreadId: ThreadId | null;
     },
-  );
+  ) {
+    const readModel = yield* orchestrationEngine.getReadModel();
+    const sourceThread = readModel.threads.find((entry) => entry.id === sourceThreadId);
+    const sourcePlan = sourceThread?.proposedPlans.find((entry) => entry.id === sourcePlanId);
+    if (!sourceThread || !sourcePlan || sourcePlan.followUpOutcome !== null) {
+      return;
+    }
+
+    yield* orchestrationEngine.dispatch({
+      type: "thread.proposed-plan.upsert",
+      commandId: CommandId.makeUnsafe(
+        `provider:source-proposed-plan-follow-up-completed:${sourceThreadId}:${crypto.randomUUID()}`,
+      ),
+      threadId: sourceThread.id,
+      proposedPlan: {
+        ...sourcePlan,
+        followUpOutcome,
+        updatedAt: followUpOutcome.completedAt,
+      },
+      createdAt: followUpOutcome.completedAt,
+    });
+  });
 
   const processRuntimeEvent = Effect.fn("processRuntimeEvent")(function* (
     event: ProviderRuntimeEvent,
@@ -882,6 +940,10 @@ const make = Effect.fn("make")(function* () {
     const now = event.createdAt;
     const eventTurnId = toTurnId(event.turnId);
     const activeTurnId = thread.session?.activeTurnId ?? null;
+    const defaultProposedPlanIntent = inferDefaultProposedPlanIntent({
+      interactionMode: thread.interactionMode,
+      hasIssueLink: thread.issueLink !== null,
+    });
 
     const conflictsWithActiveTurn =
       activeTurnId !== null && eventTurnId !== undefined && !sameId(activeTurnId, eventTurnId);
@@ -949,23 +1011,32 @@ const make = Effect.fn("make")(function* () {
             return activeTurnId !== null ? "running" : "ready";
         }
       })();
-      const lastError =
-        event.type === "session.state.changed" && event.payload.state === "error"
-          ? (event.payload.reason ?? thread.session?.lastError ?? "Provider session error")
-          : event.type === "turn.completed" &&
-              normalizeRuntimeTurnState(event.payload.state) === "failed"
-            ? (event.payload.errorMessage ?? thread.session?.lastError ?? "Turn failed")
-            : status === "ready"
-              ? null
-              : (thread.session?.lastError ?? null);
+      const lastError = lastErrorFromSessionLifecycleEvent({
+        event,
+        activeTurnId,
+        previousLastError: thread.session?.lastError ?? null,
+      });
 
       if (shouldApplyThreadLifecycle) {
         if (event.type === "turn.started" && acceptedTurnStartedSourcePlan !== null) {
-          yield* markSourceProposedPlanImplemented(
+          const linkedLaunch =
+            readModel.planImplementationLaunches.find(
+              (launch) =>
+                launch.targetThreadId === thread.id &&
+                launch.sourceThreadId === acceptedTurnStartedSourcePlan.sourceThreadId &&
+                launch.sourcePlanId === acceptedTurnStartedSourcePlan.sourcePlanId,
+            ) ?? null;
+          yield* markSourceProposedPlanFollowUpCompleted(
             acceptedTurnStartedSourcePlan.sourceThreadId,
             acceptedTurnStartedSourcePlan.sourcePlanId,
-            thread.id,
-            now,
+            {
+              kind:
+                linkedLaunch?.launchMode === "tracker-only"
+                  ? "convert-to-tracker"
+                  : "implement-code",
+              completedAt: now,
+              targetThreadId: thread.id,
+            },
           ).pipe(
             Effect.catchCause((cause) =>
               Effect.logWarning("provider runtime ingestion failed to mark source proposed plan", {
@@ -1099,6 +1170,7 @@ const make = Effect.fn("make")(function* () {
         event,
         threadId: thread.id,
         threadProposedPlans: thread.proposedPlans,
+        defaultPlanIntent: defaultProposedPlanIntent,
         planId: proposedPlanCompletion.planId,
         ...(proposedPlanCompletion.turnId ? { turnId: proposedPlanCompletion.turnId } : {}),
         fallbackMarkdown: proposedPlanCompletion.planMarkdown,
@@ -1130,6 +1202,7 @@ const make = Effect.fn("make")(function* () {
           event,
           threadId: thread.id,
           threadProposedPlans: thread.proposedPlans,
+          defaultPlanIntent: defaultProposedPlanIntent,
           planId: proposedPlanIdForTurn(thread.id, turnId),
           turnId,
           updatedAt: now,
