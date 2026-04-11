@@ -17,15 +17,15 @@ import type {
   BeadsStartBacklogGroomingInput,
   BeadsUpdateIssueInput,
   BeadsCommentIssueInput,
-  BeadsListSwarmsInput,
+  BeadsListEpicTrackerSummariesInput,
   BeadsStartEpicPlannedRefineInput,
   BeadsStartEpicQuickRefineInput,
   BeadsStartEpicCoordinationPrepInput,
   BeadsStartWorkflowInput,
-  BeadsSwarmStatus,
-  BeadsSwarmSummary,
-  BeadsSwarmSupport,
-  BeadsSwarmValidation,
+  BeadsEpicTrackerStatus,
+  BeadsEpicTrackerSummary,
+  BeadsEpicRunSupport,
+  BeadsEpicRunValidation,
 } from "@t3tools/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 
@@ -57,7 +57,7 @@ export const beadsQueryKeys = {
     ["beads", "epic-swarm-validation", cwd, epicIssueId] as const,
   epicSwarmStatus: (cwd: string | null, epicIssueId: string | null) =>
     ["beads", "epic-swarm-status", cwd, epicIssueId] as const,
-  swarms: (input: BeadsListSwarmsInput) => ["beads", "swarms", input.cwd] as const,
+  swarms: (input: BeadsListEpicTrackerSummariesInput) => ["beads", "swarms", input.cwd] as const,
   projectCoordinatorSnapshot: (input: BeadsProjectCoordinatorSnapshotInput | null) =>
     [
       "beads",
@@ -185,11 +185,11 @@ export function beadsContextOptions(input: (BeadsGetContextInput & { enabled?: b
 export function beadsSwarmSupportOptions(input: { cwd: string | null; enabled?: boolean }) {
   return queryOptions({
     queryKey: beadsQueryKeys.swarmSupport(input.cwd),
-    queryFn: async (): Promise<BeadsSwarmSupport> => {
+    queryFn: async (): Promise<BeadsEpicRunSupport> => {
       if (!input.cwd) {
         throw new Error("Beads swarm support is unavailable.");
       }
-      return ensureNativeApi().beads.getSwarmSupport({ cwd: input.cwd });
+      return ensureNativeApi().beads.getEpicRunSupport({ cwd: input.cwd });
     },
     enabled: Boolean(input.cwd) && (input.enabled ?? true),
     staleTime: 10_000,
@@ -199,11 +199,11 @@ export function beadsSwarmSupportOptions(input: { cwd: string | null; enabled?: 
 export function beadsEpicSwarmOptions(input: (BeadsEpicIssueInput & { enabled?: boolean }) | null) {
   return queryOptions({
     queryKey: beadsQueryKeys.epicSwarm(input?.cwd ?? null, input?.epicIssueId ?? null),
-    queryFn: async (): Promise<BeadsSwarmSummary | null> => {
+    queryFn: async (): Promise<BeadsEpicTrackerSummary | null> => {
       if (!input) {
         throw new Error("Epic swarm is unavailable.");
       }
-      return ensureNativeApi().beads.getEpicSwarm(input);
+      return ensureNativeApi().beads.getEpicTrackerSummary(input);
     },
     enabled: input !== null && (input.enabled ?? true),
     staleTime: 5_000,
@@ -215,11 +215,11 @@ export function beadsEpicSwarmValidationOptions(
 ) {
   return queryOptions({
     queryKey: beadsQueryKeys.epicSwarmValidation(input?.cwd ?? null, input?.epicIssueId ?? null),
-    queryFn: async (): Promise<BeadsSwarmValidation> => {
+    queryFn: async (): Promise<BeadsEpicRunValidation> => {
       if (!input) {
         throw new Error("Epic swarm validation is unavailable.");
       }
-      return ensureNativeApi().beads.validateEpicSwarm(input);
+      return ensureNativeApi().beads.validateEpicRun(input);
     },
     enabled: input !== null && (input.enabled ?? true),
     staleTime: 5_000,
@@ -231,21 +231,23 @@ export function beadsEpicSwarmStatusOptions(
 ) {
   return queryOptions({
     queryKey: beadsQueryKeys.epicSwarmStatus(input?.cwd ?? null, input?.epicIssueId ?? null),
-    queryFn: async (): Promise<BeadsSwarmStatus> => {
+    queryFn: async (): Promise<BeadsEpicTrackerStatus> => {
       if (!input) {
         throw new Error("Epic swarm status is unavailable.");
       }
-      return ensureNativeApi().beads.getEpicSwarmStatus(input);
+      return ensureNativeApi().beads.getEpicTrackerStatus(input);
     },
     enabled: input !== null && (input.enabled ?? true),
     staleTime: 5_000,
   });
 }
 
-export function beadsListSwarmsOptions(input: BeadsListSwarmsInput & { enabled?: boolean }) {
+export function beadsListSwarmsOptions(
+  input: BeadsListEpicTrackerSummariesInput & { enabled?: boolean },
+) {
   return queryOptions({
     queryKey: beadsQueryKeys.swarms(input),
-    queryFn: async () => ensureNativeApi().beads.listSwarms(input),
+    queryFn: async () => ensureNativeApi().beads.listEpicTrackerSummaries(input),
     enabled: (input.enabled ?? true) && input.cwd.length > 0,
     staleTime: 5_000,
   });

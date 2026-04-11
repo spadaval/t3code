@@ -4,10 +4,10 @@ import type {
   BeadsIssueDetail,
   BeadsIssueSummary,
   BeadsProjectCoordinatorSnapshot,
-  BeadsSwarmStatus,
-  BeadsSwarmSummary,
-  BeadsSwarmSupport,
-  BeadsSwarmValidation,
+  BeadsEpicTrackerStatus,
+  BeadsEpicTrackerSummary,
+  BeadsEpicRunSupport,
+  BeadsEpicRunValidation,
   OrchestrationReadModel,
   OrchestrationEpicRun,
   OrchestrationEpicIssueExecution,
@@ -68,7 +68,7 @@ function toIssueSummary(issue: BeadsIssueDetail | BeadsIssueSummary): BeadsIssue
 
 function buildCoordinatorEpicEntries(input: {
   readonly epicIssues: ReadonlyArray<BeadsIssueSummary>;
-  readonly swarms: ReadonlyArray<BeadsSwarmSummary>;
+  readonly trackerSummaries: ReadonlyArray<BeadsEpicTrackerSummary>;
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
 }) {
   const entries = new Map<
@@ -88,7 +88,7 @@ function buildCoordinatorEpicEntries(input: {
     });
   }
 
-  for (const swarm of input.swarms) {
+  for (const swarm of input.trackerSummaries) {
     if (!entries.has(swarm.epicId)) {
       entries.set(swarm.epicId, {
         epicId: swarm.epicId,
@@ -121,7 +121,7 @@ function deriveEpicPrimaryAction(input: {
   readonly latestRun: OrchestrationEpicRun | null;
   readonly activeRun: OrchestrationEpicRun | null;
   readonly status: Pick<
-    BeadsSwarmStatus,
+    BeadsEpicTrackerStatus,
     "ready" | "active" | "blocked" | "blockedBreakdown"
   > | null;
 }): BeadsCoordinatorEpicSnapshot["primaryAction"] {
@@ -253,9 +253,9 @@ function deriveIntegrityError(input: {
 
 export function buildCoordinatorEpicSnapshot(input: {
   readonly issue: BeadsIssueSummary | null;
-  readonly support: BeadsSwarmSupport;
-  readonly validation: BeadsSwarmValidation | null;
-  readonly status: BeadsSwarmStatus | null;
+  readonly support: BeadsEpicRunSupport;
+  readonly validation: BeadsEpicRunValidation | null;
+  readonly status: BeadsEpicTrackerStatus | null;
   readonly validationError: string | null;
   readonly statusError: string | null;
   readonly projectEpicRuns: ReadonlyArray<OrchestrationEpicRun>;
@@ -333,7 +333,7 @@ export function buildCoordinatorEpicSnapshot(input: {
     activeRunId,
     activeExecutionId,
     projectConflict,
-    swarmSummary: input.validation?.swarm ?? input.status?.swarm ?? null,
+    trackerSummary: input.validation?.trackerSummary ?? input.status?.trackerSummary ?? null,
     validation: input.validation,
     status: input.status,
     runs,
@@ -343,15 +343,15 @@ export function buildCoordinatorEpicSnapshot(input: {
 
 export function buildProjectCoordinatorSnapshot(input: {
   readonly projectId: ProjectId;
-  readonly support: BeadsSwarmSupport;
+  readonly support: BeadsEpicRunSupport;
   readonly epicIssues: ReadonlyArray<BeadsIssueSummary>;
-  readonly swarms: ReadonlyArray<BeadsSwarmSummary>;
+  readonly trackerSummaries: ReadonlyArray<BeadsEpicTrackerSummary>;
   readonly readModel: OrchestrationReadModel;
   readonly perEpicState: ReadonlyMap<
     string,
     {
-      readonly validation: BeadsSwarmValidation | null;
-      readonly status: BeadsSwarmStatus | null;
+      readonly validation: BeadsEpicRunValidation | null;
+      readonly status: BeadsEpicTrackerStatus | null;
       readonly validationError: string | null;
       readonly statusError: string | null;
     }
@@ -381,7 +381,7 @@ export function buildProjectCoordinatorSnapshot(input: {
 
   const epics = buildCoordinatorEpicEntries({
     epicIssues: input.epicIssues,
-    swarms: input.swarms,
+    trackerSummaries: input.trackerSummaries,
     epicRuns: projectEpicRuns,
   }).map((epic) => {
     const epicRuns = projectEpicRuns.filter((run) => run.epicIssueId === epic.epicId);
@@ -412,10 +412,10 @@ export function buildProjectCoordinatorSnapshot(input: {
 
 export function buildSingleEpicCoordinatorSnapshot(input: {
   readonly projectId: ProjectId;
-  readonly support: BeadsSwarmSupport;
+  readonly support: BeadsEpicRunSupport;
   readonly issue: BeadsIssueDetail | BeadsIssueSummary;
-  readonly validation: BeadsSwarmValidation | null;
-  readonly status: BeadsSwarmStatus | null;
+  readonly validation: BeadsEpicRunValidation | null;
+  readonly status: BeadsEpicTrackerStatus | null;
   readonly validationError: string | null;
   readonly statusError: string | null;
   readonly readModel: OrchestrationReadModel;

@@ -1,10 +1,10 @@
 import type {
   BeadsCoordinatorEpicSnapshot,
   BeadsIssueSummary,
-  BeadsSwarmStatus,
-  BeadsSwarmSummary,
-  BeadsSwarmSupport,
-  BeadsSwarmValidation,
+  BeadsEpicTrackerStatus,
+  BeadsEpicTrackerSummary,
+  BeadsEpicRunSupport,
+  BeadsEpicRunValidation,
   OrchestrationEpicRun,
   ThreadId,
 } from "@t3tools/contracts";
@@ -26,8 +26,8 @@ import {
 import { describeProposedPlanFollowUpOutcome as describeProposedPlanFollowUpOutcomeShared } from "@t3tools/shared/plan";
 
 export interface CoordinatorTrackerEpicSections {
-  readonly runningEpics: ReadonlyArray<BeadsSwarmSummary>;
-  readonly readyToRunEpics: ReadonlyArray<BeadsSwarmSummary>;
+  readonly runningEpics: ReadonlyArray<BeadsEpicTrackerSummary>;
+  readonly readyToRunEpics: ReadonlyArray<BeadsEpicTrackerSummary>;
 }
 
 export interface CoordinatorEpicEntry {
@@ -222,9 +222,9 @@ export function findConflictingSharedWorkspaceRun(input: {
 }
 
 export function deriveEpicCoordinatorState(input: {
-  readonly coordinationSupport: Pick<BeadsSwarmSupport, "supported"> | null;
-  readonly status: Pick<BeadsSwarmStatus, "swarm"> | null;
-  readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm"> | null;
+  readonly coordinationSupport: Pick<BeadsEpicRunSupport, "supported"> | null;
+  readonly status: Pick<BeadsEpicTrackerStatus, "trackerSummary"> | null;
+  readonly validation: Pick<BeadsEpicRunValidation, "valid" | "trackerSummary"> | null;
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
   readonly fetchLifecycle: CoordinatorFetchLifecycle;
 }): EpicCoordinatorState {
@@ -232,12 +232,15 @@ export function deriveEpicCoordinatorState(input: {
 }
 
 export function getEpicCoordinatorPrimaryAction(input: {
-  readonly coordinationSupport: Pick<BeadsSwarmSupport, "supported"> | null;
+  readonly coordinationSupport: Pick<BeadsEpicRunSupport, "supported"> | null;
   readonly status:
-    | (Pick<BeadsSwarmStatus, "swarm" | "ready" | "active" | "blocked"> &
-        Partial<Pick<BeadsSwarmStatus, "blockedBreakdown">>)
+    | (Pick<BeadsEpicTrackerStatus, "trackerSummary" | "ready" | "active" | "blocked"> &
+        Partial<Pick<BeadsEpicTrackerStatus, "blockedBreakdown">>)
     | null;
-  readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm" | "readyFronts"> | null;
+  readonly validation: Pick<
+    BeadsEpicRunValidation,
+    "valid" | "trackerSummary" | "readyFronts"
+  > | null;
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
   readonly projectConflict: SharedWorkspaceProjectConflict | null;
   readonly fetchLifecycle: CoordinatorFetchLifecycle;
@@ -308,7 +311,7 @@ export function describeDisabledEpicCoordinatorAction(input: {
 
 export function collectCoordinatorEpics(input: {
   readonly epicIssues: ReadonlyArray<BeadsIssueSummary>;
-  readonly swarms: ReadonlyArray<BeadsSwarmSummary>;
+  readonly trackerSummaries: ReadonlyArray<BeadsEpicTrackerSummary>;
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
 }): CoordinatorEpicEntry[] {
   const entries = new Map<string, CoordinatorEpicEntry>();
@@ -321,11 +324,11 @@ export function collectCoordinatorEpics(input: {
     });
   }
 
-  for (const swarm of input.swarms) {
-    if (!entries.has(swarm.epicId)) {
-      entries.set(swarm.epicId, {
-        epicId: swarm.epicId,
-        epicTitle: swarm.epicTitle,
+  for (const trackerSummary of input.trackerSummaries) {
+    if (!entries.has(trackerSummary.epicId)) {
+      entries.set(trackerSummary.epicId, {
+        epicId: trackerSummary.epicId,
+        epicTitle: trackerSummary.epicTitle,
         issue: null,
       });
     }
@@ -394,7 +397,7 @@ export function partitionCoordinatorEpics<T extends object>(
 }
 
 export function partitionCoordinatorTrackerEpics(
-  swarms: ReadonlyArray<BeadsSwarmSummary>,
+  swarms: ReadonlyArray<BeadsEpicTrackerSummary>,
 ): CoordinatorTrackerEpicSections {
   const runningEpics = swarms
     .filter((swarm) => swarm.activeWorkerCount > 0)

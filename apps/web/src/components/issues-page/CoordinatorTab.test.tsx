@@ -69,7 +69,7 @@ const BASE_EPIC = {
   activeRunId: null,
   activeExecutionId: null,
   projectConflict: null,
-  swarmSummary: null,
+  trackerSummary: null,
   validation: null,
   status: null,
   runs: [
@@ -213,7 +213,7 @@ describe("WorkGraph integration", () => {
       status: {
         epicId: "EPIC-1",
         epicTitle: "Epic 1",
-        swarm: null,
+        trackerSummary: null,
         completed: [],
         active: [],
         ready: [issueA, issueB],
@@ -223,7 +223,7 @@ describe("WorkGraph integration", () => {
       validation: {
         epicId: "EPIC-1",
         epicTitle: "Epic 1",
-        swarm: null,
+        trackerSummary: null,
         valid: true,
         errors: [],
         warnings: [],
@@ -277,7 +277,7 @@ describe("WorkGraph integration", () => {
       status: {
         epicId: "EPIC-1",
         epicTitle: "Epic 1",
-        swarm: null,
+        trackerSummary: null,
         completed: [],
         active: [],
         ready: [issueA],
@@ -331,7 +331,7 @@ describe("WorkGraph integration", () => {
       status: {
         epicId: "EPIC-1",
         epicTitle: "Epic 1",
-        swarm: null,
+        trackerSummary: null,
         completed: [issueA],
         active: [],
         ready: [],

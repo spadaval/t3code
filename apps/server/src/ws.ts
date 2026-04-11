@@ -752,10 +752,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
           { "rpc.aggregate": "beads" },
         ),
-      [BEADS_WS_METHODS.getSwarmSupport]: (input) =>
+      [BEADS_WS_METHODS.getEpicRunSupport]: (input) =>
         observeRpcEffect(
-          BEADS_WS_METHODS.getSwarmSupport,
-          beads.getSwarmSupport(input).pipe(
+          BEADS_WS_METHODS.getEpicRunSupport,
+          beads.getEpicRunSupport(input).pipe(
             Effect.mapError((cause) =>
               Schema.is(BeadsError)(cause)
                 ? cause
@@ -782,10 +782,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
           { "rpc.aggregate": "beads" },
         ),
-      [BEADS_WS_METHODS.getEpicSwarm]: (input) =>
+      [BEADS_WS_METHODS.getEpicTrackerSummary]: (input) =>
         observeRpcEffect(
-          BEADS_WS_METHODS.getEpicSwarm,
-          beads.getEpicSwarm(input).pipe(
+          BEADS_WS_METHODS.getEpicTrackerSummary,
+          beads.getEpicTrackerSummary(input).pipe(
             Effect.mapError((cause) =>
               Schema.is(BeadsError)(cause)
                 ? cause
@@ -797,10 +797,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
           { "rpc.aggregate": "beads" },
         ),
-      [BEADS_WS_METHODS.validateEpicSwarm]: (input) =>
+      [BEADS_WS_METHODS.validateEpicRun]: (input) =>
         observeRpcEffect(
-          BEADS_WS_METHODS.validateEpicSwarm,
-          beads.validateEpicSwarm(input).pipe(
+          BEADS_WS_METHODS.validateEpicRun,
+          beads.validateEpicRun(input).pipe(
             Effect.mapError((cause) =>
               Schema.is(BeadsError)(cause)
                 ? cause
@@ -812,10 +812,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
           { "rpc.aggregate": "beads" },
         ),
-      [BEADS_WS_METHODS.getEpicSwarmStatus]: (input) =>
+      [BEADS_WS_METHODS.getEpicTrackerStatus]: (input) =>
         observeRpcEffect(
-          BEADS_WS_METHODS.getEpicSwarmStatus,
-          beads.getEpicSwarmStatus(input).pipe(
+          BEADS_WS_METHODS.getEpicTrackerStatus,
+          beads.getEpicTrackerStatus(input).pipe(
             Effect.mapError((cause) =>
               Schema.is(BeadsError)(cause)
                 ? cause
@@ -827,10 +827,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
           { "rpc.aggregate": "beads" },
         ),
-      [BEADS_WS_METHODS.listSwarms]: (input) =>
+      [BEADS_WS_METHODS.listEpicTrackerSummaries]: (input) =>
         observeRpcEffect(
-          BEADS_WS_METHODS.listSwarms,
-          beads.listSwarms(input).pipe(
+          BEADS_WS_METHODS.listEpicTrackerSummaries,
+          beads.listEpicTrackerSummaries(input).pipe(
             Effect.mapError((cause) =>
               Schema.is(BeadsError)(cause)
                 ? cause

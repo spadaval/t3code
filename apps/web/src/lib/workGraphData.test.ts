@@ -2,7 +2,7 @@ import type {
   BeadsCoordinatorEpicSnapshot,
   BeadsIssueDetail,
   BeadsIssueRelationSummary,
-  BeadsSwarmStatus,
+  BeadsEpicTrackerStatus,
   OrchestrationEpicRun,
   OrchestrationEpicIssueExecution,
 } from "@t3tools/contracts";
@@ -88,7 +88,7 @@ function makeRun(
 }
 
 function makeStatus(
-  overrides: Partial<BeadsSwarmStatus> & {
+  overrides: Partial<BeadsEpicTrackerStatus> & {
     completed?: BeadsIssueRelationSummary[];
     active?: BeadsIssueRelationSummary[];
     ready?: BeadsIssueRelationSummary[];
@@ -98,7 +98,7 @@ function makeStatus(
   return {
     epicId: "EPIC-1",
     epicTitle: "Test Epic",
-    swarm: null,
+    trackerSummary: null,
     completed: [],
     active: [],
     ready: [],
@@ -140,7 +140,7 @@ const BASE_EPIC: BeadsCoordinatorEpicSnapshot = {
   activeRunId: null,
   activeExecutionId: null,
   projectConflict: null,
-  swarmSummary: null,
+  trackerSummary: null,
   validation: null,
   status: null,
   runs: [],
@@ -206,7 +206,7 @@ describe("buildWorkGraphData", () => {
       validation: {
         epicId: "EPIC-1",
         epicTitle: "Test Epic",
-        swarm: null,
+        trackerSummary: null,
         valid: true,
         errors: [],
         warnings: [],
@@ -350,7 +350,7 @@ describe("buildWorkGraphData", () => {
       validation: {
         epicId: "EPIC-1",
         epicTitle: "Test Epic",
-        swarm: null,
+        trackerSummary: null,
         valid: true,
         errors: [],
         warnings: [],
@@ -406,7 +406,7 @@ describe("buildWorkGraphData", () => {
       validation: {
         epicId: "EPIC-1",
         epicTitle: "Test Epic",
-        swarm: null,
+        trackerSummary: null,
         valid: true,
         errors: [],
         warnings: [],

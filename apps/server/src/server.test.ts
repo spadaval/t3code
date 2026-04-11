@@ -425,10 +425,10 @@ const buildAppUnderTest = (options?: {
                 message: "BeadsService.getContext was called without a test-specific mock.",
               }),
             ),
-          getSwarmSupport: () =>
+          getEpicRunSupport: () =>
             Effect.fail(
               new BeadsError({
-                message: "BeadsService.getSwarmSupport was called without a test-specific mock.",
+                message: "BeadsService.getEpicRunSupport was called without a test-specific mock.",
               }),
             ),
           getIssueGraph: () =>
@@ -437,28 +437,31 @@ const buildAppUnderTest = (options?: {
                 message: "BeadsService.getIssueGraph was called without a test-specific mock.",
               }),
             ),
-          getEpicSwarm: () =>
+          getEpicTrackerSummary: () =>
             Effect.fail(
               new BeadsError({
-                message: "BeadsService.getEpicSwarm was called without a test-specific mock.",
+                message:
+                  "BeadsService.getEpicTrackerSummary was called without a test-specific mock.",
               }),
             ),
-          validateEpicSwarm: () =>
+          validateEpicRun: () =>
             Effect.fail(
               new BeadsError({
-                message: "BeadsService.validateEpicSwarm was called without a test-specific mock.",
+                message: "BeadsService.validateEpicRun was called without a test-specific mock.",
               }),
             ),
-          getEpicSwarmStatus: () =>
+          getEpicTrackerStatus: () =>
             Effect.fail(
               new BeadsError({
-                message: "BeadsService.getEpicSwarmStatus was called without a test-specific mock.",
+                message:
+                  "BeadsService.getEpicTrackerStatus was called without a test-specific mock.",
               }),
             ),
-          listSwarms: () =>
+          listEpicTrackerSummaries: () =>
             Effect.fail(
               new BeadsError({
-                message: "BeadsService.listSwarms was called without a test-specific mock.",
+                message:
+                  "BeadsService.listEpicTrackerSummaries was called without a test-specific mock.",
               }),
             ),
           getProjectCoordinatorSnapshot: () =>

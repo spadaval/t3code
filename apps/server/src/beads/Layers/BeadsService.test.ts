@@ -429,14 +429,14 @@ layer("BeadsServiceLive", (it) => {
 
       const beads = yield* BeadsService;
       const context = yield* beads.getContext({ cwd: "/repo" });
-      const support = yield* beads.getSwarmSupport({ cwd: "/repo" });
-      const swarms = yield* beads.listSwarms({ cwd: "/repo" });
+      const support = yield* beads.getEpicRunSupport({ cwd: "/repo" });
+      const swarms = yield* beads.listEpicTrackerSummaries({ cwd: "/repo" });
 
       assert.equal(context.backend.kind, "dolt");
       assert.equal(context.backend.doltMode, "embedded");
       assert.equal(support.supported, false);
       expect(support.reason).toContain("embedded Dolt mode");
-      assert.deepStrictEqual(swarms.swarms, []);
+      assert.deepStrictEqual(swarms.trackerSummaries, []);
       expect(
         mockedRunProcess.mock.calls.some(([, args]) => commandKey(args).startsWith("swarm ")),
       ).toBe(false);
@@ -933,13 +933,13 @@ layer("BeadsServiceLive", (it) => {
       });
 
       const beads = yield* BeadsService;
-      const swarm = yield* beads.getEpicSwarm({ cwd: "/repo", epicIssueId: "EPIC-1" });
-      const validation = yield* beads.validateEpicSwarm({ cwd: "/repo", epicIssueId: "EPIC-1" });
-      const status = yield* beads.getEpicSwarmStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
+      const swarm = yield* beads.getEpicTrackerSummary({ cwd: "/repo", epicIssueId: "EPIC-1" });
+      const validation = yield* beads.validateEpicRun({ cwd: "/repo", epicIssueId: "EPIC-1" });
+      const status = yield* beads.getEpicTrackerStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
 
-      assert.equal(swarm?.swarmId, "SWARM-1");
+      assert.equal(swarm?.trackerId, "SWARM-1");
       assert.equal(validation.valid, true);
-      assert.equal(validation.swarm?.epicId, "EPIC-1");
+      assert.equal(validation.trackerSummary?.epicId, "EPIC-1");
       assert.equal(validation.maxParallelism, 3);
       assert.deepStrictEqual(
         validation.readyFronts.map((front) => front.map((issue) => issue.id)),
@@ -1113,13 +1113,13 @@ layer("BeadsServiceLive", (it) => {
       });
 
       const beads = yield* BeadsService;
-      const swarms = yield* beads.listSwarms({ cwd: "/repo" });
-      const validation = yield* beads.validateEpicSwarm({ cwd: "/repo", epicIssueId: "EPIC-1" });
-      const status = yield* beads.getEpicSwarmStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
+      const swarms = yield* beads.listEpicTrackerSummaries({ cwd: "/repo" });
+      const validation = yield* beads.validateEpicRun({ cwd: "/repo", epicIssueId: "EPIC-1" });
+      const status = yield* beads.getEpicTrackerStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
 
-      assert.deepStrictEqual(swarms.swarms, [
+      assert.deepStrictEqual(swarms.trackerSummaries, [
         {
-          swarmId: "SWARM-1",
+          trackerId: "SWARM-1",
           epicId: "EPIC-1",
           epicTitle: "Epic coordination",
           totalIssueCount: 13,
@@ -1130,18 +1130,18 @@ layer("BeadsServiceLive", (it) => {
           activeWorkerCount: 0,
         },
       ]);
-      assert.equal(validation.swarm?.totalIssueCount, 13);
-      assert.equal(validation.swarm?.completedIssueCount, 5);
+      assert.equal(validation.trackerSummary?.totalIssueCount, 13);
+      assert.equal(validation.trackerSummary?.completedIssueCount, 5);
       assert.equal(validation.maxParallelism, 6);
       assert.equal(validation.estimatedWorkerSessions, 13);
       assert.deepStrictEqual(
         validation.readyFronts.map((front) => front.map((issue) => issue.id)),
         [["READY-1", "READY-2"]],
       );
-      assert.equal(status.swarm?.totalIssueCount, 13);
-      assert.equal(status.swarm?.completedIssueCount, 1);
-      assert.equal(status.swarm?.readyIssueCount, 1);
-      assert.equal(status.swarm?.blockedIssueCount, 1);
+      assert.equal(status.trackerSummary?.totalIssueCount, 13);
+      assert.equal(status.trackerSummary?.completedIssueCount, 1);
+      assert.equal(status.trackerSummary?.readyIssueCount, 1);
+      assert.equal(status.trackerSummary?.blockedIssueCount, 1);
       assert.deepStrictEqual(
         status.blockedBreakdown.external.map((issue) => issue.id),
         ["BLOCKED-1"],
@@ -1227,11 +1227,11 @@ layer("BeadsServiceLive", (it) => {
         });
 
         const beads = yield* BeadsService;
-        const validation = yield* beads.validateEpicSwarm({ cwd: "/repo", epicIssueId: "EPIC-1" });
-        const status = yield* beads.getEpicSwarmStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
+        const validation = yield* beads.validateEpicRun({ cwd: "/repo", epicIssueId: "EPIC-1" });
+        const status = yield* beads.getEpicTrackerStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
 
-        assert.equal(validation.swarm, null);
-        assert.equal(status.swarm, null);
+        assert.equal(validation.trackerSummary, null);
+        assert.equal(status.trackerSummary, null);
         assert.equal(validation.estimatedWorkerSessions, 3);
         assert.deepStrictEqual(
           status.ready.map((issue) => issue.id),
@@ -1349,7 +1349,7 @@ layer("BeadsServiceLive", (it) => {
       });
 
       const beads = yield* BeadsService;
-      const status = yield* beads.getEpicSwarmStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
+      const status = yield* beads.getEpicTrackerStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
 
       assert.deepStrictEqual(status.ready, [
         {
@@ -1470,7 +1470,7 @@ layer("BeadsServiceLive", (it) => {
       });
 
       const beads = yield* BeadsService;
-      const status = yield* beads.getEpicSwarmStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
+      const status = yield* beads.getEpicTrackerStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
 
       assert.deepStrictEqual(
         status.blockedBreakdown.unknown.map((issue) => issue.id),
@@ -1810,7 +1810,7 @@ layer("BeadsServiceLive", (it) => {
       }),
   );
 
-  it.effect("runs validateEpicSwarm without nested extra context or swarm-list reads", () =>
+  it.effect("runs validateEpicRun without nested extra context or swarm-list reads", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
       installBdJsonMock({
@@ -1862,7 +1862,7 @@ layer("BeadsServiceLive", (it) => {
       });
 
       const beads = yield* BeadsService;
-      const validation = yield* beads.validateEpicSwarm({ cwd: "/repo", epicIssueId: "EPIC-1" });
+      const validation = yield* beads.validateEpicRun({ cwd: "/repo", epicIssueId: "EPIC-1" });
 
       assert.equal(validation.epicId, "EPIC-1");
       expect(countBdCommandCalls("context")).toBe(1);
@@ -1872,7 +1872,7 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
-  it.effect("runs getEpicSwarmStatus without nested extra context or swarm-list reads", () =>
+  it.effect("runs getEpicTrackerStatus without nested extra context or swarm-list reads", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
       installBdJsonMock({
@@ -1922,7 +1922,7 @@ layer("BeadsServiceLive", (it) => {
       });
 
       const beads = yield* BeadsService;
-      const status = yield* beads.getEpicSwarmStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
+      const status = yield* beads.getEpicTrackerStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
 
       assert.equal(status.epicId, "EPIC-1");
       expect(countBdCommandCalls("context")).toBe(1);

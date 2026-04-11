@@ -1,7 +1,7 @@
 import type {
-  BeadsSwarmStatus,
-  BeadsSwarmSupport,
-  BeadsSwarmValidation,
+  BeadsEpicTrackerStatus,
+  BeadsEpicRunSupport,
+  BeadsEpicRunValidation,
   BeadsIssueRelationSummary,
   OrchestrationEvent,
   OrchestrationEpicRun,
@@ -98,14 +98,14 @@ function makeRun(
 }
 
 function makeSwarmStatus(
-  overrides: Partial<BeadsSwarmStatus> = {},
+  overrides: Partial<BeadsEpicTrackerStatus> = {},
 ): Pick<
-  BeadsSwarmStatus,
-  "swarm" | "completed" | "ready" | "active" | "blocked" | "blockedBreakdown"
+  BeadsEpicTrackerStatus,
+  "trackerSummary" | "completed" | "ready" | "active" | "blocked" | "blockedBreakdown"
 > {
   return {
-    swarm: {
-      swarmId: "SWARM-1",
+    trackerSummary: {
+      trackerId: "SWARM-1",
       epicId: "EPIC-1",
       epicTitle: "Epic 1",
       totalIssueCount: 0,
@@ -129,12 +129,12 @@ function makeSwarmStatus(
 }
 
 function makeSwarmValidation(
-  overrides: Partial<BeadsSwarmValidation> = {},
-): Pick<BeadsSwarmValidation, "valid" | "swarm" | "readyFronts"> {
+  overrides: Partial<BeadsEpicRunValidation> = {},
+): Pick<BeadsEpicRunValidation, "valid" | "trackerSummary" | "readyFronts"> {
   return {
     valid: true,
-    swarm: {
-      swarmId: "SWARM-1",
+    trackerSummary: {
+      trackerId: "SWARM-1",
       epicId: "EPIC-1",
       epicTitle: "Epic 1",
       totalIssueCount: 0,
@@ -152,8 +152,8 @@ function makeSwarmValidation(
 }
 
 function makeSwarmSupport(
-  overrides: Partial<BeadsSwarmSupport> = {},
-): Pick<BeadsSwarmSupport, "supported"> {
+  overrides: Partial<BeadsEpicRunSupport> = {},
+): Pick<BeadsEpicRunSupport, "supported"> {
   return {
     supported: true,
     ...overrides,

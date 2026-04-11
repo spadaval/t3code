@@ -223,11 +223,11 @@ describe("EpicRunScheduler", () => {
       makeTrackerState({
         validation: {
           ...baseline.validation,
-          swarm: null,
+          trackerSummary: null,
         },
         status: {
           ...baseline.status,
-          swarm: null,
+          trackerSummary: null,
         },
       }),
     );
@@ -292,11 +292,11 @@ describe("EpicRunScheduler", () => {
       makeTrackerState({
         validation: {
           ...baseline.validation,
-          swarm: null,
+          trackerSummary: null,
         },
         status: {
           ...baseline.status,
-          swarm: null,
+          trackerSummary: null,
         },
       }),
       {

@@ -11,11 +11,11 @@ import type {
   BeadsGetIssuesResult,
   BeadsGetSessionActivityInput,
   BeadsGetSessionActivityResult,
-  BeadsGetSwarmSupportInput,
+  BeadsGetEpicRunSupportInput,
   BeadsIssueDetail,
   BeadsIssueGraph,
-  BeadsListSwarmsInput,
-  BeadsListSwarmsResult,
+  BeadsListEpicTrackerSummariesInput,
+  BeadsListEpicTrackerSummariesResult,
   BeadsProjectCoordinatorSnapshot,
   BeadsProjectCoordinatorSnapshotInput,
   BeadsQueryIssuesInput,
@@ -26,10 +26,10 @@ import type {
   BeadsStartEpicCoordinationPrepInput,
   BeadsStartWorkflowInput,
   BeadsStartWorkflowResult,
-  BeadsSwarmStatus,
-  BeadsSwarmSummary,
-  BeadsSwarmSupport,
-  BeadsSwarmValidation,
+  BeadsEpicTrackerStatus,
+  BeadsEpicTrackerSummary,
+  BeadsEpicRunSupport,
+  BeadsEpicRunValidation,
   BeadsUpdateIssueInput,
   BeadsIssueSummary,
 } from "@t3tools/contracts";
@@ -56,24 +56,24 @@ export interface BeadsServiceShape {
     input: BeadsCommentIssueInput,
   ) => Effect.Effect<BeadsIssueDetail, BeadsError>;
   readonly getContext: (input: BeadsGetContextInput) => Effect.Effect<BeadsContext, BeadsError>;
-  readonly getSwarmSupport: (
-    input: BeadsGetSwarmSupportInput,
-  ) => Effect.Effect<BeadsSwarmSupport, BeadsError>;
+  readonly getEpicRunSupport: (
+    input: BeadsGetEpicRunSupportInput,
+  ) => Effect.Effect<BeadsEpicRunSupport, BeadsError>;
   readonly getIssueGraph: (
     input: BeadsEpicIssueInput,
   ) => Effect.Effect<BeadsIssueGraph, BeadsError>;
-  readonly getEpicSwarm: (
+  readonly getEpicTrackerSummary: (
     input: BeadsEpicIssueInput,
-  ) => Effect.Effect<BeadsSwarmSummary | null, BeadsError>;
-  readonly validateEpicSwarm: (
+  ) => Effect.Effect<BeadsEpicTrackerSummary | null, BeadsError>;
+  readonly validateEpicRun: (
     input: BeadsEpicIssueInput,
-  ) => Effect.Effect<BeadsSwarmValidation, BeadsError>;
-  readonly getEpicSwarmStatus: (
+  ) => Effect.Effect<BeadsEpicRunValidation, BeadsError>;
+  readonly getEpicTrackerStatus: (
     input: BeadsEpicIssueInput,
-  ) => Effect.Effect<BeadsSwarmStatus, BeadsError>;
-  readonly listSwarms: (
-    input: BeadsListSwarmsInput,
-  ) => Effect.Effect<BeadsListSwarmsResult, BeadsError>;
+  ) => Effect.Effect<BeadsEpicTrackerStatus, BeadsError>;
+  readonly listEpicTrackerSummaries: (
+    input: BeadsListEpicTrackerSummariesInput,
+  ) => Effect.Effect<BeadsListEpicTrackerSummariesResult, BeadsError>;
   readonly getProjectCoordinatorSnapshot: (
     input: BeadsProjectCoordinatorSnapshotInput,
   ) => Effect.Effect<BeadsProjectCoordinatorSnapshot, BeadsError>;

@@ -303,8 +303,8 @@ describe("deriveEpicCoordinatorState", () => {
     expect(
       deriveEpicCoordinatorState({
         coordinationSupport: { supported: true },
-        status: { swarm: null },
-        validation: { valid: false, swarm: null },
+        status: { trackerSummary: null },
+        validation: { valid: false, trackerSummary: null },
         epicRuns: [],
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
@@ -320,8 +320,8 @@ describe("deriveEpicCoordinatorState", () => {
       deriveEpicCoordinatorState({
         coordinationSupport: { supported: true },
         status: {
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -334,8 +334,8 @@ describe("deriveEpicCoordinatorState", () => {
         },
         validation: {
           valid: false,
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -363,8 +363,8 @@ describe("deriveEpicCoordinatorState", () => {
         status: null,
         validation: {
           valid: true,
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "epic-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -389,8 +389,8 @@ describe("deriveEpicCoordinatorState", () => {
     expect(
       deriveEpicCoordinatorState({
         coordinationSupport: { supported: true },
-        status: { swarm: null },
-        validation: { valid: true, swarm: null },
+        status: { trackerSummary: null },
+        validation: { valid: true, trackerSummary: null },
         epicRuns: [],
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
@@ -420,8 +420,8 @@ describe("deriveEpicCoordinatorState", () => {
         status: null,
         validation: {
           valid: true,
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "epic-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -474,8 +474,8 @@ describe("deriveEpicCoordinatorState", () => {
         status: null,
         validation: {
           valid: true,
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -556,8 +556,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
-        status: { swarm: null, ready: [], active: [], blocked: [] },
-        validation: { valid: false, swarm: null, readyFronts: [] },
+        status: { trackerSummary: null, ready: [], active: [], blocked: [] },
+        validation: { valid: false, trackerSummary: null, readyFronts: [] },
         epicRuns: [],
         projectConflict: null,
         fetchLifecycle: READY_FETCH_LIFECYCLE,
@@ -575,8 +575,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
         status: {
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -592,8 +592,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         validation: {
           valid: false,
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -621,11 +621,11 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
-        status: { swarm: null, ready: [], active: [], blocked: [] },
+        status: { trackerSummary: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -653,11 +653,11 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
-        status: { swarm: null, ready: [], active: [], blocked: [] },
+        status: { trackerSummary: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -685,11 +685,11 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
-        status: { swarm: null, ready: [], active: [], blocked: [] },
+        status: { trackerSummary: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -719,11 +719,11 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
-        status: { swarm: null, ready: [], active: [], blocked: [] },
+        status: { trackerSummary: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -756,11 +756,11 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
-        status: { swarm: null, ready: [], active: [], blocked: [] },
+        status: { trackerSummary: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -794,8 +794,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
         status: {
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -811,8 +811,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         validation: {
           valid: true,
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -852,8 +852,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
         status: {
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -869,8 +869,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         validation: {
           valid: false,
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -909,8 +909,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
-        status: { swarm: null, ready: [], active: [], blocked: [] },
-        validation: { valid: false, swarm: null, readyFronts: [] },
+        status: { trackerSummary: null, ready: [], active: [], blocked: [] },
+        validation: { valid: false, trackerSummary: null, readyFronts: [] },
         epicRuns: [
           makeEpicRun({
             status: "failed",
@@ -939,8 +939,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
         status: {
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -967,8 +967,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         validation: {
           valid: true,
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -1021,8 +1021,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
         status: {
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -1049,8 +1049,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         validation: {
           valid: true,
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -1090,8 +1090,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
         status: {
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -1118,8 +1118,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         validation: {
           valid: true,
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -1158,11 +1158,11 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
-        status: { swarm: null, ready: [], active: [], blocked: [] },
+        status: { trackerSummary: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
-          swarm: {
-            swarmId: "swarm-1",
+          trackerSummary: {
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -1239,7 +1239,7 @@ describe("describeDisabledEpicCoordinatorAction", () => {
           status: {
             epicId: "EPIC-1",
             epicTitle: "Epic 1",
-            swarm: null,
+            trackerSummary: null,
             completed: [],
             active: [],
             ready: [],
@@ -1314,9 +1314,9 @@ describe("collectCoordinatorEpics", () => {
     expect(
       collectCoordinatorEpics({
         epicIssues: [epicIssue],
-        swarms: [
+        trackerSummaries: [
           {
-            swarmId: "swarm-1",
+            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic from swarm",
             totalIssueCount: 3,
@@ -1327,7 +1327,7 @@ describe("collectCoordinatorEpics", () => {
             activeWorkerCount: 0,
           },
           {
-            swarmId: "swarm-2",
+            trackerId: "swarm-2",
             epicId: "EPIC-2",
             epicTitle: "Epic from swarm only",
             totalIssueCount: 2,
@@ -1476,7 +1476,7 @@ describe("partitionCoordinatorEpics", () => {
   it("partitions and sorts running and ready swarms", () => {
     const swarms = [
       {
-        swarmId: "swarm-ready-a",
+        trackerId: "swarm-ready-a",
         epicId: "EPIC-3",
         epicTitle: "Alpha ready",
         totalIssueCount: 5,
@@ -1487,7 +1487,7 @@ describe("partitionCoordinatorEpics", () => {
         activeWorkerCount: 0,
       },
       {
-        swarmId: "swarm-running-b",
+        trackerId: "swarm-running-b",
         epicId: "EPIC-2",
         epicTitle: "Bravo running",
         totalIssueCount: 7,
@@ -1498,7 +1498,7 @@ describe("partitionCoordinatorEpics", () => {
         activeWorkerCount: 1,
       },
       {
-        swarmId: "swarm-running-a",
+        trackerId: "swarm-running-a",
         epicId: "EPIC-1",
         epicTitle: "Alpha running",
         totalIssueCount: 9,
@@ -1509,7 +1509,7 @@ describe("partitionCoordinatorEpics", () => {
         activeWorkerCount: 2,
       },
       {
-        swarmId: "swarm-ready-b",
+        trackerId: "swarm-ready-b",
         epicId: "EPIC-4",
         epicTitle: "Zulu ready",
         totalIssueCount: 4,
@@ -1520,7 +1520,7 @@ describe("partitionCoordinatorEpics", () => {
         activeWorkerCount: 0,
       },
       {
-        swarmId: "swarm-idle",
+        trackerId: "swarm-idle",
         epicId: "EPIC-5",
         epicTitle: "Idle",
         totalIssueCount: 4,

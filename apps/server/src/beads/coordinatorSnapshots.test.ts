@@ -53,8 +53,8 @@ describe("buildCoordinatorEpicSnapshot", () => {
       },
       failedAt: "2026-01-01T00:02:00.000Z",
     });
-    const swarmSummary = {
-      swarmId: "swarm-1",
+    const trackerSummary = {
+      trackerId: "swarm-1",
       epicId: "EPIC-1",
       epicTitle: "Epic",
       totalIssueCount: 3,
@@ -72,7 +72,7 @@ describe("buildCoordinatorEpicSnapshot", () => {
         epicId: "EPIC-1",
         epicTitle: "Epic",
         valid: true,
-        swarm: swarmSummary,
+        trackerSummary: trackerSummary,
         errors: [],
         warnings: [],
         readyFronts: [],
@@ -82,7 +82,7 @@ describe("buildCoordinatorEpicSnapshot", () => {
       status: {
         epicId: "EPIC-1",
         epicTitle: "Epic",
-        swarm: swarmSummary,
+        trackerSummary: trackerSummary,
         completed: [],
         active: [],
         ready: [],
@@ -126,8 +126,8 @@ describe("buildCoordinatorEpicSnapshot", () => {
       },
       failedAt: "2026-01-01T00:02:00.000Z",
     });
-    const swarmSummary = {
-      swarmId: "swarm-1",
+    const trackerSummary = {
+      trackerId: "swarm-1",
       epicId: "EPIC-1",
       epicTitle: "Epic",
       totalIssueCount: 3,
@@ -145,7 +145,7 @@ describe("buildCoordinatorEpicSnapshot", () => {
         epicId: "EPIC-1",
         epicTitle: "Epic",
         valid: false,
-        swarm: swarmSummary,
+        trackerSummary: trackerSummary,
         errors: ["broken"],
         warnings: [],
         readyFronts: [],
@@ -155,7 +155,7 @@ describe("buildCoordinatorEpicSnapshot", () => {
       status: {
         epicId: "EPIC-1",
         epicTitle: "Epic",
-        swarm: swarmSummary,
+        trackerSummary: trackerSummary,
         completed: [],
         active: [],
         ready: [],
@@ -226,7 +226,7 @@ describe("buildCoordinatorEpicSnapshot", () => {
         epicId: "EPIC-1",
         epicTitle: "Epic",
         valid: true,
-        swarm: null,
+        trackerSummary: null,
         errors: [],
         warnings: [],
         readyFronts: [],
@@ -236,7 +236,7 @@ describe("buildCoordinatorEpicSnapshot", () => {
       status: {
         epicId: "EPIC-1",
         epicTitle: "Epic",
-        swarm: null,
+        trackerSummary: null,
         completed: [],
         active: [],
         ready: [
@@ -295,7 +295,7 @@ describe("buildCoordinatorEpicSnapshot", () => {
         epicId: "EPIC-1",
         epicTitle: "Epic",
         valid: true,
-        swarm: null,
+        trackerSummary: null,
         errors: [],
         warnings: [],
         readyFronts: [],
@@ -305,7 +305,7 @@ describe("buildCoordinatorEpicSnapshot", () => {
       status: {
         epicId: "EPIC-1",
         epicTitle: "Epic",
-        swarm: null,
+        trackerSummary: null,
         completed: [],
         active: [],
         ready: [],

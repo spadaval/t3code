@@ -1,7 +1,7 @@
 import type {
   BeadsIssueSortBy,
   BeadsIssueSummary,
-  BeadsSwarmSummary,
+  BeadsEpicTrackerSummary,
   OrchestrationEpicRun,
   BeadsCoordinatorEpicSnapshot,
 } from "@t3tools/contracts";
@@ -214,10 +214,10 @@ export interface CoordinatorAnalysisResult {
     totalCompletedIssues: number;
     totalIssues: number;
   };
-  filteredEpicSummaries: readonly BeadsSwarmSummary[];
-  selectedEpicSummary: BeadsSwarmSummary | null;
+  filteredEpicSummaries: readonly BeadsEpicTrackerSummary[];
+  selectedEpicSummary: BeadsEpicTrackerSummary | null;
   hasActivity: boolean;
-  needsAttention: readonly BeadsSwarmSummary[];
+  needsAttention: readonly BeadsEpicTrackerSummary[];
 }
 
 /**
@@ -225,20 +225,20 @@ export interface CoordinatorAnalysisResult {
  * Pure function for testable coordinator logic.
  */
 export function analyzeCoordinatorState(
-  swarms: readonly BeadsSwarmSummary[],
+  trackerSummaries: readonly BeadsEpicTrackerSummary[],
   options: CoordinatorAnalysisOptions = {},
 ): CoordinatorAnalysisResult {
   const { showOnlyActive = false, selectedEpicId = null } = options;
 
-  // Filter swarms based on options
-  let filteredEpicSummaries = [...swarms];
+  // Filter tracker summaries based on options
+  let filteredEpicSummaries = [...trackerSummaries];
   if (showOnlyActive) {
     filteredEpicSummaries = filteredEpicSummaries.filter((swarm) => swarm.activeWorkerCount > 0);
   }
 
   // Find selected epic summary
   const selectedEpicSummary = selectedEpicId
-    ? swarms.find((swarm) => swarm.epicId === selectedEpicId) || null
+    ? trackerSummaries.find((swarm) => swarm.epicId === selectedEpicId) || null
     : null;
 
   // Partition into sections
@@ -246,18 +246,19 @@ export function analyzeCoordinatorState(
 
   // Calculate metrics
   const metrics = {
-    totalSwarms: swarms.length,
-    activeSwarms: swarms.filter((s) => s.activeWorkerCount > 0).length,
-    readySwarms: swarms.filter((s) => s.activeWorkerCount === 0 && s.readyIssueCount > 0).length,
-    totalActiveWorkers: swarms.reduce((sum, s) => sum + s.activeWorkerCount, 0),
-    totalReadyIssues: swarms.reduce((sum, s) => sum + s.readyIssueCount, 0),
-    totalCompletedIssues: swarms.reduce((sum, s) => sum + s.completedIssueCount, 0),
-    totalIssues: swarms.reduce((sum, s) => sum + s.totalIssueCount, 0),
+    totalSwarms: trackerSummaries.length,
+    activeSwarms: trackerSummaries.filter((s) => s.activeWorkerCount > 0).length,
+    readySwarms: trackerSummaries.filter((s) => s.activeWorkerCount === 0 && s.readyIssueCount > 0)
+      .length,
+    totalActiveWorkers: trackerSummaries.reduce((sum, s) => sum + s.activeWorkerCount, 0),
+    totalReadyIssues: trackerSummaries.reduce((sum, s) => sum + s.readyIssueCount, 0),
+    totalCompletedIssues: trackerSummaries.reduce((sum, s) => sum + s.completedIssueCount, 0),
+    totalIssues: trackerSummaries.reduce((sum, s) => sum + s.totalIssueCount, 0),
   };
 
-  // Identify swarms needing attention (errors, blocked, etc.)
-  const needsAttention = swarms.filter((swarm) => {
-    // Add logic for identifying problematic swarms
+  // Identify tracker summaries needing attention.
+  const needsAttention = trackerSummaries.filter((swarm) => {
+    // Add logic for identifying problematic tracker summaries.
     const hasStallWarnings =
       swarm.totalIssueCount > 0 && swarm.readyIssueCount === 0 && swarm.activeWorkerCount === 0;
     const hasHighFailureRate =
@@ -284,7 +285,7 @@ export interface EpicCoordinationResult {
   epics: readonly BeadsCoordinatorEpicSnapshot[];
   prioritizedEpics: readonly BeadsCoordinatorEpicSnapshot[];
   epicById: Map<string, BeadsCoordinatorEpicSnapshot>;
-  epicSummaryById: Map<string, BeadsSwarmSummary>;
+  epicSummaryById: Map<string, BeadsEpicTrackerSummary>;
   runsByEpic: Map<string, readonly OrchestrationEpicRun[]>;
 }
 
@@ -294,7 +295,7 @@ export interface EpicCoordinationResult {
  */
 export function analyzeEpicCoordination(
   epics: readonly BeadsCoordinatorEpicSnapshot[],
-  swarms: readonly BeadsSwarmSummary[],
+  swarms: readonly BeadsEpicTrackerSummary[],
   epicRuns: readonly OrchestrationEpicRun[],
 ): EpicCoordinationResult {
   // Create lookup maps
@@ -303,7 +304,7 @@ export function analyzeEpicCoordination(
     epicById.set(epic.epicId, epic);
   }
 
-  const epicSummaryById = new Map<string, BeadsSwarmSummary>();
+  const epicSummaryById = new Map<string, BeadsEpicTrackerSummary>();
   for (const swarm of swarms) {
     epicSummaryById.set(swarm.epicId, swarm);
   }
@@ -892,7 +893,7 @@ export function validateIssueState(
  * Validates coordinator state for operational readiness.
  */
 export function validateCoordinatorState(
-  swarms: readonly BeadsSwarmSummary[],
+  swarms: readonly BeadsEpicTrackerSummary[],
   epics: readonly BeadsCoordinatorEpicSnapshot[],
   runs: readonly OrchestrationEpicRun[],
 ): ValidationResult {
@@ -903,11 +904,11 @@ export function validateCoordinatorState(
   const epicIds = new Set(epics.map((e) => e.epicId));
   for (const swarm of swarms) {
     if (!epicIds.has(swarm.epicId)) {
-      warnings.push(`Swarm ${swarm.swarmId} references missing epic ${swarm.epicId}`);
+      warnings.push(`Swarm ${swarm.trackerId} references missing epic ${swarm.epicId}`);
     }
   }
 
-  // Check for inconsistent run data - OrchestrationEpicRun uses epicIssueId instead of swarmId
+  // Check for inconsistent run data - OrchestrationEpicRun uses epicIssueId instead of trackerId
   const swarmEpicIds = new Set(swarms.map((s) => s.epicId));
   for (const run of runs) {
     if (!swarmEpicIds.has(run.epicIssueId)) {

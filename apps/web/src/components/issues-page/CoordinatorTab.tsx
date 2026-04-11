@@ -1,7 +1,7 @@
 import type {
   BeadsCoordinatorEpicSnapshot,
   BeadsProjectCoordinatorSnapshot,
-  BeadsSwarmSupport,
+  BeadsEpicRunSupport,
   OrchestrationEpicRun,
   OrchestrationEpicIssueExecution,
   ProjectId,
@@ -45,7 +45,7 @@ import { ErrorDisplay } from "../shared/ErrorDisplay";
 type CoordinatorTabProps = {
   cwd: string;
   projectId: ProjectId | null;
-  coordinationSupport: BeadsSwarmSupport | null;
+  coordinationSupport: BeadsEpicRunSupport | null;
   coordinationSupportPending: boolean;
   coordinationSupportError: Error | null;
   snapshot: BeadsProjectCoordinatorSnapshot | null;

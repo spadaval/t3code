@@ -3,8 +3,8 @@ import type {
   BeadsIssueDependency,
   BeadsIssueDetail,
   BeadsIssueRelationSummary,
-  BeadsSwarmStatus,
-  BeadsSwarmValidation,
+  BeadsEpicTrackerStatus,
+  BeadsEpicRunValidation,
   OrchestrationEpicRun,
   OrchestrationEpicIssueExecution,
 } from "@t3tools/contracts";
@@ -168,7 +168,7 @@ function buildWaveMap(
 /**
  * Build a set-based lookup for blocked issue classifications from the blocked breakdown.
  */
-function buildBlockedByMap(status: BeadsSwarmStatus): Map<string, WorkGraphBlockedBy> {
+function buildBlockedByMap(status: BeadsEpicTrackerStatus): Map<string, WorkGraphBlockedBy> {
   const map = new Map<string, WorkGraphBlockedBy>();
   for (const issue of status.blockedBreakdown.internal) {
     map.set(issue.id, "internal");
@@ -209,7 +209,7 @@ function sortNodes(nodes: WorkGraphIssueNode[]): WorkGraphIssueNode[] {
  * Deduplicates by issue id (first occurrence wins).
  */
 function collectStatusIssues(
-  status: BeadsSwarmStatus,
+  status: BeadsEpicTrackerStatus,
 ): Array<{ issue: BeadsIssueRelationSummary; status: WorkGraphIssueStatus }> {
   const seen = new Set<string>();
   const result: Array<{ issue: BeadsIssueRelationSummary; status: WorkGraphIssueStatus }> = [];
@@ -356,8 +356,8 @@ export function buildWorkGraphData(
     ? (epic.runs.find((r) => r.runId === epic.activeRunId) ?? null)
     : null;
   const latestRun = epic.runs[0] ?? null;
-  const validation: BeadsSwarmValidation | null = epic.validation;
-  const status: BeadsSwarmStatus | null = epic.status;
+  const validation: BeadsEpicRunValidation | null = epic.validation;
+  const status: BeadsEpicTrackerStatus | null = epic.status;
   const executions = epic.executions ?? [];
   const activeExecutionId = epic.activeExecutionId;
   const hasWaveData = validation !== null && validation.readyFronts.length > 0;

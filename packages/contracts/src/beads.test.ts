@@ -12,8 +12,8 @@ import {
   BeadsStartBacklogGroomingInput,
   BeadsStartEpicCoordinationPrepInput,
   BeadsStartWorkflowInput,
-  BeadsSwarmStatus,
-  BeadsSwarmValidation,
+  BeadsEpicTrackerStatus,
+  BeadsEpicRunValidation,
 } from "./beads";
 
 const decodeBeadsContext = Schema.decodeUnknownEffect(BeadsContext);
@@ -31,8 +31,8 @@ const decodeBeadsStartEpicCoordinationPrepInput = Schema.decodeUnknownEffect(
   BeadsStartEpicCoordinationPrepInput,
 );
 const decodeBeadsStartWorkflowInput = Schema.decodeUnknownEffect(BeadsStartWorkflowInput);
-const decodeBeadsSwarmStatus = Schema.decodeUnknownEffect(BeadsSwarmStatus);
-const decodeBeadsSwarmValidation = Schema.decodeUnknownEffect(BeadsSwarmValidation);
+const decodeBeadsEpicTrackerStatus = Schema.decodeUnknownEffect(BeadsEpicTrackerStatus);
+const decodeBeadsEpicRunValidation = Schema.decodeUnknownEffect(BeadsEpicRunValidation);
 
 it.effect("decodes beads context with backend metadata", () =>
   Effect.gen(function* () {
@@ -104,13 +104,13 @@ it.effect("accepts created/title issue sorting inputs", () =>
 
 it.effect("defaults optional swarm validation metadata", () =>
   Effect.gen(function* () {
-    const parsed = yield* decodeBeadsSwarmValidation({
+    const parsed = yield* decodeBeadsEpicRunValidation({
       epicId: "epic-1",
       epicTitle: "Epic",
       valid: true,
     });
 
-    assert.strictEqual(parsed.swarm, null);
+    assert.strictEqual(parsed.trackerSummary, null);
     assert.deepStrictEqual(parsed.errors, []);
     assert.deepStrictEqual(parsed.warnings, []);
     assert.deepStrictEqual(parsed.readyFronts, []);
@@ -121,7 +121,7 @@ it.effect("defaults optional swarm validation metadata", () =>
 
 it.effect("defaults swarm status blocked breakdown for historical payloads", () =>
   Effect.gen(function* () {
-    const parsed = yield* decodeBeadsSwarmStatus({
+    const parsed = yield* decodeBeadsEpicTrackerStatus({
       epicId: "epic-1",
       epicTitle: "Epic",
       completed: [],

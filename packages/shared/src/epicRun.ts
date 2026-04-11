@@ -3,9 +3,9 @@ import type {
   BeadsCoordinatorTrackerState,
   BeadsCoordinatorValidationState,
   BeadsIssueRelationSummary,
-  BeadsSwarmStatus,
-  BeadsSwarmSupport,
-  BeadsSwarmValidation,
+  BeadsEpicTrackerStatus,
+  BeadsEpicRunSupport,
+  BeadsEpicRunValidation,
   OrchestrationEvent,
   OrchestrationEpicRunFailureKind,
   OrchestrationEpicRun,
@@ -33,8 +33,8 @@ export function selectDeterministicReadyIssueFromList(
 }
 
 export function selectDeterministicReadyIssue(input: {
-  readonly validation: Pick<BeadsSwarmValidation, "readyFronts"> | null;
-  readonly status: Pick<BeadsSwarmStatus, "ready"> | null;
+  readonly validation: Pick<BeadsEpicRunValidation, "readyFronts"> | null;
+  readonly status: Pick<BeadsEpicTrackerStatus, "ready"> | null;
 }): BeadsIssueRelationSummary | null {
   if (input.status) {
     return selectDeterministicReadyIssueFromList(input.status.ready);
@@ -59,7 +59,8 @@ export interface EpicIssueExecutionBlockingState {
 
 export function deriveExecutionBlocking(
   status:
-    | (Pick<BeadsSwarmStatus, "blocked"> & Partial<Pick<BeadsSwarmStatus, "blockedBreakdown">>)
+    | (Pick<BeadsEpicTrackerStatus, "blocked"> &
+        Partial<Pick<BeadsEpicTrackerStatus, "blockedBreakdown">>)
     | null,
 ): EpicIssueExecutionBlockingState {
   const fallbackBlocked = status?.blocked ?? [];
@@ -569,7 +570,7 @@ export function deriveTrackerLoadState(input: {
 
 export function deriveValidationState(input: {
   readonly trackerLoadState: BeadsCoordinatorTrackerLoadState;
-  readonly validation: Pick<BeadsSwarmValidation, "valid"> | null;
+  readonly validation: Pick<BeadsEpicRunValidation, "valid"> | null;
 }): BeadsCoordinatorValidationState {
   if (input.trackerLoadState !== "ready" || input.validation === null) {
     return "unknown";
@@ -579,13 +580,16 @@ export function deriveValidationState(input: {
 }
 
 export function deriveEpicTrackerProgress(input: {
-  readonly validation: Pick<BeadsSwarmValidation, "swarm"> | null;
+  readonly validation: Pick<BeadsEpicRunValidation, "trackerSummary"> | null;
   readonly status:
-    | (Pick<BeadsSwarmStatus, "swarm" | "completed" | "ready" | "active" | "blocked"> &
-        Partial<Pick<BeadsSwarmStatus, "blockedBreakdown">>)
+    | (Pick<
+        BeadsEpicTrackerStatus,
+        "trackerSummary" | "completed" | "ready" | "active" | "blocked"
+      > &
+        Partial<Pick<BeadsEpicTrackerStatus, "blockedBreakdown">>)
     | null;
 }): EpicTrackerProgressState {
-  const swarm = input.status?.swarm ?? input.validation?.swarm ?? null;
+  const swarm = input.status?.trackerSummary ?? input.validation?.trackerSummary ?? null;
   const executionBlocking = deriveExecutionBlocking(input.status);
   const totalIssueCount = swarm?.totalIssueCount ?? 0;
   const completedIssueCount = swarm?.completedIssueCount ?? input.status?.completed.length ?? 0;
@@ -611,8 +615,8 @@ export function deriveEpicTrackerProgress(input: {
 export function deriveTrackerState(input: {
   readonly trackerLoadState: BeadsCoordinatorTrackerLoadState;
   readonly status:
-    | (Pick<BeadsSwarmStatus, "active" | "blocked"> &
-        Partial<Pick<BeadsSwarmStatus, "blockedBreakdown">>)
+    | (Pick<BeadsEpicTrackerStatus, "active" | "blocked"> &
+        Partial<Pick<BeadsEpicTrackerStatus, "blockedBreakdown">>)
     | null;
   readonly progress: Pick<EpicTrackerProgressState, "isComplete">;
 }): BeadsCoordinatorTrackerState {
@@ -674,9 +678,9 @@ export function deriveActiveExecutionId(input: {
 }
 
 export function deriveEpicCoordinatorState(input: {
-  readonly coordinationSupport: Pick<BeadsSwarmSupport, "supported"> | null;
-  readonly status: Pick<BeadsSwarmStatus, "swarm"> | null;
-  readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm"> | null;
+  readonly coordinationSupport: Pick<BeadsEpicRunSupport, "supported"> | null;
+  readonly status: Pick<BeadsEpicTrackerStatus, "trackerSummary"> | null;
+  readonly validation: Pick<BeadsEpicRunValidation, "valid" | "trackerSummary"> | null;
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
   readonly fetchLifecycle: EpicRunCoordinatorFetchLifecycle;
 }): EpicCoordinatorState {
@@ -754,19 +758,22 @@ export function deriveEpicCoordinatorState(input: {
 }
 
 export function getEpicCoordinatorPrimaryAction(input: {
-  readonly coordinationSupport: Pick<BeadsSwarmSupport, "supported"> | null;
+  readonly coordinationSupport: Pick<BeadsEpicRunSupport, "supported"> | null;
   readonly status:
-    | (Pick<BeadsSwarmStatus, "swarm" | "ready" | "active" | "blocked"> &
-        Partial<Pick<BeadsSwarmStatus, "blockedBreakdown">>)
+    | (Pick<BeadsEpicTrackerStatus, "trackerSummary" | "ready" | "active" | "blocked"> &
+        Partial<Pick<BeadsEpicTrackerStatus, "blockedBreakdown">>)
     | null;
-  readonly validation: Pick<BeadsSwarmValidation, "valid" | "swarm" | "readyFronts"> | null;
+  readonly validation: Pick<
+    BeadsEpicRunValidation,
+    "valid" | "trackerSummary" | "readyFronts"
+  > | null;
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
   readonly hasProjectConflict: boolean;
   readonly fetchLifecycle: EpicRunCoordinatorFetchLifecycle;
 }): EpicCoordinatorPrimaryAction {
   const latestRun = selectLatestEpicRun(input.epicRuns);
   const activeRun = findActiveEpicRun(input.epicRuns);
-  const trackerSummary = input.status?.swarm ?? input.validation?.swarm ?? null;
+  const trackerSummary = input.status?.trackerSummary ?? input.validation?.trackerSummary ?? null;
   const trackerIsComplete =
     trackerSummary !== null &&
     trackerSummary.totalIssueCount > 0 &&

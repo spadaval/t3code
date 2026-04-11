@@ -110,12 +110,14 @@ export interface WsRpcClient {
     readonly updateIssue: RpcUnaryMethod<typeof BEADS_WS_METHODS.updateIssue>;
     readonly commentIssue: RpcUnaryMethod<typeof BEADS_WS_METHODS.commentIssue>;
     readonly getContext: RpcUnaryMethod<typeof BEADS_WS_METHODS.getContext>;
-    readonly getSwarmSupport: RpcUnaryMethod<typeof BEADS_WS_METHODS.getSwarmSupport>;
+    readonly getEpicRunSupport: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicRunSupport>;
     readonly getIssueGraph: RpcUnaryMethod<typeof BEADS_WS_METHODS.getIssueGraph>;
-    readonly getEpicSwarm: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicSwarm>;
-    readonly validateEpicSwarm: RpcUnaryMethod<typeof BEADS_WS_METHODS.validateEpicSwarm>;
-    readonly getEpicSwarmStatus: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicSwarmStatus>;
-    readonly listSwarms: RpcUnaryMethod<typeof BEADS_WS_METHODS.listSwarms>;
+    readonly getEpicTrackerSummary: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicTrackerSummary>;
+    readonly validateEpicRun: RpcUnaryMethod<typeof BEADS_WS_METHODS.validateEpicRun>;
+    readonly getEpicTrackerStatus: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicTrackerStatus>;
+    readonly listEpicTrackerSummaries: RpcUnaryMethod<
+      typeof BEADS_WS_METHODS.listEpicTrackerSummaries
+    >;
     readonly getProjectCoordinatorSnapshot: RpcUnaryMethod<
       typeof BEADS_WS_METHODS.getProjectCoordinatorSnapshot
     >;
@@ -287,18 +289,18 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport.request((client) => client[BEADS_WS_METHODS.commentIssue](input)),
       getContext: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.getContext](input)),
-      getSwarmSupport: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.getSwarmSupport](input)),
+      getEpicRunSupport: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getEpicRunSupport](input)),
       getIssueGraph: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.getIssueGraph](input)),
-      getEpicSwarm: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.getEpicSwarm](input)),
-      validateEpicSwarm: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.validateEpicSwarm](input)),
-      getEpicSwarmStatus: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.getEpicSwarmStatus](input)),
-      listSwarms: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.listSwarms](input)),
+      getEpicTrackerSummary: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getEpicTrackerSummary](input)),
+      validateEpicRun: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.validateEpicRun](input)),
+      getEpicTrackerStatus: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getEpicTrackerStatus](input)),
+      listEpicTrackerSummaries: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.listEpicTrackerSummaries](input)),
       getProjectCoordinatorSnapshot: (input) =>
         transport.request((client) =>
           client[BEADS_WS_METHODS.getProjectCoordinatorSnapshot](input),

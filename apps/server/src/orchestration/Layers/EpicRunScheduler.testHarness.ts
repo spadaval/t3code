@@ -3,9 +3,9 @@ import { Effect, Layer, ManagedRuntime, Stream } from "effect";
 import {
   BeadsError,
   type BeadsIssueDetail,
-  type BeadsSwarmStatus,
-  type BeadsSwarmSupport,
-  type BeadsSwarmValidation,
+  type BeadsEpicTrackerStatus,
+  type BeadsEpicRunSupport,
+  type BeadsEpicRunValidation,
   CommandId,
   ProjectId,
   EpicIssueExecutionId,
@@ -38,14 +38,14 @@ const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
 export const now = "2026-04-06T13:00:00.000Z";
 
 export type TrackerState = {
-  support: BeadsSwarmSupport;
-  validation: BeadsSwarmValidation;
-  status: BeadsSwarmStatus;
+  support: BeadsEpicRunSupport;
+  validation: BeadsEpicRunValidation;
+  status: BeadsEpicTrackerStatus;
 };
 
 export type TrackerStateOverrides = Partial<Omit<TrackerState, "validation" | "status">> & {
-  validation?: Partial<BeadsSwarmValidation>;
-  status?: Partial<BeadsSwarmStatus>;
+  validation?: Partial<BeadsEpicRunValidation>;
+  status?: Partial<BeadsEpicTrackerStatus>;
 };
 
 export type HarnessOptions = {
@@ -77,7 +77,7 @@ export function relationIssue(id: string, priority: number | null) {
 
 export function makeTrackerState(overrides?: TrackerStateOverrides): TrackerState {
   const swarm = {
-    swarmId: "SWARM-1",
+    trackerId: "SWARM-1",
     epicId: "EPIC-1",
     epicTitle: "Epic 1",
     totalIssueCount: 2,
@@ -105,7 +105,7 @@ export function makeTrackerState(overrides?: TrackerStateOverrides): TrackerStat
     validation: {
       epicId: "EPIC-1",
       epicTitle: "Epic 1",
-      swarm,
+      trackerSummary: swarm,
       valid: true,
       errors: [],
       warnings: [],
@@ -117,7 +117,7 @@ export function makeTrackerState(overrides?: TrackerStateOverrides): TrackerStat
     status: {
       epicId: "EPIC-1",
       epicTitle: "Epic 1",
-      swarm,
+      trackerSummary: swarm,
       completed: [],
       active: [],
       ready: [relationIssue("TASK-1", 1)],
@@ -861,26 +861,27 @@ export async function createEpicRunSchedulerHarness(
         return Effect.succeed(updated);
       }),
     getContext: () => Effect.fail(beadsError("unexpected getContext call")),
-    getSwarmSupport: () => Effect.succeed(readTrackerStateSnapshot().support),
+    getEpicRunSupport: () => Effect.succeed(readTrackerStateSnapshot().support),
     getIssueGraph: () => Effect.fail(beadsError("unexpected getIssueGraph call")),
-    getEpicSwarm: () => Effect.succeed(readTrackerStateSnapshot().validation.swarm),
-    validateEpicSwarm: () => Effect.succeed(readTrackerStateSnapshot().validation),
-    getEpicSwarmStatus: () => Effect.succeed(readTrackerStateSnapshot().status),
-    listSwarms: () =>
+    getEpicTrackerSummary: () =>
+      Effect.succeed(readTrackerStateSnapshot().validation.trackerSummary),
+    validateEpicRun: () => Effect.succeed(readTrackerStateSnapshot().validation),
+    getEpicTrackerStatus: () => Effect.succeed(readTrackerStateSnapshot().status),
+    listEpicTrackerSummaries: () =>
       Effect.sync(() => {
         const currentTrackerState = readTrackerStateSnapshot();
         return {
-          swarms: currentTrackerState.validation.swarm
-            ? [currentTrackerState.validation.swarm]
+          trackerSummaries: currentTrackerState.validation.trackerSummary
+            ? [currentTrackerState.validation.trackerSummary]
             : [],
         };
       }),
-    listSwarmsWithSupport: () =>
+    listEpicTrackerSummariesWithSupport: () =>
       Effect.sync(() => {
         const currentTrackerState = readTrackerStateSnapshot();
         return {
-          swarms: currentTrackerState.validation.swarm
-            ? [currentTrackerState.validation.swarm]
+          trackerSummaries: currentTrackerState.validation.trackerSummary
+            ? [currentTrackerState.validation.trackerSummary]
             : [],
         };
       }),
@@ -897,9 +898,10 @@ export async function createEpicRunSchedulerHarness(
           );
         }
 
-        const currentSwarm = trackerState.validation.swarm ?? trackerState.status.swarm;
+        const currentSwarm =
+          trackerState.validation.trackerSummary ?? trackerState.status.trackerSummary;
         const swarm = currentSwarm ?? {
-          swarmId: `SWARM-${epicIssueId}`,
+          trackerId: `SWARM-${epicIssueId}`,
           epicId: epicIssueId,
           epicTitle: trackerState.validation.epicTitle,
           totalIssueCount:
@@ -918,11 +920,11 @@ export async function createEpicRunSchedulerHarness(
           ...trackerState,
           validation: {
             ...trackerState.validation,
-            swarm,
+            trackerSummary: swarm,
           },
           status: {
             ...trackerState.status,
-            swarm,
+            trackerSummary: swarm,
           },
         };
 

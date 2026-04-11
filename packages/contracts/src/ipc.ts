@@ -10,12 +10,12 @@ import type {
   BeadsGetIssuesResult,
   BeadsGetSessionActivityInput,
   BeadsGetSessionActivityResult,
-  BeadsGetSwarmSupportInput,
+  BeadsGetEpicRunSupportInput,
   BeadsIssueDetail,
   BeadsIssueGraph,
   BeadsIssueSummary,
-  BeadsListSwarmsInput,
-  BeadsListSwarmsResult,
+  BeadsListEpicTrackerSummariesInput,
+  BeadsListEpicTrackerSummariesResult,
   BeadsProjectCoordinatorSnapshot,
   BeadsProjectCoordinatorSnapshotInput,
   BeadsQueryIssuesInput,
@@ -26,10 +26,10 @@ import type {
   BeadsStartEpicCoordinationPrepInput,
   BeadsStartWorkflowInput,
   BeadsStartWorkflowResult,
-  BeadsSwarmStatus,
-  BeadsSwarmSummary,
-  BeadsSwarmSupport,
-  BeadsSwarmValidation,
+  BeadsEpicTrackerStatus,
+  BeadsEpicTrackerSummary,
+  BeadsEpicRunSupport,
+  BeadsEpicRunValidation,
   BeadsUpdateIssueInput,
   BeadsCreateIssueInput,
 } from "./beads";
@@ -268,12 +268,14 @@ export interface NativeApi {
     updateIssue: (input: BeadsUpdateIssueInput) => Promise<BeadsIssueSummary>;
     commentIssue: (input: BeadsCommentIssueInput) => Promise<BeadsIssueDetail>;
     getContext: (input: BeadsGetContextInput) => Promise<BeadsContext>;
-    getSwarmSupport: (input: BeadsGetSwarmSupportInput) => Promise<BeadsSwarmSupport>;
+    getEpicRunSupport: (input: BeadsGetEpicRunSupportInput) => Promise<BeadsEpicRunSupport>;
     getIssueGraph: (input: BeadsEpicIssueInput) => Promise<BeadsIssueGraph>;
-    getEpicSwarm: (input: BeadsEpicIssueInput) => Promise<BeadsSwarmSummary | null>;
-    validateEpicSwarm: (input: BeadsEpicIssueInput) => Promise<BeadsSwarmValidation>;
-    getEpicSwarmStatus: (input: BeadsEpicIssueInput) => Promise<BeadsSwarmStatus>;
-    listSwarms: (input: BeadsListSwarmsInput) => Promise<BeadsListSwarmsResult>;
+    getEpicTrackerSummary: (input: BeadsEpicIssueInput) => Promise<BeadsEpicTrackerSummary | null>;
+    validateEpicRun: (input: BeadsEpicIssueInput) => Promise<BeadsEpicRunValidation>;
+    getEpicTrackerStatus: (input: BeadsEpicIssueInput) => Promise<BeadsEpicTrackerStatus>;
+    listEpicTrackerSummaries: (
+      input: BeadsListEpicTrackerSummariesInput,
+    ) => Promise<BeadsListEpicTrackerSummariesResult>;
     getProjectCoordinatorSnapshot: (
       input: BeadsProjectCoordinatorSnapshotInput,
     ) => Promise<BeadsProjectCoordinatorSnapshot>;

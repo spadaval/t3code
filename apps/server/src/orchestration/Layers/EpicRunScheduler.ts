@@ -488,12 +488,12 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       const cwd = project.workspaceRoot;
       const [support, validation, status] = yield* Effect.all(
         [
-          beadsTracker.getSwarmSupport({ cwd }),
-          beadsTracker.validateEpicSwarm({
+          beadsTracker.getEpicRunSupport({ cwd }),
+          beadsTracker.validateEpicRun({
             cwd,
             epicIssueId: input.epicIssueId,
           }),
-          beadsTracker.getEpicSwarmStatus({
+          beadsTracker.getEpicTrackerStatus({
             cwd,
             epicIssueId: input.epicIssueId,
           }),
@@ -891,14 +891,14 @@ const makeEpicRunScheduler = Effect.gen(function* () {
 
       const project = yield* getProjectById(run.projectId);
       const trackerStatus = yield* beadsTracker
-        .getEpicSwarmStatus({
+        .getEpicTrackerStatus({
           cwd: project.workspaceRoot,
           epicIssueId: run.epicIssueId,
         })
         .pipe(
           Effect.mapError((error) =>
             workflowError(
-              "launchNextTaskExecution:getEpicSwarmStatus",
+              "launchNextTaskExecution:getEpicTrackerStatus",
               truncateEpicRunFailureDetail(toErrorMessage(error)),
               error,
             ),
@@ -1345,7 +1345,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         epicIssueId: input.epicIssueId,
       });
 
-      if (!trackerState.validation.swarm) {
+      if (!trackerState.validation.trackerSummary) {
         yield* beadsTracker
           .createEpicSwarm({
             cwd: project.workspaceRoot,
@@ -1367,7 +1367,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         });
       }
 
-      const swarm = trackerState.validation.swarm;
+      const swarm = trackerState.validation.trackerSummary;
       if (!swarm) {
         return yield* workflowError(
           "startEpicRun",

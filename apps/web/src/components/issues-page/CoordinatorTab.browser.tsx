@@ -104,7 +104,7 @@ const BASE_EPIC: BeadsCoordinatorEpicSnapshot = {
   activeRunId: null,
   activeExecutionId: null,
   projectConflict: null,
-  swarmSummary: null,
+  trackerSummary: null,
   validation: null,
   status: null,
   runs: [],

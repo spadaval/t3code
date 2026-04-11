@@ -180,12 +180,12 @@ describe("issue title views", () => {
       activeRunId: "run-1" as never,
       activeExecutionId: "exec-1" as never,
       projectConflict: null,
-      swarmSummary: null,
+      trackerSummary: null,
       validation: null,
       status: {
         epicId: "EPIC-1",
         epicTitle: "Epic 1",
-        swarm: null,
+        trackerSummary: null,
         completed: [completedButOpenIssue],
         active: [activeIssue],
         ready: [],
@@ -290,12 +290,12 @@ describe("issue title views", () => {
           activeRunId: null,
           activeExecutionId: null,
           projectConflict: null,
-          swarmSummary: null,
+          trackerSummary: null,
           validation: null,
           status: {
             epicId: "EPIC-1",
             epicTitle: "Epic 1",
-            swarm: null,
+            trackerSummary: null,
             completed: [
               makeRelation({
                 id: "TASK-COMPLETED",
