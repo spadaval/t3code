@@ -1,16 +1,22 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ApprovalRequestId,
   type ChatAttachment,
   type OrchestrationEvent,
 } from "@t3tools/contracts";
+import { createEpicRunFailureContext } from "@t3tools/shared/epicRun";
 import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
+import { ProjectionPlanImplementationLaunchRepository } from "../../persistence/Services/ProjectionPlanImplementationLaunches.ts";
+import { ProjectionPendingCheckpointCaptureRepository } from "../../persistence/Services/ProjectionPendingCheckpointCaptures.ts";
 import { ProjectionPendingApprovalRepository } from "../../persistence/Services/ProjectionPendingApprovals.ts";
 import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
+import { ProjectionEpicRunRepository } from "../../persistence/Services/ProjectionEpicRuns.ts";
+import { ProjectionEpicIssueExecutionRepository } from "../../persistence/Services/ProjectionEpicIssueExecutions.ts";
 import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
 import { type ProjectionThreadActivity } from "../../persistence/Services/ProjectionThreadActivities.ts";
 import {
@@ -28,8 +34,12 @@ import {
 } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
+import { ProjectionPendingCheckpointCaptureRepositoryLive } from "../../persistence/Layers/ProjectionPendingCheckpointCaptures.ts";
+import { ProjectionPlanImplementationLaunchRepositoryLive } from "../../persistence/Layers/ProjectionPlanImplementationLaunches.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
+import { ProjectionEpicRunRepositoryLive } from "../../persistence/Layers/ProjectionEpicRuns.ts";
+import { ProjectionEpicIssueExecutionRepositoryLive } from "../../persistence/Layers/ProjectionEpicIssueExecutions.ts";
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
 import { ProjectionThreadMessageRepositoryLive } from "../../persistence/Layers/ProjectionThreadMessages.ts";
 import { ProjectionThreadProposedPlanRepositoryLive } from "../../persistence/Layers/ProjectionThreadProposedPlans.ts";
@@ -41,6 +51,7 @@ import {
   OrchestrationProjectionPipeline,
   type OrchestrationProjectionPipelineShape,
 } from "../Services/ProjectionPipeline.ts";
+import { isLegacyMissingCheckpointStatus } from "../checkpointCapture.ts";
 import {
   attachmentRelativePath,
   parseAttachmentIdFromRelativePath,
@@ -51,12 +62,16 @@ import {
 export const ORCHESTRATION_PROJECTOR_NAMES = {
   projects: "projection.projects",
   threads: "projection.threads",
+  planImplementationLaunches: "projection.plan-implementation-launches",
+  epicRuns: "projection.epic-runs",
+  epicIssueExecutions: "projection.epic-issue-executions",
   threadMessages: "projection.thread-messages",
   threadProposedPlans: "projection.thread-proposed-plans",
   threadActivities: "projection.thread-activities",
   threadSessions: "projection.thread-sessions",
   threadTurns: "projection.thread-turns",
   checkpoints: "projection.checkpoints",
+  pendingCheckpointCaptures: "projection.pending-checkpoint-captures",
   pendingApprovals: "projection.pending-approvals",
 } as const;
 
@@ -86,7 +101,7 @@ function extractActivityRequestId(payload: unknown): ApprovalRequestId | null {
     return null;
   }
   const requestId = (payload as Record<string, unknown>).requestId;
-  return typeof requestId === "string" ? ApprovalRequestId.make(requestId) : null;
+  return typeof requestId === "string" ? ApprovalRequestId.makeUnsafe(requestId) : null;
 }
 
 function retainProjectionMessagesAfterRevert(
@@ -237,6 +252,10 @@ function collectThreadAttachmentRelativePaths(
   return relativePaths;
 }
 
+function checkpointStatusToFallbackTurnState(status: "ready" | "missing" | "error") {
+  return status === "error" ? ("error" as const) : ("completed" as const);
+}
+
 const runAttachmentSideEffects = Effect.fn("runAttachmentSideEffects")(function* (
   sideEffects: AttachmentSideEffects,
 ) {
@@ -362,11 +381,17 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionStateRepository = yield* ProjectionStateRepository;
     const projectionProjectRepository = yield* ProjectionProjectRepository;
     const projectionThreadRepository = yield* ProjectionThreadRepository;
+    const projectionPlanImplementationLaunchRepository =
+      yield* ProjectionPlanImplementationLaunchRepository;
+    const projectionEpicRunRepository = yield* ProjectionEpicRunRepository;
+    const projectionEpicIssueExecutionRepository = yield* ProjectionEpicIssueExecutionRepository;
     const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
     const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
     const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
     const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
     const projectionTurnRepository = yield* ProjectionTurnRepository;
+    const projectionPendingCheckpointCaptureRepository =
+      yield* ProjectionPendingCheckpointCaptureRepository;
     const projectionPendingApprovalRepository = yield* ProjectionPendingApprovalRepository;
 
     const fileSystem = yield* FileSystem.FileSystem;
@@ -446,6 +471,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             interactionMode: event.payload.interactionMode,
             branch: event.payload.branch,
             worktreePath: event.payload.worktreePath,
+            issueLink: event.payload.issueLink,
             latestTurnId: null,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,
@@ -501,6 +527,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...(event.payload.worktreePath !== undefined
               ? { worktreePath: event.payload.worktreePath }
               : {}),
+            ...(event.payload.issueLink !== undefined
+              ? { issueLink: event.payload.issueLink }
+              : {}),
             updatedAt: event.payload.updatedAt,
           });
           return;
@@ -554,6 +583,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
 
         case "thread.message-sent":
         case "thread.proposed-plan-upserted":
+        case "thread.checkpoint-capture-requested":
         case "thread.activity-appended": {
           const existingRow = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
@@ -611,6 +641,370 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             updatedAt: event.occurredAt,
           });
           return;
+        }
+
+        default:
+          return;
+      }
+    });
+
+    const applyPlanImplementationLaunchesProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyPlanImplementationLaunchesProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "plan-implementation-launch.requested": {
+          yield* projectionPlanImplementationLaunchRepository.upsert({
+            launchId: event.payload.launchId,
+            sourceThreadId: event.payload.sourceThreadId,
+            sourcePlanId: event.payload.sourcePlanId,
+            projectId: event.payload.projectId,
+            targetThreadId: event.payload.targetThreadId,
+            retryOfLaunchId: event.payload.retryOfLaunchId,
+            status: "requested",
+            launchMode: event.payload.launchMode,
+            branch: null,
+            worktreePath: null,
+            failureReason: null,
+            cleanupStatus: "not-required",
+            cleanupError: null,
+            title: event.payload.title,
+            setupEnabled: event.payload.setupEnabled,
+            promptText: event.payload.promptText,
+            provider: event.payload.provider,
+            model: event.payload.model,
+            modelOptions: event.payload.modelOptions,
+            providerOptions: event.payload.providerOptions,
+            assistantDeliveryMode: event.payload.assistantDeliveryMode,
+            runtimeMode: event.payload.runtimeMode,
+            requestedAt: event.payload.requestedAt,
+            preparedAt: null,
+            startedAt: null,
+            failedAt: null,
+            cancelledAt: null,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "plan-implementation-launch.worktree-prepared":
+        case "plan-implementation-launch.started":
+        case "plan-implementation-launch.failed":
+        case "plan-implementation-launch.cancelled": {
+          const existingRow = yield* projectionPlanImplementationLaunchRepository.getById({
+            launchId: event.payload.launchId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+
+          switch (event.type) {
+            case "plan-implementation-launch.worktree-prepared":
+              yield* projectionPlanImplementationLaunchRepository.upsert({
+                ...existingRow.value,
+                status: "prepared",
+                branch: event.payload.branch,
+                worktreePath: event.payload.worktreePath,
+                preparedAt: event.payload.preparedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "plan-implementation-launch.started":
+              yield* projectionPlanImplementationLaunchRepository.upsert({
+                ...existingRow.value,
+                status: "started",
+                startedAt: event.payload.startedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "plan-implementation-launch.failed":
+              yield* projectionPlanImplementationLaunchRepository.upsert({
+                ...existingRow.value,
+                status: "failed",
+                failureReason: event.payload.failureReason,
+                cleanupStatus: event.payload.cleanupStatus,
+                cleanupError: event.payload.cleanupError,
+                failedAt: event.payload.failedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "plan-implementation-launch.cancelled":
+              yield* projectionPlanImplementationLaunchRepository.upsert({
+                ...existingRow.value,
+                status: "cancelled",
+                cleanupStatus: event.payload.cleanupStatus,
+                cleanupError: event.payload.cleanupError,
+                cancelledAt: event.payload.cancelledAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+          }
+        }
+
+        default:
+          return;
+      }
+    });
+
+    const applyEpicRunsProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyEpicRunsProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "epic-run.requested":
+          yield* projectionEpicRunRepository.upsert({
+            runId: event.payload.runId,
+            projectId: event.payload.projectId,
+            epicIssueId: event.payload.epicIssueId,
+            status: "pending",
+            provider: event.payload.provider,
+            model: event.payload.model,
+            modelOptions: event.payload.modelOptions,
+            providerOptions: event.payload.providerOptions,
+            assistantDeliveryMode: event.payload.assistantDeliveryMode,
+            runtimeMode: event.payload.runtimeMode,
+            failureContext: null,
+            requestedAt: event.payload.requestedAt,
+            startedAt: null,
+            stopRequestedAt: null,
+            stoppedAt: null,
+            failedAt: null,
+            completedAt: null,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+
+        case "epic-run.started":
+        case "epic-run.failed":
+        case "epic-run.stopped":
+        case "epic-run.completed": {
+          const existingRow = yield* projectionEpicRunRepository.getById({
+            runId: event.payload.runId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+
+          switch (event.type) {
+            case "epic-run.started":
+              yield* projectionEpicRunRepository.upsert({
+                ...existingRow.value,
+                status: "running",
+                startedAt: event.payload.startedAt,
+                failureContext: null,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "epic-run.failed": {
+              const fallbackExecution =
+                (yield* projectionEpicIssueExecutionRepository.listAll())
+                  .filter(
+                    (execution) =>
+                      execution.runId === event.payload.runId && execution.status === "failed",
+                  )
+                  .toSorted(
+                    (left, right) =>
+                      right.sequenceNumber - left.sequenceNumber ||
+                      right.updatedAt.localeCompare(left.updatedAt),
+                  )
+                  .at(0) ?? null;
+
+              yield* projectionEpicRunRepository.upsert({
+                ...existingRow.value,
+                status: "failed",
+                failureContext: createEpicRunFailureContext({
+                  reason: event.payload.reason,
+                  issueId: event.payload.issueId ?? fallbackExecution?.issueId ?? null,
+                  executionId: event.payload.executionId ?? fallbackExecution?.executionId ?? null,
+                  workerThreadId:
+                    event.payload.workerThreadId ?? fallbackExecution?.workerThreadId ?? null,
+                }),
+                failedAt: event.payload.failedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+            }
+
+            case "epic-run.stopped":
+              yield* projectionEpicRunRepository.upsert({
+                ...existingRow.value,
+                status: "stopped",
+                failureContext: null,
+                stopRequestedAt: existingRow.value.stopRequestedAt ?? event.payload.stoppedAt,
+                stoppedAt: event.payload.stoppedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "epic-run.completed":
+              yield* projectionEpicRunRepository.upsert({
+                ...existingRow.value,
+                status: "completed",
+                failureContext: null,
+                stopRequestedAt: null,
+                stoppedAt: null,
+                completedAt: event.payload.completedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+          }
+        }
+
+        case "epic-issue-execution.requested":
+        case "epic-issue-execution.started":
+        case "epic-issue-execution.completed":
+        case "epic-issue-execution.failed":
+        case "epic-issue-execution.stopped": {
+          const existingRow = yield* projectionEpicRunRepository.getById({
+            runId: event.payload.runId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+
+          yield* projectionEpicRunRepository.upsert({
+            ...existingRow.value,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        default:
+          return;
+      }
+    });
+
+    const applyEpicIssueExecutionsProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyEpicIssueExecutionsProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "epic-issue-execution.requested":
+          yield* projectionEpicIssueExecutionRepository.upsert({
+            executionId: event.payload.executionId,
+            runId: event.payload.runId,
+            issueId: event.payload.issueId,
+            workerThreadId: event.payload.workerThreadId,
+            sequenceNumber: event.payload.sequenceNumber,
+            status: "launching",
+            workspaceKey: "shared",
+            workspacePath: null,
+            failureContext: null,
+            requestedAt: event.payload.requestedAt,
+            startedAt: null,
+            stopRequestedAt: null,
+            stoppedAt: null,
+            completedAt: null,
+            failedAt: null,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+
+        case "epic-issue-execution.started": {
+          const existingRow = yield* projectionEpicIssueExecutionRepository.getById({
+            executionId: event.payload.executionId,
+          });
+          yield* projectionEpicIssueExecutionRepository.upsert({
+            executionId: event.payload.executionId,
+            runId: event.payload.runId,
+            issueId: Option.match(existingRow, {
+              onNone: () => "unknown-task",
+              onSome: (row) => row.issueId,
+            }),
+            workerThreadId: Option.match(existingRow, {
+              onNone: () => null,
+              onSome: (row) => row.workerThreadId,
+            }),
+            sequenceNumber: Option.match(existingRow, {
+              onNone: () => 0,
+              onSome: (row) => row.sequenceNumber,
+            }),
+            status: "running",
+            workspaceKey: Option.match(existingRow, {
+              onNone: () => "shared",
+              onSome: (row) => row.workspaceKey,
+            }),
+            workspacePath: Option.match(existingRow, {
+              onNone: () => null,
+              onSome: (row) => row.workspacePath,
+            }),
+            failureContext: null,
+            requestedAt: Option.match(existingRow, {
+              onNone: () => event.payload.startedAt,
+              onSome: (row) => row.requestedAt,
+            }),
+            startedAt: event.payload.startedAt,
+            stopRequestedAt: Option.match(existingRow, {
+              onNone: () => null,
+              onSome: (row) => row.stopRequestedAt,
+            }),
+            stoppedAt: Option.match(existingRow, {
+              onNone: () => null,
+              onSome: (row) => row.stoppedAt,
+            }),
+            completedAt: Option.match(existingRow, {
+              onNone: () => null,
+              onSome: (row) => row.completedAt,
+            }),
+            failedAt: Option.match(existingRow, {
+              onNone: () => null,
+              onSome: (row) => row.failedAt,
+            }),
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "epic-issue-execution.completed":
+        case "epic-issue-execution.failed":
+        case "epic-issue-execution.stopped": {
+          const existingRow = yield* projectionEpicIssueExecutionRepository.getById({
+            executionId: event.payload.executionId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+
+          switch (event.type) {
+            case "epic-issue-execution.completed":
+              yield* projectionEpicIssueExecutionRepository.upsert({
+                ...existingRow.value,
+                status: "completed",
+                failureContext: null,
+                stopRequestedAt: null,
+                stoppedAt: null,
+                completedAt: event.payload.completedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "epic-issue-execution.failed":
+              yield* projectionEpicIssueExecutionRepository.upsert({
+                ...existingRow.value,
+                status: "failed",
+                failureContext: createEpicRunFailureContext({
+                  reason: event.payload.reason,
+                  issueId: existingRow.value.issueId,
+                  executionId: existingRow.value.executionId,
+                  workerThreadId: existingRow.value.workerThreadId,
+                }),
+                failedAt: event.payload.failedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+
+            case "epic-issue-execution.stopped":
+              yield* projectionEpicIssueExecutionRepository.upsert({
+                ...existingRow.value,
+                status: "stopped",
+                failureContext: null,
+                stopRequestedAt: existingRow.value.stopRequestedAt ?? event.payload.stoppedAt,
+                stoppedAt: event.payload.stoppedAt,
+                updatedAt: event.payload.updatedAt,
+              });
+              return;
+          }
         }
 
         default:
@@ -707,8 +1101,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             threadId: event.payload.threadId,
             turnId: event.payload.proposedPlan.turnId,
             planMarkdown: event.payload.proposedPlan.planMarkdown,
-            implementedAt: event.payload.proposedPlan.implementedAt,
-            implementationThreadId: event.payload.proposedPlan.implementationThreadId,
+            planIntent: event.payload.proposedPlan.planIntent,
+            followUpOutcome: event.payload.proposedPlan.followUpOutcome,
             createdAt: event.payload.proposedPlan.createdAt,
             updatedAt: event.payload.proposedPlan.updatedAt,
           });
@@ -996,11 +1390,14 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         }
 
         case "thread.turn-diff-completed": {
+          if (isLegacyMissingCheckpointStatus(event.payload.status)) {
+            return;
+          }
+
           const existingTurn = yield* projectionTurnRepository.getByTurnId({
             threadId: event.payload.threadId,
             turnId: event.payload.turnId,
           });
-          const nextState = event.payload.status === "error" ? "error" : "completed";
           yield* projectionTurnRepository.clearCheckpointTurnConflict({
             threadId: event.payload.threadId,
             turnId: event.payload.turnId,
@@ -1011,7 +1408,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             yield* projectionTurnRepository.upsertByTurnId({
               ...existingTurn.value,
               assistantMessageId: event.payload.assistantMessageId,
-              state: nextState,
               checkpointTurnCount: event.payload.checkpointTurnCount,
               checkpointRef: event.payload.checkpointRef,
               checkpointStatus: event.payload.status,
@@ -1029,7 +1425,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             sourceProposedPlanThreadId: null,
             sourceProposedPlanId: null,
             assistantMessageId: event.payload.assistantMessageId,
-            state: nextState,
+            state: checkpointStatusToFallbackTurnState(event.payload.status),
             requestedAt: event.payload.completedAt,
             startedAt: event.payload.completedAt,
             completedAt: event.payload.completedAt,
@@ -1063,6 +1459,59 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                     ...turn,
                     turnId: turn.turnId,
                   }),
+            { concurrency: 1 },
+          ).pipe(Effect.asVoid);
+          return;
+        }
+
+        default:
+          return;
+      }
+    });
+
+    const applyPendingCheckpointCapturesProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyPendingCheckpointCapturesProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "thread.checkpoint-capture-requested": {
+          yield* projectionPendingCheckpointCaptureRepository.upsert({
+            threadId: event.payload.threadId,
+            turnId: event.payload.request.turnId,
+            checkpointTurnCount: event.payload.request.checkpointTurnCount,
+            assistantMessageId: event.payload.request.assistantMessageId,
+            requestedAt: event.payload.request.requestedAt,
+          });
+          return;
+        }
+
+        case "thread.turn-diff-completed": {
+          if (isLegacyMissingCheckpointStatus(event.payload.status)) {
+            yield* projectionPendingCheckpointCaptureRepository.upsert({
+              threadId: event.payload.threadId,
+              turnId: event.payload.turnId,
+              checkpointTurnCount: event.payload.checkpointTurnCount,
+              assistantMessageId: event.payload.assistantMessageId,
+              requestedAt: event.payload.completedAt,
+            });
+            return;
+          }
+          yield* projectionPendingCheckpointCaptureRepository.deleteByThreadAndTurnId({
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+          });
+          return;
+        }
+
+        case "thread.reverted": {
+          const existingRows = yield* projectionPendingCheckpointCaptureRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          yield* projectionPendingCheckpointCaptureRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
+          yield* Effect.forEach(
+            existingRows.filter((row) => row.checkpointTurnCount <= event.payload.turnCount),
+            (row) => projectionPendingCheckpointCaptureRepository.upsert(row),
             { concurrency: 1 },
           ).pipe(Effect.asVoid);
           return;
@@ -1169,6 +1618,18 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         apply: applyProjectsProjection,
       },
       {
+        name: ORCHESTRATION_PROJECTOR_NAMES.planImplementationLaunches,
+        apply: applyPlanImplementationLaunchesProjection,
+      },
+      {
+        name: ORCHESTRATION_PROJECTOR_NAMES.epicRuns,
+        apply: applyEpicRunsProjection,
+      },
+      {
+        name: ORCHESTRATION_PROJECTOR_NAMES.epicIssueExecutions,
+        apply: applyEpicIssueExecutionsProjection,
+      },
+      {
         name: ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
         apply: applyThreadMessagesProjection,
       },
@@ -1187,6 +1648,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       {
         name: ORCHESTRATION_PROJECTOR_NAMES.threadTurns,
         apply: applyThreadTurnsProjection,
+      },
+      {
+        name: ORCHESTRATION_PROJECTOR_NAMES.pendingCheckpointCaptures,
+        apply: applyPendingCheckpointCapturesProjection,
       },
       {
         name: ORCHESTRATION_PROJECTOR_NAMES.checkpoints,
@@ -1294,13 +1759,18 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   OrchestrationProjectionPipeline,
   makeOrchestrationProjectionPipeline(),
 ).pipe(
+  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(ProjectionPlanImplementationLaunchRepositoryLive),
   Layer.provideMerge(ProjectionProjectRepositoryLive),
+  Layer.provideMerge(ProjectionEpicRunRepositoryLive),
+  Layer.provideMerge(ProjectionEpicIssueExecutionRepositoryLive),
   Layer.provideMerge(ProjectionThreadRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),
   Layer.provideMerge(ProjectionThreadActivityRepositoryLive),
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),
   Layer.provideMerge(ProjectionTurnRepositoryLive),
+  Layer.provideMerge(ProjectionPendingCheckpointCaptureRepositoryLive),
   Layer.provideMerge(ProjectionPendingApprovalRepositoryLive),
   Layer.provideMerge(ProjectionStateRepositoryLive),
 );

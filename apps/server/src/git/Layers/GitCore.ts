@@ -2049,6 +2049,15 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     },
   );
 
+  const deleteLocalBranch: GitCoreShape["deleteLocalBranch"] = Effect.fn("deleteLocalBranch")(
+    function* (input) {
+      const args = ["branch", input.force === false ? "-d" : "-D", input.branch];
+      yield* executeGit("GitCore.deleteLocalBranch", input.cwd, args, {
+        fallbackErrorMessage: "git branch delete failed",
+      }).pipe(Effect.asVoid);
+    },
+  );
+
   const renameBranch: GitCoreShape["renameBranch"] = Effect.fn("renameBranch")(function* (input) {
     if (input.oldBranch === input.newBranch) {
       return { branch: input.newBranch };
@@ -2204,6 +2213,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     fetchRemoteBranch,
     setBranchUpstream,
     removeWorktree,
+    deleteLocalBranch,
     renameBranch,
     createBranch,
     checkoutBranch,

@@ -35,6 +35,12 @@ import Migration0019 from "./Migrations/019_ProjectionSnapshotLookupIndexes.ts";
 import Migration0020 from "./Migrations/020_AuthAccessManagement.ts";
 import Migration0021 from "./Migrations/021_AuthSessionClientMetadata.ts";
 import Migration0022 from "./Migrations/022_AuthSessionLastConnectedAt.ts";
+import Migration0023 from "./Migrations/023_ProjectionPlanImplementationLaunches.ts";
+import Migration0024 from "./Migrations/024_ProjectionThreadsIssueLink.ts";
+import Migration0025 from "./Migrations/025_ProjectionPlanMetadata.ts";
+import Migration0026 from "./Migrations/026_ProjectionEpicRuns.ts";
+import Migration0027 from "./Migrations/027_ProposedPlanFollowUpOutcome.ts";
+import Migration0028 from "./Migrations/028_ProjectionPendingCheckpointCaptures.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -69,6 +75,12 @@ export const migrationEntries = [
   [20, "AuthAccessManagement", Migration0020],
   [21, "AuthSessionClientMetadata", Migration0021],
   [22, "AuthSessionLastConnectedAt", Migration0022],
+  [23, "ProjectionPlanImplementationLaunches", Migration0023],
+  [24, "ProjectionThreadsIssueLink", Migration0024],
+  [25, "ProjectionPlanMetadata", Migration0025],
+  [26, "ProjectionEpicRuns", Migration0026],
+  [27, "ProposedPlanFollowUpOutcome", Migration0027],
+  [28, "ProjectionPendingCheckpointCaptures", Migration0028],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

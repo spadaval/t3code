@@ -38,6 +38,8 @@ import { RuntimeReceiptBusLive } from "./orchestration/Layers/RuntimeReceiptBus"
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor";
+import { PlanImplementationWorkflowLive } from "./orchestration/Layers/PlanImplementationWorkflow";
+import { EpicRunSchedulerLive } from "./orchestration/Layers/EpicRunScheduler";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry";
 import { ServerSettingsLive } from "./serverSettings";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
@@ -48,6 +50,7 @@ import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
 import { ProjectSetupScriptRunnerLive } from "./project/Layers/ProjectSetupScriptRunner";
 import { ObservabilityLive } from "./observability/Layers/Observability";
 import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment";
+import { BeadsServiceLive, BeadsTrackerServiceLive } from "./beads/Layers/BeadsService";
 import {
   authBearerBootstrapRouteLayer,
   authBootstrapRouteLayer,
@@ -126,6 +129,8 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(ProviderRuntimeIngestionLive),
   Layer.provideMerge(ProviderCommandReactorLive),
   Layer.provideMerge(CheckpointReactorLive),
+  Layer.provideMerge(PlanImplementationWorkflowLive),
+  Layer.provideMerge(EpicRunSchedulerLive),
   Layer.provideMerge(RuntimeReceiptBusLive),
 );
 
@@ -194,6 +199,16 @@ const AuthLayerLive = ServerAuthLive.pipe(
   Layer.provide(ServerSecretStoreLive),
 );
 
+const BeadsTrackerLayerLive = BeadsTrackerServiceLive;
+
+const BeadsLayerLive = Layer.mergeAll(
+  BeadsTrackerLayerLive,
+  BeadsServiceLive.pipe(
+    Layer.provide(BeadsTrackerLayerLive),
+    Layer.provide(OrchestrationLayerLive),
+  ),
+).pipe(Layer.provide(PersistenceLayerLive));
+
 const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   // Core Services
   Layer.provideMerge(CheckpointingLayerLive),
@@ -210,6 +225,7 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(RepositoryIdentityResolverLive),
   Layer.provideMerge(ServerEnvironmentLive),
   Layer.provideMerge(AuthLayerLive),
+  Layer.provideMerge(BeadsLayerLive),
 
   // Misc.
   Layer.provideMerge(AnalyticsServiceLayerLive),

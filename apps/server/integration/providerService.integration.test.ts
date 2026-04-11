@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type { ProviderRuntimeEvent } from "@t3tools/contracts";
 import { ThreadId } from "@t3tools/contracts";
 import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts/settings";

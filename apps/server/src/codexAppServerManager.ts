@@ -19,7 +19,7 @@ import {
   ProviderInteractionMode,
 } from "@t3tools/contracts";
 import { normalizeModelSlug } from "@t3tools/shared/model";
-import { Effect, Context } from "effect";
+import { Context, Effect } from "effect";
 
 import {
   formatCodexCliUpgradeMessage,
@@ -290,26 +290,20 @@ In Default mode, strongly prefer making reasonable assumptions and executing the
 </collaboration_mode>`;
 
 function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
-  readonly approvalPolicy: "untrusted" | "on-request" | "never";
-  readonly sandbox: "read-only" | "workspace-write" | "danger-full-access";
+  readonly approvalPolicy: "on-request" | "never";
+  readonly sandbox: "workspace-write" | "danger-full-access";
 } {
-  switch (runtimeMode) {
-    case "approval-required":
-      return {
-        approvalPolicy: "untrusted",
-        sandbox: "read-only",
-      };
-    case "auto-accept-edits":
-      return {
-        approvalPolicy: "on-request",
-        sandbox: "workspace-write",
-      };
-    case "full-access":
-      return {
-        approvalPolicy: "never",
-        sandbox: "danger-full-access",
-      };
+  if (runtimeMode === "approval-required") {
+    return {
+      approvalPolicy: "on-request",
+      sandbox: "workspace-write",
+    };
   }
+
+  return {
+    approvalPolicy: "never",
+    sandbox: "danger-full-access",
+  };
 }
 
 /**
@@ -640,7 +634,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         this.stopSession(threadId);
       } else {
         this.emitEvent({
-          id: EventId.make(randomUUID()),
+          id: EventId.makeUnsafe(randomUUID()),
           kind: "error",
           provider: "codex",
           threadId,
@@ -739,7 +733,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (!turnIdRaw) {
       throw new Error("turn/start response did not include a turn id.");
     }
-    const turnId = TurnId.make(turnIdRaw);
+    const turnId = TurnId.makeUnsafe(turnIdRaw);
 
     this.updateSession(context, {
       status: "running",
@@ -840,7 +834,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     });
 
     this.emitEvent({
-      id: EventId.make(randomUUID()),
+      id: EventId.makeUnsafe(randomUUID()),
       kind: "notification",
       provider: "codex",
       threadId: context.session.threadId,
@@ -879,7 +873,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     });
 
     this.emitEvent({
-      id: EventId.make(randomUUID()),
+      id: EventId.makeUnsafe(randomUUID()),
       kind: "notification",
       provider: "codex",
       threadId: context.session.threadId,
@@ -1061,7 +1055,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         : undefined;
 
     this.emitEvent({
-      id: EventId.make(randomUUID()),
+      id: EventId.makeUnsafe(randomUUID()),
       kind: "notification",
       provider: "codex",
       threadId: context.session.threadId,
@@ -1134,7 +1128,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const requestKind = this.requestKindForMethod(request.method);
     let requestId: ApprovalRequestId | undefined;
     if (requestKind) {
-      requestId = ApprovalRequestId.make(randomUUID());
+      requestId = ApprovalRequestId.makeUnsafe(randomUUID());
       const pendingRequest: PendingApprovalRequest = {
         requestId,
         jsonRpcId: request.id,
@@ -1153,7 +1147,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     if (request.method === "item/tool/requestUserInput") {
-      requestId = ApprovalRequestId.make(randomUUID());
+      requestId = ApprovalRequestId.makeUnsafe(randomUUID());
       context.pendingUserInputs.set(requestId, {
         requestId,
         jsonRpcId: request.id,
@@ -1164,7 +1158,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     this.emitEvent({
-      id: EventId.make(randomUUID()),
+      id: EventId.makeUnsafe(randomUUID()),
       kind: "request",
       provider: "codex",
       threadId: context.session.threadId,
@@ -1254,7 +1248,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   private emitLifecycleEvent(context: CodexSessionContext, method: string, message: string): void {
     this.emitEvent({
-      id: EventId.make(randomUUID()),
+      id: EventId.makeUnsafe(randomUUID()),
       kind: "session",
       provider: "codex",
       threadId: context.session.threadId,
@@ -1266,7 +1260,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   private emitErrorEvent(context: CodexSessionContext, method: string, message: string): void {
     this.emitEvent({
-      id: EventId.make(randomUUID()),
+      id: EventId.makeUnsafe(randomUUID()),
       kind: "error",
       provider: "codex",
       threadId: context.session.threadId,
@@ -1282,7 +1276,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     message: string,
   ): void {
     this.emitEvent({
-      id: EventId.make(randomUUID()),
+      id: EventId.makeUnsafe(randomUUID()),
       kind: "notification",
       provider: "codex",
       threadId: context.session.threadId,
@@ -1341,7 +1335,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const turns = turnsRaw.map((turnValue, index) => {
       const turn = this.readObject(turnValue);
       const turnIdRaw = this.readString(turn, "id") ?? `${threadIdRaw}:turn:${index + 1}`;
-      const turnId = TurnId.make(turnIdRaw);
+      const turnId = TurnId.makeUnsafe(turnIdRaw);
       const items = this.readArray(turn, "items") ?? [];
       return {
         id: turnId,
@@ -1468,7 +1462,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       method === "turn/completed" ||
       method === "turn/aborted" ||
       method === "turn/plan/updated" ||
-      method === "item/plan/delta"
+      method === "item/plan/delta" ||
+      method === "error"
     );
   }
 
@@ -1590,9 +1585,9 @@ function readResumeThreadId(input: {
 }
 
 function toTurnId(value: string | undefined): TurnId | undefined {
-  return brandIfNonEmpty(value, TurnId.make);
+  return brandIfNonEmpty(value, TurnId.makeUnsafe);
 }
 
 function toProviderItemId(value: string | undefined): ProviderItemId | undefined {
-  return brandIfNonEmpty(value, ProviderItemId.make);
+  return brandIfNonEmpty(value, ProviderItemId.makeUnsafe);
 }

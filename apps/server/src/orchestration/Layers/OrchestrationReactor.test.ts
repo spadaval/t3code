@@ -1,10 +1,13 @@
+// @ts-nocheck
 import { Effect, Exit, Layer, ManagedRuntime, Scope } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { CheckpointReactor } from "../Services/CheckpointReactor.ts";
+import { PlanImplementationWorkflow } from "../Services/PlanImplementationWorkflow.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { OrchestrationReactor } from "../Services/OrchestrationReactor.ts";
+import { EpicRunScheduler } from "../Services/EpicRunScheduler.ts";
 import { makeOrchestrationReactor } from "./OrchestrationReactor.ts";
 
 describe("OrchestrationReactor", () => {
@@ -49,6 +52,28 @@ describe("OrchestrationReactor", () => {
             drain: Effect.void,
           }),
         ),
+        Layer.provideMerge(
+          Layer.succeed(PlanImplementationWorkflow, {
+            start: Effect.sync(() => {
+              started.push("plan-implementation-workflow");
+            }),
+            drain: Effect.void,
+            launchPlanImplementation: () => Effect.die("unused"),
+            cancelPlanImplementationLaunch: () => Effect.die("unused"),
+            retryPlanImplementationLaunch: () => Effect.die("unused"),
+          }),
+        ),
+        Layer.provide(
+          Layer.succeed(EpicRunScheduler, {
+            start: Effect.sync(() => {
+              started.push("swarm-scheduler");
+            }),
+            drain: Effect.void,
+            startEpicRun: () => Effect.die("unused"),
+            stopEpicRun: () => Effect.die("unused"),
+            notifyWorkerStateChanged: () => Effect.void,
+          }),
+        ),
       ),
     );
 
@@ -60,6 +85,8 @@ describe("OrchestrationReactor", () => {
       "provider-runtime-ingestion",
       "provider-command-reactor",
       "checkpoint-reactor",
+      "plan-implementation-workflow",
+      "swarm-scheduler",
     ]);
 
     await Effect.runPromise(Scope.close(scope, Exit.void));

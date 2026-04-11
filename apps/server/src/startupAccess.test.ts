@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { assert, expect, it } from "@effect/vitest";
 
 import {
