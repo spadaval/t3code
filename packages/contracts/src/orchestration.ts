@@ -297,8 +297,16 @@ export const OrchestrationPlanImplementationLaunchCleanupStatus = Schema.Literal
 export type OrchestrationPlanImplementationLaunchCleanupStatus =
   typeof OrchestrationPlanImplementationLaunchCleanupStatus.Type;
 
-// Browser-facing orchestration session status. This is a projected UX state,
-// not the raw provider runtime protocol state.
+// Browser-facing orchestration session status. This is a projected UX state
+// used by coordinator/chat read models, so it intentionally includes derived
+// states such as `idle` and `interrupted` that do not exist in the raw runtime
+// protocol. It stays distinct from:
+// - ProviderSessionStatus in provider.ts, which models the client/provider API
+//   handle lifecycle
+// - RuntimeSessionState in providerRuntime.ts, which preserves raw provider
+//   protocol states like `waiting`
+// - ProviderSessionRuntimeStatus below, which only tracks the persisted server
+//   process lifecycle for runtime supervision
 export const OrchestrationSessionStatus = Schema.Literals([
   "idle",
   "starting",
@@ -1660,8 +1668,11 @@ export const ThreadTurnDiff = TurnCountRange.mapFields(
   { unsafePreserveChecks: true },
 );
 
-// Persisted provider-session runtime process status. This tracks the server's
-// process lifecycle and is intentionally narrower than OrchestrationSessionStatus.
+// Persisted provider-session runtime process status. This tracks only the
+// server's runtime-process lifecycle for supervision and restart handling, so
+// it intentionally excludes browser projection states (`idle`, `interrupted`),
+// raw provider protocol states (`waiting`, `ready`), and client handle states
+// such as `connecting` or `closed`.
 export const ProviderSessionRuntimeStatus = Schema.Literals([
   "starting",
   "running",

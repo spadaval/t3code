@@ -24,7 +24,14 @@ import {
 } from "./orchestration";
 
 // ProviderSession is the provider-facing session API contract. Its statuses
-// model client/provider connection semantics rather than orchestration state.
+// model the client-facing lifecycle of a provider session handle, including
+// connection setup and terminal closure. This stays distinct from:
+// - RuntimeSessionState in providerRuntime.ts, which preserves raw provider
+//   protocol states like `waiting`
+// - OrchestrationSessionStatus in orchestration.ts, which is a browser-facing
+//   projection derived from thread/session activity
+// - ProviderSessionRuntimeStatus in orchestration.ts, which only tracks the
+//   persisted server process lifecycle for runtime supervision
 const ProviderSessionStatus = Schema.Literals([
   "connecting",
   "ready",
