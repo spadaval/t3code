@@ -6,6 +6,7 @@ import { PlanImplementationWorkflow } from "../Services/PlanImplementationWorkfl
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { OrchestrationReactor } from "../Services/OrchestrationReactor.ts";
+import { EpicRunScheduler } from "../Services/EpicRunScheduler.ts";
 import { makeOrchestrationReactor } from "./OrchestrationReactor.ts";
 
 describe("OrchestrationReactor", () => {
@@ -61,6 +62,17 @@ describe("OrchestrationReactor", () => {
             retryPlanImplementationLaunch: () => Effect.die("unused"),
           }),
         ),
+        Layer.provide(
+          Layer.succeed(EpicRunScheduler, {
+            start: Effect.sync(() => {
+              started.push("swarm-scheduler");
+            }),
+            drain: Effect.void,
+            startEpicRun: () => Effect.die("unused"),
+            stopEpicRun: () => Effect.die("unused"),
+            notifyWorkerStateChanged: () => Effect.void,
+          }),
+        ),
       ),
     );
 
@@ -73,6 +85,7 @@ describe("OrchestrationReactor", () => {
       "provider-command-reactor",
       "checkpoint-reactor",
       "plan-implementation-workflow",
+      "swarm-scheduler",
     ]);
 
     await Effect.runPromise(Scope.close(scope, Exit.void));

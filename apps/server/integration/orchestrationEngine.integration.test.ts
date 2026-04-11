@@ -609,7 +609,7 @@ it.live("tracks approval requests and resolves pending approvals on user respons
   ),
 );
 
-it.live("records failed turn runtime state and checkpoint status as error", () =>
+it.live("records failed turn runtime state while preserving successful checkpoint capture", () =>
   withHarness((harness) =>
     Effect.gen(function* () {
       yield* seedProjectAndThread(harness);
@@ -670,7 +670,7 @@ it.live("records failed turn runtime state and checkpoint status as error", () =
           entry.checkpoints.length === 1,
       );
       assert.equal(thread.session?.status, "error");
-      assert.equal(thread.checkpoints[0]?.status, "error");
+      assert.equal(thread.checkpoints[0]?.status, "ready");
 
       const checkpointRow = yield* harness.checkpointRepository.getByThreadAndTurnCount({
         threadId: THREAD_ID,
@@ -678,7 +678,7 @@ it.live("records failed turn runtime state and checkpoint status as error", () =
       });
       assert.equal(Option.isSome(checkpointRow), true);
       if (Option.isSome(checkpointRow)) {
-        assert.equal(checkpointRow.value.status, "error");
+        assert.equal(checkpointRow.value.status, "ready");
       }
       assert.equal(
         gitRefExists(harness.workspaceDir, checkpointRefForThreadTurn(THREAD_ID, 1)),

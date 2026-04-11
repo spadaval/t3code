@@ -3,8 +3,8 @@ import {
   EventId,
   MessageId,
   ProjectId,
-  SwarmRunId,
-  SwarmTaskExecutionId,
+  EpicRunId,
+  EpicIssueExecutionId,
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
@@ -24,9 +24,9 @@ const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.makeUnsafe(value);
-const asSwarmRunId = (value: string): SwarmRunId => SwarmRunId.makeUnsafe(value);
-const asSwarmTaskExecutionId = (value: string): SwarmTaskExecutionId =>
-  SwarmTaskExecutionId.makeUnsafe(value);
+const asSwarmRunId = (value: string): EpicRunId => EpicRunId.makeUnsafe(value);
+const asSwarmTaskExecutionId = (value: string): EpicIssueExecutionId =>
+  EpicIssueExecutionId.makeUnsafe(value);
 
 const projectionSnapshotLayer = it.layer(
   (() => {
@@ -55,6 +55,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_projects`;
       yield* sql`DELETE FROM projection_state`;
       yield* sql`DELETE FROM projection_thread_proposed_plans`;
+      yield* sql`DELETE FROM projection_pending_checkpoint_captures`;
       yield* sql`DELETE FROM projection_turns`;
 
       yield* sql`
@@ -237,27 +238,23 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
 
       yield* sql`
-        INSERT INTO projection_swarm_runs (
+        INSERT INTO projection_epic_runs (
           run_id,
           project_id,
           epic_issue_id,
           status,
-          scheduler_mode,
-          workspace_mode,
           provider,
           model,
           model_options_json,
           provider_options_json,
           assistant_delivery_mode,
           runtime_mode,
-          last_error,
+          failure_context_json,
           requested_at,
           started_at,
-          idled_at,
-          paused_at,
-          blocked_at,
+          stop_requested_at,
+          stopped_at,
           failed_at,
-          cancelled_at,
           completed_at,
           updated_at
         )
@@ -266,8 +263,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'project-1',
           'EPIC-1',
           'running',
-          'automatic',
-          'shared',
           'codex',
           'gpt-5.4',
           '{"codex":{"reasoningEffort":"medium"}}',
@@ -281,28 +276,31 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           NULL,
           NULL,
           NULL,
-          NULL,
-          NULL,
           '2026-02-24T00:00:10.500Z'
         )
       `;
 
       yield* sql`
-        INSERT INTO projection_swarm_task_executions (
+        INSERT INTO projection_epic_issue_executions (
           execution_id,
           run_id,
           issue_id,
           worker_thread_id,
           sequence_number,
           status,
-          original_status,
-          original_assignee,
-          last_error,
+          workspace_key,
+          workspace_path,
+          failure_kind,
+          failure_message,
+          failure_issue_id,
+          failure_execution_id,
+          failure_worker_thread_id,
           requested_at,
           started_at,
+          stop_requested_at,
+          stopped_at,
           completed_at,
           failed_at,
-          cancelled_at,
           updated_at
         )
         VALUES (
@@ -311,12 +309,17 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'TASK-1',
           'thread-1',
           1,
-          'active',
-          'open',
+          'running',
+          'shared',
+          NULL,
+          NULL,
+          NULL,
+          NULL,
           NULL,
           NULL,
           '2026-02-24T00:00:09.500Z',
           '2026-02-24T00:00:10.000Z',
+          NULL,
           NULL,
           NULL,
           NULL,
@@ -435,6 +438,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               createdAt: "2026-02-24T00:00:06.000Z",
             },
           ],
+          pendingCheckpointCaptures: [],
           checkpoints: [
             {
               turnId: asTurnId("turn-1"),
@@ -457,14 +461,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           },
         },
       ]);
-      assert.deepEqual(snapshot.swarmRuns, [
+      assert.deepEqual(snapshot.epicRuns, [
         {
           runId: asSwarmRunId("run-1"),
           projectId: asProjectId("project-1"),
           epicIssueId: "EPIC-1",
           status: "running",
-          schedulerMode: "automatic",
-          workspaceMode: "shared",
           provider: "codex",
           model: "gpt-5.4",
           modelOptions: {
@@ -480,35 +482,33 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           },
           assistantDeliveryMode: "streaming",
           runtimeMode: "full-access",
-          lastError: null,
+          failureContext: null,
           requestedAt: "2026-02-24T00:00:08.500Z",
           startedAt: "2026-02-24T00:00:09.000Z",
-          idledAt: null,
-          pausedAt: null,
-          blockedAt: null,
-          blockedContext: null,
+          stopRequestedAt: null,
+          stoppedAt: null,
           failedAt: null,
-          cancelledAt: null,
           completedAt: null,
           updatedAt: "2026-02-24T00:00:10.500Z",
         },
       ]);
-      assert.deepEqual(snapshot.swarmTaskExecutions, [
+      assert.deepEqual(snapshot.epicIssueExecutions, [
         {
           executionId: asSwarmTaskExecutionId("execution-1"),
           runId: asSwarmRunId("run-1"),
           issueId: "TASK-1",
           workerThreadId: ThreadId.makeUnsafe("thread-1"),
           sequenceNumber: 1,
-          status: "active",
-          originalStatus: "open",
-          originalAssignee: null,
-          lastError: null,
+          status: "running",
+          workspaceKey: "shared",
+          workspacePath: null,
+          failureContext: null,
           requestedAt: "2026-02-24T00:00:09.500Z",
           startedAt: "2026-02-24T00:00:10.000Z",
+          stopRequestedAt: null,
+          stoppedAt: null,
           completedAt: null,
           failedAt: null,
-          cancelledAt: null,
           updatedAt: "2026-02-24T00:00:10.500Z",
         },
       ]);
@@ -524,6 +524,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
         yield* sql`DELETE FROM projection_projects`;
         yield* sql`DELETE FROM projection_threads`;
+        yield* sql`DELETE FROM projection_pending_checkpoint_captures`;
         yield* sql`DELETE FROM projection_turns`;
 
         yield* sql`
@@ -656,6 +657,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`DELETE FROM projection_projects`;
       yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_pending_checkpoint_captures`;
       yield* sql`DELETE FROM projection_turns`;
 
       yield* sql`

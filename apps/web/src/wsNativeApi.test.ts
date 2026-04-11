@@ -60,6 +60,8 @@ const rpcClientMock = {
     onStatus: vi.fn((input: { cwd: string }, listener: (event: GitStatusResult) => void) =>
       registerListener(gitStatusListeners, listener),
     ),
+    workingTree: vi.fn(),
+    currentPullRequest: vi.fn(),
     runStackedAction: vi.fn(),
     listBranches: vi.fn(),
     createWorktree: vi.fn(),
@@ -79,6 +81,27 @@ const rpcClientMock = {
     subscribeConfig: vi.fn(),
     subscribeLifecycle: vi.fn(),
   },
+  beads: {
+    queryIssues: vi.fn(),
+    getIssue: vi.fn(),
+    updateIssue: vi.fn(),
+    commentIssue: vi.fn(),
+    getContext: vi.fn(),
+    getEpicRunSupport: vi.fn(),
+    getIssueGraph: vi.fn(),
+    getEpicTrackerSummary: vi.fn(),
+    validateEpicRun: vi.fn(),
+    getEpicTrackerStatus: vi.fn(),
+    listEpicTrackerSummaries: vi.fn(),
+    getProjectCoordinatorSnapshot: vi.fn(),
+    getEpicCoordinatorSnapshot: vi.fn(),
+    getSessionActivity: vi.fn(),
+    startWorkflow: vi.fn(),
+    startBacklogGrooming: vi.fn(),
+    startEpicQuickRefine: vi.fn(),
+    startEpicPlannedRefine: vi.fn(),
+    startEpicCoordinationPrep: vi.fn(),
+  },
   orchestration: {
     getSnapshot: vi.fn(),
     dispatchCommand: vi.fn(),
@@ -88,6 +111,8 @@ const rpcClientMock = {
     launchPlanImplementation: vi.fn(),
     cancelPlanImplementationLaunch: vi.fn(),
     retryPlanImplementationLaunch: vi.fn(),
+    startEpicRun: vi.fn(),
+    stopEpicRun: vi.fn(),
     onDomainEvent: vi.fn((listener: (event: OrchestrationEvent) => void) =>
       registerListener(orchestrationEventListeners, listener),
     ),
@@ -372,6 +397,7 @@ describe("wsNativeApi", () => {
       sourceThreadId: ThreadId.makeUnsafe("thread-1"),
       planId: "plan-1",
       runtimeMode: "full-access",
+      launchMode: "worktree",
       runSetup: true,
     });
 
@@ -379,6 +405,7 @@ describe("wsNativeApi", () => {
       sourceThreadId: "thread-1",
       planId: "plan-1",
       runtimeMode: "full-access",
+      launchMode: "worktree",
       runSetup: true,
     });
   });
@@ -412,6 +439,33 @@ describe("wsNativeApi", () => {
 
     expect(rpcClientMock.orchestration.retryPlanImplementationLaunch).toHaveBeenCalledWith({
       launchId: "launch-1",
+    });
+  });
+
+  it("forwards epic run control requests to the RPC client", async () => {
+    rpcClientMock.orchestration.startEpicRun = vi
+      .fn()
+      .mockResolvedValue({ runId: "run-1", status: "requested" });
+    rpcClientMock.orchestration.stopEpicRun = vi
+      .fn()
+      .mockResolvedValue({ runId: "run-1", status: "cancelled" });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.orchestration.startEpicRun({
+      projectId: ProjectId.makeUnsafe("project-1"),
+      epicIssueId: "EPIC-1",
+      runtimeMode: "full-access",
+    });
+    await api.orchestration.stopEpicRun({ runId: "run-1" as never });
+
+    expect(rpcClientMock.orchestration.startEpicRun).toHaveBeenCalledWith({
+      projectId: "project-1",
+      epicIssueId: "EPIC-1",
+      runtimeMode: "full-access",
+    });
+    expect(rpcClientMock.orchestration.stopEpicRun).toHaveBeenCalledWith({
+      runId: "run-1",
     });
   });
 

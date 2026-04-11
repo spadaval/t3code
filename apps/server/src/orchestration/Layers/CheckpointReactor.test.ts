@@ -3,7 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
-import type { ProviderKind, ProviderRuntimeEvent, ProviderSession } from "@t3tools/contracts";
+import type {
+  OrchestrationEvent,
+  ProviderKind,
+  ProviderRuntimeEvent,
+  ProviderSession,
+} from "@t3tools/contracts";
 import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -117,6 +122,7 @@ async function waitForThread(
   predicate: (thread: {
     latestTurn: { turnId: string } | null;
     checkpoints: ReadonlyArray<{ checkpointTurnCount: number }>;
+    pendingCheckpointCaptures: ReadonlyArray<{ turnId: string; checkpointTurnCount: number }>;
     activities: ReadonlyArray<{ kind: string }>;
   }) => boolean,
   timeoutMs = 15_000,
@@ -125,6 +131,7 @@ async function waitForThread(
   const poll = async (): Promise<{
     latestTurn: { turnId: string } | null;
     checkpoints: ReadonlyArray<{ checkpointTurnCount: number }>;
+    pendingCheckpointCaptures: ReadonlyArray<{ turnId: string; checkpointTurnCount: number }>;
     activities: ReadonlyArray<{ kind: string }>;
   }> => {
     const readModel = await Effect.runPromise(engine.getReadModel());
@@ -143,7 +150,7 @@ async function waitForThread(
 
 async function waitForEvent(
   engine: OrchestrationEngineShape,
-  predicate: (event: { type: string }) => boolean,
+  predicate: (event: OrchestrationEvent) => boolean,
   timeoutMs = 15_000,
 ) {
   const deadline = Date.now() + timeoutMs;
@@ -242,6 +249,7 @@ describe("CheckpointReactor", () => {
     readonly threadWorktreePath?: string | null;
     readonly providerSessionCwd?: string;
     readonly providerName?: ProviderKind;
+    readonly startReactor?: boolean;
   }) {
     const cwd = createGitRepository();
     tempDirs.push(cwd);
@@ -280,7 +288,10 @@ describe("CheckpointReactor", () => {
     const reactor = await runtime.runPromise(Effect.service(CheckpointReactor));
     const checkpointStore = await runtime.runPromise(Effect.service(CheckpointStore));
     scope = await Effect.runPromise(Scope.make("sequential"));
-    await Effect.runPromise(reactor.start().pipe(Scope.provide(scope)));
+    const start = () => Effect.runPromise(reactor.start().pipe(Scope.provide(scope!)));
+    if (options?.startReactor ?? true) {
+      await start();
+    }
     const drain = () => Effect.runPromise(reactor.drain);
 
     const createdAt = new Date().toISOString();
@@ -312,7 +323,7 @@ describe("CheckpointReactor", () => {
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         branch: null,
-        worktreePath: options?.threadWorktreePath ?? cwd,
+        worktreePath: options?.threadWorktreePath === undefined ? cwd : options.threadWorktreePath,
         createdAt,
       }),
     );
@@ -344,6 +355,7 @@ describe("CheckpointReactor", () => {
       engine,
       provider,
       cwd,
+      start,
       drain,
     };
   }
@@ -399,7 +411,7 @@ describe("CheckpointReactor", () => {
     await waitForEvent(harness.engine, (event) => event.type === "thread.turn-diff-completed");
     const thread = await waitForThread(
       harness.engine,
-      (entry) => entry.latestTurn?.turnId === "turn-1" && entry.checkpoints.length === 1,
+      (entry) => entry.checkpoints.length === 1 && entry.pendingCheckpointCaptures.length === 0,
     );
     expect(thread.checkpoints[0]?.checkpointTurnCount).toBe(1);
     expect(
@@ -422,6 +434,125 @@ describe("CheckpointReactor", () => {
         "README.md",
       ),
     ).toBe("v2\n");
+  });
+
+  it("settles checkpoint capture requests into finalized checkpoints and clears pending state", async () => {
+    const harness = await createHarness({ seedFilesystemCheckpoints: false });
+    const createdAt = new Date().toISOString();
+
+    fs.writeFileSync(path.join(harness.cwd, "README.md"), "v2\n", "utf8");
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.checkpoint.capture.request",
+        commandId: CommandId.makeUnsafe("cmd-checkpoint-capture-request"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        turnId: asTurnId("turn-requested"),
+        checkpointTurnCount: 1,
+        assistantMessageId: MessageId.makeUnsafe("assistant-requested"),
+        requestedAt: createdAt,
+        createdAt,
+      }),
+    );
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) => entry.checkpoints.length === 1 && entry.pendingCheckpointCaptures.length === 0,
+    );
+
+    const checkpoint = await Effect.runPromise(
+      harness.engine
+        .getReadModel()
+        .pipe(
+          Effect.map(
+            (readModel) =>
+              readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"))
+                ?.checkpoints[0],
+          ),
+        ),
+    );
+
+    expect(thread.checkpoints[0]?.checkpointTurnCount).toBe(1);
+    expect(checkpoint?.status).toBe("ready");
+    expect(checkpoint?.assistantMessageId).toBe("assistant-requested");
+    expect(
+      gitShowFileAtRef(
+        harness.cwd,
+        checkpointRefForThreadTurn(ThreadId.makeUnsafe("thread-1"), 1),
+        "README.md",
+      ),
+    ).toBe("v2\n");
+  });
+
+  it("emits an error settlement and failure activity when checkpoint capture requests cannot be fulfilled", async () => {
+    const nonGitWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), "t3-checkpoint-non-git-"));
+    tempDirs.push(nonGitWorkspace);
+    const harness = await createHarness({
+      hasSession: false,
+      projectWorkspaceRoot: nonGitWorkspace,
+      threadWorktreePath: null,
+    });
+    const createdAt = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.checkpoint.capture.request",
+        commandId: CommandId.makeUnsafe("cmd-checkpoint-capture-request-error"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        turnId: asTurnId("turn-request-error"),
+        checkpointTurnCount: 1,
+        assistantMessageId: MessageId.makeUnsafe("assistant-request-error"),
+        requestedAt: createdAt,
+        createdAt,
+      }),
+    );
+
+    await harness.drain();
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+
+    expect(thread?.checkpoints).toHaveLength(1);
+    expect(thread?.pendingCheckpointCaptures).toHaveLength(0);
+    expect(
+      thread?.activities.some((activity) => activity.kind === "checkpoint.capture.failed"),
+    ).toBe(true);
+    const failedCheckpoint = thread?.checkpoints[0];
+    expect(failedCheckpoint?.status).toBe("error");
+  });
+
+  it("recovers and settles pending checkpoint capture requests on startup", async () => {
+    const harness = await createHarness({
+      seedFilesystemCheckpoints: false,
+      startReactor: false,
+    });
+    const createdAt = new Date().toISOString();
+
+    fs.writeFileSync(path.join(harness.cwd, "README.md"), "v2\n", "utf8");
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.checkpoint.capture.request",
+        commandId: CommandId.makeUnsafe("cmd-checkpoint-capture-request-recovery"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        turnId: asTurnId("turn-recovery"),
+        checkpointTurnCount: 1,
+        assistantMessageId: MessageId.makeUnsafe("assistant-recovery"),
+        requestedAt: createdAt,
+        createdAt,
+      }),
+    );
+
+    const beforeStart = await Effect.runPromise(harness.engine.getReadModel());
+    expect(
+      beforeStart.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"))
+        ?.pendingCheckpointCaptures,
+    ).toHaveLength(1);
+
+    await harness.start();
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) => entry.checkpoints.length === 1 && entry.pendingCheckpointCaptures.length === 0,
+    );
+    expect(thread.checkpoints[0]?.checkpointTurnCount).toBe(1);
   });
 
   it("ignores auxiliary thread turn completion while primary turn is active", async () => {
@@ -493,7 +624,7 @@ describe("CheckpointReactor", () => {
 
     const thread = await waitForThread(
       harness.engine,
-      (entry) => entry.latestTurn?.turnId === "turn-main" && entry.checkpoints.length === 1,
+      (entry) => entry.checkpoints.length === 1 && entry.pendingCheckpointCaptures.length === 0,
     );
     expect(thread.checkpoints[0]?.checkpointTurnCount).toBe(1);
   });
@@ -550,7 +681,7 @@ describe("CheckpointReactor", () => {
     await waitForEvent(harness.engine, (event) => event.type === "thread.turn-diff-completed");
     const thread = await waitForThread(
       harness.engine,
-      (entry) => entry.latestTurn?.turnId === "turn-claude-1" && entry.checkpoints.length === 1,
+      (entry) => entry.checkpoints.length === 1 && entry.pendingCheckpointCaptures.length === 0,
     );
 
     expect(thread.checkpoints[0]?.checkpointTurnCount).toBe(1);

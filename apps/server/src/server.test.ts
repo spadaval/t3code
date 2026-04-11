@@ -4,6 +4,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 
 import {
   CommandId,
+  BeadsError,
   DEFAULT_SERVER_SETTINGS,
   GitCommandError,
   KeybindingRule,
@@ -67,6 +68,10 @@ import {
   type PlanImplementationWorkflowShape,
 } from "./orchestration/Services/PlanImplementationWorkflow.ts";
 import {
+  EpicRunScheduler,
+  type EpicRunSchedulerShape,
+} from "./orchestration/Services/EpicRunScheduler.ts";
+import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -91,6 +96,7 @@ import {
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
+import { BeadsService, type BeadsServiceShape } from "./beads/Services/BeadsService.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
 const defaultThreadId = ThreadId.makeUnsafe("thread-default");
@@ -105,6 +111,8 @@ const makeDefaultOrchestrationReadModel = () => {
     snapshotSequence: 0,
     updatedAt: now,
     planImplementationLaunches: [],
+    epicRuns: [],
+    epicIssueExecutions: [],
     projects: [
       {
         id: defaultProjectId,
@@ -127,6 +135,7 @@ const makeDefaultOrchestrationReadModel = () => {
         runtimeMode: "full-access" as const,
         branch: null,
         worktreePath: null,
+        issueLink: null,
         createdAt: now,
         updatedAt: now,
         archivedAt: null,
@@ -136,6 +145,7 @@ const makeDefaultOrchestrationReadModel = () => {
         activities: [],
         proposedPlans: [],
         checkpoints: [],
+        pendingCheckpointCaptures: [],
         deletedAt: null,
       },
     ],
@@ -272,9 +282,11 @@ const buildAppUnderTest = (options?: {
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
     planImplementationWorkflow?: Partial<PlanImplementationWorkflowShape>;
+    epicRunScheduler?: Partial<EpicRunSchedulerShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
     browserTraceCollector?: Partial<BrowserTraceCollectorShape>;
+    beads?: Partial<BeadsServiceShape>;
     serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
   };
@@ -387,6 +399,124 @@ const buildAppUnderTest = (options?: {
 
     const appLayer = baseAppLayer.pipe(
       Layer.provide(
+        Layer.mock(BeadsService)({
+          queryIssues: () => Effect.succeed({ issues: [] }),
+          getIssue: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.getIssue was called without a test-specific mock.",
+              }),
+            ),
+          updateIssue: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.updateIssue was called without a test-specific mock.",
+              }),
+            ),
+          commentIssue: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.commentIssue was called without a test-specific mock.",
+              }),
+            ),
+          getContext: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.getContext was called without a test-specific mock.",
+              }),
+            ),
+          getEpicRunSupport: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.getEpicRunSupport was called without a test-specific mock.",
+              }),
+            ),
+          getIssueGraph: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.getIssueGraph was called without a test-specific mock.",
+              }),
+            ),
+          getEpicTrackerSummary: () =>
+            Effect.fail(
+              new BeadsError({
+                message:
+                  "BeadsService.getEpicTrackerSummary was called without a test-specific mock.",
+              }),
+            ),
+          validateEpicRun: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.validateEpicRun was called without a test-specific mock.",
+              }),
+            ),
+          getEpicTrackerStatus: () =>
+            Effect.fail(
+              new BeadsError({
+                message:
+                  "BeadsService.getEpicTrackerStatus was called without a test-specific mock.",
+              }),
+            ),
+          listEpicTrackerSummaries: () =>
+            Effect.fail(
+              new BeadsError({
+                message:
+                  "BeadsService.listEpicTrackerSummaries was called without a test-specific mock.",
+              }),
+            ),
+          getProjectCoordinatorSnapshot: () =>
+            Effect.fail(
+              new BeadsError({
+                message:
+                  "BeadsService.getProjectCoordinatorSnapshot was called without a test-specific mock.",
+              }),
+            ),
+          getEpicCoordinatorSnapshot: () =>
+            Effect.fail(
+              new BeadsError({
+                message:
+                  "BeadsService.getEpicCoordinatorSnapshot was called without a test-specific mock.",
+              }),
+            ),
+          getSessionActivity: () => Effect.succeed({ entries: [] }),
+          startWorkflow: () =>
+            Effect.fail(
+              new BeadsError({
+                message: "BeadsService.startWorkflow was called without a test-specific mock.",
+              }),
+            ),
+          startBacklogGrooming: () =>
+            Effect.fail(
+              new BeadsError({
+                message:
+                  "BeadsService.startBacklogGrooming was called without a test-specific mock.",
+              }),
+            ),
+          startEpicQuickRefine: () =>
+            Effect.fail(
+              new BeadsError({
+                message:
+                  "BeadsService.startEpicQuickRefine was called without a test-specific mock.",
+              }),
+            ),
+          startEpicPlannedRefine: () =>
+            Effect.fail(
+              new BeadsError({
+                message:
+                  "BeadsService.startEpicPlannedRefine was called without a test-specific mock.",
+              }),
+            ),
+          startEpicCoordinationPrep: () =>
+            Effect.fail(
+              new BeadsError({
+                message:
+                  "BeadsService.startEpicCoordinationPrep was called without a test-specific mock.",
+              }),
+            ),
+          ...options?.layers?.beads,
+        }),
+      ),
+      Layer.provide(
         Layer.mock(PlanImplementationWorkflow)({
           start: Effect.void,
           drain: Effect.void,
@@ -408,6 +538,23 @@ const buildAppUnderTest = (options?: {
               status: "requested",
             }),
           ...options?.layers?.planImplementationWorkflow,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(EpicRunScheduler)({
+          start: Effect.void,
+          drain: Effect.void,
+          startEpicRun: () =>
+            Effect.succeed({
+              runId: "run-1" as any,
+              status: "running",
+            }),
+          stopEpicRun: () =>
+            Effect.succeed({
+              runId: "run-1" as any,
+              status: "stopped",
+            }),
+          ...options?.layers?.epicRunScheduler,
         }),
       ),
       Layer.provide(
@@ -1918,6 +2065,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         snapshotSequence: 1,
         updatedAt: now,
         planImplementationLaunches: [],
+        epicRuns: [],
+        epicIssueExecutions: [],
         projects: [
           {
             id: ProjectId.makeUnsafe("project-a"),
@@ -1940,6 +2089,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             runtimeMode: "full-access" as const,
             branch: null,
             worktreePath: null,
+            issueLink: null,
             createdAt: now,
             updatedAt: now,
             archivedAt: null,
@@ -1949,6 +2099,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             activities: [],
             proposedPlans: [],
             checkpoints: [],
+            pendingCheckpointCaptures: [],
             deletedAt: null,
           },
         ],

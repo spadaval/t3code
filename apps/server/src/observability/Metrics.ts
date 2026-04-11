@@ -62,6 +62,14 @@ export const gitCommandDuration = Metric.timer("t3_git_command_duration", {
   description: "Git command execution duration.",
 });
 
+export const beadsCommandsTotal = Metric.counter("t3_beads_commands_total", {
+  description: "Total beads CLI commands executed by the server runtime.",
+});
+
+export const beadsCommandDuration = Metric.timer("t3_beads_command_duration", {
+  description: "Beads CLI command execution duration.",
+});
+
 export const terminalSessionsTotal = Metric.counter("t3_terminal_sessions_total", {
   description: "Total terminal sessions started.",
 });

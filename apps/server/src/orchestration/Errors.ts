@@ -91,6 +91,32 @@ export class PlanImplementationWorkflowError extends Schema.TaggedErrorClass<Pla
   }
 }
 
+export class EpicRunWorkflowError extends Schema.TaggedErrorClass<EpicRunWorkflowError>()(
+  "EpicRunWorkflowError",
+  {
+    operation: Schema.String,
+    detail: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {
+  override get message(): string {
+    return `Epic-run workflow failed in ${this.operation}: ${this.detail}`;
+  }
+}
+
+export class EpicRunSchedulerError extends Schema.TaggedErrorClass<EpicRunSchedulerError>()(
+  "EpicRunSchedulerError",
+  {
+    operation: Schema.String,
+    detail: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {
+  override get message(): string {
+    return `Epic-run scheduler failed in ${this.operation}: ${this.detail}`;
+  }
+}
+
 export class ProjectScriptRunnerError extends Schema.TaggedErrorClass<ProjectScriptRunnerError>()(
   "ProjectScriptRunnerError",
   {

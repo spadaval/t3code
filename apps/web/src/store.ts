@@ -13,13 +13,13 @@ import {
 } from "@t3tools/contracts";
 import { resolveModelSlugForProvider } from "@t3tools/shared/model";
 import {
-  createEmptySwarmProjectionState,
-  createSwarmProjectionState,
-  listSwarmRuns,
-  listSwarmTaskExecutions,
-  projectSwarmEvent,
-  type SwarmProjectionState,
-} from "@t3tools/shared/swarm";
+  createEmptyEpicRunProjectionState,
+  createEpicRunProjectionState,
+  listEpicRuns,
+  listEpicIssueExecutions,
+  projectEpicRunEvent,
+  type EpicRunProjectionState,
+} from "@t3tools/shared/epicRun";
 import { create } from "zustand";
 import {
   derivePendingApprovals,
@@ -33,8 +33,8 @@ import {
   type PlanImplementationLaunch,
   type Project,
   type SidebarThreadSummary,
-  type SwarmRun,
-  type SwarmTaskExecution,
+  type EpicRun,
+  type EpicIssueExecution,
   type Thread,
 } from "./types";
 
@@ -47,7 +47,7 @@ export interface AppState {
   threadIdsByProjectId: Record<string, ThreadId[]>;
   bootstrapComplete: boolean;
   planImplementationLaunches: PlanImplementationLaunch[];
-  swarmProjection: SwarmProjectionState;
+  epicRunProjection: EpicRunProjectionState;
   threadsHydrated: boolean;
 }
 
@@ -58,7 +58,7 @@ const initialState: AppState = {
   threadIdsByProjectId: {},
   bootstrapComplete: false,
   planImplementationLaunches: [],
-  swarmProjection: createEmptySwarmProjectionState(),
+  epicRunProjection: createEmptyEpicRunProjectionState(),
   threadsHydrated: false,
 };
 const MAX_THREAD_MESSAGES = 2_000;
@@ -614,20 +614,20 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     planImplementationLaunches: readModel.planImplementationLaunches.map((launch) => ({
       ...launch,
     })),
-    swarmProjection: createSwarmProjectionState({
-      swarmRuns: readModel.swarmRuns.map((run) => ({ ...run })),
-      swarmTaskExecutions: readModel.swarmTaskExecutions.map((execution) => ({ ...execution })),
+    epicRunProjection: createEpicRunProjectionState({
+      epicRuns: readModel.epicRuns.map((run) => ({ ...run })),
+      epicIssueExecutions: readModel.epicIssueExecutions.map((execution) => ({ ...execution })),
     }),
     threadsHydrated: true,
   };
 }
 
 export function applyOrchestrationEvent(state: AppState, event: OrchestrationEvent): AppState {
-  const nextSwarmProjection = projectSwarmEvent(state.swarmProjection, event);
-  if (nextSwarmProjection !== state.swarmProjection) {
+  const nextEpicRunProjection = projectEpicRunEvent(state.epicRunProjection, event);
+  if (nextEpicRunProjection !== state.epicRunProjection) {
     return {
       ...state,
-      swarmProjection: nextSwarmProjection,
+      epicRunProjection: nextEpicRunProjection,
     };
   }
 
@@ -702,6 +702,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         proposedPlans: [],
         activities: [],
         checkpoints: [],
+        pendingCheckpointCaptures: [],
         session: null,
       });
       const threads = existing
@@ -1156,11 +1157,10 @@ export const selectThreadIdsByProjectId =
   (state: AppState): ThreadId[] =>
     projectId ? (state.threadIdsByProjectId[projectId] ?? EMPTY_THREAD_IDS) : EMPTY_THREAD_IDS;
 
-export const selectSwarmRuns = (state: AppState): SwarmRun[] =>
-  listSwarmRuns(state.swarmProjection);
+export const selectEpicRuns = (state: AppState): EpicRun[] => listEpicRuns(state.epicRunProjection);
 
-export const selectSwarmTaskExecutions = (state: AppState): SwarmTaskExecution[] =>
-  listSwarmTaskExecutions(state.swarmProjection);
+export const selectEpicIssueExecutions = (state: AppState): EpicIssueExecution[] =>
+  listEpicIssueExecutions(state.epicRunProjection);
 
 export function setError(state: AppState, threadId: ThreadId, error: string | null): AppState {
   return updateThreadState(state, threadId, (t) => {

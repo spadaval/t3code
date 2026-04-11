@@ -14,8 +14,8 @@ import { describe, expect, it } from "vitest";
 import {
   applyOrchestrationEvent,
   applyOrchestrationEvents,
-  selectSwarmRuns,
-  selectSwarmTaskExecutions,
+  selectEpicRuns,
+  selectEpicIssueExecutions,
   syncServerReadModel,
   type AppState,
 } from "./store";
@@ -71,9 +71,9 @@ function makeState(thread: Thread): AppState {
     threadIdsByProjectId,
     bootstrapComplete: true,
     planImplementationLaunches: [],
-    swarmProjection: {
-      swarmRunsById: {},
-      swarmTaskExecutionsById: {},
+    epicRunProjection: {
+      epicRunsById: {},
+      epicIssueExecutionsById: {},
     },
     threadsHydrated: true,
   };
@@ -129,6 +129,7 @@ function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"
     activities: [],
     proposedPlans: [],
     checkpoints: [],
+    pendingCheckpointCaptures: [],
     session: null,
     ...overrides,
   } satisfies OrchestrationReadModel["threads"][number];
@@ -155,8 +156,8 @@ function makeReadModel(thread: OrchestrationReadModel["threads"][number]): Orche
     ],
     threads: [thread],
     planImplementationLaunches: [],
-    swarmRuns: [],
-    swarmTaskExecutions: [],
+    epicRuns: [],
+    epicIssueExecutions: [],
   };
 }
 
@@ -265,56 +266,64 @@ describe("store read model sync", () => {
     const initialState = makeState(makeThread());
     const next = syncServerReadModel(initialState, {
       ...makeReadModel(makeReadModelThread({})),
-      swarmRuns: [
+      epicRuns: [
         {
           runId: "run-1" as never,
           projectId: ProjectId.makeUnsafe("project-1"),
           epicIssueId: "EPIC-1",
           status: "running",
-          schedulerMode: "automatic",
-          workspaceMode: "shared",
           provider: "codex",
           model: "gpt-5.4",
           modelOptions: null,
           providerOptions: null,
           assistantDeliveryMode: "streaming",
           runtimeMode: "full-access",
-          lastError: null,
+          failureContext: null,
           requestedAt: "2026-04-06T00:00:00.000Z",
           startedAt: "2026-04-06T00:00:01.000Z",
-          idledAt: null,
-          pausedAt: null,
-          blockedAt: null,
-          blockedContext: null,
+          stopRequestedAt: null,
+          stoppedAt: null,
           failedAt: null,
-          cancelledAt: null,
           completedAt: null,
           updatedAt: "2026-04-06T00:00:02.000Z",
-        },
+        } as unknown as typeof makeReadModel extends (...args: any[]) => infer R
+          ? R extends { epicRuns: infer Runs }
+            ? Runs extends ReadonlyArray<infer Run>
+              ? Run
+              : never
+            : never
+          : never,
       ],
-      swarmTaskExecutions: [
+      epicIssueExecutions: [
         {
           executionId: "execution-1" as never,
           runId: "run-1" as never,
           issueId: "TASK-1",
           workerThreadId: ThreadId.makeUnsafe("thread-1"),
           sequenceNumber: 1,
-          status: "active",
-          originalStatus: "open",
-          originalAssignee: "issue-owner",
-          lastError: null,
+          status: "running",
+          workspaceKey: "shared",
+          workspacePath: null,
+          failureContext: null,
           requestedAt: "2026-04-06T00:00:00.000Z",
           startedAt: "2026-04-06T00:00:01.000Z",
+          stopRequestedAt: null,
+          stoppedAt: null,
           completedAt: null,
           failedAt: null,
-          cancelledAt: null,
           updatedAt: "2026-04-06T00:00:02.000Z",
-        },
+        } as unknown as typeof makeReadModel extends (...args: any[]) => infer R
+          ? R extends { epicIssueExecutions: infer Executions }
+            ? Executions extends ReadonlyArray<infer Execution>
+              ? Execution
+              : never
+            : never
+          : never,
       ],
     });
 
-    expect(selectSwarmRuns(next)).toHaveLength(1);
-    expect(selectSwarmTaskExecutions(next)[0]?.workerThreadId).toBe(
+    expect(selectEpicRuns(next)).toHaveLength(1);
+    expect(selectEpicIssueExecutions(next)[0]?.workerThreadId).toBe(
       ThreadId.makeUnsafe("thread-1"),
     );
   });
@@ -351,9 +360,9 @@ describe("store read model sync", () => {
       threadIdsByProjectId: {},
       bootstrapComplete: true,
       planImplementationLaunches: [],
-      swarmProjection: {
-        swarmRunsById: {},
-        swarmTaskExecutionsById: {},
+      epicRunProjection: {
+        epicRunsById: {},
+        epicIssueExecutionsById: {},
       },
       threadsHydrated: true,
     };
@@ -379,8 +388,8 @@ describe("store read model sync", () => {
       ],
       threads: [],
       planImplementationLaunches: [],
-      swarmRuns: [],
-      swarmTaskExecutions: [],
+      epicRuns: [],
+      epicIssueExecutions: [],
     };
 
     const next = syncServerReadModel(initialState, readModel);
@@ -473,9 +482,9 @@ describe("incremental orchestration updates", () => {
       threadIdsByProjectId: {},
       bootstrapComplete: true,
       planImplementationLaunches: [],
-      swarmProjection: {
-        swarmRunsById: {},
-        swarmTaskExecutionsById: {},
+      epicRunProjection: {
+        epicRunsById: {},
+        epicIssueExecutionsById: {},
       },
       threadsHydrated: true,
     };
@@ -540,9 +549,9 @@ describe("incremental orchestration updates", () => {
       },
       bootstrapComplete: true,
       planImplementationLaunches: [],
-      swarmProjection: {
-        swarmRunsById: {},
-        swarmTaskExecutionsById: {},
+      epicRunProjection: {
+        epicRunsById: {},
+        epicIssueExecutionsById: {},
       },
       threadsHydrated: true,
     };
@@ -617,13 +626,10 @@ describe("incremental orchestration updates", () => {
     const state = makeState(makeThread());
 
     const next = applyOrchestrationEvents(state, [
-      makeEvent("swarm-run.requested", {
+      makeEvent("epic-run.requested", {
         runId: "run-1" as never,
         projectId: ProjectId.makeUnsafe("project-1"),
         epicIssueId: "EPIC-1",
-        swarmId: "SWARM-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         provider: "codex",
         model: "gpt-5.4",
         modelOptions: null,
@@ -633,65 +639,69 @@ describe("incremental orchestration updates", () => {
         requestedAt: "2026-04-06T00:00:00.000Z",
         updatedAt: "2026-04-06T00:00:00.000Z",
       }),
-      makeEvent("swarm-task-execution.requested", {
+      makeEvent("epic-issue-execution.requested", {
         executionId: "execution-1" as never,
         runId: "run-1" as never,
         issueId: "TASK-1",
         workerThreadId: ThreadId.makeUnsafe("thread-1"),
         sequenceNumber: 1,
-        originalStatus: "open",
-        originalAssignee: "issue-owner",
         requestedAt: "2026-04-06T00:00:00.000Z",
         updatedAt: "2026-04-06T00:00:00.000Z",
       }),
-      makeEvent("swarm-task-execution.started", {
+      makeEvent("epic-issue-execution.started", {
         executionId: "execution-1" as never,
         runId: "run-1" as never,
         startedAt: "2026-04-06T00:00:01.000Z",
         updatedAt: "2026-04-06T00:00:01.000Z",
       }),
-      makeEvent("swarm-task-execution.failed", {
+      makeEvent("epic-issue-execution.failed", {
         executionId: "execution-1" as never,
         runId: "run-1" as never,
         reason: "worker exited",
         failedAt: "2026-04-06T00:00:02.000Z",
         updatedAt: "2026-04-06T00:00:02.000Z",
       }),
-      makeEvent("swarm-run.failed", {
+      makeEvent("epic-run.failed", {
         runId: "run-1" as never,
         reason: "worker exited",
+        issueId: null,
+        executionId: null,
+        workerThreadId: null,
         failedAt: "2026-04-06T00:00:03.000Z",
         updatedAt: "2026-04-06T00:00:03.000Z",
       }),
     ]);
 
-    expect(selectSwarmRuns(next)).toEqual([
+    expect(selectEpicRuns(next)).toEqual([
       expect.objectContaining({
         runId: "run-1",
         status: "failed",
-        lastError: "worker exited",
+        failureContext: expect.objectContaining({
+          kind: "worker_failure",
+          message: "worker exited",
+        }),
       }),
     ]);
-    expect(selectSwarmTaskExecutions(next)).toEqual([
+    expect(selectEpicIssueExecutions(next)).toEqual([
       expect.objectContaining({
         executionId: "execution-1",
         status: "failed",
-        lastError: "worker exited",
+        failureContext: expect.objectContaining({
+          kind: "worker_failure",
+          message: "worker exited",
+        }),
       }),
     ]);
   });
 
-  it("stores blocked worker-failure context and clears it when the run resumes", () => {
+  it("stores failed worker-failure context and clears it when the run stops", () => {
     const state = makeState(makeThread());
 
     const blocked = applyOrchestrationEvents(state, [
-      makeEvent("swarm-run.requested", {
+      makeEvent("epic-run.requested", {
         runId: "run-1" as never,
         projectId: ProjectId.makeUnsafe("project-1"),
         epicIssueId: "EPIC-1",
-        swarmId: "SWARM-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         provider: "codex",
         model: "gpt-5.4",
         modelOptions: null,
@@ -701,27 +711,24 @@ describe("incremental orchestration updates", () => {
         requestedAt: "2026-04-06T00:00:00.000Z",
         updatedAt: "2026-04-06T00:00:00.000Z",
       }),
-      makeEvent("swarm-run.blocked", {
+      makeEvent("epic-run.failed", {
         runId: "run-1" as never,
         reason: "worker exited",
-        blockedContext: {
-          kind: "worker_failure",
-          issueId: "TASK-1",
-          executionId: "execution-1" as never,
-          workerThreadId: ThreadId.makeUnsafe("thread-1"),
-        },
-        blockedAt: "2026-04-06T00:00:01.000Z",
+        issueId: "TASK-1",
+        executionId: "execution-1" as never,
+        workerThreadId: ThreadId.makeUnsafe("thread-1"),
+        failedAt: "2026-04-06T00:00:01.000Z",
         updatedAt: "2026-04-06T00:00:01.000Z",
       }),
     ]);
 
-    expect(selectSwarmRuns(blocked)).toEqual([
+    expect(selectEpicRuns(blocked)).toEqual([
       expect.objectContaining({
         runId: "run-1",
-        status: "blocked",
-        lastError: "worker exited",
-        blockedContext: {
+        status: "failed",
+        failureContext: {
           kind: "worker_failure",
+          message: "worker exited",
           issueId: "TASK-1",
           executionId: "execution-1",
           workerThreadId: ThreadId.makeUnsafe("thread-1"),
@@ -729,20 +736,20 @@ describe("incremental orchestration updates", () => {
       }),
     ]);
 
-    const resumed = applyOrchestrationEvent(
+    const stopped = applyOrchestrationEvent(
       blocked,
-      makeEvent("swarm-run.resumed", {
+      makeEvent("epic-run.stopped", {
         runId: "run-1" as never,
-        resumedAt: "2026-04-06T00:00:02.000Z",
+        stoppedAt: "2026-04-06T00:00:02.000Z",
         updatedAt: "2026-04-06T00:00:02.000Z",
       }),
     );
 
-    expect(selectSwarmRuns(resumed)).toEqual([
+    expect(selectEpicRuns(stopped)).toEqual([
       expect.objectContaining({
         runId: "run-1",
-        status: "running",
-        blockedContext: null,
+        status: "stopped",
+        failureContext: null,
       }),
     ]);
   });

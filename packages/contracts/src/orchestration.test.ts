@@ -2,23 +2,21 @@ import assert from "node:assert/strict";
 import { it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
-import { SwarmRunId, SwarmTaskExecutionId } from "./baseSchemas";
+import { EpicRunId, EpicIssueExecutionId } from "./baseSchemas";
 import {
   DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE,
   DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT,
-  DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE,
-  DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   OrchestrationCommand,
-  OrchestrationContinueSwarmRunInput,
   OrchestrationEvent,
   OrchestrationGetTurnDiffInput,
   OrchestrationLatestTurn,
   OrchestrationLaunchPlanImplementationInput,
-  OrchestrationStartSwarmRunInput,
-  OrchestrationSwarmRun,
-  OrchestrationSwarmTaskExecution,
+  OrchestrationStopEpicRunInput,
+  OrchestrationStartEpicRunInput,
+  OrchestrationEpicRun,
+  OrchestrationEpicIssueExecution,
   ProjectCreatedPayload,
   ProjectMetaUpdatedPayload,
   OrchestrationProposedPlan,
@@ -32,10 +30,10 @@ import {
   ThreadTurnStartRequestedPayload,
 } from "./orchestration";
 
-const decodeSwarmRunId = Schema.decodeUnknownEffect(SwarmRunId);
-const decodeSwarmTaskExecutionId = Schema.decodeUnknownEffect(SwarmTaskExecutionId);
-const encodeSwarmRunId = Schema.encodeSync(SwarmRunId);
-const encodeSwarmTaskExecutionId = Schema.encodeSync(SwarmTaskExecutionId);
+const decodeSwarmRunId = Schema.decodeUnknownEffect(EpicRunId);
+const decodeSwarmTaskExecutionId = Schema.decodeUnknownEffect(EpicIssueExecutionId);
+const encodeSwarmRunId = Schema.encodeSync(EpicRunId);
+const encodeSwarmTaskExecutionId = Schema.encodeSync(EpicIssueExecutionId);
 const decodeTurnDiffInput = Schema.decodeUnknownEffect(OrchestrationGetTurnDiffInput);
 const decodeThreadTurnDiff = Schema.decodeUnknownEffect(ThreadTurnDiff);
 const decodeProjectCreateCommand = Schema.decodeUnknownEffect(ProjectCreateCommand);
@@ -59,14 +57,14 @@ const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationComma
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
 const decodeThreadMetaUpdatedPayload = Schema.decodeUnknownEffect(ThreadMetaUpdatedPayload);
 const decodeOrchestrationStartSwarmRunInput = Schema.decodeUnknownEffect(
-  OrchestrationStartSwarmRunInput,
+  OrchestrationStartEpicRunInput,
 );
-const decodeOrchestrationContinueSwarmRunInput = Schema.decodeUnknownEffect(
-  OrchestrationContinueSwarmRunInput,
+const decodeOrchestrationStopEpicRunInput = Schema.decodeUnknownEffect(
+  OrchestrationStopEpicRunInput,
 );
-const decodeOrchestrationSwarmRun = Schema.decodeUnknownEffect(OrchestrationSwarmRun);
+const decodeOrchestrationSwarmRun = Schema.decodeUnknownEffect(OrchestrationEpicRun);
 const decodeOrchestrationSwarmTaskExecution = Schema.decodeUnknownEffect(
-  OrchestrationSwarmTaskExecution,
+  OrchestrationEpicIssueExecution,
 );
 
 it.effect("parses turn diff input when fromTurnCount <= toTurnCount", () =>
@@ -623,15 +621,15 @@ it.effect("preserves explicit follow-up outcomes when present", () =>
   }),
 );
 
-it.effect("defaults swarm run start input scheduler and workspace modes", () =>
+it.effect("decodes epic run start input without legacy scheduler or workspace modes", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeOrchestrationStartSwarmRunInput({
       projectId: "project-1",
       epicIssueId: "EPIC-1",
       runtimeMode: "full-access",
     });
-    assert.strictEqual(parsed.schedulerMode, DEFAULT_ORCHESTRATION_SWARM_SCHEDULER_MODE);
-    assert.strictEqual(parsed.workspaceMode, DEFAULT_ORCHESTRATION_SWARM_WORKSPACE_MODE);
+    assert.strictEqual(parsed.projectId, "project-1");
+    assert.strictEqual(parsed.epicIssueId, "EPIC-1");
     assert.strictEqual(parsed.runtimeMode, "full-access");
   }),
 );
@@ -651,14 +649,11 @@ it.effect("decodes and encodes branded swarm identifiers", () =>
 it.effect("decodes swarm lifecycle commands", () =>
   Effect.gen(function* () {
     const requestCommand = yield* decodeOrchestrationCommand({
-      type: "swarm-run.request",
+      type: "epic-run.request",
       commandId: "cmd-run-request",
       runId: "run-1",
       projectId: "project-1",
       epicIssueId: "EPIC-1",
-      swarmId: "SWARM-1",
-      schedulerMode: "semi-automatic",
-      workspaceMode: "shared",
       provider: "codex",
       model: "gpt-5.4-mini",
       assistantDeliveryMode: "buffered",
@@ -666,38 +661,35 @@ it.effect("decodes swarm lifecycle commands", () =>
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     const startExecutionCommand = yield* decodeOrchestrationCommand({
-      type: "swarm-task-execution.request",
+      type: "epic-issue-execution.request",
       commandId: "cmd-execution-request",
       executionId: "execution-1",
       runId: "run-1",
       issueId: "TASK-1",
       workerThreadId: "thread-1",
       sequenceNumber: 1,
-      originalStatus: "open",
-      originalAssignee: "issue-owner",
       createdAt: "2026-01-01T00:00:01.000Z",
     });
     const promoteExecutionCommand = yield* decodeOrchestrationCommand({
-      type: "swarm-task-execution.start",
+      type: "epic-issue-execution.start",
       commandId: "cmd-execution-start",
       executionId: "execution-1",
       runId: "run-1",
       createdAt: "2026-01-01T00:00:02.000Z",
     });
 
-    assert.strictEqual(requestCommand.type, "swarm-run.request");
+    assert.strictEqual(requestCommand.type, "epic-run.request");
     assert.strictEqual(requestCommand.runId, "run-1");
-    assert.strictEqual(requestCommand.schedulerMode, "semi-automatic");
-    assert.strictEqual(startExecutionCommand.type, "swarm-task-execution.request");
+    assert.strictEqual(startExecutionCommand.type, "epic-issue-execution.request");
     assert.strictEqual(startExecutionCommand.executionId, "execution-1");
     assert.strictEqual(startExecutionCommand.workerThreadId, "thread-1");
-    assert.strictEqual(promoteExecutionCommand.type, "swarm-task-execution.start");
+    assert.strictEqual(promoteExecutionCommand.type, "epic-issue-execution.start");
   }),
 );
 
-it.effect("decodes swarm run control input", () =>
+it.effect("decodes epic run control input", () =>
   Effect.gen(function* () {
-    const parsed = yield* decodeOrchestrationContinueSwarmRunInput({
+    const parsed = yield* decodeOrchestrationStopEpicRunInput({
       runId: "run-1",
     });
     assert.strictEqual(parsed.runId, "run-1");
@@ -710,7 +702,7 @@ it.effect("decodes swarm run history rows with null defaults", () =>
       runId: "run-1",
       projectId: "project-1",
       epicIssueId: "EPIC-1",
-      status: "requested",
+      status: "pending",
       requestedAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
       provider: null,
@@ -719,7 +711,8 @@ it.effect("decodes swarm run history rows with null defaults", () =>
       providerOptions: null,
       assistantDeliveryMode: null,
     });
-    assert.strictEqual(parsed.lastError, null);
+    assert.strictEqual(parsed.failureContext, null);
+    assert.strictEqual(parsed.stopRequestedAt, null);
   }),
 );
 
@@ -731,15 +724,15 @@ it.effect("decodes swarm task execution history rows", () =>
       issueId: "TASK-1",
       workerThreadId: "thread-9",
       sequenceNumber: 0,
-      status: "active",
-      originalStatus: "open",
-      originalAssignee: "issue-owner",
+      status: "running",
+      workspaceKey: "shared",
+      workspacePath: null,
       requestedAt: "2026-01-01T00:00:00.000Z",
       startedAt: "2026-01-01T00:00:01.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(parsed.workerThreadId, "thread-9");
-    assert.strictEqual(parsed.lastError, null);
+    assert.strictEqual(parsed.failureContext, null);
     assert.strictEqual(parsed.completedAt, null);
   }),
 );
@@ -749,32 +742,29 @@ it.effect("decodes swarm lifecycle events", () =>
     const parsed = yield* decodeOrchestrationEvent({
       sequence: 1,
       eventId: "event-1",
-      aggregateKind: "swarmRun",
+      aggregateKind: "epicRun",
       aggregateId: "run-1",
       occurredAt: "2026-01-01T00:00:00.000Z",
       commandId: "cmd-1",
       causationEventId: null,
       correlationId: "cmd-1",
       metadata: {},
-      type: "swarm-run.requested",
+      type: "epic-run.requested",
       payload: {
         runId: "run-1",
         projectId: "project-1",
         epicIssueId: "EPIC-1",
-        swarmId: "SWARM-1",
         provider: null,
         model: null,
         modelOptions: null,
         providerOptions: null,
         assistantDeliveryMode: null,
         runtimeMode: "full-access",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         requestedAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
       },
     });
-    assert.strictEqual(parsed.type, "swarm-run.requested");
-    assert.strictEqual(parsed.aggregateKind, "swarmRun");
+    assert.strictEqual(parsed.type, "epic-run.requested");
+    assert.strictEqual(parsed.aggregateKind, "epicRun");
   }),
 );

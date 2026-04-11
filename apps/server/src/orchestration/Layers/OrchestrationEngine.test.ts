@@ -97,6 +97,8 @@ describe("OrchestrationEngine", () => {
       snapshotSequence: 7,
       updatedAt: "2026-03-03T00:00:04.000Z",
       planImplementationLaunches: [],
+      epicRuns: [],
+      epicIssueExecutions: [],
       projects: [
         {
           id: asProjectId("project-bootstrap"),
@@ -125,6 +127,7 @@ describe("OrchestrationEngine", () => {
           runtimeMode: "full-access" as const,
           branch: null,
           worktreePath: null,
+          issueLink: null,
           latestTurn: null,
           createdAt: "2026-03-03T00:00:02.000Z",
           updatedAt: "2026-03-03T00:00:03.000Z",
@@ -134,6 +137,7 @@ describe("OrchestrationEngine", () => {
           proposedPlans: [],
           activities: [],
           checkpoints: [],
+          pendingCheckpointCaptures: [],
           session: null,
         },
       ],

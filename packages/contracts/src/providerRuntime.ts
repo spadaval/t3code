@@ -45,6 +45,16 @@ const ProviderRefs = Schema.Struct({
 });
 export type ProviderRefs = typeof ProviderRefs.Type;
 
+// Raw runtime protocol session state emitted by provider runtimes. This keeps
+// source fidelity for provider events, including states such as `waiting`,
+// rather than collapsing them into browser or persistence-oriented enums. It
+// stays distinct from:
+// - ProviderSessionStatus in provider.ts, which models the client/provider API
+//   handle lifecycle
+// - OrchestrationSessionStatus in orchestration.ts, which is the browser-facing
+//   projected thread/session state
+// - ProviderSessionRuntimeStatus in orchestration.ts, which only tracks the
+//   persisted runtime process lifecycle
 const RuntimeSessionState = Schema.Literals([
   "starting",
   "ready",

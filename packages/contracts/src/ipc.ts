@@ -1,7 +1,45 @@
 import type {
+  BeadsContext,
+  BeadsCommentIssueInput,
+  BeadsEpicCoordinatorSnapshot,
+  BeadsEpicCoordinatorSnapshotInput,
+  BeadsEpicIssueInput,
+  BeadsGetContextInput,
+  BeadsGetIssueInput,
+  BeadsGetIssuesInput,
+  BeadsGetIssuesResult,
+  BeadsGetSessionActivityInput,
+  BeadsGetSessionActivityResult,
+  BeadsGetEpicRunSupportInput,
+  BeadsIssueDetail,
+  BeadsIssueGraph,
+  BeadsIssueSummary,
+  BeadsListEpicTrackerSummariesInput,
+  BeadsListEpicTrackerSummariesResult,
+  BeadsProjectCoordinatorSnapshot,
+  BeadsProjectCoordinatorSnapshotInput,
+  BeadsQueryIssuesInput,
+  BeadsQueryIssuesResult,
+  BeadsStartBacklogGroomingInput,
+  BeadsStartEpicPlannedRefineInput,
+  BeadsStartEpicQuickRefineInput,
+  BeadsStartEpicCoordinationPrepInput,
+  BeadsStartWorkflowInput,
+  BeadsStartWorkflowResult,
+  BeadsEpicTrackerStatus,
+  BeadsEpicTrackerSummary,
+  BeadsEpicRunSupport,
+  BeadsEpicRunValidation,
+  BeadsUpdateIssueInput,
+  BeadsCreateIssueInput,
+} from "./beads";
+import type {
   GitCheckoutInput,
   GitCheckoutResult,
+  GitCurrentPullRequestInput,
+  GitCurrentPullRequestResult,
   GitCreateBranchInput,
+  GitCreateBranchResult,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
   GitPullRequestRefInput,
@@ -16,7 +54,8 @@ import type {
   GitResolvePullRequestResult,
   GitStatusInput,
   GitStatusResult,
-  GitCreateBranchResult,
+  GitWorkingTreeInput,
+  GitWorkingTreeResult,
 } from "./git";
 import type {
   ProjectSearchEntriesInput,
@@ -41,6 +80,7 @@ import type {
 } from "./terminal";
 import type { ServerUpsertKeybindingInput } from "./server";
 import type {
+  OrchestrationStopEpicRunInput,
   ClientOrchestrationCommand,
   OrchestrationCancelPlanImplementationLaunchInput,
   OrchestrationCancelPlanImplementationLaunchResult,
@@ -53,6 +93,8 @@ import type {
   OrchestrationLaunchPlanImplementationResult,
   OrchestrationReadModel,
   OrchestrationRetryPlanImplementationLaunchInput,
+  OrchestrationStartEpicRunInput,
+  OrchestrationEpicRunControlResult,
 } from "./orchestration";
 import { EditorId } from "./editor";
 import { ServerSettings, ServerSettingsPatch } from "./settings";
@@ -172,6 +214,8 @@ export interface NativeApi {
         onResubscribe?: () => void;
       },
     ) => () => void;
+    workingTree: (input: GitWorkingTreeInput) => Promise<GitWorkingTreeResult>;
+    currentPullRequest: (input: GitCurrentPullRequestInput) => Promise<GitCurrentPullRequestResult>;
   };
   contextMenu: {
     show: <T extends string>(
@@ -203,11 +247,56 @@ export interface NativeApi {
     retryPlanImplementationLaunch: (
       input: OrchestrationRetryPlanImplementationLaunchInput,
     ) => Promise<OrchestrationLaunchPlanImplementationResult>;
+    startEpicRun: (
+      input: OrchestrationStartEpicRunInput,
+    ) => Promise<OrchestrationEpicRunControlResult>;
+    stopEpicRun: (
+      input: OrchestrationStopEpicRunInput,
+    ) => Promise<OrchestrationEpicRunControlResult>;
     onDomainEvent: (
       callback: (event: OrchestrationEvent) => void,
       options?: {
         onResubscribe?: () => void;
       },
     ) => () => void;
+  };
+  beads: {
+    queryIssues: (input: BeadsQueryIssuesInput) => Promise<BeadsQueryIssuesResult>;
+    getIssue: (input: BeadsGetIssueInput) => Promise<BeadsIssueDetail>;
+    getIssues: (input: BeadsGetIssuesInput) => Promise<BeadsGetIssuesResult>;
+    createIssue: (input: BeadsCreateIssueInput) => Promise<BeadsIssueSummary>;
+    updateIssue: (input: BeadsUpdateIssueInput) => Promise<BeadsIssueSummary>;
+    commentIssue: (input: BeadsCommentIssueInput) => Promise<BeadsIssueDetail>;
+    getContext: (input: BeadsGetContextInput) => Promise<BeadsContext>;
+    getEpicRunSupport: (input: BeadsGetEpicRunSupportInput) => Promise<BeadsEpicRunSupport>;
+    getIssueGraph: (input: BeadsEpicIssueInput) => Promise<BeadsIssueGraph>;
+    getEpicTrackerSummary: (input: BeadsEpicIssueInput) => Promise<BeadsEpicTrackerSummary | null>;
+    validateEpicRun: (input: BeadsEpicIssueInput) => Promise<BeadsEpicRunValidation>;
+    getEpicTrackerStatus: (input: BeadsEpicIssueInput) => Promise<BeadsEpicTrackerStatus>;
+    listEpicTrackerSummaries: (
+      input: BeadsListEpicTrackerSummariesInput,
+    ) => Promise<BeadsListEpicTrackerSummariesResult>;
+    getProjectCoordinatorSnapshot: (
+      input: BeadsProjectCoordinatorSnapshotInput,
+    ) => Promise<BeadsProjectCoordinatorSnapshot>;
+    getEpicCoordinatorSnapshot: (
+      input: BeadsEpicCoordinatorSnapshotInput,
+    ) => Promise<BeadsEpicCoordinatorSnapshot>;
+    getSessionActivity: (
+      input: BeadsGetSessionActivityInput,
+    ) => Promise<BeadsGetSessionActivityResult>;
+    startWorkflow: (input: BeadsStartWorkflowInput) => Promise<BeadsStartWorkflowResult>;
+    startBacklogGrooming: (
+      input: BeadsStartBacklogGroomingInput,
+    ) => Promise<BeadsStartWorkflowResult>;
+    startEpicQuickRefine: (
+      input: BeadsStartEpicQuickRefineInput,
+    ) => Promise<BeadsStartWorkflowResult>;
+    startEpicPlannedRefine: (
+      input: BeadsStartEpicPlannedRefineInput,
+    ) => Promise<BeadsStartWorkflowResult>;
+    startEpicCoordinationPrep: (
+      input: BeadsStartEpicCoordinationPrepInput,
+    ) => Promise<BeadsStartWorkflowResult>;
   };
 }

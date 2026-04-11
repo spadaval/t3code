@@ -16,6 +16,10 @@
       "types": "./src/plan.ts",
       "import": "./src/plan.ts"
     },
+    "./epicRun": {
+      "types": "./src/epicRun.ts",
+      "import": "./src/epicRun.ts"
+    },
     "./projectScripts": {
       "types": "./src/projectScripts.ts",
       "import": "./src/projectScripts.ts"

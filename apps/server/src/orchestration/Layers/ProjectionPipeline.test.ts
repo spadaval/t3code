@@ -15,10 +15,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
-import {
-  makeSqlitePersistenceLive,
-  SqlitePersistenceMemory,
-} from "../../persistence/Layers/Sqlite.ts";
+import { makeSqlitePersistenceLive, layerConfig } from "../../persistence/Layers/Sqlite.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import {
@@ -30,13 +27,28 @@ import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { OrchestrationProjectionPipeline } from "../Services/ProjectionPipeline.ts";
 import { ServerConfig } from "../../config.ts";
 
-const makeProjectionPipelinePrefixedTestLayer = (prefix: string) =>
-  OrchestrationProjectionPipelineLive.pipe(
-    Layer.provideMerge(OrchestrationEventStoreLive),
-    Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix })),
-    Layer.provideMerge(SqlitePersistenceMemory),
+function makeTestPersistenceLayer(prefix: string) {
+  const serverConfigLayer = ServerConfig.layerTest(process.cwd(), { prefix });
+  const sqliteLayer = layerConfig.pipe(
+    Layer.provideMerge(serverConfigLayer),
     Layer.provideMerge(NodeServices.layer),
   );
+
+  return {
+    serverConfigLayer,
+    sqliteLayer,
+  };
+}
+
+const makeProjectionPipelinePrefixedTestLayer = (prefix: string) => {
+  const { serverConfigLayer, sqliteLayer } = makeTestPersistenceLayer(prefix);
+  return OrchestrationProjectionPipelineLive.pipe(
+    Layer.provideMerge(OrchestrationEventStoreLive),
+    Layer.provideMerge(serverConfigLayer),
+    Layer.provideMerge(sqliteLayer),
+    Layer.provideMerge(NodeServices.layer),
+  );
+};
 
 const exists = (filePath: string) =>
   Effect.gen(function* () {
@@ -166,6 +178,161 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       for (const row of stateRows) {
         assert.equal(row.lastAppliedSequence, 3);
       }
+    }),
+  );
+
+  it.effect("projects swarm runs and task executions into dedicated projection tables", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const requestedAt = "2026-04-06T00:00:00.000Z";
+      const startedAt = "2026-04-06T00:00:01.000Z";
+      const failedAt = "2026-04-06T00:00:02.000Z";
+
+      yield* eventStore.append({
+        type: "project.created",
+        eventId: EventId.makeUnsafe("evt-swarm-project"),
+        aggregateKind: "project",
+        aggregateId: ProjectId.makeUnsafe("project-swarm"),
+        occurredAt: requestedAt,
+        commandId: CommandId.makeUnsafe("cmd-swarm-project"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-swarm-project"),
+        metadata: {},
+        payload: {
+          projectId: ProjectId.makeUnsafe("project-swarm"),
+          title: "Swarm Project",
+          workspaceRoot: "/tmp/project-swarm",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: requestedAt,
+          updatedAt: requestedAt,
+        },
+      });
+
+      yield* eventStore.append({
+        type: "epic-run.requested",
+        eventId: EventId.makeUnsafe("evt-swarm-run"),
+        aggregateKind: "epicRun",
+        aggregateId: "run-1" as never,
+        occurredAt: requestedAt,
+        commandId: CommandId.makeUnsafe("cmd-swarm-run"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-swarm-run"),
+        metadata: {},
+        payload: {
+          runId: "run-1" as never,
+          projectId: ProjectId.makeUnsafe("project-swarm"),
+          epicIssueId: "EPIC-1",
+          provider: "codex",
+          model: "gpt-5.4",
+          modelOptions: null,
+          providerOptions: null,
+          assistantDeliveryMode: "streaming",
+          runtimeMode: "full-access",
+          requestedAt,
+          updatedAt: requestedAt,
+        },
+      });
+
+      yield* eventStore.append({
+        type: "epic-issue-execution.requested",
+        eventId: EventId.makeUnsafe("evt-swarm-execution-requested"),
+        aggregateKind: "epicIssueExecution",
+        aggregateId: "execution-1" as never,
+        occurredAt: requestedAt,
+        commandId: CommandId.makeUnsafe("cmd-swarm-execution-requested"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-swarm-execution-requested"),
+        metadata: {},
+        payload: {
+          executionId: "execution-1" as never,
+          runId: "run-1" as never,
+          issueId: "TASK-1",
+          workerThreadId: "thread-1" as never,
+          sequenceNumber: 1,
+          requestedAt,
+          updatedAt: requestedAt,
+        },
+      });
+
+      yield* eventStore.append({
+        type: "epic-issue-execution.started",
+        eventId: EventId.makeUnsafe("evt-swarm-execution-started"),
+        aggregateKind: "epicIssueExecution",
+        aggregateId: "execution-1" as never,
+        occurredAt: startedAt,
+        commandId: CommandId.makeUnsafe("cmd-swarm-execution-started"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-swarm-execution-started"),
+        metadata: {},
+        payload: {
+          executionId: "execution-1" as never,
+          runId: "run-1" as never,
+          startedAt,
+          updatedAt: startedAt,
+        },
+      });
+
+      yield* eventStore.append({
+        type: "epic-issue-execution.failed",
+        eventId: EventId.makeUnsafe("evt-swarm-execution-failed"),
+        aggregateKind: "epicIssueExecution",
+        aggregateId: "execution-1" as never,
+        occurredAt: failedAt,
+        commandId: CommandId.makeUnsafe("cmd-swarm-execution-failed"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-swarm-execution-failed"),
+        metadata: {},
+        payload: {
+          executionId: "execution-1" as never,
+          runId: "run-1" as never,
+          reason: "worker crashed",
+          failedAt,
+          updatedAt: failedAt,
+        },
+      });
+
+      yield* projectionPipeline.bootstrap;
+
+      const runRows = yield* sql<{
+        readonly runId: string;
+        readonly status: string;
+      }>`
+        SELECT
+          run_id AS "runId",
+          status
+        FROM projection_epic_runs
+      `;
+      assert.deepEqual(runRows, [
+        {
+          runId: "run-1",
+          status: "pending",
+        },
+      ]);
+
+      const executionRows = yield* sql<{
+        readonly executionId: string;
+        readonly status: string;
+        readonly requestedAt: string;
+        readonly failureMessage: string | null;
+      }>`
+        SELECT
+          execution_id AS "executionId",
+          status,
+          requested_at AS "requestedAt",
+          failure_message AS "failureMessage"
+        FROM projection_epic_issue_executions
+      `;
+      assert.deepEqual(executionRows, [
+        {
+          executionId: "execution-1",
+          status: "failed",
+          requestedAt,
+          failureMessage: "worker crashed",
+        },
+      ]);
     }),
   );
 });
@@ -1504,6 +1671,284 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       }),
   );
 
+  it.effect("creates and clears pending checkpoint capture rows without rewriting turn state", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+        eventStore
+          .append(event)
+          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+
+      yield* appendAndProject({
+        type: "project.created",
+        eventId: EventId.makeUnsafe("evt-pending-checkpoint-1"),
+        aggregateKind: "project",
+        aggregateId: ProjectId.makeUnsafe("project-pending-checkpoint"),
+        occurredAt: "2026-03-01T10:00:00.000Z",
+        commandId: CommandId.makeUnsafe("cmd-pending-checkpoint-1"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-pending-checkpoint-1"),
+        metadata: {},
+        payload: {
+          projectId: ProjectId.makeUnsafe("project-pending-checkpoint"),
+          title: "Pending Checkpoint Project",
+          workspaceRoot: "/repo/pending-checkpoint",
+          defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
+          scripts: [],
+          createdAt: "2026-03-01T10:00:00.000Z",
+          updatedAt: "2026-03-01T10:00:00.000Z",
+        },
+      });
+
+      yield* appendAndProject({
+        type: "thread.created",
+        eventId: EventId.makeUnsafe("evt-pending-checkpoint-2"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-pending-checkpoint"),
+        occurredAt: "2026-03-01T10:00:01.000Z",
+        commandId: CommandId.makeUnsafe("cmd-pending-checkpoint-2"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-pending-checkpoint-2"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-pending-checkpoint"),
+          projectId: ProjectId.makeUnsafe("project-pending-checkpoint"),
+          title: "Thread Pending Checkpoint",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-03-01T10:00:01.000Z",
+          updatedAt: "2026-03-01T10:00:01.000Z",
+        },
+      });
+
+      yield* appendAndProject({
+        type: "thread.session-set",
+        eventId: EventId.makeUnsafe("evt-pending-checkpoint-3"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-pending-checkpoint"),
+        occurredAt: "2026-03-01T10:00:02.000Z",
+        commandId: CommandId.makeUnsafe("cmd-pending-checkpoint-3"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-pending-checkpoint-3"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-pending-checkpoint"),
+          session: {
+            threadId: ThreadId.makeUnsafe("thread-pending-checkpoint"),
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: TurnId.makeUnsafe("turn-pending"),
+            lastError: null,
+            updatedAt: "2026-03-01T10:00:02.000Z",
+          },
+        },
+      });
+
+      yield* appendAndProject({
+        type: "thread.checkpoint-capture-requested",
+        eventId: EventId.makeUnsafe("evt-pending-checkpoint-4"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-pending-checkpoint"),
+        occurredAt: "2026-03-01T10:00:03.000Z",
+        commandId: CommandId.makeUnsafe("cmd-pending-checkpoint-4"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-pending-checkpoint-4"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-pending-checkpoint"),
+          request: {
+            turnId: TurnId.makeUnsafe("turn-pending"),
+            checkpointTurnCount: 1,
+            assistantMessageId: MessageId.makeUnsafe("assistant-pending"),
+            requestedAt: "2026-03-01T10:00:03.000Z",
+          },
+        },
+      });
+
+      const pendingRows = yield* sql<{
+        readonly turnId: string;
+        readonly checkpointTurnCount: number;
+      }>`
+        SELECT
+          turn_id AS "turnId",
+          checkpoint_turn_count AS "checkpointTurnCount"
+        FROM projection_pending_checkpoint_captures
+        WHERE thread_id = 'thread-pending-checkpoint'
+        ORDER BY requested_at ASC
+      `;
+      assert.deepEqual(pendingRows, [{ turnId: "turn-pending", checkpointTurnCount: 1 }]);
+
+      yield* appendAndProject({
+        type: "thread.turn-diff-completed",
+        eventId: EventId.makeUnsafe("evt-pending-checkpoint-5"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-pending-checkpoint"),
+        occurredAt: "2026-03-01T10:00:04.000Z",
+        commandId: CommandId.makeUnsafe("cmd-pending-checkpoint-5"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-pending-checkpoint-5"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-pending-checkpoint"),
+          turnId: TurnId.makeUnsafe("turn-pending"),
+          checkpointTurnCount: 1,
+          checkpointRef: CheckpointRef.makeUnsafe("refs/t3/checkpoints/thread-pending/turn/1"),
+          status: "ready",
+          files: [],
+          assistantMessageId: MessageId.makeUnsafe("assistant-pending"),
+          completedAt: "2026-03-01T10:00:04.000Z",
+        },
+      });
+
+      const clearedPendingRows = yield* sql`
+        SELECT COUNT(*) AS count
+        FROM projection_pending_checkpoint_captures
+        WHERE thread_id = 'thread-pending-checkpoint'
+      `;
+      assert.deepEqual(clearedPendingRows, [{ count: 0 }]);
+
+      const turnRows = yield* sql<{
+        readonly state: string;
+        readonly checkpointTurnCount: number | null;
+      }>`
+        SELECT
+          state,
+          checkpoint_turn_count AS "checkpointTurnCount"
+        FROM projection_turns
+        WHERE thread_id = 'thread-pending-checkpoint'
+          AND turn_id = 'turn-pending'
+      `;
+      assert.deepEqual(turnRows, [{ state: "running", checkpointTurnCount: 1 }]);
+    }),
+  );
+
+  it.effect(
+    "treats legacy missing checkpoint events as pending capture replay without interrupting turns",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+          eventStore
+            .append(event)
+            .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+
+        yield* appendAndProject({
+          type: "project.created",
+          eventId: EventId.makeUnsafe("evt-legacy-missing-1"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.makeUnsafe("project-legacy-missing"),
+          occurredAt: "2026-03-01T11:00:00.000Z",
+          commandId: CommandId.makeUnsafe("cmd-legacy-missing-1"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-legacy-missing-1"),
+          metadata: {},
+          payload: {
+            projectId: ProjectId.makeUnsafe("project-legacy-missing"),
+            title: "Legacy Missing Project",
+            workspaceRoot: "/repo/legacy-missing",
+            defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
+            scripts: [],
+            createdAt: "2026-03-01T11:00:00.000Z",
+            updatedAt: "2026-03-01T11:00:00.000Z",
+          },
+        });
+
+        yield* appendAndProject({
+          type: "thread.created",
+          eventId: EventId.makeUnsafe("evt-legacy-missing-2"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-legacy-missing"),
+          occurredAt: "2026-03-01T11:00:01.000Z",
+          commandId: CommandId.makeUnsafe("cmd-legacy-missing-2"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-legacy-missing-2"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-legacy-missing"),
+            projectId: ProjectId.makeUnsafe("project-legacy-missing"),
+            title: "Thread Legacy Missing",
+            modelSelection: { provider: "codex", model: "gpt-5-codex" },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: "2026-03-01T11:00:01.000Z",
+            updatedAt: "2026-03-01T11:00:01.000Z",
+          },
+        });
+
+        yield* appendAndProject({
+          type: "thread.turn-interrupt-requested",
+          eventId: EventId.makeUnsafe("evt-legacy-missing-3"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-legacy-missing"),
+          occurredAt: "2026-03-01T11:00:02.000Z",
+          commandId: CommandId.makeUnsafe("cmd-legacy-missing-3"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-legacy-missing-3"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-legacy-missing"),
+            turnId: TurnId.makeUnsafe("turn-legacy"),
+            createdAt: "2026-03-01T11:00:02.000Z",
+          },
+        });
+
+        yield* appendAndProject({
+          type: "thread.turn-diff-completed",
+          eventId: EventId.makeUnsafe("evt-legacy-missing-4"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-legacy-missing"),
+          occurredAt: "2026-03-01T11:00:03.000Z",
+          commandId: CommandId.makeUnsafe("cmd-legacy-missing-4"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-legacy-missing-4"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-legacy-missing"),
+            turnId: TurnId.makeUnsafe("turn-legacy"),
+            checkpointTurnCount: 1,
+            checkpointRef: CheckpointRef.makeUnsafe("refs/t3/checkpoints/thread-legacy/turn/1"),
+            status: "missing",
+            files: [],
+            assistantMessageId: MessageId.makeUnsafe("assistant-legacy"),
+            completedAt: "2026-03-01T11:00:03.000Z",
+          },
+        });
+
+        const pendingRows = yield* sql<{
+          readonly turnId: string;
+          readonly checkpointTurnCount: number;
+        }>`
+        SELECT
+          turn_id AS "turnId",
+          checkpoint_turn_count AS "checkpointTurnCount"
+        FROM projection_pending_checkpoint_captures
+        WHERE thread_id = 'thread-legacy-missing'
+      `;
+        assert.deepEqual(pendingRows, [{ turnId: "turn-legacy", checkpointTurnCount: 1 }]);
+
+        const turnRows = yield* sql<{
+          readonly state: string;
+          readonly checkpointTurnCount: number | null;
+        }>`
+        SELECT
+          state,
+          checkpoint_turn_count AS "checkpointTurnCount"
+        FROM projection_turns
+        WHERE thread_id = 'thread-legacy-missing'
+          AND turn_id = 'turn-legacy'
+      `;
+        assert.deepEqual(turnRows, [{ state: "interrupted", checkpointTurnCount: null }]);
+      }),
+  );
+
   it.effect("does not fallback-retain messages whose turnId is removed by revert", () =>
     Effect.gen(function* () {
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
@@ -1841,19 +2286,20 @@ it.effect("restores pending turn-start metadata across projection pipeline resta
 );
 
 const engineLayer = it.layer(
-  OrchestrationEngineLive.pipe(
-    Layer.provide(OrchestrationProjectionSnapshotQueryLive),
-    Layer.provide(OrchestrationProjectionPipelineLive),
-    Layer.provide(OrchestrationEventStoreLive),
-    Layer.provide(OrchestrationCommandReceiptRepositoryLive),
-    Layer.provideMerge(SqlitePersistenceMemory),
-    Layer.provideMerge(
-      ServerConfig.layerTest(process.cwd(), {
-        prefix: "t3-projection-pipeline-engine-dispatch-",
-      }),
-    ),
-    Layer.provideMerge(NodeServices.layer),
-  ),
+  (() => {
+    const { serverConfigLayer, sqliteLayer } = makeTestPersistenceLayer(
+      "t3-projection-pipeline-engine-dispatch-",
+    );
+    return OrchestrationEngineLive.pipe(
+      Layer.provide(OrchestrationProjectionSnapshotQueryLive),
+      Layer.provide(OrchestrationProjectionPipelineLive),
+      Layer.provide(OrchestrationEventStoreLive),
+      Layer.provide(OrchestrationCommandReceiptRepositoryLive),
+      Layer.provideMerge(sqliteLayer),
+      Layer.provideMerge(serverConfigLayer),
+      Layer.provideMerge(NodeServices.layer),
+    );
+  })(),
 );
 
 engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {

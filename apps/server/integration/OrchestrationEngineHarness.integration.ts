@@ -53,6 +53,7 @@ import { OrchestrationReactorLive } from "../src/orchestration/Layers/Orchestrat
 import { ProviderCommandReactorLive } from "../src/orchestration/Layers/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionLive } from "../src/orchestration/Layers/ProviderRuntimeIngestion.ts";
 import { PlanImplementationWorkflow } from "../src/orchestration/Services/PlanImplementationWorkflow.ts";
+import { EpicRunScheduler } from "../src/orchestration/Services/EpicRunScheduler.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -341,6 +342,15 @@ export const makeOrchestrationIntegrationHarness = (
           launchPlanImplementation: () => Effect.die("unused"),
           cancelPlanImplementationLaunch: () => Effect.die("unused"),
           retryPlanImplementationLaunch: () => Effect.die("unused"),
+        }),
+      ),
+      Layer.provide(
+        Layer.succeed(EpicRunScheduler, {
+          start: Effect.void,
+          drain: Effect.void,
+          startEpicRun: () => Effect.die("unused"),
+          stopEpicRun: () => Effect.die("unused"),
+          notifyWorkerStateChanged: () => Effect.void,
         }),
       ),
     );

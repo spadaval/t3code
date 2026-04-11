@@ -1,4 +1,5 @@
 import {
+  BEADS_WS_METHODS,
   type GitActionProgressEvent,
   type GitRunStackedActionInput,
   type GitRunStackedActionResult,
@@ -73,6 +74,8 @@ export interface WsRpcClient {
       listener: (status: GitStatusResult) => void,
       options?: StreamSubscriptionOptions,
     ) => () => void;
+    readonly workingTree: RpcUnaryMethod<typeof WS_METHODS.gitWorkingTree>;
+    readonly currentPullRequest: RpcUnaryMethod<typeof WS_METHODS.gitCurrentPullRequest>;
     readonly runStackedAction: (
       input: GitRunStackedActionInput,
       options?: GitRunStackedActionOptions,
@@ -99,6 +102,37 @@ export interface WsRpcClient {
     readonly subscribeConfig: RpcStreamMethod<typeof WS_METHODS.subscribeServerConfig>;
     readonly subscribeLifecycle: RpcStreamMethod<typeof WS_METHODS.subscribeServerLifecycle>;
   };
+  readonly beads: {
+    readonly queryIssues: RpcUnaryMethod<typeof BEADS_WS_METHODS.queryIssues>;
+    readonly getIssue: RpcUnaryMethod<typeof BEADS_WS_METHODS.getIssue>;
+    readonly getIssues: RpcUnaryMethod<typeof BEADS_WS_METHODS.getIssues>;
+    readonly createIssue: RpcUnaryMethod<typeof BEADS_WS_METHODS.createIssue>;
+    readonly updateIssue: RpcUnaryMethod<typeof BEADS_WS_METHODS.updateIssue>;
+    readonly commentIssue: RpcUnaryMethod<typeof BEADS_WS_METHODS.commentIssue>;
+    readonly getContext: RpcUnaryMethod<typeof BEADS_WS_METHODS.getContext>;
+    readonly getEpicRunSupport: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicRunSupport>;
+    readonly getIssueGraph: RpcUnaryMethod<typeof BEADS_WS_METHODS.getIssueGraph>;
+    readonly getEpicTrackerSummary: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicTrackerSummary>;
+    readonly validateEpicRun: RpcUnaryMethod<typeof BEADS_WS_METHODS.validateEpicRun>;
+    readonly getEpicTrackerStatus: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicTrackerStatus>;
+    readonly listEpicTrackerSummaries: RpcUnaryMethod<
+      typeof BEADS_WS_METHODS.listEpicTrackerSummaries
+    >;
+    readonly getProjectCoordinatorSnapshot: RpcUnaryMethod<
+      typeof BEADS_WS_METHODS.getProjectCoordinatorSnapshot
+    >;
+    readonly getEpicCoordinatorSnapshot: RpcUnaryMethod<
+      typeof BEADS_WS_METHODS.getEpicCoordinatorSnapshot
+    >;
+    readonly getSessionActivity: RpcUnaryMethod<typeof BEADS_WS_METHODS.getSessionActivity>;
+    readonly startWorkflow: RpcUnaryMethod<typeof BEADS_WS_METHODS.startWorkflow>;
+    readonly startBacklogGrooming: RpcUnaryMethod<typeof BEADS_WS_METHODS.startBacklogGrooming>;
+    readonly startEpicQuickRefine: RpcUnaryMethod<typeof BEADS_WS_METHODS.startEpicQuickRefine>;
+    readonly startEpicPlannedRefine: RpcUnaryMethod<typeof BEADS_WS_METHODS.startEpicPlannedRefine>;
+    readonly startEpicCoordinationPrep: RpcUnaryMethod<
+      typeof BEADS_WS_METHODS.startEpicCoordinationPrep
+    >;
+  };
   readonly orchestration: {
     readonly getSnapshot: RpcUnaryNoArgMethod<typeof ORCHESTRATION_WS_METHODS.getSnapshot>;
     readonly dispatchCommand: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.dispatchCommand>;
@@ -114,6 +148,8 @@ export interface WsRpcClient {
     readonly retryPlanImplementationLaunch: RpcUnaryMethod<
       typeof ORCHESTRATION_WS_METHODS.retryPlanImplementationLaunch
     >;
+    readonly startEpicRun: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.startEpicRun>;
+    readonly stopEpicRun: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.stopEpicRun>;
     readonly onDomainEvent: RpcStreamMethod<typeof WS_METHODS.subscribeOrchestrationDomainEvents>;
   };
 }
@@ -179,6 +215,10 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
           options,
         );
       },
+      workingTree: (input) =>
+        transport.request((client) => client[WS_METHODS.gitWorkingTree](input)),
+      currentPullRequest: (input) =>
+        transport.request((client) => client[WS_METHODS.gitCurrentPullRequest](input)),
       runStackedAction: async (input, options) => {
         let result: GitRunStackedActionResult | null = null;
 
@@ -235,6 +275,51 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
           options,
         ),
     },
+    beads: {
+      queryIssues: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.queryIssues](input)),
+      getIssue: (input) => transport.request((client) => client[BEADS_WS_METHODS.getIssue](input)),
+      getIssues: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getIssues](input)),
+      createIssue: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.createIssue](input)),
+      updateIssue: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.updateIssue](input)),
+      commentIssue: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.commentIssue](input)),
+      getContext: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getContext](input)),
+      getEpicRunSupport: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getEpicRunSupport](input)),
+      getIssueGraph: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getIssueGraph](input)),
+      getEpicTrackerSummary: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getEpicTrackerSummary](input)),
+      validateEpicRun: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.validateEpicRun](input)),
+      getEpicTrackerStatus: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getEpicTrackerStatus](input)),
+      listEpicTrackerSummaries: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.listEpicTrackerSummaries](input)),
+      getProjectCoordinatorSnapshot: (input) =>
+        transport.request((client) =>
+          client[BEADS_WS_METHODS.getProjectCoordinatorSnapshot](input),
+        ),
+      getEpicCoordinatorSnapshot: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getEpicCoordinatorSnapshot](input)),
+      getSessionActivity: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getSessionActivity](input)),
+      startWorkflow: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.startWorkflow](input)),
+      startBacklogGrooming: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.startBacklogGrooming](input)),
+      startEpicQuickRefine: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.startEpicQuickRefine](input)),
+      startEpicPlannedRefine: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.startEpicPlannedRefine](input)),
+      startEpicCoordinationPrep: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.startEpicCoordinationPrep](input)),
+    },
     orchestration: {
       getSnapshot: () =>
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.getSnapshot]({})),
@@ -260,6 +345,10 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport.request((client) =>
           client[ORCHESTRATION_WS_METHODS.retryPlanImplementationLaunch](input),
         ),
+      startEpicRun: (input) =>
+        transport.request((client) => client[ORCHESTRATION_WS_METHODS.startEpicRun](input)),
+      stopEpicRun: (input) =>
+        transport.request((client) => client[ORCHESTRATION_WS_METHODS.stopEpicRun](input)),
       onDomainEvent: (listener, options) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeOrchestrationDomainEvents]({}),

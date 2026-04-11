@@ -166,7 +166,8 @@ type ProviderRuntimeTestThread = ProviderRuntimeTestReadModel["threads"][number]
 type ProviderRuntimeTestMessage = ProviderRuntimeTestThread["messages"][number];
 type ProviderRuntimeTestProposedPlan = ProviderRuntimeTestThread["proposedPlans"][number];
 type ProviderRuntimeTestActivity = ProviderRuntimeTestThread["activities"][number];
-type ProviderRuntimeTestCheckpoint = ProviderRuntimeTestThread["checkpoints"][number];
+type ProviderRuntimeTestPendingCheckpointCapture =
+  ProviderRuntimeTestThread["pendingCheckpointCaptures"][number];
 
 describe("ProviderRuntimeIngestion", () => {
   let runtime: ManagedRuntime.ManagedRuntime<
@@ -196,7 +197,20 @@ describe("ProviderRuntimeIngestion", () => {
     }
   });
 
-  async function createHarness(options?: { serverSettings?: Partial<ServerSettings> }) {
+  async function createHarness(options?: {
+    serverSettings?: Partial<ServerSettings>;
+    threadCreate?: {
+      interactionMode?: "default" | "plan";
+      issueLink?: {
+        issueId: string;
+        title: string;
+        status: string;
+        priority: number | null;
+        repoRoot: string;
+        linkedAt: string;
+      } | null;
+    };
+  }) {
     const workspaceRoot = makeTempDir("t3-provider-project-");
     fs.mkdirSync(path.join(workspaceRoot, ".git"));
     const provider = createProviderServiceHarness();
@@ -248,10 +262,14 @@ describe("ProviderRuntimeIngestion", () => {
           provider: "codex",
           model: "gpt-5-codex",
         },
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        interactionMode:
+          options?.threadCreate?.interactionMode ?? DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
         branch: null,
         worktreePath: null,
+        ...(options?.threadCreate?.issueLink !== undefined
+          ? { issueLink: options.threadCreate.issueLink }
+          : {}),
         createdAt,
       }),
     );
@@ -416,6 +434,214 @@ describe("ProviderRuntimeIngestion", () => {
         entry.session?.lastError === null,
     );
     expect(thread.session?.status).toBe("ready");
+    expect(thread.session?.lastError).toBeNull();
+  });
+
+  it("keeps active-turn session lifecycle authoritative during runtime state changes", async () => {
+    const harness = await createHarness();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-before-state-change"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      turnId: asTurnId("turn-1"),
+      payload: {},
+    });
+
+    await waitForThread(
+      harness.engine,
+      (entry) => entry.session?.status === "running" && entry.session?.activeTurnId === "turn-1",
+    );
+
+    harness.emit({
+      type: "session.state.changed",
+      eventId: asEventId("evt-session-state-ready-during-turn"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      payload: {
+        state: "ready",
+      },
+    });
+
+    let thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "running" &&
+        entry.session?.activeTurnId === "turn-1" &&
+        entry.session?.lastError === null,
+    );
+
+    expect(thread.session?.status).toBe("running");
+    expect(thread.session?.activeTurnId).toBe("turn-1");
+    expect(thread.session?.lastError).toBeNull();
+
+    harness.emit({
+      type: "session.state.changed",
+      eventId: asEventId("evt-session-state-stopped-during-turn"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      payload: {
+        state: "stopped",
+        reason: "provider stopped during an active turn",
+      },
+    });
+
+    thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "interrupted" &&
+        entry.session?.activeTurnId === null &&
+        entry.session?.lastError === "provider stopped during an active turn",
+    );
+
+    expect(thread.session?.status).toBe("interrupted");
+    expect(thread.session?.lastError).toBe("provider stopped during an active turn");
+  });
+
+  it("maps active-turn session.exited to interrupted for graceful exit and error otherwise", async () => {
+    const harness = await createHarness();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-before-exit"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      turnId: asTurnId("turn-1"),
+      payload: {},
+    });
+
+    await waitForThread(
+      harness.engine,
+      (entry) => entry.session?.status === "running" && entry.session?.activeTurnId === "turn-1",
+    );
+
+    harness.emit({
+      type: "session.exited",
+      eventId: asEventId("evt-session-exited-during-turn-graceful"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      payload: {
+        exitKind: "graceful",
+      },
+    });
+
+    let thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "interrupted" &&
+        entry.session?.activeTurnId === null &&
+        entry.session?.lastError === null,
+    );
+
+    expect(thread.session?.status).toBe("interrupted");
+    expect(thread.session?.lastError).toBeNull();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-before-ungraceful-exit"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      turnId: asTurnId("turn-2"),
+      payload: {},
+    });
+
+    await waitForThread(
+      harness.engine,
+      (entry) => entry.session?.status === "running" && entry.session?.activeTurnId === "turn-2",
+    );
+
+    harness.emit({
+      type: "session.exited",
+      eventId: asEventId("evt-session-exited-during-turn-error"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      payload: {
+        reason: "provider process exited unexpectedly",
+      },
+    });
+
+    thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "error" &&
+        entry.session?.activeTurnId === null &&
+        entry.session?.lastError === "provider process exited unexpectedly",
+    );
+
+    expect(thread.session?.status).toBe("error");
+    expect(thread.session?.lastError).toBe("provider process exited unexpectedly");
+  });
+
+  it("clears stale errors on healthy session recovery and graceful no-active-turn exit", async () => {
+    const harness = await createHarness();
+
+    harness.emit({
+      type: "session.state.changed",
+      eventId: asEventId("evt-session-state-error-before-recovery"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      payload: {
+        state: "error",
+        reason: "provider crashed",
+      },
+    });
+
+    await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "error" && entry.session?.lastError === "provider crashed",
+    );
+
+    harness.emit({
+      type: "session.state.changed",
+      eventId: asEventId("evt-session-state-ready-after-recovery"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      payload: {
+        state: "ready",
+      },
+    });
+
+    let thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "ready" &&
+        entry.session?.activeTurnId === null &&
+        entry.session?.lastError === null,
+    );
+
+    expect(thread.session?.lastError).toBeNull();
+
+    harness.emit({
+      type: "session.exited",
+      eventId: asEventId("evt-session-exited-graceful-no-active-turn"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      payload: {
+        exitKind: "graceful",
+      },
+    });
+
+    thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "stopped" &&
+        entry.session?.activeTurnId === null &&
+        entry.session?.lastError === null,
+    );
+
+    expect(thread.session?.status).toBe("stopped");
     expect(thread.session?.lastError).toBeNull();
   });
 
@@ -1523,6 +1749,67 @@ describe("ProviderRuntimeIngestion", () => {
     expect(proposedPlan?.planMarkdown).toBe("## Buffered plan\n\n- first\n- second");
   });
 
+  it("marks plan-mode issue-linked proposals as tracker refinements", async () => {
+    const now = new Date().toISOString();
+    const harness = await createHarness({
+      threadCreate: {
+        interactionMode: "plan",
+        issueLink: {
+          issueId: "EPIC-1",
+          title: "Epic",
+          status: "open",
+          priority: 2,
+          repoRoot: "/repo",
+          linkedAt: now,
+        },
+      },
+    });
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-tracker-refinement"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-tracker-refinement"),
+    });
+
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-tracker-refinement",
+    );
+
+    harness.emit({
+      type: "turn.proposed.completed",
+      eventId: asEventId("evt-turn-proposed-completed-tracker-refinement"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-tracker-refinement"),
+      payload: {
+        planMarkdown: "## Refine epic\n\n- Create child issues",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.proposedPlans.some(
+        (proposedPlan: ProviderRuntimeTestProposedPlan) =>
+          proposedPlan.id === "plan:thread-1:turn:turn-tracker-refinement",
+      ),
+    );
+    const proposedPlan = thread.proposedPlans.find(
+      (entry: ProviderRuntimeTestProposedPlan) =>
+        entry.id === "plan:thread-1:turn:turn-tracker-refinement",
+    );
+
+    expect(proposedPlan).toMatchObject({
+      planIntent: "tracker-refinement",
+      planMarkdown: "## Refine epic\n\n- Create child issues",
+    });
+  });
+
   it("buffers assistant deltas by default until completion", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -1898,7 +2185,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(resolvedPayload?.requestType).toBe("command_execution_approval");
   });
 
-  it("maps runtime.error into errored session state", async () => {
+  it("records runtime.error activity without mutating thread session lifecycle", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -1914,15 +2201,12 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(
-      harness.engine,
-      (entry) =>
-        entry.session?.status === "error" &&
-        entry.session?.activeTurnId === "turn-3" &&
-        entry.session?.lastError === "runtime exploded",
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some((activity) => activity.id === "evt-runtime-error"),
     );
-    expect(thread.session?.status).toBe("error");
-    expect(thread.session?.lastError).toBe("runtime exploded");
+    expect(thread.session?.status).toBe("ready");
+    expect(thread.session?.activeTurnId).toBeNull();
+    expect(thread.session?.lastError).toBeNull();
   });
 
   it("records runtime.error activities from the typed payload message", async () => {
@@ -2052,7 +2336,7 @@ describe("ProviderRuntimeIngestion", () => {
     ).toBe(true);
   });
 
-  it("consumes P1 runtime events into thread metadata, diff checkpoints, and activities", async () => {
+  it("consumes P1 runtime events into thread metadata, pending checkpoint requests, and activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -2140,8 +2424,8 @@ describe("ProviderRuntimeIngestion", () => {
         entry.activities.some(
           (activity: ProviderRuntimeTestActivity) => activity.kind === "runtime.warning",
         ) &&
-        entry.checkpoints.some(
-          (checkpoint: ProviderRuntimeTestCheckpoint) => checkpoint.turnId === "turn-p1",
+        entry.pendingCheckpointCaptures.some(
+          (request: ProviderRuntimeTestPendingCheckpointCapture) => request.turnId === "turn-p1",
         ),
     );
 
@@ -2178,12 +2462,56 @@ describe("ProviderRuntimeIngestion", () => {
     expect(warning?.kind).toBe("runtime.warning");
     expect(warningPayload?.message).toBe("Provider got slow");
 
-    const checkpoint = thread.checkpoints.find(
-      (entry: ProviderRuntimeTestCheckpoint) => entry.turnId === "turn-p1",
+    expect(thread.checkpoints).toHaveLength(0);
+
+    const request = thread.pendingCheckpointCaptures.find(
+      (entry: ProviderRuntimeTestPendingCheckpointCapture) => entry.turnId === "turn-p1",
     );
-    expect(checkpoint?.status).toBe("missing");
-    expect(checkpoint?.assistantMessageId).toBe("assistant:item-p1-assistant");
-    expect(checkpoint?.checkpointRef).toBe("provider-diff:evt-turn-diff-updated");
+    expect(request?.checkpointTurnCount).toBe(1);
+    expect(request?.assistantMessageId).toBe("assistant:item-p1-assistant");
+  });
+
+  it("dedupes duplicate turn.diff.updated events for the same turn", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "turn.diff.updated",
+      eventId: asEventId("evt-turn-diff-updated-1"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-p1"),
+      itemId: asItemId("item-p1-assistant-1"),
+      payload: {
+        unifiedDiff: "diff --git a/file.txt b/file.txt\n+hello\n",
+      },
+    });
+
+    harness.emit({
+      type: "turn.diff.updated",
+      eventId: asEventId("evt-turn-diff-updated-2"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-p1"),
+      itemId: asItemId("item-p1-assistant-2"),
+      payload: {
+        unifiedDiff: "diff --git a/file.txt b/file.txt\n+hello again\n",
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) => entry.pendingCheckpointCaptures.length === 1,
+    );
+
+    expect(thread.pendingCheckpointCaptures).toHaveLength(1);
+    expect(thread.pendingCheckpointCaptures[0]?.turnId).toBe("turn-p1");
+    expect(thread.pendingCheckpointCaptures[0]?.checkpointTurnCount).toBe(1);
+    expect(thread.pendingCheckpointCaptures[0]?.assistantMessageId).toBe(
+      "assistant:item-p1-assistant-1",
+    );
   });
 
   it("projects context window updates into normalized thread activities", async () => {
@@ -2571,14 +2899,11 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    const thread = await waitForThread(
-      harness.engine,
-      (entry) =>
-        entry.session?.status === "error" &&
-        entry.session?.activeTurnId === "turn-after-failure" &&
-        entry.session?.lastError === "runtime still processed",
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some((activity) => activity.id === "evt-runtime-error-after-failure"),
     );
-    expect(thread.session?.status).toBe("error");
-    expect(thread.session?.lastError).toBe("runtime still processed");
+    expect(thread.session?.status).toBe("ready");
+    expect(thread.session?.activeTurnId).toBeNull();
+    expect(thread.session?.lastError).toBeNull();
   });
 });

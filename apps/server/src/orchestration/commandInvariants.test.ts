@@ -13,8 +13,14 @@ import { Effect } from "effect";
 import {
   requireActionableProposedPlan,
   findThreadById,
+  isAllowedEpicIssueExecutionStatusTransition,
+  isAllowedEpicRunStatusTransition,
   listThreadsByProjectId,
   requireNonNegativeInteger,
+  requireCurrentEpicIssueExecutionForRunInAllowedStatus,
+  requireEpicIssueExecutionForRunInAllowedStatus,
+  requireEpicRunInAllowedStatus,
+  requireEpicRunWithoutCurrentExecution,
   requireThread,
   requireThreadAbsent,
 } from "./commandInvariants.ts";
@@ -65,6 +71,7 @@ const readModel: OrchestrationReadModel = {
       runtimeMode: "full-access",
       branch: null,
       worktreePath: null,
+      issueLink: null,
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
@@ -74,6 +81,7 @@ const readModel: OrchestrationReadModel = {
       activities: [],
       proposedPlans: [],
       checkpoints: [],
+      pendingCheckpointCaptures: [],
       deletedAt: null,
     },
     {
@@ -88,6 +96,7 @@ const readModel: OrchestrationReadModel = {
       runtimeMode: "full-access",
       branch: null,
       worktreePath: null,
+      issueLink: null,
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
@@ -97,10 +106,97 @@ const readModel: OrchestrationReadModel = {
       activities: [],
       proposedPlans: [],
       checkpoints: [],
+      pendingCheckpointCaptures: [],
       deletedAt: null,
     },
   ],
   planImplementationLaunches: [],
+  epicRuns: [
+    {
+      runId: "run-1" as never,
+      projectId: ProjectId.makeUnsafe("project-a"),
+      epicIssueId: "EPIC-1",
+      status: "failed",
+      provider: "codex",
+      model: "gpt-5-codex",
+      modelOptions: null,
+      providerOptions: null,
+      assistantDeliveryMode: null,
+      runtimeMode: "full-access",
+      failureContext: {
+        kind: "worker_failure",
+        message: "boom",
+        issueId: null,
+        executionId: null,
+        workerThreadId: null,
+      },
+      requestedAt: now,
+      startedAt: now,
+      stopRequestedAt: null,
+      stoppedAt: null,
+      failedAt: null,
+      completedAt: null,
+      updatedAt: now,
+    },
+    {
+      runId: "run-2" as never,
+      projectId: ProjectId.makeUnsafe("project-a"),
+      epicIssueId: "EPIC-2",
+      status: "stopped",
+      provider: "codex",
+      model: "gpt-5-codex",
+      modelOptions: null,
+      providerOptions: null,
+      assistantDeliveryMode: null,
+      runtimeMode: "full-access",
+      failureContext: null,
+      requestedAt: now,
+      startedAt: now,
+      stopRequestedAt: now,
+      stoppedAt: now,
+      failedAt: null,
+      completedAt: null,
+      updatedAt: now,
+    },
+  ],
+  epicIssueExecutions: [
+    {
+      executionId: "execution-1" as never,
+      runId: "run-1" as never,
+      issueId: "TASK-1",
+      workerThreadId: null,
+      sequenceNumber: 1,
+      status: "launching",
+      workspaceKey: "shared",
+      workspacePath: null,
+      failureContext: null,
+      requestedAt: now,
+      startedAt: null,
+      stopRequestedAt: null,
+      stoppedAt: null,
+      completedAt: null,
+      failedAt: null,
+      updatedAt: now,
+    },
+    {
+      executionId: "execution-2" as never,
+      runId: "run-2" as never,
+      issueId: "TASK-2",
+      workerThreadId: null,
+      sequenceNumber: 1,
+      status: "completed",
+      workspaceKey: "shared",
+      workspacePath: null,
+      failureContext: null,
+      requestedAt: now,
+      startedAt: now,
+      stopRequestedAt: null,
+      stoppedAt: null,
+      completedAt: now,
+      failedAt: null,
+      updatedAt: now,
+    },
+  ],
 };
 
 const messageSendCommand: OrchestrationCommand = {
@@ -276,5 +372,245 @@ describe("commandInvariants", () => {
         }),
       ),
     ).rejects.toThrow("greater than or equal to 0");
+  });
+
+  it("checks epic-run status transitions", async () => {
+    expect(
+      isAllowedEpicRunStatusTransition({
+        commandType: "epic-run.fail",
+        status: "running",
+      }),
+    ).toBe(true);
+    expect(
+      isAllowedEpicRunStatusTransition({
+        commandType: "epic-run.stop",
+        status: "stopped",
+      }),
+    ).toBe(false);
+
+    await expect(
+      Effect.runPromise(
+        requireEpicRunInAllowedStatus({
+          readModel,
+          command: {
+            type: "epic-run.stop",
+            commandId: CommandId.makeUnsafe("cmd-run-stop"),
+            runId: "run-1" as never,
+            createdAt: now,
+          },
+          runId: "run-1" as never,
+        }),
+      ),
+    ).rejects.toThrow("cannot transition via 'epic-run.stop'");
+  });
+
+  it("checks epic-run execution run ownership and status transitions", async () => {
+    expect(
+      isAllowedEpicIssueExecutionStatusTransition({
+        commandType: "epic-issue-execution.complete",
+        status: "launching",
+      }),
+    ).toBe(true);
+    expect(
+      isAllowedEpicIssueExecutionStatusTransition({
+        commandType: "epic-issue-execution.complete",
+        status: "completed",
+      }),
+    ).toBe(false);
+
+    await Effect.runPromise(
+      requireEpicIssueExecutionForRunInAllowedStatus({
+        readModel,
+        command: {
+          type: "epic-issue-execution.complete",
+          commandId: CommandId.makeUnsafe("cmd-execution-complete"),
+          executionId: "execution-1" as never,
+          runId: "run-1" as never,
+          createdAt: now,
+        },
+        executionId: "execution-1" as never,
+        runId: "run-1" as never,
+      }),
+    );
+
+    await expect(
+      Effect.runPromise(
+        requireEpicIssueExecutionForRunInAllowedStatus({
+          readModel,
+          command: {
+            type: "epic-issue-execution.complete",
+            commandId: CommandId.makeUnsafe("cmd-execution-complete-stale"),
+            executionId: "execution-2" as never,
+            runId: "run-1" as never,
+            createdAt: now,
+          },
+          executionId: "execution-2" as never,
+          runId: "run-1" as never,
+        }),
+      ),
+    ).rejects.toThrow(/belongs to run|cannot transition/);
+  });
+
+  it("rejects run commands while a non-terminal epic-run execution still exists", async () => {
+    const readModelWithRunningRun: OrchestrationReadModel = {
+      ...readModel,
+      epicRuns: readModel.epicRuns.map((run) =>
+        run.runId === ("run-1" as never) ? { ...run, status: "running" } : run,
+      ),
+    };
+
+    await expect(
+      Effect.runPromise(
+        requireEpicRunWithoutCurrentExecution({
+          readModel: readModelWithRunningRun,
+          command: {
+            type: "epic-run.complete",
+            commandId: CommandId.makeUnsafe("cmd-run-complete-stale"),
+            runId: "run-1" as never,
+            createdAt: now,
+          },
+          runId: "run-1" as never,
+        }),
+      ),
+    ).rejects.toThrow("still has non-terminal task execution 'execution-1'");
+  });
+
+  it("rejects stale epic-run execution commands when another execution is current", async () => {
+    const readModelWithNewerExecution: OrchestrationReadModel = {
+      ...readModel,
+      epicRuns: readModel.epicRuns.map((run) =>
+        run.runId === ("run-1" as never) ? { ...run, status: "running" } : run,
+      ),
+      epicIssueExecutions: [
+        ...readModel.epicIssueExecutions,
+        {
+          executionId: "execution-3" as never,
+          runId: "run-1" as never,
+          issueId: "TASK-3",
+          workerThreadId: null,
+          sequenceNumber: 2,
+          status: "launching",
+          workspaceKey: "shared",
+          workspacePath: null,
+          failureContext: null,
+          requestedAt: now,
+          startedAt: null,
+          stopRequestedAt: null,
+          stoppedAt: null,
+          completedAt: null,
+          failedAt: null,
+          updatedAt: now,
+        },
+      ],
+    };
+
+    await expect(
+      Effect.runPromise(
+        requireCurrentEpicIssueExecutionForRunInAllowedStatus({
+          readModel: readModelWithNewerExecution,
+          command: {
+            type: "epic-issue-execution.start",
+            commandId: CommandId.makeUnsafe("cmd-execution-start-stale"),
+            executionId: "execution-1" as never,
+            runId: "run-1" as never,
+            createdAt: now,
+          },
+          executionId: "execution-1" as never,
+          runId: "run-1" as never,
+        }),
+      ),
+    ).rejects.toThrow("is stale for run 'run-1'; current non-terminal execution is 'execution-3'");
+  });
+
+  it("rejects requested executions even when the run itself is otherwise manually advanceable", async () => {
+    const readModelWithPendingRun: OrchestrationReadModel = {
+      ...readModel,
+      epicRuns: readModel.epicRuns.map((run) =>
+        run.runId === ("run-1" as never) ? { ...run, status: "pending" } : run,
+      ),
+    };
+
+    await expect(
+      Effect.runPromise(
+        requireEpicRunWithoutCurrentExecution({
+          readModel: readModelWithPendingRun,
+          command: {
+            type: "epic-run.complete",
+            commandId: CommandId.makeUnsafe("cmd-run-complete-pending-launching"),
+            runId: "run-1" as never,
+            createdAt: now,
+          },
+          runId: "run-1" as never,
+        }),
+      ),
+    ).rejects.toThrow("still has non-terminal task execution 'execution-1' in status 'launching'");
+  });
+
+  it("rejects scheduler execution commands from stopped runs", async () => {
+    const readModelWithStoppedRun: OrchestrationReadModel = {
+      ...readModel,
+      epicRuns: readModel.epicRuns.map((run) =>
+        run.runId === ("run-1" as never) ? { ...run, status: "stopped" } : run,
+      ),
+    };
+
+    await expect(
+      Effect.runPromise(
+        requireEpicRunInAllowedStatus({
+          readModel: readModelWithStoppedRun,
+          command: {
+            type: "epic-issue-execution.request",
+            commandId: CommandId.makeUnsafe("cmd-run-request-stopped"),
+            runId: "run-1" as never,
+            executionId: "execution-1" as never,
+            issueId: "TASK-1",
+            workerThreadId: ThreadId.makeUnsafe("thread-1"),
+            sequenceNumber: 2,
+            createdAt: now,
+          },
+          runId: "run-1" as never,
+        }),
+      ),
+    ).rejects.toThrow("cannot transition via 'epic-issue-execution.request'");
+
+    await expect(
+      Effect.runPromise(
+        requireEpicRunInAllowedStatus({
+          readModel,
+          command: {
+            type: "epic-issue-execution.request",
+            commandId: CommandId.makeUnsafe("cmd-run-request-stopped-terminal"),
+            runId: "run-2" as never,
+            executionId: "execution-2" as never,
+            issueId: "TASK-2",
+            workerThreadId: ThreadId.makeUnsafe("thread-2"),
+            sequenceNumber: 2,
+            createdAt: now,
+          },
+          runId: "run-2" as never,
+        }),
+      ),
+    ).rejects.toThrow("cannot transition via 'epic-issue-execution.request'");
+  });
+
+  it("rejects invalid execution resurrection transitions after terminal states", () => {
+    expect(
+      isAllowedEpicIssueExecutionStatusTransition({
+        commandType: "epic-issue-execution.start",
+        status: "running",
+      }),
+    ).toBe(false);
+    expect(
+      isAllowedEpicIssueExecutionStatusTransition({
+        commandType: "epic-issue-execution.complete",
+        status: "failed",
+      }),
+    ).toBe(false);
+    expect(
+      isAllowedEpicIssueExecutionStatusTransition({
+        commandType: "epic-issue-execution.stop",
+        status: "stopped",
+      }),
+    ).toBe(false);
   });
 });

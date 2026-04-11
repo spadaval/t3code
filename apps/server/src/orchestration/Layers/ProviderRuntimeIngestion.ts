@@ -5,7 +5,7 @@ import {
   MessageId,
   type OrchestrationEvent,
   type OrchestrationProposedPlanId,
-  CheckpointRef,
+  type OrchestrationSessionStatus,
   isToolLifecycleItemType,
   ThreadId,
   type ThreadTokenUsageSnapshot,
@@ -150,40 +150,126 @@ function orchestrationSessionStatusFromRuntimeState(
   }
 }
 
-function lastErrorFromSessionLifecycleEvent(input: {
-  readonly event: ProviderRuntimeEvent;
+function projectThreadSessionLifecycle(input: {
+  readonly event: Extract<
+    ProviderRuntimeEvent,
+    | { type: "session.started" }
+    | { type: "session.state.changed" }
+    | { type: "session.exited" }
+    | { type: "thread.started" }
+    | { type: "turn.started" }
+    | { type: "turn.completed" }
+  >;
   readonly activeTurnId: TurnId | null;
   readonly previousLastError: string | null;
-}): string | null {
-  const { event, activeTurnId, previousLastError } = input;
+  readonly eventTurnId: TurnId | undefined;
+}): {
+  readonly status: OrchestrationSessionStatus;
+  readonly activeTurnId: TurnId | null;
+  readonly lastError: string | null;
+} {
+  const { event, activeTurnId, eventTurnId, previousLastError } = input;
+  const hasActiveTurn = activeTurnId !== null;
+
+  if (event.type === "turn.started") {
+    return {
+      status: "running",
+      activeTurnId: eventTurnId ?? null,
+      lastError: previousLastError,
+    };
+  }
 
   if (event.type === "turn.completed") {
-    return normalizeRuntimeTurnState(event.payload.state) === "failed"
-      ? (event.payload.errorMessage ?? previousLastError ?? "Turn failed")
-      : null;
+    const failed = normalizeRuntimeTurnState(event.payload.state) === "failed";
+    return {
+      status: failed ? "error" : "ready",
+      activeTurnId: null,
+      lastError: failed ? (event.payload.errorMessage ?? previousLastError ?? "Turn failed") : null,
+    };
+  }
+
+  if (event.type === "session.started" || event.type === "thread.started") {
+    return {
+      status: hasActiveTurn ? "running" : "ready",
+      activeTurnId,
+      lastError: hasActiveTurn ? previousLastError : null,
+    };
   }
 
   if (event.type === "session.state.changed") {
-    if (event.payload.state === "ready") {
-      return null;
+    if (hasActiveTurn) {
+      switch (event.payload.state) {
+        case "starting":
+        case "running":
+        case "waiting":
+        case "ready":
+          return {
+            status: "running",
+            activeTurnId,
+            lastError: null,
+          };
+        case "stopped":
+          return {
+            status: "interrupted",
+            activeTurnId: null,
+            lastError: event.payload.reason ?? previousLastError ?? null,
+          };
+        case "error":
+          return {
+            status: "error",
+            activeTurnId: null,
+            lastError: event.payload.reason ?? previousLastError ?? "Provider session error",
+          };
+      }
     }
 
-    if (event.payload.state === "error") {
-      return event.payload.reason ?? previousLastError ?? "Provider session error";
+    if (
+      event.payload.state === "starting" ||
+      event.payload.state === "running" ||
+      event.payload.state === "waiting" ||
+      event.payload.state === "ready"
+    ) {
+      return {
+        status: orchestrationSessionStatusFromRuntimeState(event.payload.state),
+        activeTurnId: null,
+        lastError: null,
+      };
     }
 
-    if (event.payload.state === "stopped" && activeTurnId !== null) {
-      return event.payload.reason ?? previousLastError ?? null;
-    }
-
-    return previousLastError ?? null;
+    return {
+      status: orchestrationSessionStatusFromRuntimeState(event.payload.state),
+      activeTurnId: null,
+      lastError:
+        event.payload.state === "error"
+          ? (event.payload.reason ?? previousLastError ?? "Provider session error")
+          : (event.payload.reason ?? previousLastError ?? null),
+    };
   }
 
   if (event.type === "session.exited") {
-    return activeTurnId !== null ? (event.payload.reason ?? previousLastError ?? null) : null;
+    const gracefulExit =
+      event.payload.exitKind === "graceful" ||
+      (event.payload.reason === undefined && event.payload.recoverable !== false);
+    if (hasActiveTurn) {
+      return {
+        status: gracefulExit ? "interrupted" : "error",
+        activeTurnId: null,
+        lastError: gracefulExit ? null : (event.payload.reason ?? previousLastError ?? null),
+      };
+    }
+
+    return {
+      status: gracefulExit ? "stopped" : "error",
+      activeTurnId: null,
+      lastError: gracefulExit ? null : (event.payload.reason ?? previousLastError ?? null),
+    };
   }
 
-  return previousLastError ?? null;
+  return {
+    status: "ready",
+    activeTurnId,
+    lastError: previousLastError,
+  };
 }
 
 function requestKindFromCanonicalRequestType(
@@ -988,33 +1074,11 @@ const make = Effect.fn("make")(function* () {
       event.type === "turn.started" ||
       event.type === "turn.completed"
     ) {
-      const nextActiveTurnId =
-        event.type === "turn.started"
-          ? (eventTurnId ?? null)
-          : event.type === "turn.completed" || event.type === "session.exited"
-            ? null
-            : activeTurnId;
-      const status = (() => {
-        switch (event.type) {
-          case "session.state.changed":
-            return orchestrationSessionStatusFromRuntimeState(event.payload.state);
-          case "turn.started":
-            return "running";
-          case "session.exited":
-            return "stopped";
-          case "turn.completed":
-            return normalizeRuntimeTurnState(event.payload.state) === "failed" ? "error" : "ready";
-          case "session.started":
-          case "thread.started":
-            // Provider thread/session start notifications can arrive during an
-            // active turn; preserve turn-running state in that case.
-            return activeTurnId !== null ? "running" : "ready";
-        }
-      })();
-      const lastError = lastErrorFromSessionLifecycleEvent({
+      const sessionProjection = projectThreadSessionLifecycle({
         event,
         activeTurnId,
         previousLastError: thread.session?.lastError ?? null,
+        eventTurnId,
       });
 
       if (shouldApplyThreadLifecycle) {
@@ -1054,11 +1118,11 @@ const make = Effect.fn("make")(function* () {
           threadId: thread.id,
           session: {
             threadId: thread.id,
-            status,
+            status: sessionProjection.status,
             providerName: event.provider,
             runtimeMode: thread.session?.runtimeMode ?? "full-access",
-            activeTurnId: nextActiveTurnId,
-            lastError,
+            activeTurnId: sessionProjection.activeTurnId,
+            lastError: sessionProjection.lastError,
             updatedAt: now,
           },
           createdAt: now,
@@ -1215,29 +1279,8 @@ const make = Effect.fn("make")(function* () {
     }
 
     if (event.type === "runtime.error") {
-      const runtimeErrorMessage = event.payload.message;
-
-      const shouldApplyRuntimeError = !STRICT_PROVIDER_LIFECYCLE_GUARD
-        ? true
-        : activeTurnId === null || eventTurnId === undefined || sameId(activeTurnId, eventTurnId);
-
-      if (shouldApplyRuntimeError) {
-        yield* orchestrationEngine.dispatch({
-          type: "thread.session.set",
-          commandId: providerCommandId(event, "runtime-error-session-set"),
-          threadId: thread.id,
-          session: {
-            threadId: thread.id,
-            status: "error",
-            providerName: event.provider,
-            runtimeMode: thread.session?.runtimeMode ?? "full-access",
-            activeTurnId: eventTurnId ?? null,
-            lastError: runtimeErrorMessage,
-            updatedAt: now,
-          },
-          createdAt: now,
-        });
-      }
+      // Runtime error events remain valuable as activity, but turn/session lifecycle
+      // should only move on authoritative lifecycle signals.
     }
 
     if (event.type === "thread.metadata.updated" && event.payload.name) {
@@ -1252,31 +1295,27 @@ const make = Effect.fn("make")(function* () {
     if (event.type === "turn.diff.updated") {
       const turnId = toTurnId(event.turnId);
       if (turnId && (yield* isGitRepoForThread(thread.id))) {
-        // Skip if a checkpoint already exists for this turn. A real
-        // (non-placeholder) capture from CheckpointReactor should not
-        // be clobbered, and dispatching a duplicate placeholder for the
-        // same turnId would produce an unstable checkpointTurnCount.
-        if (thread.checkpoints.some((c) => c.turnId === turnId)) {
+        if (
+          thread.checkpoints.some((checkpoint) => checkpoint.turnId === turnId) ||
+          thread.pendingCheckpointCaptures.some((request) => request.turnId === turnId)
+        ) {
           // Already tracked; no-op.
         } else {
           const assistantMessageId = MessageId.makeUnsafe(
             `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
           );
-          const maxTurnCount = thread.checkpoints.reduce(
-            (max, c) => Math.max(max, c.checkpointTurnCount),
+          const maxTurnCount = [...thread.checkpoints, ...thread.pendingCheckpointCaptures].reduce(
+            (max, checkpointOrRequest) => Math.max(max, checkpointOrRequest.checkpointTurnCount),
             0,
           );
           yield* orchestrationEngine.dispatch({
-            type: "thread.turn.diff.complete",
-            commandId: providerCommandId(event, "thread-turn-diff-complete"),
+            type: "thread.checkpoint.capture.request",
+            commandId: providerCommandId(event, "thread-checkpoint-capture-request"),
             threadId: thread.id,
             turnId,
-            completedAt: now,
-            checkpointRef: CheckpointRef.makeUnsafe(`provider-diff:${event.eventId}`),
-            status: "missing",
-            files: [],
             assistantMessageId,
             checkpointTurnCount: maxTurnCount + 1,
+            requestedAt: now,
             createdAt: now,
           });
         }

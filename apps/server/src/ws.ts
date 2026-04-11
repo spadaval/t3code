@@ -36,7 +36,7 @@ import { normalizeDispatchCommand } from "./orchestration/Normalizer";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { PlanImplementationWorkflow } from "./orchestration/Services/PlanImplementationWorkflow";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
-import { SwarmScheduler } from "./orchestration/Services/SwarmScheduler";
+import { EpicRunScheduler } from "./orchestration/Services/EpicRunScheduler";
 import {
   observeRpcEffect,
   observeRpcStream,
@@ -58,7 +58,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const orchestrationEngine = yield* OrchestrationEngineService;
     const planImplementationWorkflow = yield* PlanImplementationWorkflow;
-    const swarmScheduler = yield* SwarmScheduler;
+    const epicRunScheduler = yield* EpicRunScheduler;
     const checkpointDiffQuery = yield* CheckpointDiffQuery;
     const keybindings = yield* Keybindings;
     const open = yield* Open;
@@ -503,84 +503,28 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             ),
           { "rpc.aggregate": "orchestration" },
         ),
-      [ORCHESTRATION_WS_METHODS.startSwarmRun]: (input) =>
+      [ORCHESTRATION_WS_METHODS.startEpicRun]: (input) =>
         observeRpcEffect(
-          ORCHESTRATION_WS_METHODS.startSwarmRun,
-          swarmScheduler.startSwarmRun(input).pipe(
+          ORCHESTRATION_WS_METHODS.startEpicRun,
+          epicRunScheduler.startEpicRun(input).pipe(
             Effect.mapError(
               (cause) =>
                 new OrchestrationDispatchCommandError({
-                  message: "Failed to start swarm run",
+                  message: "Failed to start epic run",
                   cause,
                 }),
             ),
           ),
           { "rpc.aggregate": "orchestration" },
         ),
-      [ORCHESTRATION_WS_METHODS.pauseSwarmRun]: (input) =>
+      [ORCHESTRATION_WS_METHODS.stopEpicRun]: (input) =>
         observeRpcEffect(
-          ORCHESTRATION_WS_METHODS.pauseSwarmRun,
-          swarmScheduler.pauseSwarmRun(input).pipe(
+          ORCHESTRATION_WS_METHODS.stopEpicRun,
+          epicRunScheduler.stopEpicRun(input).pipe(
             Effect.mapError(
               (cause) =>
                 new OrchestrationDispatchCommandError({
-                  message: "Failed to pause swarm run",
-                  cause,
-                }),
-            ),
-          ),
-          { "rpc.aggregate": "orchestration" },
-        ),
-      [ORCHESTRATION_WS_METHODS.resumePausedSwarmRun]: (input) =>
-        observeRpcEffect(
-          ORCHESTRATION_WS_METHODS.resumePausedSwarmRun,
-          swarmScheduler.resumePausedSwarmRun(input).pipe(
-            Effect.mapError(
-              (cause) =>
-                new OrchestrationDispatchCommandError({
-                  message: "Failed to resume paused swarm run",
-                  cause,
-                }),
-            ),
-          ),
-          { "rpc.aggregate": "orchestration" },
-        ),
-      [ORCHESTRATION_WS_METHODS.runNextSwarmTask]: (input) =>
-        observeRpcEffect(
-          ORCHESTRATION_WS_METHODS.runNextSwarmTask,
-          swarmScheduler.runNextSwarmTask(input).pipe(
-            Effect.mapError(
-              (cause) =>
-                new OrchestrationDispatchCommandError({
-                  message: "Failed to run next swarm task",
-                  cause,
-                }),
-            ),
-          ),
-          { "rpc.aggregate": "orchestration" },
-        ),
-      [ORCHESTRATION_WS_METHODS.retrySwarmTaskExecution]: (input) =>
-        observeRpcEffect(
-          ORCHESTRATION_WS_METHODS.retrySwarmTaskExecution,
-          swarmScheduler.retrySwarmTaskExecution(input).pipe(
-            Effect.mapError(
-              (cause) =>
-                new OrchestrationDispatchCommandError({
-                  message: "Failed to retry swarm task execution",
-                  cause,
-                }),
-            ),
-          ),
-          { "rpc.aggregate": "orchestration" },
-        ),
-      [ORCHESTRATION_WS_METHODS.cancelSwarmRun]: (input) =>
-        observeRpcEffect(
-          ORCHESTRATION_WS_METHODS.cancelSwarmRun,
-          swarmScheduler.cancelSwarmRun(input).pipe(
-            Effect.mapError(
-              (cause) =>
-                new OrchestrationDispatchCommandError({
-                  message: "Failed to cancel swarm run",
+                  message: "Failed to stop epic run",
                   cause,
                 }),
             ),
@@ -808,15 +752,15 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
           { "rpc.aggregate": "beads" },
         ),
-      [BEADS_WS_METHODS.getSwarmSupport]: (input) =>
+      [BEADS_WS_METHODS.getEpicRunSupport]: (input) =>
         observeRpcEffect(
-          BEADS_WS_METHODS.getSwarmSupport,
-          beads.getSwarmSupport(input).pipe(
+          BEADS_WS_METHODS.getEpicRunSupport,
+          beads.getEpicRunSupport(input).pipe(
             Effect.mapError((cause) =>
               Schema.is(BeadsError)(cause)
                 ? cause
                 : new BeadsError({
-                    message: "Failed to load beads swarm support",
+                    message: "Failed to load epic-run support",
                     cause,
                   }),
             ),
@@ -838,60 +782,60 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
           { "rpc.aggregate": "beads" },
         ),
-      [BEADS_WS_METHODS.getEpicSwarm]: (input) =>
+      [BEADS_WS_METHODS.getEpicTrackerSummary]: (input) =>
         observeRpcEffect(
-          BEADS_WS_METHODS.getEpicSwarm,
-          beads.getEpicSwarm(input).pipe(
+          BEADS_WS_METHODS.getEpicTrackerSummary,
+          beads.getEpicTrackerSummary(input).pipe(
             Effect.mapError((cause) =>
               Schema.is(BeadsError)(cause)
                 ? cause
                 : new BeadsError({
-                    message: "Failed to load epic swarm summary",
+                    message: "Failed to load epic tracker summary",
                     cause,
                   }),
             ),
           ),
           { "rpc.aggregate": "beads" },
         ),
-      [BEADS_WS_METHODS.validateEpicSwarm]: (input) =>
+      [BEADS_WS_METHODS.validateEpicRun]: (input) =>
         observeRpcEffect(
-          BEADS_WS_METHODS.validateEpicSwarm,
-          beads.validateEpicSwarm(input).pipe(
+          BEADS_WS_METHODS.validateEpicRun,
+          beads.validateEpicRun(input).pipe(
             Effect.mapError((cause) =>
               Schema.is(BeadsError)(cause)
                 ? cause
                 : new BeadsError({
-                    message: "Failed to validate epic swarm",
+                    message: "Failed to validate epic run",
                     cause,
                   }),
             ),
           ),
           { "rpc.aggregate": "beads" },
         ),
-      [BEADS_WS_METHODS.getEpicSwarmStatus]: (input) =>
+      [BEADS_WS_METHODS.getEpicTrackerStatus]: (input) =>
         observeRpcEffect(
-          BEADS_WS_METHODS.getEpicSwarmStatus,
-          beads.getEpicSwarmStatus(input).pipe(
+          BEADS_WS_METHODS.getEpicTrackerStatus,
+          beads.getEpicTrackerStatus(input).pipe(
             Effect.mapError((cause) =>
               Schema.is(BeadsError)(cause)
                 ? cause
                 : new BeadsError({
-                    message: "Failed to load epic swarm status",
+                    message: "Failed to load epic tracker status",
                     cause,
                   }),
             ),
           ),
           { "rpc.aggregate": "beads" },
         ),
-      [BEADS_WS_METHODS.listSwarms]: (input) =>
+      [BEADS_WS_METHODS.listEpicTrackerSummaries]: (input) =>
         observeRpcEffect(
-          BEADS_WS_METHODS.listSwarms,
-          beads.listSwarms(input).pipe(
+          BEADS_WS_METHODS.listEpicTrackerSummaries,
+          beads.listEpicTrackerSummaries(input).pipe(
             Effect.mapError((cause) =>
               Schema.is(BeadsError)(cause)
                 ? cause
                 : new BeadsError({
-                    message: "Failed to list swarms",
+                    message: "Failed to list epic tracker summaries",
                     cause,
                   }),
             ),

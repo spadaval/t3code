@@ -719,6 +719,7 @@ const makePlanImplementationWorkflow = Effect.gen(function* () {
         ...(retryOfLaunchId ? { retryOfLaunchId } : {}),
         title,
         setupEnabled: input.runSetup,
+        launchMode: input.launchMode,
         promptText: buildPlanImplementationPrompt(sourcePlan.planMarkdown),
         ...(input.provider ? { provider: input.provider } : {}),
         model: input.model ?? sourceThread.modelSelection.model,
@@ -818,6 +819,7 @@ const makePlanImplementationWorkflow = Effect.gen(function* () {
               ? { assistantDeliveryMode: previousLaunch.assistantDeliveryMode }
               : {}),
             runtimeMode: previousLaunch.runtimeMode,
+            launchMode: previousLaunch.launchMode,
             runSetup: previousLaunch.setupEnabled,
           },
           previousLaunch.launchId,
