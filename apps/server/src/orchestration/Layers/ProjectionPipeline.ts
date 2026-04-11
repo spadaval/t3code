@@ -15,8 +15,8 @@ import { ProjectionPendingCheckpointCaptureRepository } from "../../persistence/
 import { ProjectionPendingApprovalRepository } from "../../persistence/Services/ProjectionPendingApprovals.ts";
 import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
-import { ProjectionSwarmRunRepository } from "../../persistence/Services/ProjectionSwarmRuns.ts";
-import { ProjectionSwarmTaskExecutionRepository } from "../../persistence/Services/ProjectionSwarmTaskExecutions.ts";
+import { ProjectionEpicRunRepository } from "../../persistence/Services/ProjectionEpicRuns.ts";
+import { ProjectionEpicIssueExecutionRepository } from "../../persistence/Services/ProjectionEpicIssueExecutions.ts";
 import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
 import { type ProjectionThreadActivity } from "../../persistence/Services/ProjectionThreadActivities.ts";
 import {
@@ -38,8 +38,8 @@ import { ProjectionPendingCheckpointCaptureRepositoryLive } from "../../persiste
 import { ProjectionPlanImplementationLaunchRepositoryLive } from "../../persistence/Layers/ProjectionPlanImplementationLaunches.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
-import { ProjectionSwarmRunRepositoryLive } from "../../persistence/Layers/ProjectionSwarmRuns.ts";
-import { ProjectionSwarmTaskExecutionRepositoryLive } from "../../persistence/Layers/ProjectionSwarmTaskExecutions.ts";
+import { ProjectionEpicRunRepositoryLive } from "../../persistence/Layers/ProjectionEpicRuns.ts";
+import { ProjectionEpicIssueExecutionRepositoryLive } from "../../persistence/Layers/ProjectionEpicIssueExecutions.ts";
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
 import { ProjectionThreadMessageRepositoryLive } from "../../persistence/Layers/ProjectionThreadMessages.ts";
 import { ProjectionThreadProposedPlanRepositoryLive } from "../../persistence/Layers/ProjectionThreadProposedPlans.ts";
@@ -63,8 +63,8 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   projects: "projection.projects",
   threads: "projection.threads",
   planImplementationLaunches: "projection.plan-implementation-launches",
-  epicRuns: "projection.swarm-runs",
-  epicIssueExecutions: "projection.swarm-task-executions",
+  epicRuns: "projection.epic-runs",
+  epicIssueExecutions: "projection.epic-issue-executions",
   threadMessages: "projection.thread-messages",
   threadProposedPlans: "projection.thread-proposed-plans",
   threadActivities: "projection.thread-activities",
@@ -383,8 +383,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionThreadRepository = yield* ProjectionThreadRepository;
     const projectionPlanImplementationLaunchRepository =
       yield* ProjectionPlanImplementationLaunchRepository;
-    const projectionSwarmRunRepository = yield* ProjectionSwarmRunRepository;
-    const projectionSwarmTaskExecutionRepository = yield* ProjectionSwarmTaskExecutionRepository;
+    const projectionSwarmRunRepository = yield* ProjectionEpicRunRepository;
+    const projectionSwarmTaskExecutionRepository = yield* ProjectionEpicIssueExecutionRepository;
     const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
     const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
     const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
@@ -1778,8 +1778,8 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(NodeServices.layer),
   Layer.provideMerge(ProjectionPlanImplementationLaunchRepositoryLive),
   Layer.provideMerge(ProjectionProjectRepositoryLive),
-  Layer.provideMerge(ProjectionSwarmRunRepositoryLive),
-  Layer.provideMerge(ProjectionSwarmTaskExecutionRepositoryLive),
+  Layer.provideMerge(ProjectionEpicRunRepositoryLive),
+  Layer.provideMerge(ProjectionEpicIssueExecutionRepositoryLive),
   Layer.provideMerge(ProjectionThreadRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),

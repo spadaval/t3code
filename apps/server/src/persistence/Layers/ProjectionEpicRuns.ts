@@ -10,36 +10,36 @@ import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
-  GetProjectionSwarmRunInput,
-  ProjectionSwarmRun,
-  ProjectionSwarmRunRepository,
-  type ProjectionSwarmRunRepositoryShape,
-} from "../Services/ProjectionSwarmRuns.ts";
+  GetProjectionEpicRunInput,
+  ProjectionEpicRun,
+  ProjectionEpicRunRepository,
+  type ProjectionEpicRunRepositoryShape,
+} from "../Services/ProjectionEpicRuns.ts";
 
-const ProjectionSwarmRunDbRowSchema = Schema.Struct({
-  runId: ProjectionSwarmRun.fields.runId,
-  projectId: ProjectionSwarmRun.fields.projectId,
-  epicIssueId: ProjectionSwarmRun.fields.epicIssueId,
-  status: ProjectionSwarmRun.fields.status,
-  provider: ProjectionSwarmRun.fields.provider,
-  model: ProjectionSwarmRun.fields.model,
+const ProjectionEpicRunDbRowSchema = Schema.Struct({
+  runId: ProjectionEpicRun.fields.runId,
+  projectId: ProjectionEpicRun.fields.projectId,
+  epicIssueId: ProjectionEpicRun.fields.epicIssueId,
+  status: ProjectionEpicRun.fields.status,
+  provider: ProjectionEpicRun.fields.provider,
+  model: ProjectionEpicRun.fields.model,
   modelOptions: Schema.NullOr(Schema.fromJsonString(ProviderModelOptions)),
   providerOptions: Schema.NullOr(Schema.fromJsonString(ProviderStartOptions)),
   assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
-  runtimeMode: ProjectionSwarmRun.fields.runtimeMode,
+  runtimeMode: ProjectionEpicRun.fields.runtimeMode,
   failureContext: Schema.NullOr(Schema.fromJsonString(OrchestrationEpicRunFailureContext)),
-  requestedAt: ProjectionSwarmRun.fields.requestedAt,
-  startedAt: ProjectionSwarmRun.fields.startedAt,
-  stopRequestedAt: ProjectionSwarmRun.fields.stopRequestedAt,
-  stoppedAt: ProjectionSwarmRun.fields.stoppedAt,
-  failedAt: ProjectionSwarmRun.fields.failedAt,
-  completedAt: ProjectionSwarmRun.fields.completedAt,
-  updatedAt: ProjectionSwarmRun.fields.updatedAt,
+  requestedAt: ProjectionEpicRun.fields.requestedAt,
+  startedAt: ProjectionEpicRun.fields.startedAt,
+  stopRequestedAt: ProjectionEpicRun.fields.stopRequestedAt,
+  stoppedAt: ProjectionEpicRun.fields.stoppedAt,
+  failedAt: ProjectionEpicRun.fields.failedAt,
+  completedAt: ProjectionEpicRun.fields.completedAt,
+  updatedAt: ProjectionEpicRun.fields.updatedAt,
 });
 
-type ProjectionSwarmRunDbRow = typeof ProjectionSwarmRunDbRowSchema.Type;
+type ProjectionEpicRunDbRow = typeof ProjectionEpicRunDbRowSchema.Type;
 
-function toProjectionSwarmRun(row: ProjectionSwarmRunDbRow): ProjectionSwarmRun {
+function toProjectionEpicRun(row: ProjectionEpicRunDbRow): ProjectionEpicRun {
   return {
     runId: row.runId,
     projectId: row.projectId,
@@ -62,14 +62,14 @@ function toProjectionSwarmRun(row: ProjectionSwarmRunDbRow): ProjectionSwarmRun 
   };
 }
 
-const makeProjectionSwarmRunRepository = Effect.gen(function* () {
+const makeProjectionEpicRunRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
   const upsertRow = SqlSchema.void({
-    Request: ProjectionSwarmRun,
+    Request: ProjectionEpicRun,
     execute: (row) =>
       sql`
-        INSERT INTO projection_swarm_runs (
+        INSERT INTO projection_epic_runs (
           run_id,
           project_id,
           epic_issue_id,
@@ -132,8 +132,8 @@ const makeProjectionSwarmRunRepository = Effect.gen(function* () {
   });
 
   const getRow = SqlSchema.findOneOption({
-    Request: GetProjectionSwarmRunInput,
-    Result: ProjectionSwarmRunDbRowSchema,
+    Request: GetProjectionEpicRunInput,
+    Result: ProjectionEpicRunDbRowSchema,
     execute: ({ runId }) =>
       sql`
         SELECT
@@ -155,14 +155,14 @@ const makeProjectionSwarmRunRepository = Effect.gen(function* () {
           failed_at AS "failedAt",
           completed_at AS "completedAt",
           updated_at AS "updatedAt"
-        FROM projection_swarm_runs
+        FROM projection_epic_runs
         WHERE run_id = ${runId}
       `,
   });
 
   const listRows = SqlSchema.findAll({
     Request: Schema.Void,
-    Result: ProjectionSwarmRunDbRowSchema,
+    Result: ProjectionEpicRunDbRowSchema,
     execute: () =>
       sql`
         SELECT
@@ -184,36 +184,36 @@ const makeProjectionSwarmRunRepository = Effect.gen(function* () {
           failed_at AS "failedAt",
           completed_at AS "completedAt",
           updated_at AS "updatedAt"
-        FROM projection_swarm_runs
+        FROM projection_epic_runs
         ORDER BY requested_at ASC, run_id ASC
       `,
   });
 
-  const upsert: ProjectionSwarmRunRepositoryShape["upsert"] = (row) =>
+  const upsert: ProjectionEpicRunRepositoryShape["upsert"] = (row) =>
     upsertRow(row).pipe(
-      Effect.mapError(toPersistenceSqlError("ProjectionSwarmRunRepository.upsert:query")),
+      Effect.mapError(toPersistenceSqlError("ProjectionEpicRunRepository.upsert:query")),
     );
 
-  const getById: ProjectionSwarmRunRepositoryShape["getById"] = (input) =>
+  const getById: ProjectionEpicRunRepositoryShape["getById"] = (input) =>
     getRow(input).pipe(
-      Effect.map(Option.map(toProjectionSwarmRun)),
-      Effect.mapError(toPersistenceSqlError("ProjectionSwarmRunRepository.getById:query")),
+      Effect.map(Option.map(toProjectionEpicRun)),
+      Effect.mapError(toPersistenceSqlError("ProjectionEpicRunRepository.getById:query")),
     );
 
-  const listAll: ProjectionSwarmRunRepositoryShape["listAll"] = () =>
+  const listAll: ProjectionEpicRunRepositoryShape["listAll"] = () =>
     listRows(undefined).pipe(
-      Effect.map((rows) => rows.map(toProjectionSwarmRun)),
-      Effect.mapError(toPersistenceSqlError("ProjectionSwarmRunRepository.listAll:query")),
+      Effect.map((rows) => rows.map(toProjectionEpicRun)),
+      Effect.mapError(toPersistenceSqlError("ProjectionEpicRunRepository.listAll:query")),
     );
 
   return {
     upsert,
     getById,
     listAll,
-  } satisfies ProjectionSwarmRunRepositoryShape;
+  } satisfies ProjectionEpicRunRepositoryShape;
 });
 
-export const ProjectionSwarmRunRepositoryLive = Layer.effect(
-  ProjectionSwarmRunRepository,
-  makeProjectionSwarmRunRepository,
+export const ProjectionEpicRunRepositoryLive = Layer.effect(
+  ProjectionEpicRunRepository,
+  makeProjectionEpicRunRepository,
 );

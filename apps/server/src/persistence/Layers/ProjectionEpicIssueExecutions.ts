@@ -5,34 +5,34 @@ import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
-  GetProjectionSwarmTaskExecutionInput,
-  ProjectionSwarmTaskExecution,
-  ProjectionSwarmTaskExecutionRepository,
-  type ProjectionSwarmTaskExecutionRepositoryShape,
-} from "../Services/ProjectionSwarmTaskExecutions.ts";
+  GetProjectionEpicIssueExecutionInput,
+  ProjectionEpicIssueExecution,
+  ProjectionEpicIssueExecutionRepository,
+  type ProjectionEpicIssueExecutionRepositoryShape,
+} from "../Services/ProjectionEpicIssueExecutions.ts";
 
-const ProjectionSwarmTaskExecutionDbRow = Schema.Struct({
-  ...ProjectionSwarmTaskExecution.fields,
+const ProjectionEpicIssueExecutionDbRow = Schema.Struct({
+  ...ProjectionEpicIssueExecution.fields,
   failureContext: Schema.NullOr(Schema.fromJsonString(OrchestrationEpicRunFailureContext)),
 });
 
-function toProjectionSwarmTaskExecution(
-  row: typeof ProjectionSwarmTaskExecutionDbRow.Type,
-): ProjectionSwarmTaskExecution {
+function toProjectionEpicIssueExecution(
+  row: typeof ProjectionEpicIssueExecutionDbRow.Type,
+): ProjectionEpicIssueExecution {
   return {
     ...row,
     failureContext: row.failureContext,
   };
 }
 
-const makeProjectionSwarmTaskExecutionRepository = Effect.gen(function* () {
+const makeProjectionEpicIssueExecutionRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
   const upsertRow = SqlSchema.void({
-    Request: ProjectionSwarmTaskExecution,
+    Request: ProjectionEpicIssueExecution,
     execute: (row) =>
       sql`
-        INSERT INTO projection_swarm_task_executions (
+        INSERT INTO projection_epic_issue_executions (
           execution_id,
           run_id,
           issue_id,
@@ -101,8 +101,8 @@ const makeProjectionSwarmTaskExecutionRepository = Effect.gen(function* () {
   });
 
   const getRow = SqlSchema.findOneOption({
-    Request: GetProjectionSwarmTaskExecutionInput,
-    Result: ProjectionSwarmTaskExecutionDbRow,
+    Request: GetProjectionEpicIssueExecutionInput,
+    Result: ProjectionEpicIssueExecutionDbRow,
     execute: ({ executionId }) =>
       sql`
         SELECT
@@ -131,14 +131,14 @@ const makeProjectionSwarmTaskExecutionRepository = Effect.gen(function* () {
           completed_at AS "completedAt",
           failed_at AS "failedAt",
           updated_at AS "updatedAt"
-        FROM projection_swarm_task_executions
+        FROM projection_epic_issue_executions
         WHERE execution_id = ${executionId}
       `,
   });
 
   const listRows = SqlSchema.findAll({
     Request: Schema.Void,
-    Result: ProjectionSwarmTaskExecutionDbRow,
+    Result: ProjectionEpicIssueExecutionDbRow,
     execute: () =>
       sql`
         SELECT
@@ -167,29 +167,29 @@ const makeProjectionSwarmTaskExecutionRepository = Effect.gen(function* () {
           completed_at AS "completedAt",
           failed_at AS "failedAt",
           updated_at AS "updatedAt"
-        FROM projection_swarm_task_executions
+        FROM projection_epic_issue_executions
         ORDER BY run_id ASC, sequence_number ASC, execution_id ASC
       `,
   });
 
-  const upsert: ProjectionSwarmTaskExecutionRepositoryShape["upsert"] = (row) =>
+  const upsert: ProjectionEpicIssueExecutionRepositoryShape["upsert"] = (row) =>
     upsertRow(row).pipe(
-      Effect.mapError(toPersistenceSqlError("ProjectionSwarmTaskExecutionRepository.upsert:query")),
+      Effect.mapError(toPersistenceSqlError("ProjectionEpicIssueExecutionRepository.upsert:query")),
     );
 
-  const getById: ProjectionSwarmTaskExecutionRepositoryShape["getById"] = (input) =>
+  const getById: ProjectionEpicIssueExecutionRepositoryShape["getById"] = (input) =>
     getRow(input).pipe(
-      Effect.map((row) => row.pipe(Option.map(toProjectionSwarmTaskExecution))),
+      Effect.map((row) => row.pipe(Option.map(toProjectionEpicIssueExecution))),
       Effect.mapError(
-        toPersistenceSqlError("ProjectionSwarmTaskExecutionRepository.getById:query"),
+        toPersistenceSqlError("ProjectionEpicIssueExecutionRepository.getById:query"),
       ),
     );
 
-  const listAll: ProjectionSwarmTaskExecutionRepositoryShape["listAll"] = () =>
+  const listAll: ProjectionEpicIssueExecutionRepositoryShape["listAll"] = () =>
     listRows(undefined).pipe(
-      Effect.map((rows) => rows.map(toProjectionSwarmTaskExecution)),
+      Effect.map((rows) => rows.map(toProjectionEpicIssueExecution)),
       Effect.mapError(
-        toPersistenceSqlError("ProjectionSwarmTaskExecutionRepository.listAll:query"),
+        toPersistenceSqlError("ProjectionEpicIssueExecutionRepository.listAll:query"),
       ),
     );
 
@@ -197,10 +197,10 @@ const makeProjectionSwarmTaskExecutionRepository = Effect.gen(function* () {
     upsert,
     getById,
     listAll,
-  } satisfies ProjectionSwarmTaskExecutionRepositoryShape;
+  } satisfies ProjectionEpicIssueExecutionRepositoryShape;
 });
 
-export const ProjectionSwarmTaskExecutionRepositoryLive = Layer.effect(
-  ProjectionSwarmTaskExecutionRepository,
-  makeProjectionSwarmTaskExecutionRepository,
+export const ProjectionEpicIssueExecutionRepositoryLive = Layer.effect(
+  ProjectionEpicIssueExecutionRepository,
+  makeProjectionEpicIssueExecutionRepository,
 );

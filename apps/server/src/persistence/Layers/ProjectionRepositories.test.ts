@@ -4,14 +4,14 @@ import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { ProjectionSwarmRunRepositoryLive } from "./ProjectionSwarmRuns.ts";
-import { ProjectionSwarmTaskExecutionRepositoryLive } from "./ProjectionSwarmTaskExecutions.ts";
+import { ProjectionEpicRunRepositoryLive } from "./ProjectionEpicRuns.ts";
+import { ProjectionEpicIssueExecutionRepositoryLive } from "./ProjectionEpicIssueExecutions.ts";
 import { layerConfig } from "./Sqlite.ts";
 import { ProjectionProjectRepositoryLive } from "./ProjectionProjects.ts";
 import { ProjectionThreadRepositoryLive } from "./ProjectionThreads.ts";
 import { ProjectionProjectRepository } from "../Services/ProjectionProjects.ts";
-import { ProjectionSwarmRunRepository } from "../Services/ProjectionSwarmRuns.ts";
-import { ProjectionSwarmTaskExecutionRepository } from "../Services/ProjectionSwarmTaskExecutions.ts";
+import { ProjectionEpicRunRepository } from "../Services/ProjectionEpicRuns.ts";
+import { ProjectionEpicIssueExecutionRepository } from "../Services/ProjectionEpicIssueExecutions.ts";
 import { ProjectionThreadRepository } from "../Services/ProjectionThreads.ts";
 import { ServerConfig } from "../../config.ts";
 
@@ -27,8 +27,8 @@ const projectionRepositoriesLayer = it.layer(
 
     return Layer.mergeAll(
       ProjectionProjectRepositoryLive.pipe(Layer.provideMerge(sqliteLayer)),
-      ProjectionSwarmRunRepositoryLive.pipe(Layer.provideMerge(sqliteLayer)),
-      ProjectionSwarmTaskExecutionRepositoryLive.pipe(Layer.provideMerge(sqliteLayer)),
+      ProjectionEpicRunRepositoryLive.pipe(Layer.provideMerge(sqliteLayer)),
+      ProjectionEpicIssueExecutionRepositoryLive.pipe(Layer.provideMerge(sqliteLayer)),
       ProjectionThreadRepositoryLive.pipe(Layer.provideMerge(sqliteLayer)),
       sqliteLayer,
     );
@@ -140,9 +140,9 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
     }),
   );
 
-  it.effect("stores JSON for swarm run provider options and links active execution ids", () =>
+  it.effect("stores JSON for epic-run provider options and links active execution ids", () =>
     Effect.gen(function* () {
-      const epicRuns = yield* ProjectionSwarmRunRepository;
+      const epicRuns = yield* ProjectionEpicRunRepository;
       const sql = yield* SqlClient.SqlClient;
 
       yield* epicRuns.upsert({
@@ -182,12 +182,12 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         SELECT
           model_options_json AS "modelOptions",
           provider_options_json AS "providerOptions"
-        FROM projection_swarm_runs
+        FROM projection_epic_runs
         WHERE run_id = 'run-json-options'
       `;
       const row = rows[0];
       if (!row) {
-        return yield* Effect.fail(new Error("Expected projection_swarm_runs row to exist."));
+        return yield* Effect.fail(new Error("Expected projection_epic_runs row to exist."));
       }
 
       assert.strictEqual(
@@ -222,7 +222,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
 
   it.effect("stores epic-run execution rows and nullable worker thread ids", () =>
     Effect.gen(function* () {
-      const executions = yield* ProjectionSwarmTaskExecutionRepository;
+      const executions = yield* ProjectionEpicIssueExecutionRepository;
 
       yield* executions.upsert({
         executionId: EpicIssueExecutionId.makeUnsafe("execution-1"),

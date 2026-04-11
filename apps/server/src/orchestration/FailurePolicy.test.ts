@@ -4,7 +4,7 @@ import {
   describeIssueNotClosedForCompletedExecution,
   describeRequestedExecutionTimeout,
   isRequestedExecutionTimedOut,
-  truncateSwarmFailureDetail,
+  truncateEpicRunFailureDetail,
 } from "./FailurePolicy.ts";
 
 describe("FailurePolicy", () => {
@@ -42,6 +42,6 @@ describe("FailurePolicy", () => {
   });
 
   it("truncates failure detail without losing the prefix", () => {
-    expect(truncateSwarmFailureDetail("abcdef", 5)).toBe("ab...");
+    expect(truncateEpicRunFailureDetail("abcdef", 5)).toBe("ab...");
   });
 });

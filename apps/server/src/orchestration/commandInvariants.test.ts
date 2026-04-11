@@ -374,7 +374,7 @@ describe("commandInvariants", () => {
     ).rejects.toThrow("greater than or equal to 0");
   });
 
-  it("checks swarm run status transitions", async () => {
+  it("checks epic-run status transitions", async () => {
     expect(
       isAllowedSwarmRunStatusTransition({
         commandType: "epic-run.fail",

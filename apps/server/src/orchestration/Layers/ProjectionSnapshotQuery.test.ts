@@ -238,7 +238,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
 
       yield* sql`
-        INSERT INTO projection_swarm_runs (
+        INSERT INTO projection_epic_runs (
           run_id,
           project_id,
           epic_issue_id,
@@ -281,7 +281,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
 
       yield* sql`
-        INSERT INTO projection_swarm_task_executions (
+        INSERT INTO projection_epic_issue_executions (
           execution_id,
           run_id,
           issue_id,

@@ -45,8 +45,8 @@ import { ProjectionPlanImplementationLaunch } from "../../persistence/Services/P
 import { ProjectionPendingCheckpointCapture } from "../../persistence/Services/ProjectionPendingCheckpointCaptures.ts";
 import { ProjectionProject } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionState } from "../../persistence/Services/ProjectionState.ts";
-import { ProjectionSwarmRun } from "../../persistence/Services/ProjectionSwarmRuns.ts";
-import { ProjectionSwarmTaskExecution } from "../../persistence/Services/ProjectionSwarmTaskExecutions.ts";
+import { ProjectionEpicRun } from "../../persistence/Services/ProjectionEpicRuns.ts";
+import { ProjectionEpicIssueExecution } from "../../persistence/Services/ProjectionEpicIssueExecutions.ts";
 import { ProjectionThreadActivity } from "../../persistence/Services/ProjectionThreadActivities.ts";
 import { ProjectionThreadMessage } from "../../persistence/Services/ProjectionThreadMessages.ts";
 import { ProjectionThreadProposedPlan } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
@@ -104,27 +104,27 @@ const ProjectionCheckpointDbRowSchema = ProjectionCheckpoint.mapFields(
   }),
 );
 const ProjectionPendingCheckpointCaptureDbRowSchema = ProjectionPendingCheckpointCapture;
-const ProjectionSwarmRunDbRowSchema = Schema.Struct({
-  runId: ProjectionSwarmRun.fields.runId,
-  projectId: ProjectionSwarmRun.fields.projectId,
-  epicIssueId: ProjectionSwarmRun.fields.epicIssueId,
-  status: ProjectionSwarmRun.fields.status,
-  provider: ProjectionSwarmRun.fields.provider,
-  model: ProjectionSwarmRun.fields.model,
+const ProjectionEpicRunDbRowSchema = Schema.Struct({
+  runId: ProjectionEpicRun.fields.runId,
+  projectId: ProjectionEpicRun.fields.projectId,
+  epicIssueId: ProjectionEpicRun.fields.epicIssueId,
+  status: ProjectionEpicRun.fields.status,
+  provider: ProjectionEpicRun.fields.provider,
+  model: ProjectionEpicRun.fields.model,
   modelOptions: Schema.NullOr(Schema.fromJsonString(ProviderModelOptions)),
   providerOptions: Schema.NullOr(Schema.fromJsonString(ProviderStartOptions)),
-  assistantDeliveryMode: ProjectionSwarmRun.fields.assistantDeliveryMode,
-  runtimeMode: ProjectionSwarmRun.fields.runtimeMode,
+  assistantDeliveryMode: ProjectionEpicRun.fields.assistantDeliveryMode,
+  runtimeMode: ProjectionEpicRun.fields.runtimeMode,
   failureContext: Schema.NullOr(Schema.fromJsonString(OrchestrationEpicRunFailureContext)),
-  requestedAt: ProjectionSwarmRun.fields.requestedAt,
-  startedAt: ProjectionSwarmRun.fields.startedAt,
-  stopRequestedAt: ProjectionSwarmRun.fields.stopRequestedAt,
-  stoppedAt: ProjectionSwarmRun.fields.stoppedAt,
-  failedAt: ProjectionSwarmRun.fields.failedAt,
-  completedAt: ProjectionSwarmRun.fields.completedAt,
-  updatedAt: ProjectionSwarmRun.fields.updatedAt,
+  requestedAt: ProjectionEpicRun.fields.requestedAt,
+  startedAt: ProjectionEpicRun.fields.startedAt,
+  stopRequestedAt: ProjectionEpicRun.fields.stopRequestedAt,
+  stoppedAt: ProjectionEpicRun.fields.stoppedAt,
+  failedAt: ProjectionEpicRun.fields.failedAt,
+  completedAt: ProjectionEpicRun.fields.completedAt,
+  updatedAt: ProjectionEpicRun.fields.updatedAt,
 });
-const ProjectionSwarmTaskExecutionDbRowSchema = ProjectionSwarmTaskExecution.mapFields(
+const ProjectionEpicIssueExecutionDbRowSchema = ProjectionEpicIssueExecution.mapFields(
   Struct.assign({
     failureContext: Schema.NullOr(Schema.fromJsonString(OrchestrationEpicRunFailureContext)),
   }),
@@ -425,7 +425,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
   const listSwarmRunRows = SqlSchema.findAll({
     Request: Schema.Void,
-    Result: ProjectionSwarmRunDbRowSchema,
+    Result: ProjectionEpicRunDbRowSchema,
     execute: () =>
       sql`
         SELECT
@@ -447,14 +447,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           failed_at AS "failedAt",
           completed_at AS "completedAt",
           updated_at AS "updatedAt"
-        FROM projection_swarm_runs
+        FROM projection_epic_runs
         ORDER BY requested_at ASC, run_id ASC
       `,
   });
 
   const listSwarmTaskExecutionRows = SqlSchema.findAll({
     Request: Schema.Void,
-    Result: ProjectionSwarmTaskExecutionDbRowSchema,
+    Result: ProjectionEpicIssueExecutionDbRowSchema,
     execute: () =>
       sql`
         SELECT
@@ -483,7 +483,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           completed_at AS "completedAt",
           failed_at AS "failedAt",
           updated_at AS "updatedAt"
-        FROM projection_swarm_task_executions
+        FROM projection_epic_issue_executions
         ORDER BY run_id ASC, sequence_number ASC, execution_id ASC
       `,
   });

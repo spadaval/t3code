@@ -82,7 +82,7 @@ export function describeSharedWorkspaceProjectInvariantViolation(input: {
   readonly loser: OrchestrationEpicRun;
 }): string {
   return [
-    `Shared-workspace swarm scheduling invariant failed in project '${input.projectId}'.`,
+    `Shared-workspace epic-run scheduling invariant failed in project '${input.projectId}'.`,
     `Run '${input.winner.runId}' for epic '${input.winner.epicIssueId}' remains schedulable with status '${input.winner.status}'.`,
     `Run '${input.loser.runId}' for epic '${input.loser.epicIssueId}' was also non-terminal with status '${input.loser.status}' and must be failed.`,
   ].join(" ");

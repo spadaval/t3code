@@ -73,8 +73,8 @@ function makeReadModel(): OrchestrationReadModel {
   };
 }
 
-describe("decider swarm invariants", () => {
-  it("rejects stale swarm run completion when a non-terminal execution still exists", async () => {
+describe("decider epic-run invariants", () => {
+  it("rejects stale epic-run completion when a non-terminal execution still exists", async () => {
     await expect(
       Effect.runPromise(
         decideOrchestrationCommand({

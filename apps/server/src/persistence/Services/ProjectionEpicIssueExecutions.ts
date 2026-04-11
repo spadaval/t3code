@@ -14,7 +14,7 @@ import type { Effect } from "effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
 
-export const ProjectionSwarmTaskExecution = Schema.Struct({
+export const ProjectionEpicIssueExecution = Schema.Struct({
   executionId: EpicIssueExecutionId,
   runId: EpicRunId,
   issueId: TrimmedNonEmptyString,
@@ -34,29 +34,29 @@ export const ProjectionSwarmTaskExecution = Schema.Struct({
   failedAt: Schema.NullOr(IsoDateTime),
   updatedAt: IsoDateTime,
 });
-export type ProjectionSwarmTaskExecution = typeof ProjectionSwarmTaskExecution.Type;
+export type ProjectionEpicIssueExecution = typeof ProjectionEpicIssueExecution.Type;
 
-export const GetProjectionSwarmTaskExecutionInput = Schema.Struct({
+export const GetProjectionEpicIssueExecutionInput = Schema.Struct({
   executionId: EpicIssueExecutionId,
 });
-export type GetProjectionSwarmTaskExecutionInput = typeof GetProjectionSwarmTaskExecutionInput.Type;
+export type GetProjectionEpicIssueExecutionInput = typeof GetProjectionEpicIssueExecutionInput.Type;
 
-export interface ProjectionSwarmTaskExecutionRepositoryShape {
+export interface ProjectionEpicIssueExecutionRepositoryShape {
   readonly upsert: (
-    execution: ProjectionSwarmTaskExecution,
+    execution: ProjectionEpicIssueExecution,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
   readonly getById: (
-    input: GetProjectionSwarmTaskExecutionInput,
-  ) => Effect.Effect<Option.Option<ProjectionSwarmTaskExecution>, ProjectionRepositoryError>;
+    input: GetProjectionEpicIssueExecutionInput,
+  ) => Effect.Effect<Option.Option<ProjectionEpicIssueExecution>, ProjectionRepositoryError>;
   readonly listAll: () => Effect.Effect<
-    ReadonlyArray<ProjectionSwarmTaskExecution>,
+    ReadonlyArray<ProjectionEpicIssueExecution>,
     ProjectionRepositoryError
   >;
 }
 
-export class ProjectionSwarmTaskExecutionRepository extends ServiceMap.Service<
-  ProjectionSwarmTaskExecutionRepository,
-  ProjectionSwarmTaskExecutionRepositoryShape
+export class ProjectionEpicIssueExecutionRepository extends ServiceMap.Service<
+  ProjectionEpicIssueExecutionRepository,
+  ProjectionEpicIssueExecutionRepositoryShape
 >()(
-  "t3/persistence/Services/ProjectionSwarmTaskExecutions/ProjectionSwarmTaskExecutionRepository",
+  "t3/persistence/Services/ProjectionEpicIssueExecutions/ProjectionEpicIssueExecutionRepository",
 ) {}

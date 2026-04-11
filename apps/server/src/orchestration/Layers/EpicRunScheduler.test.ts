@@ -61,7 +61,7 @@ describe("EpicRunScheduler", () => {
     return harnessRuntime.harness;
   }
 
-  it("starts a swarm run and keeps duplicate starts on the same non-terminal run", async () => {
+  it("starts an epic run and keeps duplicate starts on the same non-terminal run", async () => {
     const harness = await createHarness();
 
     const first = await runtime!.runPromise(

@@ -32,7 +32,7 @@ interface IncompleteCompletedExecutionInput {
   readonly workerThreadId: ThreadId | null;
 }
 
-export function truncateSwarmFailureDetail(value: string, max = 1_500): string {
+export function truncateEpicRunFailureDetail(value: string, max = 1_500): string {
   const trimmed = value.trim();
   if (trimmed.length <= max) {
     return trimmed;
@@ -117,13 +117,13 @@ export function describeExecutionInvariantViolation(input: {
     .join("; ");
 
   if (input.nonTerminalExecutions.length > 1) {
-    return `Shared-workspace swarm run '${input.runId}' has multiple non-terminal task executions. Expected at most one active worker execution, found: ${details}.`;
+    return `Shared-workspace epic run '${input.runId}' has multiple non-terminal task executions. Expected at most one active worker execution, found: ${details}.`;
   }
 
   const [execution] = input.nonTerminalExecutions;
   if (!execution) {
-    return `Shared-workspace swarm run '${input.runId}' lost its non-terminal task execution state.`;
+    return `Shared-workspace epic run '${input.runId}' lost its non-terminal task execution state.`;
   }
 
-  return `Shared-workspace swarm run '${input.runId}' has unexpected non-terminal task execution '${execution.executionId}' in its execution history.`;
+  return `Shared-workspace epic run '${input.runId}' has unexpected non-terminal task execution '${execution.executionId}' in its execution history.`;
 }

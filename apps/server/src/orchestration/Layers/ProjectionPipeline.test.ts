@@ -307,7 +307,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         SELECT
           run_id AS "runId",
           status
-        FROM projection_swarm_runs
+        FROM projection_epic_runs
       `;
       assert.deepEqual(runRows, [
         {
@@ -327,7 +327,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           status,
           requested_at AS "requestedAt",
           failure_message AS "failureMessage"
-        FROM projection_swarm_task_executions
+        FROM projection_epic_issue_executions
       `;
       assert.deepEqual(executionRows, [
         {

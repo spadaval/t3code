@@ -33,7 +33,7 @@ import {
   describeIssueNotClosedForCompletedExecution,
   describeRequestedExecutionLaunchFailure,
   isClosedIssueStatus,
-  truncateSwarmFailureDetail,
+  truncateEpicRunFailureDetail,
 } from "../FailurePolicy.ts";
 import { EpicRunSchedulerError } from "../Errors.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -248,7 +248,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       .dispatch(command)
       .pipe(
         Effect.mapError((error) =>
-          workflowError(operation, truncateSwarmFailureDetail(toErrorMessage(error)), error),
+          workflowError(operation, truncateEpicRunFailureDetail(toErrorMessage(error)), error),
         ),
       );
 
@@ -347,7 +347,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       Effect.mapError((error) =>
         isWorkflowExecutionError(error)
           ? error
-          : workflowError(operation, truncateSwarmFailureDetail(toErrorMessage(error)), error),
+          : workflowError(operation, truncateEpicRunFailureDetail(toErrorMessage(error)), error),
       ),
     );
 
@@ -379,7 +379,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       Effect.mapError((error) =>
         isWorkflowExecutionError(error)
           ? error
-          : workflowError(operation, truncateSwarmFailureDetail(toErrorMessage(error)), error),
+          : workflowError(operation, truncateEpicRunFailureDetail(toErrorMessage(error)), error),
       ),
     );
 
@@ -454,7 +454,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
             ? error
             : workflowError(
                 "awaitWorkerStopConfirmation",
-                truncateSwarmFailureDetail(toErrorMessage(error)),
+                truncateEpicRunFailureDetail(toErrorMessage(error)),
                 error,
               ),
         ),
@@ -558,7 +558,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         Effect.mapError((error) =>
           workflowError(
             "getTrackerState",
-            truncateSwarmFailureDetail(toErrorMessage(error)),
+            truncateEpicRunFailureDetail(toErrorMessage(error)),
             error,
           ),
         ),
@@ -588,7 +588,11 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       })
       .pipe(
         Effect.mapError((error) =>
-          workflowError(input.operation, truncateSwarmFailureDetail(toErrorMessage(error)), error),
+          workflowError(
+            input.operation,
+            truncateEpicRunFailureDetail(toErrorMessage(error)),
+            error,
+          ),
         ),
       );
 
@@ -652,7 +656,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
             Effect.mapError((error) =>
               workflowError(
                 "syncIssueForExecutionSettlement:commentIssue",
-                truncateSwarmFailureDetail(toErrorMessage(error)),
+                truncateEpicRunFailureDetail(toErrorMessage(error)),
                 error,
               ),
             ),
@@ -736,7 +740,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
   const markRunStarted = (runId: EpicRunId) =>
     dispatchOrFail("markRunStarted", {
       type: "epic-run.mark-started",
-      commandId: serverCommandId("swarm-run-mark-started"),
+      commandId: serverCommandId("epic-run-mark-started"),
       runId,
       createdAt: nowIso(),
     }).pipe(Effect.asVoid);
@@ -744,7 +748,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
   const markRunIdle = (runId: EpicRunId) =>
     dispatchOrFail("markRunIdle", {
       type: "epic-run.mark-idle",
-      commandId: serverCommandId("swarm-run-mark-idle"),
+      commandId: serverCommandId("epic-run-mark-idle"),
       runId,
       createdAt: nowIso(),
     }).pipe(Effect.asVoid);
@@ -756,9 +760,9 @@ const makeEpicRunScheduler = Effect.gen(function* () {
   ) =>
     dispatchOrFail("blockRun", {
       type: "epic-run.block",
-      commandId: serverCommandId("swarm-run-block"),
+      commandId: serverCommandId("epic-run-block"),
       runId,
-      reason: truncateSwarmFailureDetail(reason, 500),
+      reason: truncateEpicRunFailureDetail(reason, 500),
       blockedContext,
       createdAt: nowIso(),
     }).pipe(Effect.asVoid);
@@ -772,9 +776,9 @@ const makeEpicRunScheduler = Effect.gen(function* () {
 
       yield* dispatchOrFail("failRun", {
         type: "epic-run.fail",
-        commandId: serverCommandId("swarm-run-fail"),
+        commandId: serverCommandId("epic-run-fail"),
         runId,
-        reason: truncateSwarmFailureDetail(reason, 500),
+        reason: truncateEpicRunFailureDetail(reason, 500),
         createdAt: nowIso(),
       }).pipe(Effect.asVoid);
     });
@@ -782,7 +786,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
   const completeRun = (runId: EpicRunId) =>
     dispatchOrFail("completeRun", {
       type: "epic-run.complete",
-      commandId: serverCommandId("swarm-run-complete"),
+      commandId: serverCommandId("epic-run-complete"),
       runId,
       createdAt: nowIso(),
     }).pipe(Effect.asVoid);
@@ -790,7 +794,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
   const cancelRun = (runId: EpicRunId) =>
     dispatchOrFail("cancelRun", {
       type: "epic-run.stop",
-      commandId: serverCommandId("swarm-run-cancel"),
+      commandId: serverCommandId("epic-run-stop"),
       runId,
       createdAt: nowIso(),
     }).pipe(Effect.asVoid);
@@ -806,7 +810,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
   }) =>
     dispatchOrFail("requestTaskExecutionCommand", {
       type: "epic-issue-execution.request",
-      commandId: serverCommandId("swarm-task-execution-request"),
+      commandId: serverCommandId("epic-issue-execution-request"),
       executionId: input.executionId,
       runId: input.runId,
       issueId: input.issueId,
@@ -820,7 +824,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
   const startTaskExecutionCommand = (input: StartEpicIssueExecutionInput) =>
     dispatchOrFail("startTaskExecutionCommand", {
       type: "epic-issue-execution.start",
-      commandId: serverCommandId("swarm-task-execution-start"),
+      commandId: serverCommandId("epic-issue-execution-start"),
       executionId: input.executionId,
       runId: input.runId,
       createdAt: nowIso(),
@@ -861,7 +865,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
   const completeTaskExecutionCommand = (input: CompleteEpicIssueExecutionInput) =>
     dispatchOrFail("completeTaskExecutionCommand", {
       type: "epic-issue-execution.complete",
-      commandId: serverCommandId("swarm-task-execution-complete"),
+      commandId: serverCommandId("epic-issue-execution-complete"),
       executionId: input.executionId,
       runId: input.runId,
       createdAt: nowIso(),
@@ -870,17 +874,17 @@ const makeEpicRunScheduler = Effect.gen(function* () {
   const failTaskExecutionCommand = (input: FailEpicIssueExecutionInput) =>
     dispatchOrFail("failTaskExecutionCommand", {
       type: "epic-issue-execution.fail",
-      commandId: serverCommandId("swarm-task-execution-fail"),
+      commandId: serverCommandId("epic-issue-execution-fail"),
       executionId: input.executionId,
       runId: input.runId,
-      reason: truncateSwarmFailureDetail(input.reason, 500),
+      reason: truncateEpicRunFailureDetail(input.reason, 500),
       createdAt: nowIso(),
     }).pipe(Effect.asVoid);
 
   const cancelTaskExecutionCommand = (input: CancelEpicIssueExecutionInput) =>
     dispatchOrFail("cancelTaskExecutionCommand", {
       type: "epic-issue-execution.stop",
-      commandId: serverCommandId("swarm-task-execution-cancel"),
+      commandId: serverCommandId("epic-issue-execution-stop"),
       executionId: input.executionId,
       runId: input.runId,
       createdAt: nowIso(),
@@ -898,7 +902,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
 
     return dispatchOrFail("createWorkerThread", {
       type: "thread.create",
-      commandId: serverCommandId("swarm-worker-thread-create"),
+      commandId: serverCommandId("epic-run-worker-thread-create"),
       threadId: input.threadId,
       projectId: input.project.id,
       title: input.title,
@@ -918,14 +922,14 @@ const makeEpicRunScheduler = Effect.gen(function* () {
   const deleteWorkerThread = (threadId: ThreadId) =>
     dispatchOrFail("deleteWorkerThread", {
       type: "thread.delete",
-      commandId: serverCommandId("swarm-worker-thread-delete"),
+      commandId: serverCommandId("epic-run-worker-thread-delete"),
       threadId,
     }).pipe(Effect.asVoid);
 
   const interruptWorkerThread = (threadId: ThreadId) =>
     dispatchOrFail("interruptWorkerThread", {
       type: "thread.turn.interrupt",
-      commandId: serverCommandId("swarm-worker-thread-interrupt"),
+      commandId: serverCommandId("epic-run-worker-thread-interrupt"),
       threadId,
       createdAt: nowIso(),
     }).pipe(Effect.asVoid);
@@ -933,7 +937,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
   const stopWorkerThreadSession = (threadId: ThreadId) =>
     dispatchOrFail("stopWorkerThreadSession", {
       type: "thread.session.stop",
-      commandId: serverCommandId("swarm-worker-thread-session-stop"),
+      commandId: serverCommandId("epic-run-worker-thread-session-stop"),
       threadId,
       createdAt: nowIso(),
     }).pipe(Effect.asVoid);
@@ -949,10 +953,10 @@ const makeEpicRunScheduler = Effect.gen(function* () {
 
     return dispatchOrFail("startWorkerThreadTurn", {
       type: "thread.turn.start",
-      commandId: serverCommandId("swarm-worker-thread-turn-start"),
+      commandId: serverCommandId("epic-run-worker-thread-turn-start"),
       threadId: input.threadId,
       message: {
-        messageId: messageId("swarm-worker"),
+        messageId: messageId("epic-run-worker"),
         role: "user",
         text: input.promptText,
         attachments: [],
@@ -1005,7 +1009,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
           Effect.mapError((error) =>
             workflowError(
               "launchNextTaskExecution:getEpicSwarmStatus",
-              truncateSwarmFailureDetail(toErrorMessage(error)),
+              truncateEpicRunFailureDetail(toErrorMessage(error)),
               error,
             ),
           ),
@@ -1103,7 +1107,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         return yield* getRunById(run.runId);
       }
 
-      yield* Effect.logDebug("swarm run launching next task execution").pipe(
+      yield* Effect.logDebug("epic run launching next issue execution").pipe(
         Effect.annotateLogs({
           runId: run.runId,
           issueId: nextReadyIssue.id,
@@ -1179,7 +1183,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         Effect.catch((error) =>
           Effect.gen(function* () {
             const detail = error.detail ?? toErrorMessage(error);
-            const reason = truncateSwarmFailureDetail(
+            const reason = truncateEpicRunFailureDetail(
               describeRequestedExecutionLaunchFailure({
                 executionId,
                 issueId,
@@ -1245,7 +1249,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
             executionId: input.execution.executionId,
             issueId: input.execution.issueId,
             workerThreadId: input.execution.workerThreadId,
-            reason: truncateSwarmFailureDetail(decision.reason, 500),
+            reason: truncateEpicRunFailureDetail(decision.reason, 500),
           });
         case "complete":
           yield* completeEpicIssueExecution({
@@ -1403,7 +1407,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
 
       yield* failRun(
         request.runId,
-        truncateSwarmFailureDetail(toErrorMessage(Cause.squash(exit.cause))),
+        truncateEpicRunFailureDetail(toErrorMessage(Cause.squash(exit.cause))),
       );
     });
 
@@ -1518,7 +1522,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
             Effect.mapError((error) =>
               workflowError(
                 "startEpicRun",
-                truncateSwarmFailureDetail(toErrorMessage(error)),
+                truncateEpicRunFailureDetail(toErrorMessage(error)),
                 error,
               ),
             ),
@@ -1544,7 +1548,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
 
       yield* dispatchOrFail("createRun", {
         type: "epic-run.request",
-        commandId: serverCommandId("swarm-run-request"),
+        commandId: serverCommandId("epic-run-request"),
         runId,
         projectId: input.projectId,
         epicIssueId: input.epicIssueId,
