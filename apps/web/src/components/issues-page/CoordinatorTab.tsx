@@ -24,6 +24,7 @@ import {
 import { resolveDefaultModelSelection } from "~/lib/modelSelection";
 import { isIssueDoneStatus } from "~/lib/issueConstants";
 import { partitionCoordinatorEpics } from "~/issuePanel";
+import { buildEpicExecutionViewData } from "~/lib/epicExecutionView";
 import { cn } from "~/lib/utils";
 import { useProjectById } from "~/storeSelectors";
 import { DEFAULT_RUNTIME_MODE } from "~/types";
@@ -371,6 +372,40 @@ function runStatusBadgeVariant(
   }
 }
 
+function formatExecutionStatus(status: OrchestrationEpicIssueExecution["status"]): string {
+  switch (status) {
+    case "launching":
+      return "Launching";
+    case "running":
+      return "Running";
+    case "stopping":
+      return "Stopping";
+    case "stopped":
+      return "Stopped";
+    case "failed":
+      return "Failed";
+    case "completed":
+      return "Completed";
+  }
+}
+
+function executionStatusBadgeVariant(
+  status: OrchestrationEpicIssueExecution["status"],
+): "success" | "error" | "warning" | "info" | "neutral" {
+  switch (status) {
+    case "completed":
+      return "success";
+    case "failed":
+      return "error";
+    case "stopped":
+      return "warning";
+    case "launching":
+    case "running":
+    case "stopping":
+      return "info";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -644,6 +679,7 @@ function EpicDetail(props: {
   const validation = epic.validation;
   const activeRun = getActiveRun(epic);
   const latestRun = getLatestRun(epic);
+  const executionView = buildEpicExecutionViewData(epic);
 
   return (
     <div className="space-y-6 p-5">
@@ -798,6 +834,8 @@ function EpicDetail(props: {
       {validation && (validation.errors.length > 0 || validation.warnings.length > 0) ? (
         <ValidationMessages validation={validation} />
       ) : null}
+
+      <ExecutionViewSection executionView={executionView} onOpenThread={props.onOpenThread} />
 
       {/* Unified work graph */}
       <WorkGraph cwd={props.cwd} epic={epic} onOpenThread={props.onOpenThread} />
@@ -970,6 +1008,155 @@ function ValidationMessages(props: {
         ))}
       </div>
     </DetailSection>
+  );
+}
+
+function ExecutionViewSection(props: {
+  executionView: ReturnType<typeof buildEpicExecutionViewData>;
+  onOpenThread: (threadId: ThreadId) => void;
+}) {
+  const { activeExecution, predicted, history } = props.executionView;
+
+  const predictionSummary =
+    predicted.length > 0
+      ? "Next likely matches the current scheduler order. Later waves are advisory because tracker state is re-read between launches."
+      : null;
+
+  return (
+    <DetailSection title="Execution View">
+      <div className="space-y-4">
+        {activeExecution !== null || predicted.length > 0 ? (
+          <div className="space-y-2">
+            {predictionSummary ? (
+              <p className="text-xs text-muted-foreground">{predictionSummary}</p>
+            ) : null}
+
+            {activeExecution !== null ? (
+              <ExecutionViewCard
+                label="Now"
+                title={activeExecution.title}
+                issueId={activeExecution.issueId}
+                badge={
+                  <Badge variant={executionStatusBadgeVariant(activeExecution.status)} size="sm">
+                    {formatExecutionStatus(activeExecution.status)}
+                  </Badge>
+                }
+                detail={`Execution #${activeExecution.sequenceNumber.toString()}`}
+                secondaryAction={
+                  activeExecution.workerThreadId ? (
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() => props.onOpenThread(activeExecution.workerThreadId!)}
+                    >
+                      Open thread
+                    </Button>
+                  ) : null
+                }
+              />
+            ) : null}
+
+            {predicted.map((prediction, index) => (
+              <ExecutionViewCard
+                key={`${prediction.issueId}:${prediction.waveIndex ?? "ready"}`}
+                label={
+                  index === 0
+                    ? "Next likely"
+                    : prediction.waveIndex === null || prediction.waveIndex === 0
+                      ? "Also ready now"
+                      : `Wave ${(prediction.waveIndex + 1).toString()} advisory`
+                }
+                title={prediction.title}
+                issueId={prediction.issueId}
+                badge={
+                  <Badge variant={index === 0 ? "info" : "neutral"} size="sm">
+                    {prediction.waveIndex === null || prediction.waveIndex === 0
+                      ? "Ready"
+                      : `Wave ${(prediction.waveIndex + 1).toString()}`}
+                  </Badge>
+                }
+                detail={
+                  prediction.waveIndex === null || prediction.waveIndex === 0
+                    ? "Eligible to run from the current ready set."
+                    : "Future ordering only. Tracker state may change before this launches."
+                }
+              />
+            ))}
+          </div>
+        ) : null}
+
+        {history.length > 0 ? (
+          <div className="space-y-2">
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              History
+            </div>
+            <div className="space-y-2">
+              {history.map((attempt) => (
+                <ExecutionViewCard
+                  key={attempt.executionId}
+                  label={`Execution #${attempt.sequenceNumber.toString()}`}
+                  title={attempt.title}
+                  issueId={attempt.issueId}
+                  badge={
+                    <Badge variant={executionStatusBadgeVariant(attempt.status)} size="sm">
+                      {formatExecutionStatus(attempt.status)}
+                    </Badge>
+                  }
+                  detail={attempt.failureMessage ?? null}
+                  secondaryAction={
+                    attempt.workerThreadId ? (
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={() => props.onOpenThread(attempt.workerThreadId!)}
+                      >
+                        Open thread
+                      </Button>
+                    ) : null
+                  }
+                />
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No execution attempts recorded yet. Start a run to build history here.
+          </p>
+        )}
+      </div>
+    </DetailSection>
+  );
+}
+
+function ExecutionViewCard(props: {
+  label: string;
+  title: string;
+  issueId: string;
+  badge: ReactNode;
+  detail: string | null;
+  secondaryAction?: ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            {props.label}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="font-medium text-foreground">{props.title}</div>
+            <div className="font-mono text-xs text-muted-foreground">{props.issueId}</div>
+          </div>
+          {props.detail ? (
+            <div className="text-sm text-muted-foreground">{props.detail}</div>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-2">
+          {props.badge}
+          {props.secondaryAction}
+        </div>
+      </div>
+    </div>
   );
 }
 

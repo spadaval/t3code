@@ -160,6 +160,156 @@ describe("CoordinatorTab actions", () => {
     expect(derivedDoneMarkup).not.toMatch(/<p class="[^"]*line-through[^"]*">Epic 1<\/p>/);
     expect(derivedDoneMarkup).not.toMatch(/<h2 class="[^"]*line-through[^"]*">Epic 1<\/h2>/);
   });
+
+  it("renders inline execution preview from deterministic ready-front ordering", () => {
+    const issueA = {
+      id: "ISSUE-A",
+      title: "Task Alpha",
+      status: "open",
+      priority: 2,
+      issueType: "task",
+      assignee: null,
+      owner: null,
+      parent: null,
+    };
+    const issueB = {
+      id: "ISSUE-B",
+      title: "Task Beta",
+      status: "open",
+      priority: 1,
+      issueType: "task",
+      assignee: null,
+      owner: null,
+      parent: null,
+    };
+    const issueC = {
+      id: "ISSUE-C",
+      title: "Task Gamma",
+      status: "open",
+      priority: 3,
+      issueType: "task",
+      assignee: null,
+      owner: null,
+      parent: null,
+    };
+
+    const markup = renderCoordinatorTab({
+      validation: {
+        epicId: "EPIC-1",
+        epicTitle: "Epic 1",
+        trackerSummary: null,
+        valid: true,
+        errors: [],
+        warnings: [],
+        readyFronts: [[issueA, issueB], [issueC]],
+        maxParallelism: 1,
+        estimatedWorkerSessions: 1,
+      } as BeadsCoordinatorEpicSnapshot["validation"],
+      status: {
+        epicId: "EPIC-1",
+        epicTitle: "Epic 1",
+        trackerSummary: null,
+        completed: [],
+        active: [],
+        ready: [issueA, issueB],
+        blocked: [],
+        blockedBreakdown: { internal: [], external: [], unknown: [] },
+      } as BeadsCoordinatorEpicSnapshot["status"],
+    });
+
+    expect(markup).toContain("Execution View");
+    expect(markup).toContain("Next likely");
+    expect(markup).toContain("Also ready now");
+    expect(markup).toContain("Wave 2 advisory");
+    expect(markup.indexOf("Task Beta")).toBeLessThan(markup.indexOf("Task Alpha"));
+  });
+
+  it("renders active execution and exact execution history reasons together", () => {
+    const issueA = {
+      id: "ISSUE-A",
+      title: "Task Alpha",
+      status: "open",
+      priority: null,
+      issueType: "task",
+      assignee: null,
+      owner: null,
+      parent: null,
+    };
+    const issueB = {
+      id: "ISSUE-B",
+      title: "Task Beta",
+      status: "open",
+      priority: null,
+      issueType: "task",
+      assignee: null,
+      owner: null,
+      parent: null,
+    };
+
+    const markup = renderCoordinatorTab({
+      activeExecutionId: "exec-2" as never,
+      status: {
+        epicId: "EPIC-1",
+        epicTitle: "Epic 1",
+        trackerSummary: null,
+        completed: [],
+        active: [issueA],
+        ready: [issueB],
+        blocked: [],
+        blockedBreakdown: { internal: [], external: [], unknown: [] },
+      } as BeadsCoordinatorEpicSnapshot["status"],
+      executions: [
+        {
+          executionId: "exec-1" as never,
+          runId: "run-1" as never,
+          issueId: "ISSUE-B",
+          workerThreadId: null,
+          sequenceNumber: 1,
+          status: "failed",
+          workspaceKey: "shared",
+          workspacePath: null,
+          failureContext: {
+            kind: "worker_failure",
+            message: "Worker crashed while editing files.",
+            issueId: "ISSUE-B",
+            executionId: "exec-1" as never,
+            workerThreadId: null,
+          },
+          requestedAt: "2026-04-08T00:00:00.000Z",
+          startedAt: "2026-04-08T00:00:01.000Z",
+          stopRequestedAt: null,
+          stoppedAt: null,
+          completedAt: null,
+          failedAt: "2026-04-08T00:00:02.000Z",
+          updatedAt: "2026-04-08T00:00:02.000Z",
+        } as unknown as BeadsCoordinatorEpicSnapshot["executions"][number],
+        {
+          executionId: "exec-2" as never,
+          runId: "run-1" as never,
+          issueId: "ISSUE-A",
+          workerThreadId: "thread-1" as never,
+          sequenceNumber: 2,
+          status: "running",
+          workspaceKey: "shared",
+          workspacePath: null,
+          failureContext: null,
+          requestedAt: "2026-04-08T00:00:03.000Z",
+          startedAt: "2026-04-08T00:00:04.000Z",
+          stopRequestedAt: null,
+          stoppedAt: null,
+          completedAt: null,
+          failedAt: null,
+          updatedAt: "2026-04-08T00:00:04.000Z",
+        } as unknown as BeadsCoordinatorEpicSnapshot["executions"][number],
+      ],
+    });
+
+    expect(markup).toContain("Now");
+    expect(markup).toContain("Execution #2");
+    expect(markup).toContain("Task Alpha");
+    expect(markup).toContain("History");
+    expect(markup).toContain("Worker crashed while editing files.");
+  });
 });
 
 describe("WorkGraph integration", () => {
