@@ -1,6 +1,5 @@
 import type {
   BeadsIssueRelationSummary,
-  OrchestrationEpicRunSchedulerMode,
   OrchestrationEpicIssueExecution,
   EpicRunId,
 } from "@t3tools/contracts";
@@ -73,20 +72,4 @@ export function describeReadyIssueExhaustion(input: {
     `Previously attempted ready issues: ${attemptedReadyIssueIds.join(", ") || "none"}.`,
     "Stop the run, fix the tracker or code state, then start a new run when ready.",
   ].join(" ");
-}
-
-export function shouldIdleSemiAutomaticRun(input: {
-  readonly schedulerMode?: OrchestrationEpicRunSchedulerMode | null;
-  readonly latestExecution: OrchestrationEpicIssueExecution | null;
-  readonly trigger: EpicRunSchedulerTrigger;
-}): boolean {
-  if (input.schedulerMode !== "semi-automatic") {
-    return false;
-  }
-
-  if (input.latestExecution === null) {
-    return false;
-  }
-
-  return input.trigger !== "manual_start";
 }

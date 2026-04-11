@@ -776,8 +776,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
 
         case "epic-run.started":
-        case "epic-run.idled":
-        case "epic-run.blocked":
         case "epic-run.failed":
         case "epic-run.stopped":
         case "epic-run.completed": {
@@ -795,38 +793,6 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                 status: "running",
                 startedAt: event.payload.startedAt,
                 failureContext: null,
-                updatedAt: event.payload.updatedAt,
-              });
-              return;
-
-            case "epic-run.idled":
-              yield* projectionSwarmRunRepository.upsert({
-                ...existingRow.value,
-                status: "running",
-                updatedAt: event.payload.updatedAt,
-              });
-              return;
-
-            case "epic-run.blocked":
-              if (event.payload.blockedContext?.kind === "tracker_waiting") {
-                yield* projectionSwarmRunRepository.upsert({
-                  ...existingRow.value,
-                  status: "running",
-                  updatedAt: event.payload.updatedAt,
-                });
-                return;
-              }
-
-              yield* projectionSwarmRunRepository.upsert({
-                ...existingRow.value,
-                status: "failed",
-                failureContext: createEpicRunFailureContext({
-                  reason: event.payload.reason,
-                  issueId: event.payload.blockedContext?.issueId ?? null,
-                  executionId: event.payload.blockedContext?.executionId ?? null,
-                  workerThreadId: event.payload.blockedContext?.workerThreadId ?? null,
-                }),
-                failedAt: event.payload.blockedAt,
                 updatedAt: event.payload.updatedAt,
               });
               return;

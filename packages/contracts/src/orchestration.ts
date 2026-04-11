@@ -380,9 +380,6 @@ export const OrchestrationTurnStatus = Schema.Literals([
 ]);
 export type OrchestrationTurnStatus = typeof OrchestrationTurnStatus.Type;
 
-export const OrchestrationLatestTurnState = OrchestrationTurnStatus;
-export type OrchestrationLatestTurnState = OrchestrationTurnStatus;
-
 export const OrchestrationLatestTurn = Schema.Struct({
   turnId: TurnId,
   state: OrchestrationTurnStatus,
@@ -452,16 +449,6 @@ export const OrchestrationPlanImplementationLaunch = Schema.Struct({
 export type OrchestrationPlanImplementationLaunch =
   typeof OrchestrationPlanImplementationLaunch.Type;
 
-export const OrchestrationEpicRunSchedulerMode = Schema.Literals(["automatic", "semi-automatic"]);
-export type OrchestrationEpicRunSchedulerMode = typeof OrchestrationEpicRunSchedulerMode.Type;
-export const DEFAULT_ORCHESTRATION_EPIC_RUN_SCHEDULER_MODE: OrchestrationEpicRunSchedulerMode =
-  "automatic";
-
-export const OrchestrationEpicRunWorkspaceMode = Schema.Literals(["shared"]);
-export type OrchestrationEpicRunWorkspaceMode = typeof OrchestrationEpicRunWorkspaceMode.Type;
-export const DEFAULT_ORCHESTRATION_EPIC_RUN_WORKSPACE_MODE: OrchestrationEpicRunWorkspaceMode =
-  "shared";
-
 export const OrchestrationEpicRunStatus = Schema.Literals([
   "pending",
   "running",
@@ -482,20 +469,6 @@ export const OrchestrationEpicIssueExecutionStatus = Schema.Literals([
 ]);
 export type OrchestrationEpicIssueExecutionStatus =
   typeof OrchestrationEpicIssueExecutionStatus.Type;
-
-export const OrchestrationEpicRunBlockedKind = Schema.Literals([
-  "tracker_waiting",
-  "worker_failure",
-]);
-export type OrchestrationEpicRunBlockedKind = typeof OrchestrationEpicRunBlockedKind.Type;
-
-export const OrchestrationEpicRunBlockedContext = Schema.Struct({
-  kind: OrchestrationEpicRunBlockedKind,
-  issueId: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
-  executionId: Schema.NullOr(EpicIssueExecutionId).pipe(Schema.withDecodingDefault(() => null)),
-  workerThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
-});
-export type OrchestrationEpicRunBlockedContext = typeof OrchestrationEpicRunBlockedContext.Type;
 
 export const OrchestrationEpicRunFailureKind = Schema.Literals([
   "launch_failure",
@@ -960,12 +933,6 @@ const EpicRunRequestCommand = Schema.Struct({
   runId: EpicRunId,
   projectId: ProjectId,
   epicIssueId: TrimmedNonEmptyString,
-  schedulerMode: OrchestrationEpicRunSchedulerMode.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_EPIC_RUN_SCHEDULER_MODE),
-  ),
-  workspaceMode: OrchestrationEpicRunWorkspaceMode.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_EPIC_RUN_WORKSPACE_MODE),
-  ),
   provider: Schema.optional(ProviderKind),
   model: Schema.optional(TrimmedNonEmptyString),
   modelOptions: Schema.optional(ProviderModelOptions),
@@ -979,24 +946,6 @@ const EpicRunMarkStartedCommand = Schema.Struct({
   type: Schema.Literal("epic-run.mark-started"),
   commandId: CommandId,
   runId: EpicRunId,
-  createdAt: IsoDateTime,
-});
-
-const EpicRunMarkIdleCommand = Schema.Struct({
-  type: Schema.Literal("epic-run.mark-idle"),
-  commandId: CommandId,
-  runId: EpicRunId,
-  createdAt: IsoDateTime,
-});
-
-const EpicRunBlockCommand = Schema.Struct({
-  type: Schema.Literal("epic-run.block"),
-  commandId: CommandId,
-  runId: EpicRunId,
-  reason: TrimmedNonEmptyString,
-  blockedContext: Schema.NullOr(OrchestrationEpicRunBlockedContext).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
   createdAt: IsoDateTime,
 });
 
@@ -1030,10 +979,6 @@ const EpicIssueExecutionRequestCommand = Schema.Struct({
   issueId: TrimmedNonEmptyString,
   workerThreadId: ThreadId,
   sequenceNumber: NonNegativeInt,
-  originalStatus: TrimmedNonEmptyString,
-  originalAssignee: Schema.NullOr(TrimmedNonEmptyString).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
   createdAt: IsoDateTime,
 });
 
@@ -1086,8 +1031,6 @@ const InternalOrchestrationCommand = Schema.Union([
   PlanImplementationLaunchCancelCommand,
   EpicRunRequestCommand,
   EpicRunMarkStartedCommand,
-  EpicRunMarkIdleCommand,
-  EpicRunBlockCommand,
   EpicRunFailCommand,
   EpicRunStopCommand,
   EpicRunCompleteCommand,
@@ -1136,8 +1079,6 @@ export const OrchestrationEventType = Schema.Literals([
   "plan-implementation-launch.cancelled",
   "epic-run.requested",
   "epic-run.started",
-  "epic-run.idled",
-  "epic-run.blocked",
   "epic-run.failed",
   "epic-run.stopped",
   "epic-run.completed",
@@ -1393,12 +1334,6 @@ export const EpicRunRequestedPayload = Schema.Struct({
   runId: EpicRunId,
   projectId: ProjectId,
   epicIssueId: TrimmedNonEmptyString,
-  schedulerMode: OrchestrationEpicRunSchedulerMode.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_EPIC_RUN_SCHEDULER_MODE),
-  ),
-  workspaceMode: OrchestrationEpicRunWorkspaceMode.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_EPIC_RUN_WORKSPACE_MODE),
-  ),
   provider: Schema.NullOr(ProviderKind),
   model: Schema.NullOr(TrimmedNonEmptyString),
   modelOptions: Schema.NullOr(ProviderModelOptions),
@@ -1412,22 +1347,6 @@ export const EpicRunRequestedPayload = Schema.Struct({
 export const EpicRunStartedPayload = Schema.Struct({
   runId: EpicRunId,
   startedAt: IsoDateTime,
-  updatedAt: IsoDateTime,
-});
-
-export const EpicRunIdledPayload = Schema.Struct({
-  runId: EpicRunId,
-  idledAt: IsoDateTime,
-  updatedAt: IsoDateTime,
-});
-
-export const EpicRunBlockedPayload = Schema.Struct({
-  runId: EpicRunId,
-  reason: TrimmedNonEmptyString,
-  blockedAt: IsoDateTime,
-  blockedContext: Schema.NullOr(OrchestrationEpicRunBlockedContext).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
   updatedAt: IsoDateTime,
 });
 
@@ -1463,10 +1382,6 @@ export const EpicIssueExecutionRequestedPayload = Schema.Struct({
   issueId: TrimmedNonEmptyString,
   workerThreadId: ThreadId,
   sequenceNumber: NonNegativeInt,
-  originalStatus: TrimmedNonEmptyString,
-  originalAssignee: Schema.NullOr(TrimmedNonEmptyString).pipe(
-    Schema.withDecodingDefault(() => null),
-  ),
   requestedAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -1673,16 +1588,6 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("epic-run.idled"),
-    payload: EpicRunIdledPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("epic-run.blocked"),
-    payload: EpicRunBlockedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
     type: Schema.Literal("epic-run.failed"),
     payload: EpicRunFailedPayload,
   }),
@@ -1758,9 +1663,6 @@ export const ProviderSessionRuntimeStatus = Schema.Literals([
   "error",
 ]);
 export type ProviderSessionRuntimeStatus = typeof ProviderSessionRuntimeStatus.Type;
-
-const ProjectionThreadTurnStatus = OrchestrationTurnStatus;
-export type ProjectionThreadTurnStatus = OrchestrationTurnStatus;
 
 const ProjectionCheckpointRow = Schema.Struct({
   threadId: ThreadId,
@@ -1864,12 +1766,6 @@ export type OrchestrationRetryPlanImplementationLaunchInput =
 export const OrchestrationStartEpicRunInput = Schema.Struct({
   projectId: ProjectId,
   epicIssueId: TrimmedNonEmptyString,
-  schedulerMode: OrchestrationEpicRunSchedulerMode.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_EPIC_RUN_SCHEDULER_MODE),
-  ),
-  workspaceMode: OrchestrationEpicRunWorkspaceMode.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_ORCHESTRATION_EPIC_RUN_WORKSPACE_MODE),
-  ),
   provider: Schema.optional(ProviderKind),
   model: Schema.optional(TrimmedNonEmptyString),
   modelOptions: Schema.optional(ProviderModelOptions),

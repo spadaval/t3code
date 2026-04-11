@@ -68,8 +68,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -79,8 +77,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -114,8 +110,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -157,8 +151,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -167,8 +159,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-2",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -203,8 +193,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -213,8 +201,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: secondProjectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -250,8 +236,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -281,8 +265,6 @@ describe("EpicRunScheduler", () => {
         harness.workflow.startEpicRun({
           projectId: harness.projectId,
           epicIssueId: "EPIC-1",
-          schedulerMode: "automatic",
-          workspaceMode: "shared",
           runtimeMode: "full-access",
         }),
       ),
@@ -297,8 +279,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -331,8 +311,6 @@ describe("EpicRunScheduler", () => {
         harness.workflow.startEpicRun({
           projectId: harness.projectId,
           epicIssueId: "EPIC-1",
-          schedulerMode: "automatic",
-          workspaceMode: "shared",
           runtimeMode: "full-access",
         }),
       ),
@@ -362,8 +340,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -393,8 +369,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -445,8 +419,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -494,8 +466,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -519,8 +489,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -530,8 +498,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -549,8 +515,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -609,8 +573,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "semi-automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -672,8 +634,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -749,8 +709,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -842,8 +800,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -929,8 +885,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -978,8 +932,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -1031,8 +983,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -1078,8 +1028,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -1134,8 +1082,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -1173,8 +1119,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -1219,8 +1163,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -1265,8 +1207,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -1321,8 +1261,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -1364,8 +1302,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -1420,8 +1356,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -1452,8 +1386,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -1482,8 +1414,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -1541,8 +1471,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );
@@ -1571,8 +1499,6 @@ describe("EpicRunScheduler", () => {
       harness.workflow.startEpicRun({
         projectId: harness.projectId,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         runtimeMode: "full-access",
       }),
     );

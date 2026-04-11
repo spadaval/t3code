@@ -876,7 +876,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         readModel,
         command,
         projectId: command.projectId,
-        workspaceMode: command.workspaceMode,
       });
       return {
         ...withEventBase({
@@ -890,8 +889,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           runId: command.runId,
           projectId: command.projectId,
           epicIssueId: command.epicIssueId,
-          schedulerMode: command.schedulerMode,
-          workspaceMode: command.workspaceMode,
           provider: command.provider ?? null,
           model: command.model ?? null,
           modelOptions: command.modelOptions ?? null,
@@ -921,52 +918,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           runId: command.runId,
           startedAt: command.createdAt,
-          updatedAt: command.createdAt,
-        },
-      };
-    }
-
-    case "epic-run.mark-idle": {
-      yield* requireSwarmRunWithoutCurrentExecution({
-        readModel,
-        command,
-        runId: command.runId,
-      });
-      return {
-        ...withEventBase({
-          aggregateKind: "epicRun",
-          aggregateId: command.runId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "epic-run.idled",
-        payload: {
-          runId: command.runId,
-          idledAt: command.createdAt,
-          updatedAt: command.createdAt,
-        },
-      };
-    }
-
-    case "epic-run.block": {
-      yield* requireSwarmRunWithoutCurrentExecution({
-        readModel,
-        command,
-        runId: command.runId,
-      });
-      return {
-        ...withEventBase({
-          aggregateKind: "epicRun",
-          aggregateId: command.runId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-        }),
-        type: "epic-run.blocked",
-        payload: {
-          runId: command.runId,
-          reason: command.reason,
-          blockedAt: command.createdAt,
-          blockedContext: command.blockedContext,
           updatedAt: command.createdAt,
         },
       };
@@ -1064,8 +1015,6 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           issueId: command.issueId,
           workerThreadId: command.workerThreadId,
           sequenceNumber: command.sequenceNumber,
-          originalStatus: command.originalStatus,
-          originalAssignee: command.originalAssignee,
           requestedAt: command.createdAt,
           updatedAt: command.createdAt,
         },

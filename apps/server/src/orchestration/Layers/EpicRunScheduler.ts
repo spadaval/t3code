@@ -1,7 +1,5 @@
 import {
   CommandId,
-  DEFAULT_ORCHESTRATION_EPIC_RUN_SCHEDULER_MODE,
-  DEFAULT_ORCHESTRATION_EPIC_RUN_WORKSPACE_MODE,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_RUNTIME_MODE,
@@ -11,7 +9,6 @@ import {
   ThreadId,
   type OrchestrationProject,
   type OrchestrationEpicRun,
-  type OrchestrationEpicRunBlockedContext,
   type OrchestrationEpicRunControlResult,
   type OrchestrationEpicRunStatus,
   type OrchestrationEpicIssueExecution,
@@ -47,7 +44,6 @@ import {
   getAttemptedIssueIds,
   isBackgroundEpicRunSchedulerTrigger,
   selectLaunchableReadyIssue,
-  shouldIdleSemiAutomaticRun,
   type EpicRunDriveRequest,
   type EpicRunSchedulerTrigger,
 } from "../epicRunSchedulerPolicy.ts";
@@ -155,57 +151,6 @@ function asControlResult(run: OrchestrationEpicRun): OrchestrationEpicRunControl
     runId: run.runId,
     status: run.status,
   };
-}
-
-function describeBlockedReason(input: {
-  readonly internalBlockedCount: number;
-  readonly externalBlockedCount: number;
-  readonly unknownBlockedCount: number;
-  readonly activeCount: number;
-}): string {
-  if (input.externalBlockedCount > 0) {
-    return `Epic run has ${input.externalBlockedCount} externally blocked issue${input.externalBlockedCount === 1 ? "" : "s"} and execution is halted until those dependencies are resolved.`;
-  }
-  if (input.unknownBlockedCount > 0) {
-    return `Epic run has ${input.unknownBlockedCount} blocked issue${input.unknownBlockedCount === 1 ? "" : "s"} with unclassified blocker provenance and execution is halted until tracker state is clarified.`;
-  }
-  if (input.activeCount > 0) {
-    return `Epic run has ${input.activeCount} externally active issue${input.activeCount === 1 ? "" : "s"} and no ready issue is available.`;
-  }
-  if (input.internalBlockedCount > 0) {
-    return `Epic run is waiting on ${input.internalBlockedCount} internally blocked issue${input.internalBlockedCount === 1 ? "" : "s"} and no ready issue is available.`;
-  }
-  return "Epic run has no ready issue available.";
-}
-
-function trackerWaitingBlockedContext(): OrchestrationEpicRunBlockedContext {
-  return {
-    kind: "tracker_waiting",
-    issueId: null,
-    executionId: null,
-    workerThreadId: null,
-  };
-}
-
-function workerFailureBlockedContext(input: {
-  readonly issueId: string;
-  readonly executionId?: EpicIssueExecutionId;
-  readonly workerThreadId?: ThreadId;
-}): OrchestrationEpicRunBlockedContext {
-  return {
-    kind: "worker_failure",
-    issueId: input.issueId,
-    executionId: input.executionId ?? null,
-    workerThreadId: input.workerThreadId ?? null,
-  };
-}
-
-function getRunSchedulerMode(): typeof DEFAULT_ORCHESTRATION_EPIC_RUN_SCHEDULER_MODE {
-  return DEFAULT_ORCHESTRATION_EPIC_RUN_SCHEDULER_MODE;
-}
-
-function getRunWorkspaceMode(): typeof DEFAULT_ORCHESTRATION_EPIC_RUN_WORKSPACE_MODE {
-  return DEFAULT_ORCHESTRATION_EPIC_RUN_WORKSPACE_MODE;
 }
 
 function workerTurnStopped(input: Parameters<typeof workerThreadStillHasActiveTurn>[0]): boolean {
@@ -609,17 +554,6 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       } as const;
     });
 
-  const restoreIssueFromExecutionSnapshot = (input: {
-    readonly operation: string;
-    readonly cwd: string;
-    readonly execution: OrchestrationEpicIssueExecution;
-  }) =>
-    getIssueById({
-      operation: `${input.operation}:getIssue`,
-      cwd: input.cwd,
-      issueId: input.execution.issueId,
-    });
-
   const syncIssueForExecutionSettlement = (input: {
     readonly phase: "completed" | "failed" | "cancelled";
     readonly cwd: string;
@@ -628,14 +562,6 @@ const makeEpicRunScheduler = Effect.gen(function* () {
     readonly reason?: string;
   }) =>
     Effect.gen(function* () {
-      if (input.phase !== "completed") {
-        yield* restoreIssueFromExecutionSnapshot({
-          operation: "syncIssueForExecutionSettlement:restoreIssue",
-          cwd: input.cwd,
-          execution: input.execution,
-        });
-      }
-
       if (input.execution.workerThreadId !== null) {
         yield* beadsTracker
           .commentIssue({
@@ -647,8 +573,6 @@ const makeEpicRunScheduler = Effect.gen(function* () {
               runId: input.run.runId,
               executionId: input.execution.executionId,
               workerThreadId: input.execution.workerThreadId,
-              schedulerMode: getRunSchedulerMode(),
-              workspaceMode: getRunWorkspaceMode(),
               ...(input.reason ? { reason: input.reason } : {}),
             }),
           })
@@ -698,15 +622,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         }
       }
 
-      yield* blockRun(
-        input.run.runId,
-        input.reason,
-        workerFailureBlockedContext({
-          issueId: input.issueId,
-          executionId: input.executionId,
-          ...(input.workerThreadId ? { workerThreadId: input.workerThreadId } : {}),
-        }),
-      );
+      yield* failRun(input.run.runId, input.reason);
 
       return yield* getRunById(input.run.runId);
     });
@@ -742,28 +658,6 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       type: "epic-run.mark-started",
       commandId: serverCommandId("epic-run-mark-started"),
       runId,
-      createdAt: nowIso(),
-    }).pipe(Effect.asVoid);
-
-  const markRunIdle = (runId: EpicRunId) =>
-    dispatchOrFail("markRunIdle", {
-      type: "epic-run.mark-idle",
-      commandId: serverCommandId("epic-run-mark-idle"),
-      runId,
-      createdAt: nowIso(),
-    }).pipe(Effect.asVoid);
-
-  const blockRun = (
-    runId: EpicRunId,
-    reason: string,
-    blockedContext: OrchestrationEpicRunBlockedContext = trackerWaitingBlockedContext(),
-  ) =>
-    dispatchOrFail("blockRun", {
-      type: "epic-run.block",
-      commandId: serverCommandId("epic-run-block"),
-      runId,
-      reason: truncateEpicRunFailureDetail(reason, 500),
-      blockedContext,
       createdAt: nowIso(),
     }).pipe(Effect.asVoid);
 
@@ -805,8 +699,6 @@ const makeEpicRunScheduler = Effect.gen(function* () {
     readonly issueId: string;
     readonly workerThreadId: ThreadId;
     readonly sequenceNumber: number;
-    readonly originalStatus: string;
-    readonly originalAssignee: string | null;
   }) =>
     dispatchOrFail("requestTaskExecutionCommand", {
       type: "epic-issue-execution.request",
@@ -816,8 +708,6 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       issueId: input.issueId,
       workerThreadId: input.workerThreadId,
       sequenceNumber: input.sequenceNumber,
-      originalStatus: input.originalStatus,
-      originalAssignee: input.originalAssignee,
       createdAt: nowIso(),
     }).pipe(Effect.asVoid);
 
@@ -1017,31 +907,11 @@ const makeEpicRunScheduler = Effect.gen(function* () {
 
       const executionBlocking = deriveExecutionBlocking(trackerStatus);
       if (executionBlocking.hasExecutionBlockingIssues) {
-        yield* blockRun(
-          run.runId,
-          describeBlockedReason({
-            internalBlockedCount: executionBlocking.internalBlockedIssues.length,
-            externalBlockedCount: executionBlocking.externalBlockedIssues.length,
-            unknownBlockedCount: executionBlocking.unknownBlockedIssues.length,
-            activeCount: trackerStatus.active.length,
-          }),
-          trackerWaitingBlockedContext(),
-        );
-        return yield* getRunById(run.runId);
+        return run;
       }
 
       if (trackerStatus.active.length > 0) {
-        yield* blockRun(
-          run.runId,
-          describeBlockedReason({
-            internalBlockedCount: executionBlocking.internalBlockedIssues.length,
-            externalBlockedCount: executionBlocking.externalBlockedIssues.length,
-            unknownBlockedCount: executionBlocking.unknownBlockedIssues.length,
-            activeCount: trackerStatus.active.length,
-          }),
-          trackerWaitingBlockedContext(),
-        );
-        return yield* getRunById(run.runId);
+        return run;
       }
 
       const executions = yield* getExecutionsForRun(run.runId);
@@ -1050,19 +920,6 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         executions,
       });
       const attemptedIssueIds = getAttemptedIssueIds(executions);
-
-      if (
-        shouldIdleSemiAutomaticRun({
-          schedulerMode: null,
-          latestExecution: executionState.latestExecution,
-          trigger: input.trigger,
-        })
-      ) {
-        if (run.status !== "running") {
-          yield* markRunIdle(run.runId);
-        }
-        return yield* getRunById(run.runId);
-      }
 
       const nextReadyIssue = selectLaunchableReadyIssue({
         readyIssues: trackerStatus.ready,
@@ -1077,30 +934,19 @@ const makeEpicRunScheduler = Effect.gen(function* () {
             attemptedIssueIds,
           }) === 0
         ) {
-          yield* blockRun(
+          yield* failRun(
             run.runId,
             describeReadyIssueExhaustion({
               runId: run.runId,
               attemptedIssueIds,
               readyIssues: trackerStatus.ready,
             }),
-            trackerWaitingBlockedContext(),
           );
           return yield* getRunById(run.runId);
         }
 
         if (trackerStatus.blocked.length > 0) {
-          yield* blockRun(
-            run.runId,
-            describeBlockedReason({
-              internalBlockedCount: executionBlocking.internalBlockedIssues.length,
-              externalBlockedCount: executionBlocking.externalBlockedIssues.length,
-              unknownBlockedCount: executionBlocking.unknownBlockedIssues.length,
-              activeCount: trackerStatus.active.length,
-            }),
-            trackerWaitingBlockedContext(),
-          );
-          return yield* getRunById(run.runId);
+          return run;
         }
 
         yield* completeRun(run.runId);
@@ -1111,7 +957,6 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         Effect.annotateLogs({
           runId: run.runId,
           issueId: nextReadyIssue.id,
-          schedulerMode: getRunSchedulerMode(),
         }),
       );
 
@@ -1146,8 +991,6 @@ const makeEpicRunScheduler = Effect.gen(function* () {
           issueId,
           workerThreadId,
           sequenceNumber,
-          originalStatus: nextReadyIssue.status,
-          originalAssignee: nextReadyIssue.assignee,
         });
         executionRequested = true;
 
@@ -1161,8 +1004,6 @@ const makeEpicRunScheduler = Effect.gen(function* () {
             epicIssueId: run.epicIssueId,
             runId: run.runId,
             executionId,
-            schedulerMode: getRunSchedulerMode(),
-            workspaceMode: getRunWorkspaceMode(),
             sequenceNumber,
           }),
         });
@@ -1208,15 +1049,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
               yield* deleteWorkerThreadIfIdle(workerThreadId);
             }
 
-            yield* blockRun(
-              run.runId,
-              reason,
-              workerFailureBlockedContext({
-                issueId,
-                ...(executionRequested ? { executionId } : {}),
-                ...(threadCreated ? { workerThreadId } : {}),
-              }),
-            );
+            yield* failRun(run.runId, reason);
 
             return yield* getRunById(run.runId);
           }),
@@ -1552,8 +1385,6 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         runId,
         projectId: input.projectId,
         epicIssueId: input.epicIssueId,
-        schedulerMode: input.schedulerMode,
-        workspaceMode: input.workspaceMode,
         provider: modelSelection.provider,
         model: modelSelection.model,
         ...(input.modelOptions ? { modelOptions: input.modelOptions } : {}),
@@ -1722,15 +1553,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         reason: input.reason,
       });
       yield* failTaskExecutionCommand(input);
-      yield* blockRun(
-        run.runId,
-        input.reason,
-        workerFailureBlockedContext({
-          issueId: execution.issueId,
-          executionId: execution.executionId,
-          ...(execution.workerThreadId ? { workerThreadId: execution.workerThreadId } : {}),
-        }),
-      );
+      yield* failRun(run.runId, input.reason);
       return asControlResult(yield* getRunById(run.runId));
     });
 

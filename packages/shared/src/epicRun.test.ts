@@ -343,8 +343,6 @@ describe("swarm", () => {
         runId: "run-1" as never,
         projectId: "project-1" as never,
         epicIssueId: "EPIC-1",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         provider: "codex",
         model: "gpt-5.4",
         modelOptions: null,
@@ -366,16 +364,10 @@ describe("swarm", () => {
     );
     const blocked = projectEpicRunEvent(
       started,
-      makeEvent("epic-run.blocked", {
+      makeEvent("epic-run.failed", {
         runId: "run-1" as never,
         reason: "worker exited",
-        blockedContext: {
-          kind: "worker_failure",
-          issueId: "TASK-1",
-          executionId: "execution-1" as never,
-          workerThreadId: null,
-        },
-        blockedAt: "2026-04-06T00:00:02.000Z",
+        failedAt: "2026-04-06T00:00:02.000Z",
         updatedAt: "2026-04-06T00:00:02.000Z",
       }),
     );

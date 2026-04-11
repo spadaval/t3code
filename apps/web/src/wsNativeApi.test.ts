@@ -455,8 +455,6 @@ describe("wsNativeApi", () => {
     await api.orchestration.startEpicRun({
       projectId: ProjectId.makeUnsafe("project-1"),
       epicIssueId: "EPIC-1",
-      schedulerMode: "semi-automatic",
-      workspaceMode: "shared",
       runtimeMode: "full-access",
     });
     await api.orchestration.stopEpicRun({ runId: "run-1" as never });
@@ -464,8 +462,6 @@ describe("wsNativeApi", () => {
     expect(rpcClientMock.orchestration.startEpicRun).toHaveBeenCalledWith({
       projectId: "project-1",
       epicIssueId: "EPIC-1",
-      schedulerMode: "semi-automatic",
-      workspaceMode: "shared",
       runtimeMode: "full-access",
     });
     expect(rpcClientMock.orchestration.stopEpicRun).toHaveBeenCalledWith({

@@ -1,6 +1,4 @@
 import type {
-  OrchestrationEpicRunSchedulerMode,
-  OrchestrationEpicRunWorkspaceMode,
   OrchestrationThreadIssueLink,
   EpicRunId,
   EpicIssueExecutionId,
@@ -41,8 +39,6 @@ export function buildEpicRunWorkerPrompt(input: {
   epicIssueId: string;
   runId: EpicRunId;
   executionId: EpicIssueExecutionId;
-  schedulerMode: OrchestrationEpicRunSchedulerMode;
-  workspaceMode: OrchestrationEpicRunWorkspaceMode;
   sequenceNumber: number;
 }): string {
   const sections = [
@@ -73,7 +69,6 @@ export function buildEpicRunWorkerPrompt(input: {
     "## Context",
     "",
     `Run: ${input.runId} | Execution: ${input.executionId} | Sequence: ${input.sequenceNumber}`,
-    `Scheduler: ${input.schedulerMode} | Workspace: ${input.workspaceMode}`,
   ];
 
   return sections.join("\n");
@@ -85,8 +80,6 @@ export function buildEpicRunExecutionComment(input: {
   runId: EpicRunId;
   executionId: EpicIssueExecutionId;
   workerThreadId: ThreadId;
-  schedulerMode: OrchestrationEpicRunSchedulerMode;
-  workspaceMode: OrchestrationEpicRunWorkspaceMode;
   reason?: string;
 }): string {
   const heading =
@@ -104,8 +97,6 @@ export function buildEpicRunExecutionComment(input: {
     `- run: ${input.runId}`,
     `- execution: ${input.executionId}`,
     `- workerThread: ${input.workerThreadId}`,
-    `- schedulerMode: ${input.schedulerMode}`,
-    `- workspaceMode: ${input.workspaceMode}`,
   ];
 
   if (input.reason?.trim()) {

@@ -21,10 +21,8 @@ import {
   EpicIssueExecutionRequestedPayload,
   EpicIssueExecutionStartedPayload,
   EpicIssueExecutionStoppedPayload,
-  EpicRunBlockedPayload,
   EpicRunCompletedPayload,
   EpicRunFailedPayload,
-  EpicRunIdledPayload,
   EpicRunRequestedPayload,
   EpicRunStartedPayload,
   EpicRunStoppedPayload,
@@ -970,26 +968,6 @@ export function projectEvent(
 
     case "epic-run.started":
       return decodeForEvent(EpicRunStartedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
-            applyEpicRunLifecycleEvent(run, { ...event, payload }),
-          ),
-        })),
-      );
-
-    case "epic-run.idled":
-      return decodeForEvent(EpicRunIdledPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
-            applyEpicRunLifecycleEvent(run, { ...event, payload }),
-          ),
-        })),
-      );
-
-    case "epic-run.blocked":
-      return decodeForEvent(EpicRunBlockedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
           epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>

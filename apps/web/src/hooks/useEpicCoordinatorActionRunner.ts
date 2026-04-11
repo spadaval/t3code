@@ -6,10 +6,6 @@ import type {
   RuntimeMode,
   ThreadId,
 } from "@t3tools/contracts";
-import {
-  DEFAULT_ORCHESTRATION_EPIC_RUN_SCHEDULER_MODE,
-  DEFAULT_ORCHESTRATION_EPIC_RUN_WORKSPACE_MODE,
-} from "@t3tools/contracts";
 import type { QueryClient } from "@tanstack/react-query";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
@@ -147,8 +143,6 @@ export function useEpicCoordinatorActionRunner(input: {
           await api.orchestration.startEpicRun({
             projectId: input.projectId,
             epicIssueId: action.epicIssueId,
-            schedulerMode: DEFAULT_ORCHESTRATION_EPIC_RUN_SCHEDULER_MODE,
-            workspaceMode: DEFAULT_ORCHESTRATION_EPIC_RUN_WORKSPACE_MODE,
             runtimeMode: input.runtimeMode,
           });
           return null;

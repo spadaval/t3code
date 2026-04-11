@@ -127,13 +127,7 @@ type EpicRunRequestedEvent = Extract<OrchestrationEvent, { type: "epic-run.reque
 type EpicRunLifecycleEvent = Extract<
   OrchestrationEvent,
   {
-    type:
-      | "epic-run.started"
-      | "epic-run.idled"
-      | "epic-run.blocked"
-      | "epic-run.failed"
-      | "epic-run.stopped"
-      | "epic-run.completed";
+    type: "epic-run.started" | "epic-run.failed" | "epic-run.stopped" | "epic-run.completed";
   }
 >;
 type EpicIssueExecutionRequestedEvent = Extract<
@@ -974,32 +968,6 @@ export function applyEpicRunLifecycleEvent(
         failureContext: null,
         updatedAt: event.payload.updatedAt,
       };
-    case "epic-run.idled":
-      return {
-        ...run,
-        status: "running",
-        updatedAt: event.payload.updatedAt,
-      };
-    case "epic-run.blocked":
-      if (event.payload.blockedContext?.kind === "tracker_waiting") {
-        return {
-          ...run,
-          status: "running",
-          updatedAt: event.payload.updatedAt,
-        };
-      }
-      return {
-        ...run,
-        status: "failed",
-        failureContext: createEpicRunFailureContext({
-          reason: event.payload.reason,
-          issueId: event.payload.blockedContext?.issueId ?? null,
-          executionId: event.payload.blockedContext?.executionId ?? null,
-          workerThreadId: event.payload.blockedContext?.workerThreadId ?? null,
-        }),
-        failedAt: event.payload.blockedAt,
-        updatedAt: event.payload.updatedAt,
-      };
     case "epic-run.failed":
       return {
         ...run,
@@ -1136,8 +1104,6 @@ export function projectEpicRunEvent(
       };
     }
     case "epic-run.started":
-    case "epic-run.idled":
-    case "epic-run.blocked":
     case "epic-run.failed":
     case "epic-run.stopped":
     case "epic-run.completed": {

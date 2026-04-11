@@ -479,47 +479,6 @@ export function applyCommand(
         }),
       );
 
-    case "epic-run.mark-idle":
-      return updateRun(
-        {
-          ...readModel,
-          snapshotSequence: sequence,
-          updatedAt: command.createdAt,
-        },
-        command.runId,
-        (run) => ({
-          ...run,
-          status: "running",
-          updatedAt: command.createdAt,
-        }),
-      );
-
-    case "epic-run.block":
-      return updateRun(
-        {
-          ...readModel,
-          snapshotSequence: sequence,
-          updatedAt: command.createdAt,
-        },
-        command.runId,
-        (run) => ({
-          ...run,
-          status: command.blockedContext?.kind === "tracker_waiting" ? "running" : "failed",
-          failureContext:
-            command.blockedContext?.kind === "tracker_waiting"
-              ? null
-              : createEpicRunFailureContext({
-                  reason: command.reason,
-                  issueId: command.blockedContext?.issueId ?? null,
-                  executionId: command.blockedContext?.executionId ?? null,
-                  workerThreadId: command.blockedContext?.workerThreadId ?? null,
-                }),
-          failedAt:
-            command.blockedContext?.kind === "tracker_waiting" ? run.failedAt : command.createdAt,
-          updatedAt: command.createdAt,
-        }),
-      );
-
     case "epic-run.fail":
       return updateRun(
         {
@@ -1038,8 +997,6 @@ export async function createEpicRunSchedulerHarness(
         workflow.startEpicRun({
           projectId,
           epicIssueId: "EPIC-1",
-          schedulerMode: "automatic",
-          workspaceMode: "shared",
           runtimeMode: "full-access",
           ...input,
         }),

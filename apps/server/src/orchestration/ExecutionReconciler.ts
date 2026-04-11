@@ -1,7 +1,7 @@
 import type {
-  OrchestrationLatestTurnState,
   OrchestrationEpicIssueExecution,
   OrchestrationThread,
+  OrchestrationTurnStatus,
   TurnId,
 } from "@t3tools/contracts";
 
@@ -13,7 +13,7 @@ import {
 } from "./FailurePolicy.ts";
 
 interface WorkerObservationInput {
-  readonly latestTurnState: OrchestrationLatestTurnState | null | undefined;
+  readonly latestTurnState: OrchestrationTurnStatus | null | undefined;
   readonly sessionActiveTurnId: TurnId | null | undefined;
 }
 
@@ -41,7 +41,7 @@ export function workerThreadLaunchWasObserved(input: WorkerObservationInput): bo
 function defaultWorkerError(
   thread: Pick<OrchestrationThread, "session">,
   workerThreadId: OrchestrationEpicIssueExecution["workerThreadId"],
-  latestTurnState: OrchestrationLatestTurnState | null | undefined,
+  latestTurnState: OrchestrationTurnStatus | null | undefined,
 ): string {
   if (thread.session?.lastError) {
     return thread.session.lastError;

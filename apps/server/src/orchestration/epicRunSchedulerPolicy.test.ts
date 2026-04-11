@@ -11,7 +11,6 @@ import {
   evaluateRunExecutionInvariant,
   evaluateSharedWorkspaceProjectInvariant,
   selectLaunchableReadyIssue,
-  shouldIdleSemiAutomaticRun,
 } from "./epicRunSchedulerPolicy.ts";
 
 function issue(id: string, priority: number | null): BeadsIssueRelationSummary {
@@ -180,35 +179,5 @@ describe("epicRunSchedulerPolicy", () => {
         readyIssues: [issue("TASK-1", 1), issue("TASK-9", null)],
       }),
     ).toContain("Stop the run, fix the tracker or code state, then start a new run when ready.");
-  });
-
-  it("idles semi-automatic runs only after non-manual settle/background triggers", () => {
-    const latestExecution = execution("exec-1", {
-      status: "completed",
-      completedAt: "2026-04-06T00:01:00.000Z",
-    });
-    expect(
-      shouldIdleSemiAutomaticRun({
-        schedulerMode: "semi-automatic",
-        latestExecution,
-        trigger: "execution_settled",
-      }),
-    ).toBe(true);
-
-    expect(
-      shouldIdleSemiAutomaticRun({
-        schedulerMode: "semi-automatic",
-        latestExecution,
-        trigger: "periodic_reconcile",
-      }),
-    ).toBe(true);
-
-    expect(
-      shouldIdleSemiAutomaticRun({
-        schedulerMode: "semi-automatic",
-        latestExecution,
-        trigger: "manual_start",
-      }),
-    ).toBe(false);
   });
 });

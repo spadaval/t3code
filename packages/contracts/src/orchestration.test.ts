@@ -6,8 +6,6 @@ import { EpicRunId, EpicIssueExecutionId } from "./baseSchemas";
 import {
   DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE,
   DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT,
-  DEFAULT_ORCHESTRATION_EPIC_RUN_SCHEDULER_MODE,
-  DEFAULT_ORCHESTRATION_EPIC_RUN_WORKSPACE_MODE,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   OrchestrationCommand,
@@ -623,15 +621,15 @@ it.effect("preserves explicit follow-up outcomes when present", () =>
   }),
 );
 
-it.effect("defaults swarm run start input scheduler and workspace modes", () =>
+it.effect("decodes epic run start input without legacy scheduler or workspace modes", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeOrchestrationStartSwarmRunInput({
       projectId: "project-1",
       epicIssueId: "EPIC-1",
       runtimeMode: "full-access",
     });
-    assert.strictEqual(parsed.schedulerMode, DEFAULT_ORCHESTRATION_EPIC_RUN_SCHEDULER_MODE);
-    assert.strictEqual(parsed.workspaceMode, DEFAULT_ORCHESTRATION_EPIC_RUN_WORKSPACE_MODE);
+    assert.strictEqual(parsed.projectId, "project-1");
+    assert.strictEqual(parsed.epicIssueId, "EPIC-1");
     assert.strictEqual(parsed.runtimeMode, "full-access");
   }),
 );
@@ -656,8 +654,6 @@ it.effect("decodes swarm lifecycle commands", () =>
       runId: "run-1",
       projectId: "project-1",
       epicIssueId: "EPIC-1",
-      schedulerMode: "semi-automatic",
-      workspaceMode: "shared",
       provider: "codex",
       model: "gpt-5.4-mini",
       assistantDeliveryMode: "buffered",
@@ -672,8 +668,6 @@ it.effect("decodes swarm lifecycle commands", () =>
       issueId: "TASK-1",
       workerThreadId: "thread-1",
       sequenceNumber: 1,
-      originalStatus: "open",
-      originalAssignee: "issue-owner",
       createdAt: "2026-01-01T00:00:01.000Z",
     });
     const promoteExecutionCommand = yield* decodeOrchestrationCommand({
@@ -686,7 +680,6 @@ it.effect("decodes swarm lifecycle commands", () =>
 
     assert.strictEqual(requestCommand.type, "epic-run.request");
     assert.strictEqual(requestCommand.runId, "run-1");
-    assert.strictEqual(requestCommand.schedulerMode, "semi-automatic");
     assert.strictEqual(startExecutionCommand.type, "epic-issue-execution.request");
     assert.strictEqual(startExecutionCommand.executionId, "execution-1");
     assert.strictEqual(startExecutionCommand.workerThreadId, "thread-1");
@@ -767,8 +760,6 @@ it.effect("decodes swarm lifecycle events", () =>
         providerOptions: null,
         assistantDeliveryMode: null,
         runtimeMode: "full-access",
-        schedulerMode: "automatic",
-        workspaceMode: "shared",
         requestedAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
       },

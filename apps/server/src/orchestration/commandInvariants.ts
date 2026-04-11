@@ -3,7 +3,6 @@ import type {
   OrchestrationPlanImplementationLaunch,
   OrchestrationProject,
   OrchestrationReadModel,
-  OrchestrationStartEpicRunInput,
   OrchestrationEpicRun,
   OrchestrationEpicRunStatus,
   OrchestrationEpicIssueExecution,
@@ -67,8 +66,6 @@ export function findSwarmTaskExecutionById(
 
 const SWARM_RUN_ALLOWED_TRANSITIONS = {
   "epic-run.mark-started": ["pending"],
-  "epic-run.mark-idle": ["running"],
-  "epic-run.block": ["pending", "running", "stopping"],
   "epic-run.fail": ["pending", "running", "stopping"],
   "epic-run.stop": ["pending", "running", "stopping"],
   "epic-run.complete": ["pending", "running"],
@@ -351,12 +348,7 @@ export function requireNoConflictingSharedWorkspaceRun(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
   readonly projectId: ProjectId;
-  readonly workspaceMode: OrchestrationStartEpicRunInput["workspaceMode"];
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
-  if (input.workspaceMode !== "shared") {
-    return Effect.void;
-  }
-
   const conflictingRun = findConflictingSharedWorkspaceRunForProject(input);
   if (!conflictingRun) {
     return Effect.void;

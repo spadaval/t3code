@@ -68,8 +68,6 @@ function commandToAggregateRef(command: OrchestrationCommand): {
       };
     case "epic-run.request":
     case "epic-run.mark-started":
-    case "epic-run.mark-idle":
-    case "epic-run.block":
     case "epic-run.fail":
     case "epic-run.stop":
     case "epic-run.complete":

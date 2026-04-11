@@ -102,8 +102,6 @@ describe("decider epic-run invariants", () => {
             issueId: "TASK-2",
             workerThreadId: "thread-2" as never,
             sequenceNumber: 2,
-            originalStatus: "open",
-            originalAssignee: null,
             createdAt: now,
           },
           readModel: makeReadModel(),
