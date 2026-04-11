@@ -1401,7 +1401,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const effectivePathQuery = pathTriggerQuery.length > 0 ? debouncedPathQuery : "";
   const gitStatusQuery = useGitStatus(gitCwd);
   const branchesQuery = useQuery(gitBranchesQueryOptions(gitCwd));
-  const branchesQuery = useQuery(gitBranchesQueryOptions(gitCwd));
   const keybindings = useServerKeybindings();
   const availableEditors = useServerAvailableEditors();
   const modelOptionsByProvider = useMemo(

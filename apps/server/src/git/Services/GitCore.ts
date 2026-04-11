@@ -22,6 +22,7 @@ import type {
   GitRemoveWorktreeInput,
   GitStatusInput,
   GitStatusResult,
+  GitWorkingTreeResult,
 } from "@t3tools/contracts";
 
 import type { GitCommandError } from "@t3tools/contracts";
@@ -132,6 +133,12 @@ export interface GitFetchRemoteBranchInput {
   localBranch: string;
 }
 
+export interface GitDeleteLocalBranchInput {
+  cwd: string;
+  branch: string;
+  force?: boolean | undefined;
+}
+
 export interface GitSetBranchUpstreamInput {
   cwd: string;
   branch: string;
@@ -162,6 +169,11 @@ export interface GitCoreShape {
    * Read detailed working tree / branch status without refreshing remote tracking refs.
    */
   readonly statusDetailsLocal: (cwd: string) => Effect.Effect<GitStatusDetails, GitCommandError>;
+
+  /**
+   * Read file-level working tree diff statistics for a repository.
+   */
+  readonly workingTree: (cwd: string) => Effect.Effect<GitWorkingTreeResult, GitCommandError>;
 
   /**
    * Build staged change context for commit generation.
@@ -274,6 +286,13 @@ export interface GitCoreShape {
    * Remove an existing worktree.
    */
   readonly removeWorktree: (input: GitRemoveWorktreeInput) => Effect.Effect<void, GitCommandError>;
+
+  /**
+   * Delete a local branch.
+   */
+  readonly deleteLocalBranch: (
+    input: GitDeleteLocalBranchInput,
+  ) => Effect.Effect<void, GitCommandError>;
 
   /**
    * Rename an existing local branch.

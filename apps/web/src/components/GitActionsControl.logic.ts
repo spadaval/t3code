@@ -79,12 +79,16 @@ export function buildMenuItems(
   gitStatus: GitStatusResult | null,
   isBusy: boolean,
   hasOriginRemote = true,
+  hasOpenPr = false,
 ): GitActionMenuItem[] {
   if (!gitStatus) return [];
 
+  const inferredHasOpenPr =
+    hasOpenPr ||
+    (gitStatus as GitStatusResult & { pr?: { state?: "open" | "closed" | "merged" } | null }).pr
+      ?.state === "open";
   const hasBranch = gitStatus.branch !== null;
   const hasChanges = gitStatus.hasWorkingTreeChanges;
-  const hasOpenPr = gitStatus.pr?.state === "open";
   const isBehind = gitStatus.behindCount > 0;
   const canPushWithoutUpstream = hasOriginRemote && !gitStatus.hasUpstream;
   const canCommit = !isBusy && hasChanges;
@@ -99,11 +103,11 @@ export function buildMenuItems(
     !isBusy &&
     hasBranch &&
     !hasChanges &&
-    !hasOpenPr &&
+    !inferredHasOpenPr &&
     gitStatus.aheadCount > 0 &&
     !isBehind &&
     (gitStatus.hasUpstream || canPushWithoutUpstream);
-  const canOpenPr = !isBusy && hasOpenPr;
+  const canOpenPr = !isBusy && inferredHasOpenPr;
 
   return [
     {
@@ -122,7 +126,7 @@ export function buildMenuItems(
       kind: "open_dialog",
       dialogAction: "push",
     },
-    hasOpenPr
+    inferredHasOpenPr
       ? {
           id: "pr",
           label: "View PR",
@@ -146,6 +150,7 @@ export function resolveQuickAction(
   isBusy: boolean,
   isDefaultBranch = false,
   hasOriginRemote = true,
+  hasOpenPr = false,
 ): GitQuickAction {
   if (isBusy) {
     return { label: "Commit", disabled: true, kind: "show_hint", hint: "Git action in progress." };
@@ -160,9 +165,12 @@ export function resolveQuickAction(
     };
   }
 
+  const inferredHasOpenPr =
+    hasOpenPr ||
+    (gitStatus as GitStatusResult & { pr?: { state?: "open" | "closed" | "merged" } | null }).pr
+      ?.state === "open";
   const hasBranch = gitStatus.branch !== null;
   const hasChanges = gitStatus.hasWorkingTreeChanges;
-  const hasOpenPr = gitStatus.pr?.state === "open";
   const isAhead = gitStatus.aheadCount > 0;
   const isBehind = gitStatus.behindCount > 0;
   const isDiverged = isAhead && isBehind;
@@ -180,7 +188,7 @@ export function resolveQuickAction(
     if (!gitStatus.hasUpstream && !hasOriginRemote) {
       return { label: "Commit", disabled: false, kind: "run_action", action: "commit" };
     }
-    if (hasOpenPr || isDefaultBranch) {
+    if (inferredHasOpenPr || isDefaultBranch) {
       return { label: "Commit & push", disabled: false, kind: "run_action", action: "commit_push" };
     }
     return {
@@ -204,7 +212,7 @@ export function resolveQuickAction(
       };
     }
     if (!isAhead) {
-      if (hasOpenPr) {
+      if (inferredHasOpenPr) {
         return { label: "View PR", disabled: false, kind: "open_pr" };
       }
       return {
@@ -214,7 +222,7 @@ export function resolveQuickAction(
         hint: "No local commits to push.",
       };
     }
-    if (hasOpenPr || isDefaultBranch) {
+    if (inferredHasOpenPr || isDefaultBranch) {
       return {
         label: "Push",
         disabled: false,
@@ -248,7 +256,7 @@ export function resolveQuickAction(
   }
 
   if (isAhead) {
-    if (hasOpenPr || isDefaultBranch) {
+    if (inferredHasOpenPr || isDefaultBranch) {
       return {
         label: "Push",
         disabled: false,
@@ -264,7 +272,7 @@ export function resolveQuickAction(
     };
   }
 
-  if (hasOpenPr && gitStatus.hasUpstream) {
+  if (inferredHasOpenPr && gitStatus.hasUpstream) {
     return { label: "View PR", disabled: false, kind: "open_pr" };
   }
 

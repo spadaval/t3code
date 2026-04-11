@@ -312,11 +312,12 @@ const buildAppUnderTest = (options?: {
     };
     const layerConfig = Layer.succeed(ServerConfig, config);
     const gitManagerLayer = Layer.mock(GitManager)({
+      currentPullRequest: () => Effect.succeed({ branch: null, pr: null }),
       ...options?.layers?.gitManager,
     });
     const gitStatusBroadcasterLayer = GitStatusBroadcasterLive.pipe(Layer.provide(gitManagerLayer));
 
-    const appLayer = HttpRouter.serve(makeRoutesLayer, {
+    const baseAppLayer = HttpRouter.serve(makeRoutesLayer, {
       disableListenLog: true,
       disableLogger: true,
     }).pipe(
@@ -382,6 +383,9 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.projectionSnapshotQuery,
         }),
       ),
+    );
+
+    const appLayer = baseAppLayer.pipe(
       Layer.provide(
         Layer.mock(PlanImplementationWorkflow)({
           start: Effect.void,

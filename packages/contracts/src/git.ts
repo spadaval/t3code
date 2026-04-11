@@ -110,6 +110,16 @@ export const GitStatusInput = Schema.Struct({
 });
 export type GitStatusInput = typeof GitStatusInput.Type;
 
+export const GitWorkingTreeInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+});
+export type GitWorkingTreeInput = typeof GitWorkingTreeInput.Type;
+
+export const GitCurrentPullRequestInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+});
+export type GitCurrentPullRequestInput = typeof GitCurrentPullRequestInput.Type;
+
 export const GitPullInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
 });
@@ -191,7 +201,7 @@ export type GitInitInput = typeof GitInitInput.Type;
 
 // RPC Results
 
-const GitStatusPr = Schema.Struct({
+export const GitStatusPr = Schema.Struct({
   number: PositiveInt,
   title: TrimmedNonEmptyStringSchema,
   url: Schema.String,
@@ -199,6 +209,7 @@ const GitStatusPr = Schema.Struct({
   headBranch: TrimmedNonEmptyStringSchema,
   state: GitStatusPrState,
 });
+export type GitStatusPr = typeof GitStatusPr.Type;
 
 const GitStatusLocalShape = {
   isRepo: Schema.Boolean,
@@ -252,6 +263,25 @@ export const GitStatusStreamEvent = Schema.Union([
   }),
 ]);
 export type GitStatusStreamEvent = typeof GitStatusStreamEvent.Type;
+
+export const GitWorkingTreeResult = Schema.Struct({
+  files: Schema.Array(
+    Schema.Struct({
+      path: TrimmedNonEmptyStringSchema,
+      insertions: NonNegativeInt,
+      deletions: NonNegativeInt,
+    }),
+  ),
+  insertions: NonNegativeInt,
+  deletions: NonNegativeInt,
+});
+export type GitWorkingTreeResult = typeof GitWorkingTreeResult.Type;
+
+export const GitCurrentPullRequestResult = Schema.Struct({
+  branch: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  pr: Schema.NullOr(GitStatusPr),
+});
+export type GitCurrentPullRequestResult = typeof GitCurrentPullRequestResult.Type;
 
 export const GitListBranchesResult = Schema.Struct({
   branches: Schema.Array(GitBranch),

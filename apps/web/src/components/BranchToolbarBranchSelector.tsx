@@ -14,8 +14,11 @@ import {
   useTransition,
 } from "react";
 
-import { gitBranchSearchInfiniteQueryOptions, gitQueryKeys } from "../lib/gitReactQuery";
-import { useGitStatus } from "../lib/gitStatusState";
+import {
+  gitBranchSearchInfiniteQueryOptions,
+  gitQueryKeys,
+  invalidateGitQueries,
+} from "../lib/gitReactQuery";
 import { readNativeApi } from "../nativeApi";
 import { parsePullRequestReference } from "../pullRequestReference";
 import {
@@ -84,8 +87,6 @@ export function BranchToolbarBranchSelector({
   const [isBranchMenuOpen, setIsBranchMenuOpen] = useState(false);
   const [branchQuery, setBranchQuery] = useState("");
   const deferredBranchQuery = useDeferredValue(branchQuery);
-
-  const branchStatusQuery = useGitStatus(branchCwd);
   const trimmedBranchQuery = branchQuery.trim();
   const deferredTrimmedBranchQuery = deferredBranchQuery.trim();
 
@@ -112,8 +113,7 @@ export function BranchToolbarBranchSelector({
     () => branchesSearchData?.pages.flatMap((page) => page.branches) ?? [],
     [branchesSearchData?.pages],
   );
-  const currentGitBranch =
-    branchStatusQuery.data?.branch ?? branches.find((branch) => branch.current)?.name ?? null;
+  const currentGitBranch = branches.find((branch) => branch.current)?.name ?? null;
   const canonicalActiveBranch = resolveBranchToolbarValue({
     envMode: effectiveEnvMode,
     activeWorktreePath,
@@ -183,9 +183,7 @@ export function BranchToolbarBranchSelector({
   const runBranchAction = (action: () => Promise<void>) => {
     startBranchActionTransition(async () => {
       await action().catch(() => undefined);
-      await queryClient
-        .invalidateQueries({ queryKey: gitQueryKeys.branches(branchCwd) })
-        .catch(() => undefined);
+      await invalidateGitQueries(queryClient, { cwd: branchCwd }).catch(() => undefined);
     });
   };
 

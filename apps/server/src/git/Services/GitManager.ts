@@ -7,6 +7,8 @@
  * @module GitManager
  */
 import {
+  GitCurrentPullRequestInput,
+  GitCurrentPullRequestResult,
   GitActionProgressEvent,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
@@ -71,6 +73,13 @@ export interface GitManagerShape {
    * Clear any cached status snapshot for a repository so the next read is fresh.
    */
   readonly invalidateStatus: (cwd: string) => Effect.Effect<void, never>;
+
+  /**
+   * Read current branch pull request metadata when available.
+   */
+  readonly currentPullRequest: (
+    input: GitCurrentPullRequestInput,
+  ) => Effect.Effect<GitCurrentPullRequestResult, GitManagerServiceError>;
 
   /**
    * Resolve a pull request by URL/number against the current repository.
