@@ -1,12 +1,13 @@
 import { assert, it } from "@effect/vitest";
 import {
+  BeadsError,
   ProjectId,
   EpicRunId,
   ThreadId,
   type OrchestrationReadModel,
   type OrchestrationThread,
 } from "@t3tools/contracts";
-import { Effect, Layer, Stream } from "effect";
+import { Cause, Effect, Exit, Layer, Schema, Stream } from "effect";
 import { afterEach, expect, vi } from "vitest";
 
 vi.mock("../../processRunner", () => ({
@@ -14,6 +15,10 @@ vi.mock("../../processRunner", () => ({
 }));
 
 import { runProcess } from "../../processRunner";
+import {
+  OrchestrationCommandInvariantError,
+  type OrchestrationDispatchError,
+} from "../../orchestration/Errors.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { BeadsService } from "../Services/BeadsService.ts";
 import { BeadsServiceLive, BeadsTrackerServiceLive } from "./BeadsService.ts";
@@ -32,9 +37,9 @@ function makeEmptyReadModel(): OrchestrationReadModel {
 }
 
 const mockedGetReadModel = vi.fn(() => Effect.succeed(makeEmptyReadModel()));
-const mockedDispatch = vi.fn<(command: unknown) => Effect.Effect<{ sequence: number }, never>>(
-  (_: unknown) => Effect.die("dispatch was not expected in this test"),
-);
+const mockedDispatch = vi.fn<
+  (command: unknown) => Effect.Effect<{ sequence: number }, OrchestrationDispatchError>
+>((_: unknown) => Effect.die("dispatch was not expected in this test"));
 
 const orchestrationEngineLayer = Layer.mock(OrchestrationEngineService)({
   getReadModel: () => mockedGetReadModel(),
@@ -2128,6 +2133,85 @@ layer("BeadsServiceLive", (it) => {
       expect(messageText).toContain("Do NOT implement code yet.");
       expect(messageText).toContain("acceptance criteria");
       expect(messageText).toContain("Update beads with your plan");
+    }),
+  );
+
+  it.effect("deletes a newly created linked workflow thread when first-turn start fails", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const dispatchedCommands: unknown[] = [];
+
+      installBdJsonMock({
+        "show TASK-1 --long": [
+          {
+            id: "TASK-1",
+            title: "Implement settings persistence",
+            description: "Persist the selected settings values.",
+            notes: "Avoid regressions during reconnect.",
+            status: "open",
+            priority: 2,
+            issue_type: "task",
+            assignee: null,
+            owner: "alice",
+            created_at: now,
+            created_by: "alice",
+            updated_at: now,
+            labels: ["settings"],
+            dependencies: [],
+          },
+        ],
+        "comments TASK-1": [],
+        "history TASK-1": [],
+      });
+      mockedDispatch.mockImplementation((command: unknown) => {
+        dispatchedCommands.push(command);
+        if ((command as { type?: string }).type === "thread.turn.start") {
+          return Effect.fail(
+            new OrchestrationCommandInvariantError({
+              commandType: "thread.turn.start",
+              detail: "provider unavailable",
+            }),
+          );
+        }
+        return Effect.succeed({ sequence: dispatchedCommands.length });
+      });
+
+      const beads = yield* BeadsService;
+      const exit = yield* Effect.exit(
+        beads.startWorkflow({
+          cwd: "/repo",
+          projectId: ProjectId.makeUnsafe("project-1"),
+          issueId: "TASK-1",
+          workflow: "solve",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "full-access",
+        }),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (!Exit.isFailure(exit)) {
+        return;
+      }
+
+      const error = Cause.squash(exit.cause);
+      expect(error).toBeInstanceOf(BeadsError);
+      if (!Schema.is(BeadsError)(error)) {
+        return;
+      }
+
+      expect(error.message).toBe("Failed to start issue workflow.");
+      expect(error.cause).toBeInstanceOf(OrchestrationCommandInvariantError);
+      expect((error.cause as Error).message).toContain("provider unavailable");
+      expect(dispatchedCommands).toHaveLength(3);
+      expect(dispatchedCommands.map((command) => (command as { type: string }).type)).toEqual([
+        "thread.create",
+        "thread.turn.start",
+        "thread.delete",
+      ]);
+      expect(dispatchedCommands[2]).toMatchObject({
+        type: "thread.delete",
+        threadId: (dispatchedCommands[0] as { threadId: ThreadId }).threadId,
+      });
     }),
   );
 

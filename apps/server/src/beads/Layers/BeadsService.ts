@@ -2187,6 +2187,75 @@ const makeBeadsService = Effect.gen(function* () {
       },
     });
 
+  const createThreadWithInitialTurn = Effect.fn("BeadsService.createThreadWithInitialTurn")(
+    function* (input: {
+      threadId: ThreadId;
+      projectId: BeadsStartWorkflowInput["projectId"];
+      modelSelection: BeadsStartWorkflowInput["modelSelection"];
+      runtimeMode: BeadsStartWorkflowInput["runtimeMode"];
+      interactionMode: "default" | "plan";
+      threadTitle: string;
+      promptText: string;
+      issueLink: ReturnType<typeof buildIssueLink> | null;
+      createThreadErrorMessage: string;
+      startTurnErrorMessage: string;
+      deleteThreadCommandTag: string;
+      createdAt: string;
+    }) {
+      const rollbackCreatedThread = () =>
+        orchestrationEngine
+          .dispatch({
+            type: "thread.delete",
+            commandId: commandId(input.deleteThreadCommandTag),
+            threadId: input.threadId,
+          })
+          .pipe(Effect.ignoreCause({ log: true }));
+
+      yield* orchestrationEngine
+        .dispatch({
+          type: "thread.create",
+          commandId: commandId("create-thread"),
+          threadId: input.threadId,
+          projectId: input.projectId,
+          title: input.threadTitle,
+          modelSelection: input.modelSelection,
+          runtimeMode: input.runtimeMode,
+          interactionMode: input.interactionMode,
+          branch: null,
+          worktreePath: null,
+          issueLink: input.issueLink,
+          createdAt: input.createdAt,
+        })
+        .pipe(Effect.mapError((cause) => toBeadsError(input.createThreadErrorMessage, cause)));
+
+      yield* orchestrationEngine
+        .dispatch({
+          type: "thread.turn.start",
+          commandId: commandId("start-turn"),
+          threadId: input.threadId,
+          message: {
+            messageId: messageId("initial"),
+            role: "user",
+            text: input.promptText,
+            attachments: [],
+          },
+          modelSelection: input.modelSelection,
+          runtimeMode: input.runtimeMode,
+          interactionMode: input.interactionMode,
+          titleSeed: input.threadTitle,
+          createdAt: input.createdAt,
+        })
+        .pipe(
+          Effect.mapError((cause) => toBeadsError(input.startTurnErrorMessage, cause)),
+          Effect.catchCause((cause) =>
+            Cause.hasInterruptsOnly(cause)
+              ? Effect.failCause(cause)
+              : rollbackCreatedThread().pipe(Effect.andThen(Effect.failCause(cause))),
+          ),
+        );
+    },
+  );
+
   const startLinkedIssueThread = Effect.fn("BeadsService.startLinkedIssueThread")(
     function* (input: {
       cwd: string;
@@ -2232,41 +2301,20 @@ const makeBeadsService = Effect.gen(function* () {
       const nextThreadId = threadId();
       const createdAt = nowIso();
 
-      yield* orchestrationEngine
-        .dispatch({
-          type: "thread.create",
-          commandId: commandId("create-thread"),
-          threadId: nextThreadId,
-          projectId: input.projectId,
-          title: input.threadTitle,
-          modelSelection: input.modelSelection,
-          runtimeMode: input.runtimeMode,
-          interactionMode: input.interactionMode,
-          branch: null,
-          worktreePath: null,
-          issueLink: buildIssueLink(input.issue, input.cwd),
-          createdAt,
-        })
-        .pipe(Effect.mapError((cause) => toBeadsError(input.createThreadErrorMessage, cause)));
-
-      yield* orchestrationEngine
-        .dispatch({
-          type: "thread.turn.start",
-          commandId: commandId("start-turn"),
-          threadId: nextThreadId,
-          message: {
-            messageId: messageId("initial"),
-            role: "user",
-            text: input.promptText,
-            attachments: [],
-          },
-          modelSelection: input.modelSelection,
-          runtimeMode: input.runtimeMode,
-          interactionMode: input.interactionMode,
-          titleSeed: input.threadTitle,
-          createdAt,
-        })
-        .pipe(Effect.mapError((cause) => toBeadsError(input.startTurnErrorMessage, cause)));
+      yield* createThreadWithInitialTurn({
+        threadId: nextThreadId,
+        projectId: input.projectId,
+        modelSelection: input.modelSelection,
+        runtimeMode: input.runtimeMode,
+        interactionMode: input.interactionMode,
+        threadTitle: input.threadTitle,
+        promptText: input.promptText,
+        issueLink: buildIssueLink(input.issue, input.cwd),
+        createThreadErrorMessage: input.createThreadErrorMessage,
+        startTurnErrorMessage: input.startTurnErrorMessage,
+        deleteThreadCommandTag: "delete-linked-thread-after-start-failure",
+        createdAt,
+      });
 
       yield* appendWorkflowStartedSessionActivity({
         cwd: input.cwd,
@@ -2295,41 +2343,20 @@ const makeBeadsService = Effect.gen(function* () {
     const nextThreadId = threadId();
     const createdAt = nowIso();
 
-    yield* orchestrationEngine
-      .dispatch({
-        type: "thread.create",
-        commandId: commandId("create-thread"),
-        threadId: nextThreadId,
-        projectId: input.projectId,
-        title: input.threadTitle,
-        modelSelection: input.modelSelection,
-        runtimeMode: input.runtimeMode,
-        interactionMode: input.interactionMode,
-        branch: null,
-        worktreePath: null,
-        issueLink: null,
-        createdAt,
-      })
-      .pipe(Effect.mapError((cause) => toBeadsError(input.createThreadErrorMessage, cause)));
-
-    yield* orchestrationEngine
-      .dispatch({
-        type: "thread.turn.start",
-        commandId: commandId("start-turn"),
-        threadId: nextThreadId,
-        message: {
-          messageId: messageId("initial"),
-          role: "user",
-          text: input.promptText,
-          attachments: [],
-        },
-        modelSelection: input.modelSelection,
-        runtimeMode: input.runtimeMode,
-        interactionMode: input.interactionMode,
-        titleSeed: input.threadTitle,
-        createdAt,
-      })
-      .pipe(Effect.mapError((cause) => toBeadsError(input.startTurnErrorMessage, cause)));
+    yield* createThreadWithInitialTurn({
+      threadId: nextThreadId,
+      projectId: input.projectId,
+      modelSelection: input.modelSelection,
+      runtimeMode: input.runtimeMode,
+      interactionMode: input.interactionMode,
+      threadTitle: input.threadTitle,
+      promptText: input.promptText,
+      issueLink: null,
+      createThreadErrorMessage: input.createThreadErrorMessage,
+      startTurnErrorMessage: input.startTurnErrorMessage,
+      deleteThreadCommandTag: "delete-project-thread-after-start-failure",
+      createdAt,
+    });
 
     return {
       threadId: nextThreadId,
