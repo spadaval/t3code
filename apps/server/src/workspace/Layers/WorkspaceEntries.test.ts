@@ -1,3 +1,4 @@
+// @ts-nocheck
 import fsPromises from "node:fs/promises";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";

@@ -316,6 +316,7 @@ function createSnapshotForTargetUser(options: {
         runtimeMode: "full-access",
         branch: "main",
         worktreePath: null,
+        issueLink: null,
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -325,6 +326,7 @@ function createSnapshotForTargetUser(options: {
         activities: [],
         proposedPlans: [],
         checkpoints: [],
+        pendingCheckpointCaptures: [],
         session: {
           threadId: THREAD_ID,
           status: options.sessionStatus ?? "ready",
@@ -336,6 +338,9 @@ function createSnapshotForTargetUser(options: {
         },
       },
     ],
+    planImplementationLaunches: [],
+    epicRuns: [],
+    epicIssueExecutions: [],
     updatedAt: NOW_ISO,
   };
 }
@@ -381,6 +386,7 @@ function addThreadToSnapshot(
         runtimeMode: "full-access",
         branch: "main",
         worktreePath: null,
+        issueLink: null,
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -390,6 +396,7 @@ function addThreadToSnapshot(
         activities: [],
         proposedPlans: [],
         checkpoints: [],
+        pendingCheckpointCaptures: [],
         session: {
           threadId,
           status: "ready",
@@ -428,6 +435,7 @@ function createThreadCreatedEvent(threadId: ThreadId, sequence: number): Orchest
       interactionMode: "default",
       branch: "main",
       worktreePath: null,
+      issueLink: null,
       createdAt: NOW_ISO,
       updatedAt: NOW_ISO,
     },
@@ -690,6 +698,7 @@ function createSnapshotWithSecondaryProject(options?: {
           runtimeMode: "full-access",
           branch: "release/docs-portal",
           worktreePath: null,
+          issueLink: null,
           latestTurn: null,
           createdAt: isoAt(30),
           updatedAt: isoAt(31),
@@ -698,6 +707,7 @@ function createSnapshotWithSecondaryProject(options?: {
           activities: [],
           proposedPlans: [],
           checkpoints: [],
+          pendingCheckpointCaptures: [],
           session: {
             threadId: "thread-secondary-project" as ThreadId,
             status: "ready",
@@ -722,6 +732,7 @@ function createSnapshotWithSecondaryProject(options?: {
           runtimeMode: "full-access",
           branch: "release/docs-archive",
           worktreePath: null,
+          issueLink: null,
           latestTurn: null,
           createdAt: isoAt(24),
           updatedAt: isoAt(25),
@@ -730,6 +741,7 @@ function createSnapshotWithSecondaryProject(options?: {
           activities: [],
           proposedPlans: [],
           checkpoints: [],
+          pendingCheckpointCaptures: [],
           session: {
             threadId: ARCHIVED_SECONDARY_THREAD_ID,
             status: "ready",

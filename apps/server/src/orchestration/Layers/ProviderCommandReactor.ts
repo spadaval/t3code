@@ -1,3 +1,4 @@
+import { WORKTREE_BRANCH_PREFIX, isTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 import {
   type ChatAttachment,
   CommandId,
@@ -17,7 +18,7 @@ import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
-import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
+import { ProviderAdapterRequestError, type ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -67,14 +68,22 @@ const turnStartKeyForEvent = (event: ProviderIntentEvent): string =>
   event.commandId !== null ? `command:${event.commandId}` : `event:${event.eventId}`;
 
 const serverCommandId = (tag: string): CommandId =>
-  CommandId.make(`server:${tag}:${crypto.randomUUID()}`);
+  CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
 
 const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
-const WORKTREE_BRANCH_PREFIX = "t3code";
-const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(`^${WORKTREE_BRANCH_PREFIX}\\/[0-9a-f]{8}$`);
 const DEFAULT_THREAD_TITLE = "New thread";
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
 
 function canReplaceThreadTitle(currentTitle: string, titleSeed?: string): boolean {
   const trimmedCurrentTitle = currentTitle.trim();
@@ -97,7 +106,7 @@ function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderService
       detail.includes("unknown pending permission request")
     );
   }
-  const message = Cause.pretty(cause);
+  const message = toErrorMessage(error).toLowerCase();
   return (
     message.includes("unknown pending approval request") ||
     message.includes("unknown pending permission request")
@@ -120,7 +129,7 @@ function stalePendingRequestDetail(
 }
 
 function isTemporaryWorktreeBranch(branch: string): boolean {
-  return TEMP_WORKTREE_BRANCH_PATTERN.test(branch.trim().toLowerCase());
+  return isTemporaryWorktreeBranchName(branch);
 }
 
 function buildGeneratedWorktreeBranchName(raw: string): string {
@@ -186,7 +195,7 @@ const make = Effect.gen(function* () {
       commandId: serverCommandId("provider-failure-activity"),
       threadId: input.threadId,
       activity: {
-        id: EventId.make(crypto.randomUUID()),
+        id: EventId.makeUnsafe(crypto.randomUUID()),
         tone: "error",
         kind: input.kind,
         summary: input.summary,

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import * as nodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";

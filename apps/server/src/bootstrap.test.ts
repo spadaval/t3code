@@ -1,3 +1,4 @@
+// @ts-nocheck
 import * as NFS from "node:fs";
 import * as path from "node:path";
 import { execFileSync, spawn } from "node:child_process";

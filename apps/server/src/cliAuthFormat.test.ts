@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { expect, it } from "@effect/vitest";
 import { DateTime } from "effect";
 

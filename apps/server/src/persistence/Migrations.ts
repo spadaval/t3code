@@ -35,6 +35,18 @@ import Migration0019 from "./Migrations/019_ProjectionSnapshotLookupIndexes.ts";
 import Migration0020 from "./Migrations/020_AuthAccessManagement.ts";
 import Migration0021 from "./Migrations/021_AuthSessionClientMetadata.ts";
 import Migration0022 from "./Migrations/022_AuthSessionLastConnectedAt.ts";
+import Migration0023 from "./Migrations/023_ProjectionPlanImplementationLaunches.ts";
+import Migration0024 from "./Migrations/024_ProjectionThreadsIssueLink.ts";
+import Migration0025 from "./Migrations/025_ProjectionPlanMetadata.ts";
+import Migration0026 from "./Migrations/026_ProjectionSwarmRuns.ts";
+import Migration0027 from "./Migrations/027_ProjectionSwarmRunBlockedContext.ts";
+import Migration0028 from "./Migrations/028_RemoveProjectionSwarmRunExecutionPointers.ts";
+import Migration0029 from "./Migrations/029_ProjectionSwarmTaskExecutionRequests.ts";
+import Migration0030 from "./Migrations/030_RemoveProjectionSwarmRunSwarmId.ts";
+import Migration0031 from "./Migrations/031_ProposedPlanFollowUpOutcome.ts";
+import Migration0032 from "./Migrations/032_ProjectionPendingCheckpointCaptures.ts";
+import Migration0033 from "./Migrations/033_ProjectionSwarmFailureModel.ts";
+import Migration0034 from "./Migrations/034_RenameProjectionSwarmTablesToEpicRun.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -69,6 +81,18 @@ export const migrationEntries = [
   [20, "AuthAccessManagement", Migration0020],
   [21, "AuthSessionClientMetadata", Migration0021],
   [22, "AuthSessionLastConnectedAt", Migration0022],
+  [23, "ProjectionPlanImplementationLaunches", Migration0023],
+  [24, "ProjectionThreadsIssueLink", Migration0024],
+  [25, "ProjectionPlanMetadata", Migration0025],
+  [26, "ProjectionSwarmRuns", Migration0026],
+  [27, "ProjectionSwarmRunBlockedContext", Migration0027],
+  [28, "RemoveProjectionSwarmRunExecutionPointers", Migration0028],
+  [29, "ProjectionSwarmTaskExecutionRequests", Migration0029],
+  [30, "RemoveProjectionSwarmRunSwarmId", Migration0030],
+  [31, "ProposedPlanFollowUpOutcome", Migration0031],
+  [32, "ProjectionPendingCheckpointCaptures", Migration0032],
+  [33, "ProjectionSwarmFailureModel", Migration0033],
+  [34, "RenameProjectionSwarmTablesToEpicRun", Migration0034],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

@@ -13,11 +13,22 @@ export type IsoDateTime = typeof IsoDateTime.Type;
  * Construct a branded identifier. Enforces non-empty trimmed strings
  */
 const makeEntityId = <Brand extends string>(brand: Brand) => {
-  return TrimmedNonEmptyString.pipe(Schema.brand(brand));
+  const schema = TrimmedNonEmptyString.pipe(Schema.brand(brand));
+  return Object.assign(schema, {
+    makeUnsafe(value: string): typeof schema.Type {
+      return value.trim() as typeof schema.Type;
+    },
+  });
 };
 
 export const ThreadId = makeEntityId("ThreadId");
 export type ThreadId = typeof ThreadId.Type;
+export const PlanImplementationLaunchId = makeEntityId("PlanImplementationLaunchId");
+export type PlanImplementationLaunchId = typeof PlanImplementationLaunchId.Type;
+export const EpicRunId = makeEntityId("EpicRunId");
+export type EpicRunId = typeof EpicRunId.Type;
+export const EpicIssueExecutionId = makeEntityId("EpicIssueExecutionId");
+export type EpicIssueExecutionId = typeof EpicIssueExecutionId.Type;
 export const ProjectId = makeEntityId("ProjectId");
 export type ProjectId = typeof ProjectId.Type;
 export const EnvironmentId = makeEntityId("EnvironmentId");

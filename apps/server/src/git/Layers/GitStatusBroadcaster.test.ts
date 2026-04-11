@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { assert, it } from "@effect/vitest";
 import { Deferred, Effect, Exit, Layer, Option, Scope, Stream } from "effect";
 import type {

@@ -1,12 +1,14 @@
 import {
   IsoDateTime,
+  DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT,
+  OrchestrationProposedPlanFollowUpOutcome,
+  OrchestrationProposedPlanIntent,
   OrchestrationProposedPlanId,
   ThreadId,
   TrimmedNonEmptyString,
   TurnId,
 } from "@t3tools/contracts";
-import { Schema, Context } from "effect";
-import type { Effect } from "effect";
+import { Context, Effect, Schema } from "effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
 
@@ -15,8 +17,10 @@ export const ProjectionThreadProposedPlan = Schema.Struct({
   threadId: ThreadId,
   turnId: Schema.NullOr(TurnId),
   planMarkdown: TrimmedNonEmptyString,
-  implementedAt: Schema.NullOr(IsoDateTime),
-  implementationThreadId: Schema.NullOr(ThreadId),
+  planIntent: OrchestrationProposedPlanIntent.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT)),
+  ),
+  followUpOutcome: Schema.NullOr(OrchestrationProposedPlanFollowUpOutcome),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

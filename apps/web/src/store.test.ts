@@ -382,6 +382,7 @@ function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"
     interactionMode: DEFAULT_INTERACTION_MODE,
     branch: null,
     worktreePath: null,
+    issueLink: null,
     latestTurn: null,
     createdAt: "2026-02-27T00:00:00.000Z",
     updatedAt: "2026-02-27T00:00:00.000Z",
@@ -391,6 +392,7 @@ function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"
     activities: [],
     proposedPlans: [],
     checkpoints: [],
+    pendingCheckpointCaptures: [],
     session: null,
     ...overrides,
   } satisfies OrchestrationReadModel["threads"][number];
@@ -416,6 +418,9 @@ function makeReadModel(thread: OrchestrationReadModel["threads"][number]): Orche
       },
     ],
     threads: [thread],
+    planImplementationLaunches: [],
+    epicRuns: [],
+    epicIssueExecutions: [],
   };
 }
 
@@ -623,6 +628,9 @@ describe("store read model sync", () => {
         }),
       ],
       threads: [],
+      planImplementationLaunches: [],
+      epicRuns: [],
+      epicIssueExecutions: [],
     };
 
     const next = syncServerReadModel(initialState, readModel, localEnvironmentId);
@@ -779,6 +787,7 @@ describe("incremental orchestration updates", () => {
         interactionMode: DEFAULT_INTERACTION_MODE,
         branch: null,
         worktreePath: null,
+        issueLink: null,
         createdAt: "2026-02-27T00:00:01.000Z",
         updatedAt: "2026-02-27T00:00:01.000Z",
       }),
