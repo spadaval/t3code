@@ -1498,12 +1498,26 @@ const makeEpicRunScheduler = Effect.gen(function* () {
           currentExecution.executionId,
         );
 
-        yield* confirmWorkerExecutionStopped({
-          operation: "stopEpicRun",
-          runId: run.runId,
-          executionId: execution.executionId,
-          workerThreadId: execution.workerThreadId,
-        });
+        const stopConfirmation = yield* Effect.exit(
+          confirmWorkerExecutionStopped({
+            operation: "stopEpicRun",
+            runId: run.runId,
+            executionId: execution.executionId,
+            workerThreadId: execution.workerThreadId,
+          }),
+        );
+        if (stopConfirmation._tag === "Failure") {
+          const reason = truncateEpicRunFailureDetail(
+            toErrorMessage(Cause.squash(stopConfirmation.cause)),
+            500,
+          );
+          yield* failEpicIssueExecution({
+            runId: run.runId,
+            executionId: execution.executionId,
+            reason,
+          });
+          return asControlResult(yield* getRunById(run.runId));
+        }
 
         yield* settleExecutionForRunCancellation({
           run,

@@ -508,7 +508,7 @@ describe("EpicRunScheduler", () => {
     expect(snapshot.epicIssueExecutions).toHaveLength(1);
   });
 
-  it("fails completed worker turns when the issue was not closed by the worker", async () => {
+  it("fails completed worker turns with issue_incomplete when the issue was not closed", async () => {
     const harness = await createHarness();
 
     const started = await runtime!.runPromise(
@@ -553,7 +553,7 @@ describe("EpicRunScheduler", () => {
     expect(failureMessage(run)).toContain("must close their assigned Beads issue");
     expect(run?.failureContext).toEqual(
       expect.objectContaining({
-        kind: "worker_failure",
+        kind: "issue_incomplete",
         issueId: "TASK-1",
         executionId: execution.executionId,
         workerThreadId: execution.workerThreadId,
@@ -1089,7 +1089,7 @@ describe("EpicRunScheduler", () => {
     expect(issue?.comments.at(-1)?.text).toContain("Observed session status: stopped.");
   });
 
-  it("blocks the run when task launch setup fails after tracker validation succeeds", async () => {
+  it("fails the run with launch_failure when task launch setup fails after tracker validation succeeds", async () => {
     const harness = await createHarness(makeTrackerState(), {
       failDispatchForCommandTypes: ["thread.turn.start"],
     });
@@ -1113,8 +1113,7 @@ describe("EpicRunScheduler", () => {
     );
     expect(run?.failureContext).toEqual(
       expect.objectContaining({
-        kind: "worker_failure",
-        message: "Simulated dispatch failure for command 'thread.turn.start'.",
+        kind: "launch_failure",
       }),
     );
     expect(snapshot.epicIssueExecutions).toHaveLength(1);
@@ -1363,6 +1362,11 @@ describe("EpicRunScheduler", () => {
     expect(failureMessage(run)).toContain("multiple non-terminal task executions");
     expect(failureMessage(run)).toContain(String(execution.executionId));
     expect(failureMessage(run)).toContain("execution-duplicate");
+    expect(run?.failureContext).toEqual(
+      expect.objectContaining({
+        kind: "invariant_violation",
+      }),
+    );
   });
 
   it("starts a new run after worker-failure recovery state has become terminal", async () => {
@@ -1478,6 +1482,11 @@ describe("EpicRunScheduler", () => {
     expect(cancelled.status).toBe("failed");
     expect(failureMessage(run)).toContain("multiple non-terminal task executions");
     expect(failureMessage(run)).toContain("execution-shadow");
+    expect(run?.failureContext).toEqual(
+      expect.objectContaining({
+        kind: "invariant_violation",
+      }),
+    );
   });
 
   it("cancels an active worker and restores tracker ownership", async () => {
@@ -1508,7 +1517,7 @@ describe("EpicRunScheduler", () => {
     expect(issue?.comments.at(-1)?.text).toContain("Epic-run worker cancelled.");
   });
 
-  it("leaves the run non-terminal when cancellation cannot confirm the worker stopped", async () => {
+  it("fails the run with environment_failure when stop cannot confirm the worker stopped", async () => {
     const harness = await createHarness();
 
     const started = await runtime!.runPromise(
@@ -1531,13 +1540,11 @@ describe("EpicRunScheduler", () => {
       session: makeRunningSession(execution.workerThreadId, "turn-worker-running"),
     });
 
-    await expect(
-      runtime!.runPromise(
-        harness.workflow.stopEpicRun({
-          runId: started.runId,
-        }),
-      ),
-    ).rejects.toThrow("could not confirm that worker thread");
+    const stopped = await runtime!.runPromise(
+      harness.workflow.stopEpicRun({
+        runId: started.runId,
+      }),
+    );
 
     const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
     const run = snapshot.epicRuns.find((entry) => entry.runId === started.runId);
@@ -1546,10 +1553,23 @@ describe("EpicRunScheduler", () => {
     );
     const issue = harness.getIssue("TASK-1");
 
-    expect(run?.status).toBe("running");
-    expect(currentExecution?.status).toBe("launching");
+    expect(stopped.status).toBe("failed");
+    expect(run?.status).toBe("failed");
+    expect(failureMessage(run)).toContain("could not confirm that worker thread");
+    expect(run?.failureContext).toEqual(
+      expect.objectContaining({
+        kind: "environment_failure",
+        issueId: "TASK-1",
+        executionId: execution.executionId,
+        workerThreadId: execution.workerThreadId,
+      }),
+    );
+    expect(currentExecution?.status).toBe("failed");
+    expect(failureMessage(currentExecution)).toContain("could not confirm that worker thread");
     expect(issue?.status).toBe("open");
     expect(issue?.assignee).toBeNull();
+    expect(issue?.comments.at(-1)?.text).toContain("Epic-run worker failed.");
+    expect(issue?.comments.at(-1)?.text).toContain("could not confirm that worker thread");
   }, 10_000);
 
   it("automatically schedules the lowest-priority ready issue first", async () => {

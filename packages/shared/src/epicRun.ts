@@ -110,14 +110,29 @@ export function isEpicTrackerSummaryComplete(
 
 export function inferEpicRunFailureKind(reason: string): OrchestrationEpicRunFailureKind {
   const normalized = reason.toLowerCase();
-  if (normalized.includes("launch")) {
-    return "launch_failure";
-  }
-  if (normalized.includes("invariant")) {
+  if (
+    normalized.includes("invariant") ||
+    normalized.includes("multiple non-terminal task executions") ||
+    normalized.includes("unexpected non-terminal task execution") ||
+    normalized.includes("lost its non-terminal task execution state")
+  ) {
     return "invariant_violation";
   }
-  if (normalized.includes("still open") || normalized.includes("not closed")) {
+  if (
+    normalized.includes("not closed") ||
+    (normalized.includes("completed, but issue") &&
+      normalized.includes("must close their assigned beads issue")) ||
+    /still\s+['"]?open['"]?/.test(normalized)
+  ) {
     return "issue_incomplete";
+  }
+  if (
+    normalized.includes("launch") ||
+    normalized.includes("thread.turn.start") ||
+    normalized.includes("thread.create") ||
+    normalized.includes("epic-issue-execution.request")
+  ) {
+    return "launch_failure";
   }
   if (
     normalized.includes("stop") ||
