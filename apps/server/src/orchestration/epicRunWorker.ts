@@ -54,7 +54,7 @@ export function buildEpicRunWorkerPrompt(input: {
     "",
     "## Rules",
     "",
-    "- Implement the issue in the shared workspace. Do NOT create a branch or worktree.",
+    "- Implement the issue in the assigned project workspace. Do NOT create a branch or worktree.",
     "- Stay focused on this issue. Do not work on unrelated changes.",
     "- Follow the project's existing patterns, conventions, and quality standards.",
     "- Commit your work with clear, descriptive commit messages.",

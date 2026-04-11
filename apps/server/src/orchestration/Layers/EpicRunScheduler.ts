@@ -14,7 +14,11 @@ import {
   type OrchestrationEpicIssueExecution,
 } from "@t3tools/contracts";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
-import { deriveExecutionBlocking, deriveEpicRunExecutionState } from "@t3tools/shared/epicRun";
+import {
+  deriveExecutionBlocking,
+  deriveEpicRunExecutionState,
+  isEpicTrackerSummaryComplete,
+} from "@t3tools/shared/epicRun";
 import { Cause, Deferred, Duration, Effect, Fiber, Layer } from "effect";
 import type { Scope } from "effect";
 
@@ -282,7 +286,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
           runId: run.runId,
           nonTerminalExecutions,
         });
-        yield* failRun(run.runId, reason);
+        yield* failRun({ runId: run.runId, reason });
         return { ok: false as const, run: yield* getRunById(run.runId) };
       }
 
@@ -309,14 +313,14 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       }
 
       for (const loser of invariant.losers) {
-        yield* failRun(
-          loser.runId,
-          describeSharedWorkspaceProjectInvariantViolation({
+        yield* failRun({
+          runId: loser.runId,
+          reason: describeSharedWorkspaceProjectInvariantViolation({
             projectId,
             winner,
             loser,
           }),
-        );
+        });
       }
 
       return { winner: yield* getRunById(winner.runId) };
@@ -622,7 +626,13 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         }
       }
 
-      yield* failRun(input.run.runId, input.reason);
+      yield* failRun({
+        runId: input.run.runId,
+        reason: input.reason,
+        issueId: input.issueId,
+        executionId: input.executionId,
+        workerThreadId: input.workerThreadId,
+      });
 
       return yield* getRunById(input.run.runId);
     });
@@ -661,9 +671,15 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       createdAt: nowIso(),
     }).pipe(Effect.asVoid);
 
-  const failRun = (runId: EpicRunId, reason: string) =>
+  const failRun = (input: {
+    readonly runId: EpicRunId;
+    readonly reason: string;
+    readonly issueId?: string | null;
+    readonly executionId?: EpicIssueExecutionId | null;
+    readonly workerThreadId?: ThreadId | null;
+  }) =>
     Effect.gen(function* () {
-      const run = yield* Effect.option(getRunById(runId));
+      const run = yield* Effect.option(getRunById(input.runId));
       if (run._tag === "Some" && isTerminalRunStatus(run.value.status)) {
         return;
       }
@@ -671,8 +687,11 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       yield* dispatchOrFail("failRun", {
         type: "epic-run.fail",
         commandId: serverCommandId("epic-run-fail"),
-        runId,
-        reason: truncateEpicRunFailureDetail(reason, 500),
+        runId: input.runId,
+        reason: truncateEpicRunFailureDetail(input.reason, 500),
+        ...(input.issueId ? { issueId: input.issueId } : {}),
+        ...(input.executionId ? { executionId: input.executionId } : {}),
+        ...(input.workerThreadId ? { workerThreadId: input.workerThreadId } : {}),
         createdAt: nowIso(),
       }).pipe(Effect.asVoid);
     });
@@ -915,10 +934,6 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       }
 
       const executions = yield* getExecutionsForRun(run.runId);
-      const executionState = evaluateRunExecutionInvariant({
-        runId: run.runId,
-        executions,
-      });
       const attemptedIssueIds = getAttemptedIssueIds(executions);
 
       const nextReadyIssue = selectLaunchableReadyIssue({
@@ -934,18 +949,22 @@ const makeEpicRunScheduler = Effect.gen(function* () {
             attemptedIssueIds,
           }) === 0
         ) {
-          yield* failRun(
-            run.runId,
-            describeReadyIssueExhaustion({
+          yield* failRun({
+            runId: run.runId,
+            reason: describeReadyIssueExhaustion({
               runId: run.runId,
               attemptedIssueIds,
               readyIssues: trackerStatus.ready,
             }),
-          );
+          });
           return yield* getRunById(run.runId);
         }
 
         if (trackerStatus.blocked.length > 0) {
+          return run;
+        }
+
+        if (!isEpicTrackerSummaryComplete(trackerStatus.trackerSummary)) {
           return run;
         }
 
@@ -1049,7 +1068,13 @@ const makeEpicRunScheduler = Effect.gen(function* () {
               yield* deleteWorkerThreadIfIdle(workerThreadId);
             }
 
-            yield* failRun(run.runId, reason);
+            yield* failRun({
+              runId: run.runId,
+              reason,
+              issueId,
+              executionId: executionRequested ? executionId : null,
+              workerThreadId: threadCreated ? workerThreadId : null,
+            });
 
             return yield* getRunById(run.runId);
           }),
@@ -1203,7 +1228,10 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         executions: yield* getExecutionsForRun(run.runId),
       });
       if (executionInvariant.violationReason) {
-        yield* failRun(run.runId, executionInvariant.violationReason);
+        yield* failRun({
+          runId: run.runId,
+          reason: executionInvariant.violationReason,
+        });
         return yield* getRunById(run.runId);
       }
 
@@ -1238,10 +1266,10 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         return;
       }
 
-      yield* failRun(
-        request.runId,
-        truncateEpicRunFailureDetail(toErrorMessage(Cause.squash(exit.cause))),
-      );
+      yield* failRun({
+        runId: request.runId,
+        reason: truncateEpicRunFailureDetail(toErrorMessage(Cause.squash(exit.cause))),
+      });
     });
 
   const signalDriveRequestCompletion = (request: QueuedEpicRunDriveRequest) =>
@@ -1553,7 +1581,13 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         reason: input.reason,
       });
       yield* failTaskExecutionCommand(input);
-      yield* failRun(run.runId, input.reason);
+      yield* failRun({
+        runId: run.runId,
+        reason: input.reason,
+        issueId: execution.issueId,
+        executionId: execution.executionId,
+        workerThreadId: execution.workerThreadId,
+      });
       return asControlResult(yield* getRunById(run.runId));
     });
 

@@ -144,7 +144,7 @@ describe("EpicRunScheduler", () => {
     expect(issue?.assignee).toBeNull();
   });
 
-  it("deterministically keeps one shared-workspace run and fails the loser when another starts", async () => {
+  it("deterministically keeps one admitted epic run and fails the loser when another starts", async () => {
     const harness = await createHarness();
 
     const first = await runtime!.runPromise(
@@ -173,7 +173,7 @@ describe("EpicRunScheduler", () => {
     expect(failureMessage(secondRun)).toContain(`Run '${second.runId}'`);
   });
 
-  it("allows shared-workspace runs from different projects even when epic ids match", async () => {
+  it("allows admitted epic runs from different projects even when epic ids match", async () => {
     const harness = await createHarness();
     const secondProjectId = asProjectId("project-2");
 
@@ -272,7 +272,7 @@ describe("EpicRunScheduler", () => {
     expect(harness.getInitializeEpicTrackerCallCount()).toBe(0);
   });
 
-  it("does not auto-create a swarm when one already exists", async () => {
+  it("does not auto-create an epic tracker when one already exists", async () => {
     const harness = await createHarness();
 
     await runtime!.runPromise(
@@ -286,7 +286,7 @@ describe("EpicRunScheduler", () => {
     expect(harness.getInitializeEpicTrackerCallCount()).toBe(0);
   });
 
-  it("preserves explicit swarm creation failures when auto-create cannot recover", async () => {
+  it("preserves explicit epic tracker creation failures when auto-create cannot recover", async () => {
     const baseline = makeTrackerState();
     const harness = await createHarness(
       makeTrackerState({
@@ -320,7 +320,7 @@ describe("EpicRunScheduler", () => {
     expect(harness.getInitializeEpicTrackerCallCount()).toBe(1);
   });
 
-  it("blocks a running swarm when no ready issue remains and blocked work exists", async () => {
+  it("keeps a running epic run active when no ready issue remains and blocked work exists", async () => {
     const baseline = makeTrackerState();
     const harness = await createHarness(
       makeTrackerState({
@@ -387,7 +387,7 @@ describe("EpicRunScheduler", () => {
     expect(secondIssue?.assignee).toBeNull();
   });
 
-  it("does not claim validation-only issues after launchable-state recheck", async () => {
+  it("keeps the run running when tracker completion is not proven", async () => {
     const baseline = makeTrackerState();
     const harness = await createHarness();
     harness.setTrackerStateSequence([
@@ -430,7 +430,7 @@ describe("EpicRunScheduler", () => {
 
     expect(snapshot.epicIssueExecutions).toHaveLength(0);
     expect(snapshot.threads).toHaveLength(0);
-    expect(run?.status).toBe("completed");
+    expect(run?.status).toBe("running");
     expect(issue?.status).toBe("open");
     expect(issue?.assignee).toBeNull();
   });
@@ -901,10 +901,26 @@ describe("EpicRunScheduler", () => {
       makeTrackerState({
         validation: {
           ...baseline.validation,
+          trackerSummary: {
+            ...baseline.validation.trackerSummary!,
+            totalIssueCount: 1,
+            completedIssueCount: 1,
+            readyIssueCount: 0,
+            activeIssueCount: 0,
+            blockedIssueCount: 0,
+          },
           readyFronts: [],
         },
         status: {
           ...baseline.status,
+          trackerSummary: {
+            ...baseline.status.trackerSummary!,
+            totalIssueCount: 1,
+            completedIssueCount: 1,
+            readyIssueCount: 0,
+            activeIssueCount: 0,
+            blockedIssueCount: 0,
+          },
           ready: [],
           completed: [relationIssue("TASK-1", 1)],
         },
@@ -925,7 +941,7 @@ describe("EpicRunScheduler", () => {
     expect(completed?.status).toBe("completed");
   });
 
-  it("reconciles failed worker threads on startup and restores tracker ownership", async () => {
+  it("reconciles failed worker threads on startup", async () => {
     const harness = await createHarness();
 
     const started = await runtime!.runPromise(
@@ -1295,7 +1311,7 @@ describe("EpicRunScheduler", () => {
     expect(issue?.comments.at(-1)?.text).toContain("timed out while launching");
   });
 
-  it("fails shared-workspace runs when reconciliation finds multiple non-terminal worker executions", async () => {
+  it("fails epic runs when reconciliation finds multiple non-terminal worker executions", async () => {
     const harness = await createHarness();
 
     const started = await runtime!.runPromise(
@@ -1407,7 +1423,7 @@ describe("EpicRunScheduler", () => {
     );
   });
 
-  it("fails shared-workspace runs when cancel sees duplicate active worker executions", async () => {
+  it("fails epic runs when stop sees duplicate active worker executions", async () => {
     const harness = await createHarness();
 
     const started = await runtime!.runPromise(

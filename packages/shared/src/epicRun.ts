@@ -1,4 +1,5 @@
 import type {
+  BeadsEpicTrackerSummary,
   BeadsCoordinatorTrackerLoadState,
   BeadsCoordinatorTrackerState,
   BeadsCoordinatorValidationState,
@@ -81,6 +82,30 @@ export function deriveExecutionBlocking(
     unknownBlockedIssues,
     hasExecutionBlockingIssues: externalBlockedIssues.length > 0 || unknownBlockedIssues.length > 0,
   };
+}
+
+export function isEpicTrackerSummaryComplete(
+  trackerSummary:
+    | Pick<
+        BeadsEpicTrackerSummary,
+        | "totalIssueCount"
+        | "completedIssueCount"
+        | "readyIssueCount"
+        | "activeIssueCount"
+        | "blockedIssueCount"
+      >
+    | null
+    | undefined,
+): boolean {
+  return (
+    trackerSummary !== null &&
+    trackerSummary !== undefined &&
+    trackerSummary.totalIssueCount > 0 &&
+    trackerSummary.completedIssueCount >= trackerSummary.totalIssueCount &&
+    trackerSummary.readyIssueCount === 0 &&
+    trackerSummary.activeIssueCount === 0 &&
+    trackerSummary.blockedIssueCount === 0
+  );
 }
 
 export function inferEpicRunFailureKind(reason: string): OrchestrationEpicRunFailureKind {
@@ -609,7 +634,7 @@ export function deriveEpicTrackerProgress(input: {
     externalBlockedIssueCount: executionBlocking.externalBlockedIssues.length,
     unknownBlockedIssueCount: executionBlocking.unknownBlockedIssues.length,
     activeWorkerCount,
-    isComplete: totalIssueCount > 0 && completedIssueCount === totalIssueCount,
+    isComplete: isEpicTrackerSummaryComplete(trackerSummary),
   };
 }
 
@@ -775,13 +800,7 @@ export function getEpicCoordinatorPrimaryAction(input: {
   const latestRun = selectLatestEpicRun(input.epicRuns);
   const activeRun = findActiveEpicRun(input.epicRuns);
   const trackerSummary = input.status?.trackerSummary ?? input.validation?.trackerSummary ?? null;
-  const trackerIsComplete =
-    trackerSummary !== null &&
-    trackerSummary.totalIssueCount > 0 &&
-    trackerSummary.completedIssueCount >= trackerSummary.totalIssueCount &&
-    trackerSummary.readyIssueCount === 0 &&
-    trackerSummary.activeIssueCount === 0 &&
-    trackerSummary.blockedIssueCount === 0;
+  const trackerIsComplete = isEpicTrackerSummaryComplete(trackerSummary);
   const executionBlocking = deriveExecutionBlocking(input.status);
 
   switch (input.fetchLifecycle.kind) {
@@ -982,6 +1001,9 @@ export function applyEpicRunLifecycleEvent(
         status: "failed",
         failureContext: createEpicRunFailureContext({
           reason: event.payload.reason,
+          issueId: event.payload.issueId,
+          executionId: event.payload.executionId,
+          workerThreadId: event.payload.workerThreadId,
         }),
         failedAt: event.payload.failedAt,
         updatedAt: event.payload.updatedAt,

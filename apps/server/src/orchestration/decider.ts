@@ -940,6 +940,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           runId: command.runId,
           reason: command.reason,
+          issueId: command.issueId ?? null,
+          executionId: command.executionId ?? null,
+          workerThreadId: command.workerThreadId ?? null,
           failedAt: command.createdAt,
           updatedAt: command.createdAt,
         },

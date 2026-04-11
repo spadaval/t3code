@@ -23,6 +23,7 @@ import {
   deriveTrackerState,
   findConflictingSharedWorkspaceRun,
   getEpicCoordinatorPrimaryAction,
+  isEpicTrackerSummaryComplete,
   listEpicRuns,
   listEpicIssueExecutions,
   projectEpicRunEvent,
@@ -249,6 +250,28 @@ describe("swarm", () => {
     ).toBe("TASK-1");
   });
 
+  it("treats tracker summary completion conservatively", () => {
+    expect(
+      isEpicTrackerSummaryComplete({
+        totalIssueCount: 2,
+        completedIssueCount: 2,
+        readyIssueCount: 0,
+        activeIssueCount: 0,
+        blockedIssueCount: 0,
+      }),
+    ).toBe(true);
+
+    expect(
+      isEpicTrackerSummaryComplete({
+        totalIssueCount: 2,
+        completedIssueCount: 2,
+        readyIssueCount: 1,
+        activeIssueCount: 0,
+        blockedIssueCount: 0,
+      }),
+    ).toBe(false);
+  });
+
   it("keeps deterministic ordering within status.ready", () => {
     expect(
       selectDeterministicReadyIssue({
@@ -367,6 +390,9 @@ describe("swarm", () => {
       makeEvent("epic-run.failed", {
         runId: "run-1" as never,
         reason: "worker exited",
+        issueId: null,
+        executionId: null,
+        workerThreadId: null,
         failedAt: "2026-04-06T00:00:02.000Z",
         updatedAt: "2026-04-06T00:00:02.000Z",
       }),

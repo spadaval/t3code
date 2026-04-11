@@ -487,15 +487,32 @@ export function applyCommand(
           updatedAt: command.createdAt,
         },
         command.runId,
-        (run) => ({
-          ...run,
-          status: "failed",
-          failedAt: command.createdAt,
-          failureContext: createEpicRunFailureContext({
-            reason: command.reason,
-          }),
-          updatedAt: command.createdAt,
-        }),
+        (run) => {
+          const fallbackExecution =
+            readModel.epicIssueExecutions
+              .filter(
+                (execution) => execution.runId === command.runId && execution.status === "failed",
+              )
+              .toSorted(
+                (left, right) =>
+                  right.sequenceNumber - left.sequenceNumber ||
+                  right.updatedAt.localeCompare(left.updatedAt),
+              )
+              .at(0) ?? null;
+
+          return {
+            ...run,
+            status: "failed",
+            failedAt: command.createdAt,
+            failureContext: createEpicRunFailureContext({
+              reason: command.reason,
+              issueId: command.issueId ?? fallbackExecution?.issueId ?? null,
+              executionId: command.executionId ?? fallbackExecution?.executionId ?? null,
+              workerThreadId: command.workerThreadId ?? fallbackExecution?.workerThreadId ?? null,
+            }),
+            updatedAt: command.createdAt,
+          };
+        },
       );
 
     case "epic-run.stop":

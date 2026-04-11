@@ -357,7 +357,7 @@ export function requireNoConflictingSharedWorkspaceRun(input: {
   return Effect.fail(
     invariantError(
       input.command.type,
-      `Project '${input.projectId}' already has non-terminal shared-workspace run '${conflictingRun.runId}' for epic '${conflictingRun.epicIssueId}' in status '${conflictingRun.status}'.`,
+      `Project '${input.projectId}' already has non-terminal epic run '${conflictingRun.runId}' for epic '${conflictingRun.epicIssueId}' in status '${conflictingRun.status}'.`,
     ),
   );
 }

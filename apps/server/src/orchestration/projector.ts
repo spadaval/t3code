@@ -978,12 +978,33 @@ export function projectEvent(
 
     case "epic-run.failed":
       return decodeForEvent(EpicRunFailedPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, (run) =>
-            applyEpicRunLifecycleEvent(run, { ...event, payload }),
-          ),
-        })),
+        Effect.map((payload) => {
+          const fallbackExecution =
+            nextBase.epicIssueExecutions
+              .filter(
+                (execution) => execution.runId === payload.runId && execution.status === "failed",
+              )
+              .toSorted(
+                (left, right) =>
+                  right.sequenceNumber - left.sequenceNumber ||
+                  right.updatedAt.localeCompare(left.updatedAt),
+              )
+              .at(0) ?? null;
+
+          const hydratedPayload = {
+            ...payload,
+            issueId: payload.issueId ?? fallbackExecution?.issueId ?? null,
+            executionId: payload.executionId ?? fallbackExecution?.executionId ?? null,
+            workerThreadId: payload.workerThreadId ?? fallbackExecution?.workerThreadId ?? null,
+          };
+
+          return {
+            ...nextBase,
+            epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, (run) =>
+              applyEpicRunLifecycleEvent(run, { ...event, payload: hydratedPayload }),
+            ),
+          };
+        }),
       );
 
     case "epic-run.stopped":

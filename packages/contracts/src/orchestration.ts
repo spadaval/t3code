@@ -954,6 +954,9 @@ const EpicRunFailCommand = Schema.Struct({
   commandId: CommandId,
   runId: EpicRunId,
   reason: TrimmedNonEmptyString,
+  issueId: Schema.optional(TrimmedNonEmptyString),
+  executionId: Schema.optional(EpicIssueExecutionId),
+  workerThreadId: Schema.optional(ThreadId),
   createdAt: IsoDateTime,
 });
 
@@ -1353,6 +1356,9 @@ export const EpicRunStartedPayload = Schema.Struct({
 export const EpicRunFailedPayload = Schema.Struct({
   runId: EpicRunId,
   reason: TrimmedNonEmptyString,
+  issueId: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  executionId: Schema.NullOr(EpicIssueExecutionId).pipe(Schema.withDecodingDefault(() => null)),
+  workerThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
   failedAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

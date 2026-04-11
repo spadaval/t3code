@@ -664,6 +664,9 @@ describe("incremental orchestration updates", () => {
       makeEvent("epic-run.failed", {
         runId: "run-1" as never,
         reason: "worker exited",
+        issueId: null,
+        executionId: null,
+        workerThreadId: null,
         failedAt: "2026-04-06T00:00:03.000Z",
         updatedAt: "2026-04-06T00:00:03.000Z",
       }),
@@ -711,6 +714,9 @@ describe("incremental orchestration updates", () => {
       makeEvent("epic-run.failed", {
         runId: "run-1" as never,
         reason: "worker exited",
+        issueId: "TASK-1",
+        executionId: "execution-1" as never,
+        workerThreadId: ThreadId.makeUnsafe("thread-1"),
         failedAt: "2026-04-06T00:00:01.000Z",
         updatedAt: "2026-04-06T00:00:01.000Z",
       }),

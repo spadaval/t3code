@@ -797,17 +797,35 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               });
               return;
 
-            case "epic-run.failed":
+            case "epic-run.failed": {
+              const fallbackExecution =
+                (yield* projectionEpicIssueExecutionRepository.listAll())
+                  .filter(
+                    (execution) =>
+                      execution.runId === event.payload.runId && execution.status === "failed",
+                  )
+                  .toSorted(
+                    (left, right) =>
+                      right.sequenceNumber - left.sequenceNumber ||
+                      right.updatedAt.localeCompare(left.updatedAt),
+                  )
+                  .at(0) ?? null;
+
               yield* projectionEpicRunRepository.upsert({
                 ...existingRow.value,
                 status: "failed",
                 failureContext: createEpicRunFailureContext({
                   reason: event.payload.reason,
+                  issueId: event.payload.issueId ?? fallbackExecution?.issueId ?? null,
+                  executionId: event.payload.executionId ?? fallbackExecution?.executionId ?? null,
+                  workerThreadId:
+                    event.payload.workerThreadId ?? fallbackExecution?.workerThreadId ?? null,
                 }),
                 failedAt: event.payload.failedAt,
                 updatedAt: event.payload.updatedAt,
               });
               return;
+            }
 
             case "epic-run.stopped":
               yield* projectionEpicRunRepository.upsert({

@@ -117,13 +117,13 @@ export function describeExecutionInvariantViolation(input: {
     .join("; ");
 
   if (input.nonTerminalExecutions.length > 1) {
-    return `Shared-workspace epic run '${input.runId}' has multiple non-terminal task executions. Expected at most one active worker execution, found: ${details}.`;
+    return `Epic run '${input.runId}' has multiple non-terminal task executions. Expected at most one active worker execution, found: ${details}.`;
   }
 
   const [execution] = input.nonTerminalExecutions;
   if (!execution) {
-    return `Shared-workspace epic run '${input.runId}' lost its non-terminal task execution state.`;
+    return `Epic run '${input.runId}' lost its non-terminal task execution state.`;
   }
 
-  return `Shared-workspace epic run '${input.runId}' has unexpected non-terminal task execution '${execution.executionId}' in its execution history.`;
+  return `Epic run '${input.runId}' has unexpected non-terminal task execution '${execution.executionId}' in its execution history.`;
 }
