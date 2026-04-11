@@ -1347,7 +1347,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
 
       if (!trackerState.validation.trackerSummary) {
         yield* beadsTracker
-          .createEpicSwarm({
+          .initializeEpicTracker({
             cwd: project.workspaceRoot,
             epicIssueId: input.epicIssueId,
           })
@@ -1367,11 +1367,11 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         });
       }
 
-      const swarm = trackerState.validation.trackerSummary;
-      if (!swarm) {
+      const trackerSummary = trackerState.validation.trackerSummary;
+      if (!trackerSummary) {
         return yield* workflowError(
           "startEpicRun",
-          `Failed to initialize epic-run tracker state for ${input.epicIssueId}: swarm was still missing after create completed.`,
+          `Failed to initialize epic-run tracker state for ${input.epicIssueId}: epic tracker was still missing after initialization completed.`,
         );
       }
 

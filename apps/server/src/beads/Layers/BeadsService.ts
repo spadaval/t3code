@@ -1736,7 +1736,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
       return swarms.trackerSummaries.find((swarm) => swarm.epicId === input.epicIssueId) ?? null;
     });
 
-  const createEpicSwarm: BeadsTrackerServiceShape["createEpicSwarm"] = (input) =>
+  const initializeEpicTracker: BeadsTrackerServiceShape["initializeEpicTracker"] = (input) =>
     Effect.gen(function* () {
       const support = yield* getEpicRunSupport({ cwd: input.cwd });
       if (!support.supported) {
@@ -1755,14 +1755,14 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         ),
       );
 
-      const swarm = yield* getEpicTrackerSummary(input);
-      if (swarm === null) {
+      const trackerSummary = yield* getEpicTrackerSummary(input);
+      if (trackerSummary === null) {
         return yield* toBeadsError(
           `Failed to create swarm for ${input.epicIssueId}: swarm was still missing after create completed.`,
         );
       }
 
-      return swarm;
+      return trackerSummary;
     });
 
   const decodeValidationFromRaw = (input: {
@@ -2037,7 +2037,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
               ? decodeValidationFromRaw({
                   epic,
                   rawValidation: validationExit.value,
-                  swarmSummary: input.swarmSummary,
+                  swarmSummary: input.trackerSummary,
                 })
               : null,
           status:
@@ -2047,7 +2047,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
                   rawEpic,
                   epic,
                   rawStatus: statusExit.value,
-                  swarmSummary: input.swarmSummary,
+                  swarmSummary: input.trackerSummary,
                 })
               : null,
           validationError:
@@ -2156,7 +2156,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     getEpicTrackerStatus,
     listEpicTrackerSummaries,
     listEpicTrackerSummariesWithSupport,
-    createEpicSwarm,
+    initializeEpicTracker,
     loadEpicCoordinatorTrackerState,
   } satisfies BeadsTrackerServiceShape;
 });
@@ -2456,7 +2456,7 @@ const makeBeadsService = Effect.gen(function* () {
               epicIssueId,
               support,
               issueSummary: issueSummaryById.get(epicIssueId) ?? null,
-              swarmSummary: swarmSummaryByEpicId.get(epicIssueId) ?? null,
+              trackerSummary: swarmSummaryByEpicId.get(epicIssueId) ?? null,
             })
             .pipe(Effect.map((state) => [epicIssueId, state] as const)),
         { concurrency: PROJECT_COORDINATOR_EPIC_LOAD_CONCURRENCY },
@@ -2499,7 +2499,7 @@ const makeBeadsService = Effect.gen(function* () {
         epicIssueId: input.epicIssueId,
         support,
         issueSummary: issue,
-        swarmSummary:
+        trackerSummary:
           swarms.trackerSummaries.find((swarm) => swarm.epicId === input.epicIssueId) ?? null,
       });
 

@@ -50,14 +50,15 @@ export const beadsQueryKeys = {
   issuesBatch: (cwd: string | null, issueIds: readonly string[]) =>
     ["beads", "issues-batch", cwd, [...issueIds].toSorted()] as const,
   context: (input: BeadsGetContextInput) => ["beads", "context", input.cwd] as const,
-  swarmSupport: (cwd: string | null) => ["beads", "swarm-support", cwd] as const,
-  epicSwarm: (cwd: string | null, epicIssueId: string | null) =>
-    ["beads", "epic-swarm", cwd, epicIssueId] as const,
-  epicSwarmValidation: (cwd: string | null, epicIssueId: string | null) =>
-    ["beads", "epic-swarm-validation", cwd, epicIssueId] as const,
-  epicSwarmStatus: (cwd: string | null, epicIssueId: string | null) =>
-    ["beads", "epic-swarm-status", cwd, epicIssueId] as const,
-  swarms: (input: BeadsListEpicTrackerSummariesInput) => ["beads", "swarms", input.cwd] as const,
+  epicRunSupport: (cwd: string | null) => ["beads", "epic-run-support", cwd] as const,
+  epicTrackerSummary: (cwd: string | null, epicIssueId: string | null) =>
+    ["beads", "epic-tracker-summary", cwd, epicIssueId] as const,
+  epicRunValidation: (cwd: string | null, epicIssueId: string | null) =>
+    ["beads", "epic-run-validation", cwd, epicIssueId] as const,
+  epicTrackerStatus: (cwd: string | null, epicIssueId: string | null) =>
+    ["beads", "epic-tracker-status", cwd, epicIssueId] as const,
+  epicTrackerSummaries: (input: BeadsListEpicTrackerSummariesInput) =>
+    ["beads", "epic-tracker-summaries", input.cwd] as const,
   projectCoordinatorSnapshot: (input: BeadsProjectCoordinatorSnapshotInput | null) =>
     [
       "beads",
@@ -182,12 +183,12 @@ export function beadsContextOptions(input: (BeadsGetContextInput & { enabled?: b
   });
 }
 
-export function beadsSwarmSupportOptions(input: { cwd: string | null; enabled?: boolean }) {
+export function beadsEpicRunSupportOptions(input: { cwd: string | null; enabled?: boolean }) {
   return queryOptions({
-    queryKey: beadsQueryKeys.swarmSupport(input.cwd),
+    queryKey: beadsQueryKeys.epicRunSupport(input.cwd),
     queryFn: async (): Promise<BeadsEpicRunSupport> => {
       if (!input.cwd) {
-        throw new Error("Beads swarm support is unavailable.");
+        throw new Error("Epic-run support is unavailable.");
       }
       return ensureNativeApi().beads.getEpicRunSupport({ cwd: input.cwd });
     },
@@ -196,12 +197,14 @@ export function beadsSwarmSupportOptions(input: { cwd: string | null; enabled?: 
   });
 }
 
-export function beadsEpicSwarmOptions(input: (BeadsEpicIssueInput & { enabled?: boolean }) | null) {
+export function beadsEpicTrackerSummaryOptions(
+  input: (BeadsEpicIssueInput & { enabled?: boolean }) | null,
+) {
   return queryOptions({
-    queryKey: beadsQueryKeys.epicSwarm(input?.cwd ?? null, input?.epicIssueId ?? null),
+    queryKey: beadsQueryKeys.epicTrackerSummary(input?.cwd ?? null, input?.epicIssueId ?? null),
     queryFn: async (): Promise<BeadsEpicTrackerSummary | null> => {
       if (!input) {
-        throw new Error("Epic swarm is unavailable.");
+        throw new Error("Epic tracker summary is unavailable.");
       }
       return ensureNativeApi().beads.getEpicTrackerSummary(input);
     },
@@ -210,14 +213,14 @@ export function beadsEpicSwarmOptions(input: (BeadsEpicIssueInput & { enabled?: 
   });
 }
 
-export function beadsEpicSwarmValidationOptions(
+export function beadsEpicRunValidationOptions(
   input: (BeadsEpicIssueInput & { enabled?: boolean }) | null,
 ) {
   return queryOptions({
-    queryKey: beadsQueryKeys.epicSwarmValidation(input?.cwd ?? null, input?.epicIssueId ?? null),
+    queryKey: beadsQueryKeys.epicRunValidation(input?.cwd ?? null, input?.epicIssueId ?? null),
     queryFn: async (): Promise<BeadsEpicRunValidation> => {
       if (!input) {
-        throw new Error("Epic swarm validation is unavailable.");
+        throw new Error("Epic-run validation is unavailable.");
       }
       return ensureNativeApi().beads.validateEpicRun(input);
     },
@@ -226,14 +229,14 @@ export function beadsEpicSwarmValidationOptions(
   });
 }
 
-export function beadsEpicSwarmStatusOptions(
+export function beadsEpicTrackerStatusOptions(
   input: (BeadsEpicIssueInput & { enabled?: boolean }) | null,
 ) {
   return queryOptions({
-    queryKey: beadsQueryKeys.epicSwarmStatus(input?.cwd ?? null, input?.epicIssueId ?? null),
+    queryKey: beadsQueryKeys.epicTrackerStatus(input?.cwd ?? null, input?.epicIssueId ?? null),
     queryFn: async (): Promise<BeadsEpicTrackerStatus> => {
       if (!input) {
-        throw new Error("Epic swarm status is unavailable.");
+        throw new Error("Epic tracker status is unavailable.");
       }
       return ensureNativeApi().beads.getEpicTrackerStatus(input);
     },
@@ -242,11 +245,11 @@ export function beadsEpicSwarmStatusOptions(
   });
 }
 
-export function beadsListSwarmsOptions(
+export function beadsListEpicTrackerSummariesOptions(
   input: BeadsListEpicTrackerSummariesInput & { enabled?: boolean },
 ) {
   return queryOptions({
-    queryKey: beadsQueryKeys.swarms(input),
+    queryKey: beadsQueryKeys.epicTrackerSummaries(input),
     queryFn: async () => ensureNativeApi().beads.listEpicTrackerSummaries(input),
     enabled: (input.enabled ?? true) && input.cwd.length > 0,
     staleTime: 5_000,

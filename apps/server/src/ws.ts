@@ -760,7 +760,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               Schema.is(BeadsError)(cause)
                 ? cause
                 : new BeadsError({
-                    message: "Failed to load beads swarm support",
+                    message: "Failed to load epic-run support",
                     cause,
                   }),
             ),
@@ -790,7 +790,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               Schema.is(BeadsError)(cause)
                 ? cause
                 : new BeadsError({
-                    message: "Failed to load epic swarm summary",
+                    message: "Failed to load epic tracker summary",
                     cause,
                   }),
             ),
@@ -805,7 +805,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               Schema.is(BeadsError)(cause)
                 ? cause
                 : new BeadsError({
-                    message: "Failed to validate epic swarm",
+                    message: "Failed to validate epic run",
                     cause,
                   }),
             ),
@@ -820,7 +820,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               Schema.is(BeadsError)(cause)
                 ? cause
                 : new BeadsError({
-                    message: "Failed to load epic swarm status",
+                    message: "Failed to load epic tracker status",
                     cause,
                   }),
             ),
@@ -835,7 +835,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               Schema.is(BeadsError)(cause)
                 ? cause
                 : new BeadsError({
-                    message: "Failed to list swarms",
+                    message: "Failed to list epic tracker summaries",
                     cause,
                   }),
             ),

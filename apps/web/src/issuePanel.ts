@@ -397,10 +397,10 @@ export function partitionCoordinatorEpics<T extends object>(
 }
 
 export function partitionCoordinatorTrackerEpics(
-  swarms: ReadonlyArray<BeadsEpicTrackerSummary>,
+  trackerSummaries: ReadonlyArray<BeadsEpicTrackerSummary>,
 ): CoordinatorTrackerEpicSections {
-  const runningEpics = swarms
-    .filter((swarm) => swarm.activeWorkerCount > 0)
+  const runningEpics = trackerSummaries
+    .filter((trackerSummary) => trackerSummary.activeWorkerCount > 0)
     .toSorted((left, right) => {
       const activeWorkersDelta = right.activeWorkerCount - left.activeWorkerCount;
       if (activeWorkersDelta !== 0) {
@@ -413,8 +413,11 @@ export function partitionCoordinatorTrackerEpics(
       return left.epicTitle.localeCompare(right.epicTitle);
     });
 
-  const readyToRunEpics = swarms
-    .filter((swarm) => swarm.activeWorkerCount === 0 && swarm.readyIssueCount > 0)
+  const readyToRunEpics = trackerSummaries
+    .filter(
+      (trackerSummary) =>
+        trackerSummary.activeWorkerCount === 0 && trackerSummary.readyIssueCount > 0,
+    )
     .toSorted((left, right) => {
       const readyDelta = right.readyIssueCount - left.readyIssueCount;
       if (readyDelta !== 0) {

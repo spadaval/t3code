@@ -589,14 +589,15 @@ export function deriveEpicTrackerProgress(input: {
         Partial<Pick<BeadsEpicTrackerStatus, "blockedBreakdown">>)
     | null;
 }): EpicTrackerProgressState {
-  const swarm = input.status?.trackerSummary ?? input.validation?.trackerSummary ?? null;
+  const trackerSummary = input.status?.trackerSummary ?? input.validation?.trackerSummary ?? null;
   const executionBlocking = deriveExecutionBlocking(input.status);
-  const totalIssueCount = swarm?.totalIssueCount ?? 0;
-  const completedIssueCount = swarm?.completedIssueCount ?? input.status?.completed.length ?? 0;
-  const readyIssueCount = swarm?.readyIssueCount ?? input.status?.ready.length ?? 0;
-  const activeIssueCount = swarm?.activeIssueCount ?? input.status?.active.length ?? 0;
-  const blockedIssueCount = swarm?.blockedIssueCount ?? input.status?.blocked.length ?? 0;
-  const activeWorkerCount = swarm?.activeWorkerCount ?? 0;
+  const totalIssueCount = trackerSummary?.totalIssueCount ?? 0;
+  const completedIssueCount =
+    trackerSummary?.completedIssueCount ?? input.status?.completed.length ?? 0;
+  const readyIssueCount = trackerSummary?.readyIssueCount ?? input.status?.ready.length ?? 0;
+  const activeIssueCount = trackerSummary?.activeIssueCount ?? input.status?.active.length ?? 0;
+  const blockedIssueCount = trackerSummary?.blockedIssueCount ?? input.status?.blocked.length ?? 0;
+  const activeWorkerCount = trackerSummary?.activeWorkerCount ?? 0;
 
   return {
     totalIssueCount,

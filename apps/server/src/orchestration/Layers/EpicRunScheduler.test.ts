@@ -241,7 +241,7 @@ describe("EpicRunScheduler", () => {
     );
 
     expect(started.status).toBe("running");
-    expect(harness.getCreateEpicSwarmCallCount()).toBe(1);
+    expect(harness.getInitializeEpicTrackerCallCount()).toBe(1);
 
     const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
     expect(snapshot.epicRuns).toHaveLength(1);
@@ -269,7 +269,7 @@ describe("EpicRunScheduler", () => {
         }),
       ),
     ).rejects.toThrow("Cannot start epic run for EPIC-1: Swarm graph is invalid.");
-    expect(harness.getCreateEpicSwarmCallCount()).toBe(0);
+    expect(harness.getInitializeEpicTrackerCallCount()).toBe(0);
   });
 
   it("does not auto-create a swarm when one already exists", async () => {
@@ -283,7 +283,7 @@ describe("EpicRunScheduler", () => {
       }),
     );
 
-    expect(harness.getCreateEpicSwarmCallCount()).toBe(0);
+    expect(harness.getInitializeEpicTrackerCallCount()).toBe(0);
   });
 
   it("preserves explicit swarm creation failures when auto-create cannot recover", async () => {
@@ -300,9 +300,9 @@ describe("EpicRunScheduler", () => {
         },
       }),
       {
-        createEpicSwarmMode: "fail",
-        createEpicSwarmErrorMessage:
-          "Failed to initialize epic-run tracker state for EPIC-1: swarm was still missing after create completed.",
+        initializeEpicTrackerMode: "fail",
+        initializeEpicTrackerErrorMessage:
+          "Failed to initialize epic-run tracker state for EPIC-1: epic tracker was still missing after initialization completed.",
       },
     );
 
@@ -315,9 +315,9 @@ describe("EpicRunScheduler", () => {
         }),
       ),
     ).rejects.toThrow(
-      "Failed to initialize epic-run tracker state for EPIC-1: swarm was still missing after create completed.",
+      "Failed to initialize epic-run tracker state for EPIC-1: epic tracker was still missing after initialization completed.",
     );
-    expect(harness.getCreateEpicSwarmCallCount()).toBe(1);
+    expect(harness.getInitializeEpicTrackerCallCount()).toBe(1);
   });
 
   it("blocks a running swarm when no ready issue remains and blocked work exists", async () => {

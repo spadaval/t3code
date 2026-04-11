@@ -423,7 +423,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const listSwarmRunRows = SqlSchema.findAll({
+  const listEpicRunRows = SqlSchema.findAll({
     Request: Schema.Void,
     Result: ProjectionEpicRunDbRowSchema,
     execute: () =>
@@ -452,7 +452,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const listSwarmTaskExecutionRows = SqlSchema.findAll({
+  const listEpicIssueExecutionRows = SqlSchema.findAll({
     Request: Schema.Void,
     Result: ProjectionEpicIssueExecutionDbRowSchema,
     execute: () =>
@@ -685,19 +685,19 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 ),
               ),
             ),
-            listSwarmRunRows(undefined).pipe(
+            listEpicRunRows(undefined).pipe(
               Effect.mapError(
                 toPersistenceSqlOrDecodeError(
-                  "ProjectionSnapshotQuery.getSnapshot:listSwarmRuns:query",
-                  "ProjectionSnapshotQuery.getSnapshot:listSwarmRuns:decodeRows",
+                  "ProjectionSnapshotQuery.getSnapshot:listEpicRuns:query",
+                  "ProjectionSnapshotQuery.getSnapshot:listEpicRuns:decodeRows",
                 ),
               ),
             ),
-            listSwarmTaskExecutionRows(undefined).pipe(
+            listEpicIssueExecutionRows(undefined).pipe(
               Effect.mapError(
                 toPersistenceSqlOrDecodeError(
-                  "ProjectionSnapshotQuery.getSnapshot:listSwarmTaskExecutions:query",
-                  "ProjectionSnapshotQuery.getSnapshot:listSwarmTaskExecutions:decodeRows",
+                  "ProjectionSnapshotQuery.getSnapshot:listEpicIssueExecutions:query",
+                  "ProjectionSnapshotQuery.getSnapshot:listEpicIssueExecutions:decodeRows",
                 ),
               ),
             ),

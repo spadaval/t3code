@@ -50,21 +50,21 @@ export function findPlanImplementationLaunchById(
   return readModel.planImplementationLaunches.find((launch) => launch.launchId === launchId);
 }
 
-export function findSwarmRunById(
+export function findEpicRunById(
   readModel: OrchestrationReadModel,
   runId: EpicRunId,
 ): OrchestrationEpicRun | undefined {
   return readModel.epicRuns.find((run) => run.runId === runId);
 }
 
-export function findSwarmTaskExecutionById(
+export function findEpicIssueExecutionById(
   readModel: OrchestrationReadModel,
   executionId: EpicIssueExecutionId,
 ): OrchestrationEpicIssueExecution | undefined {
   return readModel.epicIssueExecutions.find((execution) => execution.executionId === executionId);
 }
 
-const SWARM_RUN_ALLOWED_TRANSITIONS = {
+const EPIC_RUN_ALLOWED_TRANSITIONS = {
   "epic-run.mark-started": ["pending"],
   "epic-run.fail": ["pending", "running", "stopping"],
   "epic-run.stop": ["pending", "running", "stopping"],
@@ -78,7 +78,7 @@ const SWARM_RUN_ALLOWED_TRANSITIONS = {
   Record<OrchestrationCommand["type"], ReadonlyArray<OrchestrationEpicRunStatus>>
 >;
 
-const SWARM_TASK_EXECUTION_ALLOWED_TRANSITIONS = {
+const EPIC_ISSUE_EXECUTION_ALLOWED_TRANSITIONS = {
   "epic-issue-execution.start": ["launching"],
   "epic-issue-execution.complete": ["launching", "running", "stopping"],
   "epic-issue-execution.fail": ["launching", "running", "stopping"],
@@ -270,12 +270,12 @@ export function requirePlanImplementationLaunchAbsent(input: {
   );
 }
 
-export function requireSwarmRun(input: {
+export function requireEpicRun(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
   readonly runId: EpicRunId;
 }): Effect.Effect<OrchestrationEpicRun, OrchestrationCommandInvariantError> {
-  const run = findSwarmRunById(input.readModel, input.runId);
+  const run = findEpicRunById(input.readModel, input.runId);
   if (run) {
     return Effect.succeed(run);
   }
@@ -287,12 +287,12 @@ export function requireSwarmRun(input: {
   );
 }
 
-export function requireSwarmRunAbsent(input: {
+export function requireEpicRunAbsent(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
   readonly runId: EpicRunId;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
-  if (!findSwarmRunById(input.readModel, input.runId)) {
+  if (!findEpicRunById(input.readModel, input.runId)) {
     return Effect.void;
   }
   return Effect.fail(
@@ -362,12 +362,12 @@ export function requireNoConflictingSharedWorkspaceRun(input: {
   );
 }
 
-export function requireSwarmTaskExecution(input: {
+export function requireEpicIssueExecution(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
   readonly executionId: EpicIssueExecutionId;
 }): Effect.Effect<OrchestrationEpicIssueExecution, OrchestrationCommandInvariantError> {
-  const execution = findSwarmTaskExecutionById(input.readModel, input.executionId);
+  const execution = findEpicIssueExecutionById(input.readModel, input.executionId);
   if (execution) {
     return Effect.succeed(execution);
   }
@@ -379,12 +379,12 @@ export function requireSwarmTaskExecution(input: {
   );
 }
 
-export function requireSwarmTaskExecutionAbsent(input: {
+export function requireEpicIssueExecutionAbsent(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
   readonly executionId: EpicIssueExecutionId;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
-  if (!findSwarmTaskExecutionById(input.readModel, input.executionId)) {
+  if (!findEpicIssueExecutionById(input.readModel, input.executionId)) {
     return Effect.void;
   }
   return Effect.fail(
@@ -395,27 +395,25 @@ export function requireSwarmTaskExecutionAbsent(input: {
   );
 }
 
-export function isAllowedSwarmRunStatusTransition(input: {
+export function isAllowedEpicRunStatusTransition(input: {
   readonly commandType: OrchestrationCommand["type"];
   readonly status: OrchestrationEpicRunStatus;
 }): boolean {
   const allowed =
-    input.commandType in SWARM_RUN_ALLOWED_TRANSITIONS
-      ? SWARM_RUN_ALLOWED_TRANSITIONS[
-          input.commandType as keyof typeof SWARM_RUN_ALLOWED_TRANSITIONS
-        ]
+    input.commandType in EPIC_RUN_ALLOWED_TRANSITIONS
+      ? EPIC_RUN_ALLOWED_TRANSITIONS[input.commandType as keyof typeof EPIC_RUN_ALLOWED_TRANSITIONS]
       : undefined;
   return allowed
     ? (allowed as ReadonlyArray<OrchestrationEpicRunStatus>).includes(input.status)
     : true;
 }
 
-export function requireSwarmRunStatusTransition(input: {
+export function requireEpicRunStatusTransition(input: {
   readonly command: OrchestrationCommand;
   readonly run: OrchestrationEpicRun;
 }): Effect.Effect<OrchestrationEpicRun, OrchestrationCommandInvariantError> {
   if (
-    isAllowedSwarmRunStatusTransition({
+    isAllowedEpicRunStatusTransition({
       commandType: input.command.type,
       status: input.run.status,
     })
@@ -431,14 +429,14 @@ export function requireSwarmRunStatusTransition(input: {
   );
 }
 
-export function requireSwarmRunInAllowedStatus(input: {
+export function requireEpicRunInAllowedStatus(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
   readonly runId: EpicRunId;
 }): Effect.Effect<OrchestrationEpicRun, OrchestrationCommandInvariantError> {
-  return requireSwarmRun(input).pipe(
+  return requireEpicRun(input).pipe(
     Effect.flatMap((run) =>
-      requireSwarmRunStatusTransition({
+      requireEpicRunStatusTransition({
         command: input.command,
         run,
       }),
@@ -446,7 +444,7 @@ export function requireSwarmRunInAllowedStatus(input: {
   );
 }
 
-function getCurrentSwarmTaskExecutionForRun(
+function getCurrentEpicIssueExecutionForRun(
   readModel: OrchestrationReadModel,
   runId: EpicRunId,
 ): OrchestrationEpicIssueExecution | null {
@@ -456,14 +454,14 @@ function getCurrentSwarmTaskExecutionForRun(
   }).currentExecution;
 }
 
-export function requireSwarmRunWithoutCurrentExecution(input: {
+export function requireEpicRunWithoutCurrentExecution(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
   readonly runId: EpicRunId;
 }): Effect.Effect<OrchestrationEpicRun, OrchestrationCommandInvariantError> {
-  return requireSwarmRunInAllowedStatus(input).pipe(
+  return requireEpicRunInAllowedStatus(input).pipe(
     Effect.flatMap((run) => {
-      const currentExecution = getCurrentSwarmTaskExecutionForRun(input.readModel, input.runId);
+      const currentExecution = getCurrentEpicIssueExecutionForRun(input.readModel, input.runId);
       if (currentExecution === null) {
         return Effect.succeed(run);
       }
@@ -478,14 +476,14 @@ export function requireSwarmRunWithoutCurrentExecution(input: {
   );
 }
 
-export function isAllowedSwarmTaskExecutionStatusTransition(input: {
+export function isAllowedEpicIssueExecutionStatusTransition(input: {
   readonly commandType: OrchestrationCommand["type"];
   readonly status: OrchestrationEpicIssueExecutionStatus;
 }): boolean {
   const allowed =
-    input.commandType in SWARM_TASK_EXECUTION_ALLOWED_TRANSITIONS
-      ? SWARM_TASK_EXECUTION_ALLOWED_TRANSITIONS[
-          input.commandType as keyof typeof SWARM_TASK_EXECUTION_ALLOWED_TRANSITIONS
+    input.commandType in EPIC_ISSUE_EXECUTION_ALLOWED_TRANSITIONS
+      ? EPIC_ISSUE_EXECUTION_ALLOWED_TRANSITIONS[
+          input.commandType as keyof typeof EPIC_ISSUE_EXECUTION_ALLOWED_TRANSITIONS
         ]
       : undefined;
   return allowed
@@ -493,13 +491,13 @@ export function isAllowedSwarmTaskExecutionStatusTransition(input: {
     : true;
 }
 
-export function requireSwarmTaskExecutionForRunInAllowedStatus(input: {
+export function requireEpicIssueExecutionForRunInAllowedStatus(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
   readonly executionId: EpicIssueExecutionId;
   readonly runId: EpicRunId;
 }): Effect.Effect<OrchestrationEpicIssueExecution, OrchestrationCommandInvariantError> {
-  return requireSwarmTaskExecution(input).pipe(
+  return requireEpicIssueExecution(input).pipe(
     Effect.flatMap((execution) => {
       if (execution.runId !== input.runId) {
         return Effect.fail(
@@ -511,7 +509,7 @@ export function requireSwarmTaskExecutionForRunInAllowedStatus(input: {
       }
 
       if (
-        isAllowedSwarmTaskExecutionStatusTransition({
+        isAllowedEpicIssueExecutionStatusTransition({
           commandType: input.command.type,
           status: execution.status,
         })
@@ -529,15 +527,15 @@ export function requireSwarmTaskExecutionForRunInAllowedStatus(input: {
   );
 }
 
-export function requireCurrentSwarmTaskExecutionForRunInAllowedStatus(input: {
+export function requireCurrentEpicIssueExecutionForRunInAllowedStatus(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: OrchestrationCommand;
   readonly executionId: EpicIssueExecutionId;
   readonly runId: EpicRunId;
 }): Effect.Effect<OrchestrationEpicIssueExecution, OrchestrationCommandInvariantError> {
-  return requireSwarmTaskExecutionForRunInAllowedStatus(input).pipe(
+  return requireEpicIssueExecutionForRunInAllowedStatus(input).pipe(
     Effect.flatMap((execution) => {
-      const currentExecution = getCurrentSwarmTaskExecutionForRun(input.readModel, input.runId);
+      const currentExecution = getCurrentEpicIssueExecutionForRun(input.readModel, input.runId);
       if (currentExecution === null) {
         return Effect.fail(
           invariantError(

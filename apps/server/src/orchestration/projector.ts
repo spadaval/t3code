@@ -104,7 +104,7 @@ function updateLaunch(
   );
 }
 
-function updateSwarmRun(
+function updateEpicRun(
   runs: ReadonlyArray<OrchestrationEpicRun>,
   runId: OrchestrationEpicRun["runId"],
   updater: ((run: OrchestrationEpicRun) => OrchestrationEpicRun) | Partial<OrchestrationEpicRun>,
@@ -118,7 +118,7 @@ function updateSwarmRun(
   );
 }
 
-function updateSwarmTaskExecution(
+function updateEpicIssueExecution(
   executions: ReadonlyArray<OrchestrationEpicIssueExecution>,
   executionId: OrchestrationEpicIssueExecution["executionId"],
   updater:
@@ -970,7 +970,7 @@ export function projectEvent(
       return decodeForEvent(EpicRunStartedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
+          epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, (run) =>
             applyEpicRunLifecycleEvent(run, { ...event, payload }),
           ),
         })),
@@ -980,7 +980,7 @@ export function projectEvent(
       return decodeForEvent(EpicRunFailedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
+          epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, (run) =>
             applyEpicRunLifecycleEvent(run, { ...event, payload }),
           ),
         })),
@@ -990,7 +990,7 @@ export function projectEvent(
       return decodeForEvent(EpicRunStoppedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
+          epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, (run) =>
             applyEpicRunLifecycleEvent(run, { ...event, payload }),
           ),
         })),
@@ -1000,7 +1000,7 @@ export function projectEvent(
       return decodeForEvent(EpicRunCompletedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, (run) =>
+          epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, (run) =>
             applyEpicRunLifecycleEvent(run, { ...event, payload }),
           ),
         })),
@@ -1018,7 +1018,7 @@ export function projectEvent(
 
           return {
             ...nextBase,
-            epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, {
+            epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, {
               updatedAt: payload.updatedAt,
             }),
             epicIssueExecutions: [
@@ -1050,7 +1050,7 @@ export function projectEvent(
 
           return {
             ...nextBase,
-            epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, {
+            epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, {
               updatedAt: payload.updatedAt,
             }),
             epicIssueExecutions: [
@@ -1072,10 +1072,10 @@ export function projectEvent(
       ).pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, {
+          epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, {
             updatedAt: payload.updatedAt,
           }),
-          epicIssueExecutions: updateSwarmTaskExecution(
+          epicIssueExecutions: updateEpicIssueExecution(
             nextBase.epicIssueExecutions,
             payload.executionId,
             (execution) => applyEpicIssueExecutionLifecycleEvent(execution, { ...event, payload }),
@@ -1092,10 +1092,10 @@ export function projectEvent(
       ).pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, {
+          epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, {
             updatedAt: payload.updatedAt,
           }),
-          epicIssueExecutions: updateSwarmTaskExecution(
+          epicIssueExecutions: updateEpicIssueExecution(
             nextBase.epicIssueExecutions,
             payload.executionId,
             (execution) => applyEpicIssueExecutionLifecycleEvent(execution, { ...event, payload }),
@@ -1112,10 +1112,10 @@ export function projectEvent(
       ).pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          epicRuns: updateSwarmRun(nextBase.epicRuns, payload.runId, {
+          epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, {
             updatedAt: payload.updatedAt,
           }),
-          epicIssueExecutions: updateSwarmTaskExecution(
+          epicIssueExecutions: updateEpicIssueExecution(
             nextBase.epicIssueExecutions,
             payload.executionId,
             (execution) => applyEpicIssueExecutionLifecycleEvent(execution, { ...event, payload }),

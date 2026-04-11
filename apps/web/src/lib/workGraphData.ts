@@ -25,7 +25,7 @@ export type WorkGraphBlockedBy = "internal" | "external" | "unknown" | null;
 export type WorkGraphIssueNode = {
   /** The underlying issue summary. */
   readonly issue: BeadsIssueRelationSummary;
-  /** Derived status from the swarm status buckets. */
+  /** Derived status from the tracker-status buckets. */
   readonly status: WorkGraphIssueStatus;
   /** Wave index (0-based) from readyFronts, or null for completed/unscheduled issues. */
   readonly waveIndex: number | null;

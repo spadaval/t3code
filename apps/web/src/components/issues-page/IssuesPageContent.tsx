@@ -7,9 +7,9 @@ import { GitBranchIcon, KanbanIcon, LayoutListIcon } from "lucide-react";
 import {
   ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
   beadsContextOptions,
+  beadsEpicRunSupportOptions,
   beadsProjectCoordinatorSnapshotOptions,
   beadsQueryIssuesOptions,
-  beadsSwarmSupportOptions,
 } from "~/lib/beadsReactQuery";
 import { issueStatusesForVisibility } from "~/lib/issuePanelLogic";
 import { parseIssuesRouteSearch } from "~/issuesRouteSearch";
@@ -52,7 +52,7 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
   useQuery(beadsContextOptions(cwd ? { cwd } : null));
 
   const coordinationSupportQuery = useQuery(
-    beadsSwarmSupportOptions({ cwd, enabled: cwd !== null }),
+    beadsEpicRunSupportOptions({ cwd, enabled: cwd !== null }),
   );
 
   const coordinatorQuery = useQuery(

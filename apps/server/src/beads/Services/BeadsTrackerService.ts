@@ -64,7 +64,7 @@ export interface BeadsTrackerServiceShape {
     cwd: string;
     support: BeadsEpicRunSupport;
   }) => Effect.Effect<BeadsListEpicTrackerSummariesResult, BeadsError>;
-  readonly createEpicSwarm: (
+  readonly initializeEpicTracker: (
     input: BeadsEpicIssueInput,
   ) => Effect.Effect<BeadsEpicTrackerSummary, BeadsError>;
   readonly loadEpicCoordinatorTrackerState: (input: {
@@ -72,7 +72,7 @@ export interface BeadsTrackerServiceShape {
     epicIssueId: string;
     support: BeadsEpicRunSupport;
     issueSummary?: BeadsIssueSummary | null;
-    swarmSummary?: BeadsEpicTrackerSummary | null;
+    trackerSummary?: BeadsEpicTrackerSummary | null;
   }) => Effect.Effect<
     {
       readonly issueSummary: BeadsIssueSummary | null;

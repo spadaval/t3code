@@ -8,17 +8,17 @@ import { Effect } from "effect";
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
   requireActionableProposedPlan,
+  requireCurrentEpicIssueExecutionForRunInAllowedStatus,
   requireNoConflictingSharedWorkspaceRun,
   requireNoNonTerminalRunForEpic,
-  requireCurrentSwarmTaskExecutionForRunInAllowedStatus,
   requirePlanImplementationLaunch,
   requirePlanImplementationLaunchAbsent,
   requireProject,
   requireProjectAbsent,
-  requireSwarmRunInAllowedStatus,
-  requireSwarmRunAbsent,
-  requireSwarmTaskExecutionAbsent,
-  requireSwarmRunWithoutCurrentExecution,
+  requireEpicIssueExecutionAbsent,
+  requireEpicRunAbsent,
+  requireEpicRunInAllowedStatus,
+  requireEpicRunWithoutCurrentExecution,
   requireThread,
   requireThreadArchived,
   requireThreadAbsent,
@@ -856,7 +856,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "epic-run.request": {
-      yield* requireSwarmRunAbsent({
+      yield* requireEpicRunAbsent({
         readModel,
         command,
         runId: command.runId,
@@ -902,7 +902,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "epic-run.mark-started": {
-      yield* requireSwarmRunInAllowedStatus({
+      yield* requireEpicRunInAllowedStatus({
         readModel,
         command,
         runId: command.runId,
@@ -924,7 +924,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "epic-run.fail": {
-      yield* requireSwarmRunInAllowedStatus({
+      yield* requireEpicRunInAllowedStatus({
         readModel,
         command,
         runId: command.runId,
@@ -947,7 +947,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "epic-run.stop": {
-      yield* requireSwarmRunWithoutCurrentExecution({
+      yield* requireEpicRunWithoutCurrentExecution({
         readModel,
         command,
         runId: command.runId,
@@ -969,7 +969,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "epic-run.complete": {
-      yield* requireSwarmRunWithoutCurrentExecution({
+      yield* requireEpicRunWithoutCurrentExecution({
         readModel,
         command,
         runId: command.runId,
@@ -991,12 +991,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "epic-issue-execution.request": {
-      yield* requireSwarmRunWithoutCurrentExecution({
+      yield* requireEpicRunWithoutCurrentExecution({
         readModel,
         command,
         runId: command.runId,
       });
-      yield* requireSwarmTaskExecutionAbsent({
+      yield* requireEpicIssueExecutionAbsent({
         readModel,
         command,
         executionId: command.executionId,
@@ -1022,7 +1022,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "epic-issue-execution.start": {
-      yield* requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
+      yield* requireCurrentEpicIssueExecutionForRunInAllowedStatus({
         readModel,
         command,
         executionId: command.executionId,
@@ -1046,7 +1046,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "epic-issue-execution.complete": {
-      yield* requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
+      yield* requireCurrentEpicIssueExecutionForRunInAllowedStatus({
         readModel,
         command,
         executionId: command.executionId,
@@ -1070,7 +1070,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "epic-issue-execution.fail": {
-      yield* requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
+      yield* requireCurrentEpicIssueExecutionForRunInAllowedStatus({
         readModel,
         command,
         executionId: command.executionId,
@@ -1095,7 +1095,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "epic-issue-execution.stop": {
-      yield* requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
+      yield* requireCurrentEpicIssueExecutionForRunInAllowedStatus({
         readModel,
         command,
         executionId: command.executionId,

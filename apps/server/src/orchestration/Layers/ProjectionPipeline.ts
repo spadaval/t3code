@@ -383,8 +383,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionThreadRepository = yield* ProjectionThreadRepository;
     const projectionPlanImplementationLaunchRepository =
       yield* ProjectionPlanImplementationLaunchRepository;
-    const projectionSwarmRunRepository = yield* ProjectionEpicRunRepository;
-    const projectionSwarmTaskExecutionRepository = yield* ProjectionEpicIssueExecutionRepository;
+    const projectionEpicRunRepository = yield* ProjectionEpicRunRepository;
+    const projectionEpicIssueExecutionRepository = yield* ProjectionEpicIssueExecutionRepository;
     const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
     const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
     const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
@@ -748,12 +748,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       }
     });
 
-    const applySwarmRunsProjection: ProjectorDefinition["apply"] = Effect.fn(
-      "applySwarmRunsProjection",
+    const applyEpicRunsProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyEpicRunsProjection",
     )(function* (event, _attachmentSideEffects) {
       switch (event.type) {
         case "epic-run.requested":
-          yield* projectionSwarmRunRepository.upsert({
+          yield* projectionEpicRunRepository.upsert({
             runId: event.payload.runId,
             projectId: event.payload.projectId,
             epicIssueId: event.payload.epicIssueId,
@@ -779,7 +779,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         case "epic-run.failed":
         case "epic-run.stopped":
         case "epic-run.completed": {
-          const existingRow = yield* projectionSwarmRunRepository.getById({
+          const existingRow = yield* projectionEpicRunRepository.getById({
             runId: event.payload.runId,
           });
           if (Option.isNone(existingRow)) {
@@ -788,7 +788,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
 
           switch (event.type) {
             case "epic-run.started":
-              yield* projectionSwarmRunRepository.upsert({
+              yield* projectionEpicRunRepository.upsert({
                 ...existingRow.value,
                 status: "running",
                 startedAt: event.payload.startedAt,
@@ -798,7 +798,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               return;
 
             case "epic-run.failed":
-              yield* projectionSwarmRunRepository.upsert({
+              yield* projectionEpicRunRepository.upsert({
                 ...existingRow.value,
                 status: "failed",
                 failureContext: createEpicRunFailureContext({
@@ -810,7 +810,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               return;
 
             case "epic-run.stopped":
-              yield* projectionSwarmRunRepository.upsert({
+              yield* projectionEpicRunRepository.upsert({
                 ...existingRow.value,
                 status: "stopped",
                 failureContext: null,
@@ -821,7 +821,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               return;
 
             case "epic-run.completed":
-              yield* projectionSwarmRunRepository.upsert({
+              yield* projectionEpicRunRepository.upsert({
                 ...existingRow.value,
                 status: "completed",
                 failureContext: null,
@@ -839,14 +839,14 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         case "epic-issue-execution.completed":
         case "epic-issue-execution.failed":
         case "epic-issue-execution.stopped": {
-          const existingRow = yield* projectionSwarmRunRepository.getById({
+          const existingRow = yield* projectionEpicRunRepository.getById({
             runId: event.payload.runId,
           });
           if (Option.isNone(existingRow)) {
             return;
           }
 
-          yield* projectionSwarmRunRepository.upsert({
+          yield* projectionEpicRunRepository.upsert({
             ...existingRow.value,
             updatedAt: event.payload.updatedAt,
           });
@@ -858,12 +858,12 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       }
     });
 
-    const applySwarmTaskExecutionsProjection: ProjectorDefinition["apply"] = Effect.fn(
-      "applySwarmTaskExecutionsProjection",
+    const applyEpicIssueExecutionsProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyEpicIssueExecutionsProjection",
     )(function* (event, _attachmentSideEffects) {
       switch (event.type) {
         case "epic-issue-execution.requested":
-          yield* projectionSwarmTaskExecutionRepository.upsert({
+          yield* projectionEpicIssueExecutionRepository.upsert({
             executionId: event.payload.executionId,
             runId: event.payload.runId,
             issueId: event.payload.issueId,
@@ -884,10 +884,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
 
         case "epic-issue-execution.started": {
-          const existingRow = yield* projectionSwarmTaskExecutionRepository.getById({
+          const existingRow = yield* projectionEpicIssueExecutionRepository.getById({
             executionId: event.payload.executionId,
           });
-          yield* projectionSwarmTaskExecutionRepository.upsert({
+          yield* projectionEpicIssueExecutionRepository.upsert({
             executionId: event.payload.executionId,
             runId: event.payload.runId,
             issueId: Option.match(existingRow, {
@@ -941,7 +941,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         case "epic-issue-execution.completed":
         case "epic-issue-execution.failed":
         case "epic-issue-execution.stopped": {
-          const existingRow = yield* projectionSwarmTaskExecutionRepository.getById({
+          const existingRow = yield* projectionEpicIssueExecutionRepository.getById({
             executionId: event.payload.executionId,
           });
           if (Option.isNone(existingRow)) {
@@ -950,7 +950,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
 
           switch (event.type) {
             case "epic-issue-execution.completed":
-              yield* projectionSwarmTaskExecutionRepository.upsert({
+              yield* projectionEpicIssueExecutionRepository.upsert({
                 ...existingRow.value,
                 status: "completed",
                 failureContext: null,
@@ -962,7 +962,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               return;
 
             case "epic-issue-execution.failed":
-              yield* projectionSwarmTaskExecutionRepository.upsert({
+              yield* projectionEpicIssueExecutionRepository.upsert({
                 ...existingRow.value,
                 status: "failed",
                 failureContext: createEpicRunFailureContext({
@@ -977,7 +977,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
               return;
 
             case "epic-issue-execution.stopped":
-              yield* projectionSwarmTaskExecutionRepository.upsert({
+              yield* projectionEpicIssueExecutionRepository.upsert({
                 ...existingRow.value,
                 status: "stopped",
                 failureContext: null,
@@ -1605,11 +1605,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       },
       {
         name: ORCHESTRATION_PROJECTOR_NAMES.epicRuns,
-        apply: applySwarmRunsProjection,
+        apply: applyEpicRunsProjection,
       },
       {
         name: ORCHESTRATION_PROJECTOR_NAMES.epicIssueExecutions,
-        apply: applySwarmTaskExecutionsProjection,
+        apply: applyEpicIssueExecutionsProjection,
       },
       {
         name: ORCHESTRATION_PROJECTOR_NAMES.threadMessages,

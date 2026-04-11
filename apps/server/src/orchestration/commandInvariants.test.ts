@@ -13,14 +13,14 @@ import { Effect } from "effect";
 import {
   requireActionableProposedPlan,
   findThreadById,
-  isAllowedSwarmRunStatusTransition,
-  isAllowedSwarmTaskExecutionStatusTransition,
+  isAllowedEpicIssueExecutionStatusTransition,
+  isAllowedEpicRunStatusTransition,
   listThreadsByProjectId,
   requireNonNegativeInteger,
-  requireCurrentSwarmTaskExecutionForRunInAllowedStatus,
-  requireSwarmTaskExecutionForRunInAllowedStatus,
-  requireSwarmRunWithoutCurrentExecution,
-  requireSwarmRunInAllowedStatus,
+  requireCurrentEpicIssueExecutionForRunInAllowedStatus,
+  requireEpicIssueExecutionForRunInAllowedStatus,
+  requireEpicRunInAllowedStatus,
+  requireEpicRunWithoutCurrentExecution,
   requireThread,
   requireThreadAbsent,
 } from "./commandInvariants.ts";
@@ -376,13 +376,13 @@ describe("commandInvariants", () => {
 
   it("checks epic-run status transitions", async () => {
     expect(
-      isAllowedSwarmRunStatusTransition({
+      isAllowedEpicRunStatusTransition({
         commandType: "epic-run.fail",
         status: "running",
       }),
     ).toBe(true);
     expect(
-      isAllowedSwarmRunStatusTransition({
+      isAllowedEpicRunStatusTransition({
         commandType: "epic-run.stop",
         status: "stopped",
       }),
@@ -390,7 +390,7 @@ describe("commandInvariants", () => {
 
     await expect(
       Effect.runPromise(
-        requireSwarmRunInAllowedStatus({
+        requireEpicRunInAllowedStatus({
           readModel,
           command: {
             type: "epic-run.stop",
@@ -406,20 +406,20 @@ describe("commandInvariants", () => {
 
   it("checks epic-run execution run ownership and status transitions", async () => {
     expect(
-      isAllowedSwarmTaskExecutionStatusTransition({
+      isAllowedEpicIssueExecutionStatusTransition({
         commandType: "epic-issue-execution.complete",
         status: "launching",
       }),
     ).toBe(true);
     expect(
-      isAllowedSwarmTaskExecutionStatusTransition({
+      isAllowedEpicIssueExecutionStatusTransition({
         commandType: "epic-issue-execution.complete",
         status: "completed",
       }),
     ).toBe(false);
 
     await Effect.runPromise(
-      requireSwarmTaskExecutionForRunInAllowedStatus({
+      requireEpicIssueExecutionForRunInAllowedStatus({
         readModel,
         command: {
           type: "epic-issue-execution.complete",
@@ -435,7 +435,7 @@ describe("commandInvariants", () => {
 
     await expect(
       Effect.runPromise(
-        requireSwarmTaskExecutionForRunInAllowedStatus({
+        requireEpicIssueExecutionForRunInAllowedStatus({
           readModel,
           command: {
             type: "epic-issue-execution.complete",
@@ -461,7 +461,7 @@ describe("commandInvariants", () => {
 
     await expect(
       Effect.runPromise(
-        requireSwarmRunWithoutCurrentExecution({
+        requireEpicRunWithoutCurrentExecution({
           readModel: readModelWithRunningRun,
           command: {
             type: "epic-run.complete",
@@ -506,7 +506,7 @@ describe("commandInvariants", () => {
 
     await expect(
       Effect.runPromise(
-        requireCurrentSwarmTaskExecutionForRunInAllowedStatus({
+        requireCurrentEpicIssueExecutionForRunInAllowedStatus({
           readModel: readModelWithNewerExecution,
           command: {
             type: "epic-issue-execution.start",
@@ -532,7 +532,7 @@ describe("commandInvariants", () => {
 
     await expect(
       Effect.runPromise(
-        requireSwarmRunWithoutCurrentExecution({
+        requireEpicRunWithoutCurrentExecution({
           readModel: readModelWithPendingRun,
           command: {
             type: "epic-run.complete",
@@ -556,7 +556,7 @@ describe("commandInvariants", () => {
 
     await expect(
       Effect.runPromise(
-        requireSwarmRunInAllowedStatus({
+        requireEpicRunInAllowedStatus({
           readModel: readModelWithStoppedRun,
           command: {
             type: "epic-issue-execution.request",
@@ -575,7 +575,7 @@ describe("commandInvariants", () => {
 
     await expect(
       Effect.runPromise(
-        requireSwarmRunInAllowedStatus({
+        requireEpicRunInAllowedStatus({
           readModel,
           command: {
             type: "epic-issue-execution.request",
@@ -595,19 +595,19 @@ describe("commandInvariants", () => {
 
   it("rejects invalid execution resurrection transitions after terminal states", () => {
     expect(
-      isAllowedSwarmTaskExecutionStatusTransition({
+      isAllowedEpicIssueExecutionStatusTransition({
         commandType: "epic-issue-execution.start",
         status: "running",
       }),
     ).toBe(false);
     expect(
-      isAllowedSwarmTaskExecutionStatusTransition({
+      isAllowedEpicIssueExecutionStatusTransition({
         commandType: "epic-issue-execution.complete",
         status: "failed",
       }),
     ).toBe(false);
     expect(
-      isAllowedSwarmTaskExecutionStatusTransition({
+      isAllowedEpicIssueExecutionStatusTransition({
         commandType: "epic-issue-execution.stop",
         status: "stopped",
       }),
