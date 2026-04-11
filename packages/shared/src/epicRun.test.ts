@@ -501,7 +501,7 @@ describe("swarm", () => {
     ).toBe("blocked");
   });
 
-  it("opens the coordinator for failed runs", () => {
+  it("restarts after failed runs when the tracker is still runnable", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: makeSwarmSupport(),
@@ -525,9 +525,9 @@ describe("swarm", () => {
         fetchLifecycle: { kind: "ready", detail: null },
       }),
     ).toEqual({
-      kind: "open_coordinator",
-      label: "Open epic",
-      busyLabel: "Opening...",
+      kind: "start_epic_run",
+      label: "Start epic",
+      busyLabel: "Starting...",
       disabled: false,
     });
   });
@@ -580,7 +580,7 @@ describe("swarm", () => {
     });
   });
 
-  it("returns stop for running runs and coordinator access for stopped runs", () => {
+  it("returns stop for running runs and restart for stopped runs", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: makeSwarmSupport(),
@@ -617,9 +617,9 @@ describe("swarm", () => {
         fetchLifecycle: { kind: "ready", detail: null },
       }),
     ).toEqual({
-      kind: "open_coordinator",
-      label: "Open epic",
-      busyLabel: "Opening...",
+      kind: "start_epic_run",
+      label: "Start epic",
+      busyLabel: "Starting...",
       disabled: false,
     });
   });

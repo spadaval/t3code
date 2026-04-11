@@ -770,11 +770,20 @@ export function getEpicCoordinatorPrimaryAction(input: {
   readonly hasProjectConflict: boolean;
   readonly fetchLifecycle: EpicRunCoordinatorFetchLifecycle;
 }): EpicCoordinatorPrimaryAction {
-  const state = deriveEpicCoordinatorState(input);
+  const latestRun = selectLatestEpicRun(input.epicRuns);
+  const activeRun = findActiveEpicRun(input.epicRuns);
+  const trackerSummary = input.status?.swarm ?? input.validation?.swarm ?? null;
+  const trackerIsComplete =
+    trackerSummary !== null &&
+    trackerSummary.totalIssueCount > 0 &&
+    trackerSummary.completedIssueCount >= trackerSummary.totalIssueCount &&
+    trackerSummary.readyIssueCount === 0 &&
+    trackerSummary.activeIssueCount === 0 &&
+    trackerSummary.blockedIssueCount === 0;
   const executionBlocking = deriveExecutionBlocking(input.status);
 
-  switch (state.kind) {
-    case "checking":
+  switch (input.fetchLifecycle.kind) {
+    case "loading":
       return {
         kind: "checking",
         label: "Checking epic...",
@@ -802,79 +811,98 @@ export function getEpicCoordinatorPrimaryAction(input: {
         busyLabel: "Retrying...",
         disabled: false,
       };
-    case "unsupported":
-      return {
-        kind: "unsupported",
-        label: "Epic coordination unavailable",
-        busyLabel: "Epic coordination unavailable",
-        disabled: true,
-      };
-    case "needs_preparation":
-      return {
-        kind: "open_coordination_prep_thread",
-        label: "Open prep thread",
-        busyLabel: "Opening...",
-        disabled: false,
-      };
     case "ready":
-      if (input.hasProjectConflict) {
+      break;
+  }
+
+  if (input.coordinationSupport?.supported !== true) {
+    return {
+      kind: "unsupported",
+      label: "Epic coordination unavailable",
+      busyLabel: "Epic coordination unavailable",
+      disabled: true,
+    };
+  }
+
+  if (input.validation?.valid === false) {
+    return {
+      kind: "open_coordination_prep_thread",
+      label: "Open prep thread",
+      busyLabel: "Opening...",
+      disabled: false,
+    };
+  }
+
+  if (input.hasProjectConflict) {
+    return {
+      kind: "open_coordinator",
+      label: "View active epic",
+      busyLabel: "Opening...",
+      disabled: false,
+    };
+  }
+
+  if (activeRun !== null) {
+    switch (activeRun.status) {
+      case "running":
         return {
-          kind: "open_coordinator",
-          label: "View active epic",
-          busyLabel: "Opening...",
+          kind: "stop_epic_run",
+          label: "Stop run",
+          busyLabel: "Stopping...",
           disabled: false,
         };
-      }
-      if (executionBlocking.hasExecutionBlockingIssues) {
+      case "pending":
+      case "stopping":
         return {
           kind: "open_coordinator",
           label: "Open epic",
           busyLabel: "Opening...",
           disabled: false,
         };
-      }
-      return {
-        kind: "start_epic_run",
-        label: "Start epic",
-        busyLabel: "Starting...",
-        disabled: false,
-      };
-    case "running":
-      return {
-        kind: "stop_epic_run",
-        label: "Stop run",
-        busyLabel: "Stopping...",
-        disabled: false,
-      };
-    case "stopping":
-      return {
-        kind: "open_coordinator",
-        label: "Open epic",
-        busyLabel: "Opening...",
-        disabled: false,
-      };
-    case "stopped":
-      return {
-        kind: "open_coordinator",
-        label: input.hasProjectConflict ? "View active epic" : "Open epic",
-        busyLabel: "Opening...",
-        disabled: false,
-      };
-    case "failed":
-      return {
-        kind: "open_coordinator",
-        label: "Open epic",
-        busyLabel: "Opening...",
-        disabled: false,
-      };
-    case "completed":
-      return {
-        kind: "open_coordinator",
-        label: "Open epic",
-        busyLabel: "Opening...",
-        disabled: false,
-      };
+      case "stopped":
+      case "failed":
+      case "completed":
+        break;
+    }
   }
+
+  if (
+    input.validation?.valid === true &&
+    !trackerIsComplete &&
+    !executionBlocking.hasExecutionBlockingIssues
+  ) {
+    return {
+      kind: "start_epic_run",
+      label: "Start epic",
+      busyLabel: "Starting...",
+      disabled: false,
+    };
+  }
+
+  if (executionBlocking.hasExecutionBlockingIssues) {
+    return {
+      kind: "open_coordinator",
+      label: "Open epic",
+      busyLabel: "Opening...",
+      disabled: false,
+    };
+  }
+
+  if (latestRun !== null) {
+    return {
+      kind: "open_coordinator",
+      label: "Open epic",
+      busyLabel: "Opening...",
+      disabled: false,
+    };
+  }
+
+  return {
+    kind: "open_coordinator",
+    label: "Completed",
+    busyLabel: "Completed",
+    disabled: true,
+  };
 }
 
 export function selectLatestEpicRun(

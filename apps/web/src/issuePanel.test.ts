@@ -649,7 +649,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     });
   });
 
-  it("returns Open epic when a swarm run already exists", () => {
+  it("returns Start epic again when only terminal run history exists", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
@@ -674,14 +674,14 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "open_coordinator",
-      label: "Open epic",
-      busyLabel: "Opening...",
+      kind: "start_epic_run",
+      label: "Start epic",
+      busyLabel: "Starting...",
       disabled: false,
     });
   });
 
-  it("returns Resume epic for paused runs and Open epic for cancelled runs", () => {
+  it("returns Stop run for active runs and Start epic again after stopped history", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
@@ -745,14 +745,14 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "open_coordinator",
-      label: "Open epic",
-      busyLabel: "Opening...",
+      kind: "start_epic_run",
+      label: "Start epic",
+      busyLabel: "Starting...",
       disabled: false,
     });
   });
 
-  it("opens the coordinator for non-running stopped history", () => {
+  it("keeps Open epic for non-terminal runs that are still settling", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
@@ -789,7 +789,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
     });
   });
 
-  it("returns Open epic when the latest run failed but the swarm is still valid", () => {
+  it("returns Start epic when the latest run failed but the swarm is still valid", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
@@ -829,14 +829,14 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "open_coordinator",
-      label: "Open epic",
-      busyLabel: "Opening...",
+      kind: "start_epic_run",
+      label: "Start epic",
+      busyLabel: "Starting...",
       disabled: false,
     });
   });
 
-  it("returns Open epic when the latest run failed and validation is now broken", () => {
+  it("returns Open prep thread when the latest run failed and validation is now broken", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
@@ -876,14 +876,14 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "open_coordinator",
-      label: "Open epic",
+      kind: "open_coordination_prep_thread",
+      label: "Open prep thread",
       busyLabel: "Opening...",
       disabled: false,
     });
   });
 
-  it("returns Open epic when the latest run failed and epic structure is invalid", () => {
+  it("returns Open prep thread when the latest run failed and epic structure is invalid", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
@@ -894,14 +894,14 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "open_coordinator",
-      label: "Open epic",
+      kind: "open_coordination_prep_thread",
+      label: "Open prep thread",
       busyLabel: "Opening...",
       disabled: false,
     });
   });
 
-  it("keeps Open epic for recoverable worker failures when tracker state can advance", () => {
+  it("returns Start epic for recoverable worker failures when tracker state can advance", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
         coordinationSupport: { supported: true },
@@ -976,9 +976,9 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
     ).toEqual({
-      kind: "open_coordinator",
-      label: "Open epic",
-      busyLabel: "Opening...",
+      kind: "start_epic_run",
+      label: "Start epic",
+      busyLabel: "Starting...",
       disabled: false,
     });
   });
