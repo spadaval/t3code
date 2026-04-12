@@ -1,5 +1,13 @@
 import type { ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 
+export type ToastPosition =
+  | "top-left"
+  | "top-center"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-center"
+  | "bottom-right";
+
 export function shouldHideCollapsedToastContent(
   visibleToastIndex: number,
   visibleToastCount: number,
@@ -8,6 +16,31 @@ export function shouldHideCollapsedToastContent(
   // due to toasts hidden by thread filtering.
   if (visibleToastCount <= 1) return false;
   return visibleToastIndex > 0;
+}
+
+export function resolveToastPosition(
+  position: ToastPosition | undefined,
+  defaultPosition: ToastPosition,
+): ToastPosition {
+  return position ?? defaultPosition;
+}
+
+export function listVisibleToastPositions<
+  TToast extends {
+    data?:
+      | {
+          position?: ToastPosition;
+        }
+      | undefined;
+  },
+>(visibleToasts: readonly TToast[], defaultPosition: ToastPosition): readonly ToastPosition[] {
+  const positions = new Set<ToastPosition>();
+
+  for (const toast of visibleToasts) {
+    positions.add(resolveToastPosition(toast.data?.position, defaultPosition));
+  }
+
+  return positions.size === 0 ? [defaultPosition] : [...positions];
 }
 
 type ToastWithHeight = {

@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { SlowRpcAckRequest } from "../rpc/requestLatencyState";
 import type { WsConnectionStatus } from "../rpc/wsConnectionState";
-import { shouldAutoReconnect, shouldRestartStalledReconnect } from "./WebSocketConnectionSurface";
+import {
+  describeSlowRpcAckToast,
+  shouldAutoReconnect,
+  shouldRestartStalledReconnect,
+} from "./WebSocketConnectionSurface";
 
 function makeStatus(overrides: Partial<WsConnectionStatus> = {}): WsConnectionStatus {
   return {
@@ -25,6 +30,15 @@ function makeStatus(overrides: Partial<WsConnectionStatus> = {}): WsConnectionSt
 }
 
 describe("WebSocketConnectionSurface.logic", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-04T15:00:10.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("forces reconnect on online when the app was offline", () => {
     expect(
       shouldAutoReconnect(
@@ -79,6 +93,49 @@ describe("WebSocketConnectionSurface.logic", () => {
         "focus",
       ),
     ).toBe(true);
+  });
+
+  it("describes the slowest RPC with method, request id, and threshold details", () => {
+    const requests: ReadonlyArray<SlowRpcAckRequest> = [
+      {
+        requestId: "rpc-17",
+        startedAt: "2026-04-04T15:00:05.000Z",
+        startedAtMs: Date.parse("2026-04-04T15:00:05.000Z"),
+        tag: "git.status",
+        thresholdMs: 2_500,
+      },
+    ];
+
+    const description = String(describeSlowRpcAckToast(requests));
+
+    expect(description).toContain("RPC git.status (request rpc-17)");
+    expect(description).toContain("has been waiting 5.0s for its first server ack");
+    expect(description).toContain("exceeding the 2.5s threshold.");
+    expect(description).toContain("Started ");
+  });
+
+  it("mentions additional delayed RPCs when more than one request is slow", () => {
+    const requests: ReadonlyArray<SlowRpcAckRequest> = [
+      {
+        requestId: "rpc-17",
+        startedAt: "2026-04-04T15:00:05.000Z",
+        startedAtMs: Date.parse("2026-04-04T15:00:05.000Z"),
+        tag: "git.status",
+        thresholdMs: 2_500,
+      },
+      {
+        requestId: "rpc-18",
+        startedAt: "2026-04-04T15:00:06.000Z",
+        startedAtMs: Date.parse("2026-04-04T15:00:06.000Z"),
+        tag: "server.getConfig",
+        thresholdMs: 2_500,
+      },
+    ];
+
+    const description = String(describeSlowRpcAckToast(requests));
+
+    expect(description).toContain("RPC git.status (request rpc-17)");
+    expect(description).toContain("1 other request is also delayed.");
   });
 
   it("restarts a stalled reconnect window after the scheduled retry time passes", () => {

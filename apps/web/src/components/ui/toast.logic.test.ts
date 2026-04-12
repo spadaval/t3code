@@ -2,6 +2,8 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import { assert, describe, it } from "vitest";
 import {
   buildVisibleToastLayout,
+  listVisibleToastPositions,
+  resolveToastPosition,
   shouldHideCollapsedToastContent,
   shouldRenderThreadScopedToast,
 } from "./toast.logic";
@@ -63,6 +65,31 @@ describe("buildVisibleToastLayout", () => {
         { id: "b", offsetY: 0 },
         { id: "c", offsetY: 0 },
       ],
+    );
+  });
+});
+
+describe("toast positioning", () => {
+  it("falls back to the provider default position", () => {
+    assert.equal(resolveToastPosition(undefined, "top-right"), "top-right");
+  });
+
+  it("returns the explicit toast position when present", () => {
+    assert.equal(resolveToastPosition("bottom-right", "top-right"), "bottom-right");
+  });
+
+  it("lists only the visible positions in encounter order", () => {
+    assert.deepEqual(
+      listVisibleToastPositions(
+        [
+          { id: "a", data: {} },
+          { id: "b", data: { position: "bottom-right" as const } },
+          { id: "c", data: { position: "bottom-right" as const } },
+          { id: "d", data: { position: "top-left" as const } },
+        ],
+        "top-right",
+      ),
+      ["top-right", "bottom-right", "top-left"],
     );
   });
 });
