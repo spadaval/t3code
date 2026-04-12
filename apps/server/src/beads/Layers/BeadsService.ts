@@ -497,6 +497,142 @@ function mapIssueRelationArray(
   });
 }
 
+function compareIssueRelationsByCreatedAt(
+  left: BeadsIssueRelationSummaryType,
+  right: BeadsIssueRelationSummaryType,
+  childDetailsById: ReadonlyMap<string, Pick<BeadsIssueDetailType, "createdAt">>,
+): number {
+  const leftCreatedAt = childDetailsById.get(left.id)?.createdAt ?? null;
+  const rightCreatedAt = childDetailsById.get(right.id)?.createdAt ?? null;
+
+  if (leftCreatedAt !== null && rightCreatedAt !== null) {
+    const createdAtDelta = leftCreatedAt.localeCompare(rightCreatedAt);
+    if (createdAtDelta !== 0) {
+      return createdAtDelta;
+    }
+  } else if (leftCreatedAt !== rightCreatedAt) {
+    return leftCreatedAt === null ? 1 : -1;
+  }
+
+  const titleDelta = left.title.localeCompare(right.title, undefined, { sensitivity: "base" });
+  if (titleDelta !== 0) {
+    return titleDelta;
+  }
+
+  return left.id.localeCompare(right.id);
+}
+
+function insertIssueRelationSorted(
+  queue: BeadsIssueRelationSummaryType[],
+  candidate: BeadsIssueRelationSummaryType,
+  childDetailsById: ReadonlyMap<string, Pick<BeadsIssueDetailType, "createdAt">>,
+): void {
+  const insertAt = queue.findIndex(
+    (entry) => compareIssueRelationsByCreatedAt(candidate, entry, childDetailsById) < 0,
+  );
+  if (insertAt === -1) {
+    queue.push(candidate);
+    return;
+  }
+  queue.splice(insertAt, 0, candidate);
+}
+
+function sortChildIssueRelationsByDependencies(input: {
+  readonly children: readonly BeadsIssueRelationSummaryType[];
+  readonly childDetailsById: ReadonlyMap<
+    string,
+    Pick<BeadsIssueDetailType, "createdAt" | "dependencies">
+  >;
+}): BeadsIssueRelationSummaryType[] {
+  if (input.children.length <= 1) {
+    return [...input.children];
+  }
+
+  const childIds = new Set(input.children.map((child) => child.id));
+  const adjacency = new Map<string, Set<string>>();
+  const indegree = new Map<string, number>();
+
+  for (const child of input.children) {
+    adjacency.set(child.id, new Set());
+    indegree.set(child.id, 0);
+  }
+
+  const addEdge = (fromId: string, toId: string) => {
+    if (fromId === toId) {
+      return;
+    }
+
+    const neighbors = adjacency.get(fromId);
+    if (!neighbors || neighbors.has(toId)) {
+      return;
+    }
+
+    neighbors.add(toId);
+    indegree.set(toId, (indegree.get(toId) ?? 0) + 1);
+  };
+
+  for (const child of input.children) {
+    const detail = input.childDetailsById.get(child.id);
+    if (!detail) {
+      continue;
+    }
+
+    for (const dependency of detail.dependencies) {
+      if (!childIds.has(dependency.id)) {
+        continue;
+      }
+
+      switch (dependency.dependencyType) {
+        case "blocked_by":
+        case "depends_on":
+          addEdge(dependency.id, child.id);
+          break;
+        case "blocks":
+          addEdge(child.id, dependency.id);
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  const compare = (left: BeadsIssueRelationSummaryType, right: BeadsIssueRelationSummaryType) =>
+    compareIssueRelationsByCreatedAt(left, right, input.childDetailsById);
+
+  const remainingById = new Map(input.children.map((child) => [child.id, child] as const));
+  const ready = input.children
+    .filter((child) => (indegree.get(child.id) ?? 0) === 0)
+    .toSorted(compare);
+  const result: BeadsIssueRelationSummaryType[] = [];
+
+  while (ready.length > 0) {
+    const next = ready.shift();
+    if (!next || !remainingById.has(next.id)) {
+      continue;
+    }
+
+    remainingById.delete(next.id);
+    result.push(next);
+
+    for (const dependentId of adjacency.get(next.id) ?? []) {
+      const nextIndegree = (indegree.get(dependentId) ?? 0) - 1;
+      indegree.set(dependentId, nextIndegree);
+      if (nextIndegree === 0) {
+        const dependent = remainingById.get(dependentId);
+        if (dependent) {
+          insertIssueRelationSorted(ready, dependent, input.childDetailsById);
+        }
+      }
+    }
+  }
+
+  if (remainingById.size > 0) {
+    result.push(...[...remainingById.values()].toSorted(compare));
+  }
+
+  return result;
+}
+
 function buildIssueRecordLookup(
   rawIssues: ReadonlyArray<Record<string, unknown>>,
 ): ReadonlyMap<string, Record<string, unknown>> {
@@ -1713,11 +1849,47 @@ const makeBeadsTrackerService = Effect.gen(function* () {
       const dependentIssueRecords = dependentRecords.filter(
         (entry) => trimToNull(entry.dependency_type) !== "parent-child",
       );
+      const childDetailResults =
+        childRecords.length === 0
+          ? []
+          : yield* Effect.all(
+              childRecords.flatMap((entry) => {
+                const childId = trimToNull(entry.id);
+                if (!childId) {
+                  return [];
+                }
+
+                return [
+                  Effect.exit(
+                    getRawIssue(input.cwd, childId).pipe(
+                      Effect.map((rawChild) => [childId, rawChild] as const),
+                    ),
+                  ),
+                ] as const;
+              }),
+              { concurrency: "unbounded" },
+            );
+      const childRawById = new Map<string, Record<string, unknown>>();
+      for (const childDetailResult of childDetailResults) {
+        if (childDetailResult._tag === "Success") {
+          childRawById.set(childDetailResult.value[0], childDetailResult.value[1]);
+        }
+      }
+      const childDetailsById = new Map(
+        [...childRawById.entries()].map(([childId, rawChild]) => [
+          childId,
+          mapIssueDetail(rawChild, []),
+        ]),
+      );
+      const children = sortChildIssueRelationsByDependencies({
+        children: mapIssueRelationArray(childRecords, childRawById),
+        childDetailsById,
+      });
       const epic = mapIssueDetail(rawIssue, comments);
       return decodeIssueGraph({
         epic,
         parent,
-        children: childRecords.map((entry) => mapIssueRelationSummary(entry)),
+        children,
         dependencies: mapIssueRelationArray(rawIssue.dependencies),
         dependents: dependentIssueRecords.map((entry) => mapIssueRelationSummary(entry)),
       });

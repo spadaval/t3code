@@ -60,7 +60,7 @@ describe("IssueDetail", () => {
     capturedSubIssuesSectionProps.length = 0;
   });
 
-  it("passes sub-issue context actions through to SubIssuesSection", () => {
+  it("passes child issue context actions through to SubIssuesSection", () => {
     const onSubIssueContextAction = vi.fn();
 
     renderToStaticMarkup(

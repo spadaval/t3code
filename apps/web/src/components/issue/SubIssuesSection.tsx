@@ -41,7 +41,7 @@ export interface SubIssuesSectionProps {
 }
 
 /**
- * Renders a compact table of direct sub-issues inside an issue detail view.
+ * Renders a compact table of direct child issues inside an issue detail view.
  * Used by both the sidebar detail (IssueDetail) and the full-page detail panel
  * (IssuesTab) to surface deeply nested issues that would otherwise be invisible
  * after the sidebar tree was restricted to epic-only nesting.
@@ -59,7 +59,7 @@ export function SubIssuesSection({
   return (
     <section className={cn("space-y-1", className)}>
       <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        Sub-issues ({subIssues.length})
+        Children ({subIssues.length})
       </h3>
       <div className="overflow-hidden rounded-md border border-border/50">
         {subIssues.map((child, index) => (
@@ -109,10 +109,15 @@ function SubIssueRow({
         !isLast && "border-b border-border/40",
         !onIssueSelect && "cursor-default",
       )}
-      aria-label={`Select sub-issue ${child.id}: ${child.title}`}
+      aria-label={`Select child issue ${child.id}: ${child.title}`}
     >
       <div className="flex items-center gap-2">
         <IssueTypeIcon issueType={child.issueType} className="size-3.5" />
+        {child.status === "blocked" ? (
+          <span className="shrink-0 rounded-full border border-destructive/30 bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-destructive">
+            Blocked
+          </span>
+        ) : null}
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-sm text-foreground",

@@ -52,7 +52,7 @@ describe("buildIssueRelationshipModel", () => {
         makeDependency("PREREQ-1", "depends_on"),
         makeDependency("DOWNSTREAM-1", "blocks"),
       ],
-      dependents: [],
+      dependents: [makeRelation("FOLLOW-1")],
     });
 
     expect(model.parent?.id).toBe("PARENT-1");
@@ -63,25 +63,40 @@ describe("buildIssueRelationshipModel", () => {
       model.sections.find((section) => section.key === "depends_on")?.items.map((item) => item.id),
     ).toEqual(["PREREQ-1"]);
     expect(
-      model.sections.find((section) => section.key === "blocks")?.items.map((item) => item.id),
+      model.sections
+        .find((section) => section.key === "incoming_blocks")
+        ?.items.map((item) => item.id),
     ).toEqual(["DOWNSTREAM-1"]);
+    expect(
+      model.sections
+        .find((section) => section.key === "outgoing_blocks")
+        ?.items.map((item) => item.id),
+    ).toEqual(["FOLLOW-1"]);
   });
 
-  it("merges downstream dependents into the blocks section without duplicates", () => {
+  it("dedupes reverse dependents without merging them into incoming blocks", () => {
     const model = buildIssueRelationshipModel({
       parent: null,
       children: [makeRelation("CHILD-1")],
-      dependencies: [makeDependency("FOLLOW-1", "blocks")],
-      dependents: [makeRelation("FOLLOW-1"), makeRelation("FOLLOW-2")],
+      dependencies: [makeDependency("UPSTREAM-1", "blocks")],
+      dependents: [makeRelation("FOLLOW-1"), makeRelation("FOLLOW-1"), makeRelation("FOLLOW-2")],
     });
 
     expect(
-      model.sections.find((section) => section.key === "blocks")?.items.map((item) => item.id),
+      model.sections
+        .find((section) => section.key === "incoming_blocks")
+        ?.items.map((item) => item.id),
+    ).toEqual(["UPSTREAM-1"]);
+    expect(
+      model.sections
+        .find((section) => section.key === "outgoing_blocks")
+        ?.items.map((item) => item.id),
     ).toEqual(["FOLLOW-1", "FOLLOW-2"]);
     expect(model.summary).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ key: "children", count: 1 }),
-        expect.objectContaining({ key: "blocks", count: 2 }),
+        expect.objectContaining({ key: "incoming_blocks", count: 1 }),
+        expect.objectContaining({ key: "outgoing_blocks", count: 2 }),
       ]),
     );
   });

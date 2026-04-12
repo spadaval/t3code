@@ -82,7 +82,7 @@ describe("issue title rendering", () => {
     expect(markup).not.toMatch(/<span class="[^"]*line-through[^"]*">Open dependent<\/span>/);
   });
 
-  it("strikes through closed sub-issue titles without affecting open ones", () => {
+  it("strikes through closed child issue titles without affecting open ones", () => {
     const markup = renderToStaticMarkup(
       <SubIssuesSection
         subIssues={[
@@ -94,5 +94,18 @@ describe("issue title rendering", () => {
 
     expect(markup).toMatch(/<span class="[^"]*line-through[^"]*">Closed child<\/span>/);
     expect(markup).not.toMatch(/<span class="[^"]*line-through[^"]*">Open child<\/span>/);
+  });
+
+  it("renders a blocked badge for blocked child issues only", () => {
+    const markup = renderToStaticMarkup(
+      <SubIssuesSection
+        subIssues={[
+          makeRelation({ id: "TASK-1", title: "Blocked child", status: "blocked" }),
+          makeRelation({ id: "TASK-2", title: "Open child", status: "open" }),
+        ]}
+      />,
+    );
+
+    expect(markup.match(/border-destructive\/30[^"]*">Blocked<\/span>/g)).toHaveLength(1);
   });
 });

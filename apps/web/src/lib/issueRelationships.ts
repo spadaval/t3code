@@ -19,7 +19,7 @@ export interface IssueRelationshipItem {
 }
 
 export interface IssueRelationshipSection {
-  readonly key: "blocked_by" | "depends_on" | "blocks" | "related";
+  readonly key: "blocked_by" | "depends_on" | "incoming_blocks" | "outgoing_blocks" | "related";
   readonly label: string;
   readonly emptyLabel: string;
   readonly tone: IssueRelationshipTone;
@@ -27,7 +27,14 @@ export interface IssueRelationshipSection {
 }
 
 export interface IssueRelationshipSummaryItem {
-  readonly key: "parent" | "children" | "blocked_by" | "depends_on" | "blocks" | "related";
+  readonly key:
+    | "parent"
+    | "children"
+    | "blocked_by"
+    | "depends_on"
+    | "incoming_blocks"
+    | "outgoing_blocks"
+    | "related";
   readonly label: string;
   readonly count: number;
   readonly tone: IssueRelationshipTone;
@@ -92,10 +99,10 @@ export function buildIssueRelationshipModel(input: {
 
   const blockedBy = grouped.blockedBy.map(toRelationshipItem);
   const dependsOn = grouped.dependsOn.map(toRelationshipItem);
-  const blocks = dedupeRelationshipItems([
-    ...grouped.blocks.map(toRelationshipItem),
-    ...(input.dependents ?? []).map((dependent) => toRelationshipItem(dependent)),
-  ]);
+  const incomingBlocks = dedupeRelationshipItems(grouped.blocks.map(toRelationshipItem));
+  const outgoingBlocks = dedupeRelationshipItems(
+    (input.dependents ?? []).map((dependent) => toRelationshipItem(dependent)),
+  );
   const related = grouped.other.map(toRelationshipItem);
 
   const sections: IssueRelationshipSection[] = [
@@ -114,11 +121,18 @@ export function buildIssueRelationshipModel(input: {
       items: dependsOn,
     },
     {
-      key: "blocks",
-      label: "Blocks",
-      emptyLabel: "No downstream issues are waiting on this issue.",
+      key: "incoming_blocks",
+      label: "Blocks this issue",
+      emptyLabel: "No issues currently block this issue through a blocks link.",
+      tone: "blocked",
+      items: incomingBlocks,
+    },
+    {
+      key: "outgoing_blocks",
+      label: "This issue blocks",
+      emptyLabel: "This issue is not currently blocking any downstream work.",
       tone: "downstream",
-      items: blocks,
+      items: outgoingBlocks,
     },
     {
       key: "related",
@@ -132,7 +146,7 @@ export function buildIssueRelationshipModel(input: {
   const summary = (
     [
       { key: "parent", label: "Parent", count: parent ? 1 : 0, tone: "structure" },
-      { key: "children", label: "Sub-issues", count: input.children.length, tone: "structure" },
+      { key: "children", label: "Children", count: input.children.length, tone: "structure" },
       { key: "blocked_by", label: "Blocked by", count: blockedBy.length, tone: "blocked" },
       {
         key: "depends_on",
@@ -140,7 +154,18 @@ export function buildIssueRelationshipModel(input: {
         count: dependsOn.length,
         tone: "prerequisite",
       },
-      { key: "blocks", label: "Blocks", count: blocks.length, tone: "downstream" },
+      {
+        key: "incoming_blocks",
+        label: "Blocks this issue",
+        count: incomingBlocks.length,
+        tone: "blocked",
+      },
+      {
+        key: "outgoing_blocks",
+        label: "This issue blocks",
+        count: outgoingBlocks.length,
+        tone: "downstream",
+      },
       { key: "related", label: "Related", count: related.length, tone: "neutral" },
     ] satisfies IssueRelationshipSummaryItem[]
   ).filter((item) => item.count > 0);

@@ -27,7 +27,7 @@ import type { IssueContextAction } from "./issueContextMenu";
 export interface IssueDetailProps {
   issue: BeadsIssueDetail;
   parent?: BeadsIssueRelationSummary | null;
-  /** Direct child issues. When provided, renders a sub-issues section. */
+  /** Direct child issues. When provided, renders a children section. */
   subIssues?: readonly BeadsIssueRelationSummary[] | undefined;
   dependents?: readonly BeadsIssueRelationSummary[] | undefined;
   className?: string;
@@ -213,7 +213,7 @@ export function IssueDetail({
       {/* Secondary: Description and Notes */}
       <IssueDetailContent issue={issue} />
 
-      {/* Sub-issues (children of this issue) */}
+      {/* Children of this issue */}
       {subIssues && subIssues.length > 0 && (
         <SubIssuesSection
           subIssues={subIssues}

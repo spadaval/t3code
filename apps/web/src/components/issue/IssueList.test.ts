@@ -113,6 +113,7 @@ describe("IssueList hierarchy rendering", () => {
 
     expect(markup).toContain('aria-label="Expand epic EPIC-1"');
     expect(markup).toContain("Epic 1");
+    expect(markup).toMatch(/<span class="[^"]*">EPIC-1<\/span>/);
     expect(markup).toContain("0/1 done");
     expect(markup).toMatch(/<p class="[^"]*line-through[^"]*">Epic 1<\/p>/);
   });

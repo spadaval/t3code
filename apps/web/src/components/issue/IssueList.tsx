@@ -554,7 +554,9 @@ function EpicTreeSection({
                 {node.issue.title}
               </p>
             </div>
-            <div className="mt-1.5 flex items-center gap-2 pl-6">
+            <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-6">
+              <span className="text-[10px] text-muted-foreground">{node.issue.id}</span>
+              <span className="text-[10px] text-muted-foreground/40">&middot;</span>
               <EpicChildProgress counts={descendantStatusCounts} />
               <span className="text-[10px] text-muted-foreground">
                 {descendantStatusCounts.closed}/{descendantStatusCounts.total} done

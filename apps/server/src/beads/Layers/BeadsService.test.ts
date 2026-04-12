@@ -751,6 +751,27 @@ layer("BeadsServiceLive", (it) => {
             ],
           },
         ],
+        "show CHILD-1 --long": [
+          {
+            id: "CHILD-1",
+            title: "First child",
+            description: null,
+            notes: null,
+            status: "open",
+            priority: 2,
+            issue_type: "task",
+            assignee: "bob",
+            owner: null,
+            created_at: now,
+            created_by: null,
+            updated_at: now,
+            labels: [],
+            parent_id: "EPIC-1",
+            parent_title: "Epic coordination",
+            dependencies: [],
+            dependents: [],
+          },
+        ],
         "show PARENT-1 --long": [
           {
             id: "PARENT-1",
@@ -785,6 +806,148 @@ layer("BeadsServiceLive", (it) => {
       assert.deepStrictEqual(
         graph.dependents.map((issue) => issue.id),
         ["FOLLOW-1"],
+      );
+    }),
+  );
+
+  it.effect("sorts epic child issues by dependency order with created_at as the tie breaker", () =>
+    Effect.gen(function* () {
+      installBdJsonMock({
+        "show EPIC-1 --long": [
+          {
+            id: "EPIC-1",
+            title: "Epic coordination",
+            description: "Epic description",
+            notes: null,
+            status: "open",
+            priority: 2,
+            issue_type: "epic",
+            assignee: null,
+            owner: null,
+            created_at: "2024-01-01T00:00:00Z",
+            created_by: null,
+            updated_at: "2024-01-04T00:00:00Z",
+            labels: [],
+            dependencies: [],
+            dependents: [
+              {
+                id: "CHILD-2",
+                title: "Depends on first child",
+                status: "blocked",
+                priority: 2,
+                issue_type: "task",
+                assignee: null,
+                owner: null,
+                dependency_type: "parent-child",
+              },
+              {
+                id: "CHILD-3",
+                title: "Second independent child",
+                status: "open",
+                priority: 2,
+                issue_type: "task",
+                assignee: null,
+                owner: null,
+                dependency_type: "parent-child",
+              },
+              {
+                id: "CHILD-1",
+                title: "First independent child",
+                status: "open",
+                priority: 2,
+                issue_type: "task",
+                assignee: null,
+                owner: null,
+                dependency_type: "parent-child",
+              },
+            ],
+          },
+        ],
+        "show CHILD-1 --long": [
+          {
+            id: "CHILD-1",
+            title: "First independent child",
+            description: null,
+            notes: null,
+            status: "open",
+            priority: 2,
+            issue_type: "task",
+            assignee: null,
+            owner: null,
+            created_at: "2024-01-01T00:00:00Z",
+            created_by: null,
+            updated_at: "2024-01-01T00:00:00Z",
+            labels: [],
+            parent_id: "EPIC-1",
+            parent_title: "Epic coordination",
+            dependencies: [],
+            dependents: [],
+          },
+        ],
+        "show CHILD-2 --long": [
+          {
+            id: "CHILD-2",
+            title: "Depends on first child",
+            description: null,
+            notes: null,
+            status: "blocked",
+            priority: 2,
+            issue_type: "task",
+            assignee: null,
+            owner: null,
+            created_at: "2024-01-03T00:00:00Z",
+            created_by: null,
+            updated_at: "2024-01-03T00:00:00Z",
+            labels: [],
+            parent_id: "EPIC-1",
+            parent_title: "Epic coordination",
+            dependencies: [
+              {
+                id: "CHILD-1",
+                title: "First independent child",
+                status: "open",
+                priority: 2,
+                issue_type: "task",
+                owner: null,
+                created_at: "2024-01-01T00:00:00Z",
+                created_by: null,
+                updated_at: "2024-01-01T00:00:00Z",
+                dependency_type: "depends_on",
+              },
+            ],
+            dependents: [],
+          },
+        ],
+        "show CHILD-3 --long": [
+          {
+            id: "CHILD-3",
+            title: "Second independent child",
+            description: null,
+            notes: null,
+            status: "open",
+            priority: 2,
+            issue_type: "task",
+            assignee: null,
+            owner: null,
+            created_at: "2024-01-02T00:00:00Z",
+            created_by: null,
+            updated_at: "2024-01-02T00:00:00Z",
+            labels: [],
+            parent_id: "EPIC-1",
+            parent_title: "Epic coordination",
+            dependencies: [],
+            dependents: [],
+          },
+        ],
+        "comments EPIC-1": [],
+      });
+
+      const beads = yield* BeadsService;
+      const graph = yield* beads.getIssueGraph({ cwd: "/repo", epicIssueId: "EPIC-1" });
+
+      assert.deepStrictEqual(
+        graph.children.map((issue) => issue.id),
+        ["CHILD-1", "CHILD-3", "CHILD-2"],
       );
     }),
   );
