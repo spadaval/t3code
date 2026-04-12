@@ -16,6 +16,16 @@ import {
 const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
 
+export function resolveDefaultModelSelection(
+  modelSelection: ModelSelection | null | undefined,
+): ModelSelection {
+  if (modelSelection) {
+    return modelSelection;
+  }
+
+  return { provider: "codex", model: "codex-mini-latest" };
+}
+
 export type ProviderCustomModelConfig = {
   provider: ProviderKind;
   title: string;

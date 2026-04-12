@@ -36,7 +36,7 @@ import { usePrimaryEnvironmentId } from "../environments/primary";
 import { readEnvironmentApi } from "../environmentApi";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
-import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
+import { parseChatRouteSearch, stripRightPaneSearchParams } from "../chatRouteSearch";
 import {
   collapseExpandedComposerCursor,
   parseStandaloneComposerSlashCommand,
@@ -608,10 +608,8 @@ export default function ChatView(props: ChatViewProps) {
   );
   const timestampFormat = settings.timestampFormat;
   const navigate = useNavigate();
-  const rawSearch = useSearch({
-    strict: false,
-    select: (params) => parseDiffRouteSearch(params),
-  });
+  const rawRouteSearch = useSearch({ strict: false });
+  const rawSearch = useMemo(() => parseChatRouteSearch(rawRouteSearch), [rawRouteSearch]);
   const { resolvedTheme } = useTheme();
   // Granular store selectors — avoid subscribing to prompt changes.
   const composerRuntimeMode = useComposerDraftStore(
@@ -795,7 +793,8 @@ export default function ChatView(props: ChatViewProps) {
     composerInteractionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
-  const diffOpen = rawSearch.diff === "1";
+  const diffOpen = rawSearch.rightPane === "diff";
+  const issuesOpen = rawSearch.rightPane === "issues";
   const activeThreadId = activeThread?.id ?? null;
   const activeThreadRef = useMemo(
     () => (activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null),
@@ -1485,12 +1484,44 @@ export default function ChatView(props: ChatViewProps) {
         threadId,
       },
       replace: true,
-      search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
-        return diffOpen ? { ...rest, diff: undefined } : { ...rest, diff: "1" };
-      },
+      search: ((previous: any) => {
+        const rest = stripRightPaneSearchParams(previous);
+        return diffOpen ? rest : { ...rest, rightPane: "diff" as const };
+      }) as never,
     });
   }, [diffOpen, environmentId, isServerThread, navigate, onDiffPanelOpen, threadId]);
+  const onToggleIssues = useCallback(() => {
+    if (!isServerThread) {
+      return;
+    }
+    const selectedIssueId = rawSearch.issueId ?? activeThread?.issueLink?.issueId;
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: {
+        environmentId,
+        threadId,
+      },
+      replace: true,
+      search: ((previous: any) => {
+        const rest = stripRightPaneSearchParams(previous);
+        return issuesOpen
+          ? rest
+          : {
+              ...rest,
+              rightPane: "issues" as const,
+              ...(selectedIssueId ? { issueId: selectedIssueId } : {}),
+            };
+      }) as never,
+    });
+  }, [
+    activeThread?.issueLink?.issueId,
+    environmentId,
+    isServerThread,
+    issuesOpen,
+    navigate,
+    rawSearch.issueId,
+    threadId,
+  ]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -3263,10 +3294,15 @@ export default function ChatView(props: ChatViewProps) {
           threadId,
         },
         search: (previous) => {
-          const rest = stripDiffSearchParams(previous);
+          const rest = stripRightPaneSearchParams(previous);
           return filePath
-            ? { ...rest, diff: "1", diffTurnId: turnId, diffFilePath: filePath }
-            : { ...rest, diff: "1", diffTurnId: turnId };
+            ? {
+                ...rest,
+                rightPane: "diff" as const,
+                diffTurnId: turnId,
+                diffFilePath: filePath,
+              }
+            : { ...rest, rightPane: "diff" as const, diffTurnId: turnId };
         },
       });
     },
@@ -3317,11 +3353,13 @@ export default function ChatView(props: ChatViewProps) {
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
+          issuesOpen={issuesOpen}
           onRunProjectScript={runProjectScript}
           onAddProjectScript={saveProjectScript}
           onUpdateProjectScript={updateProjectScript}
           onDeleteProjectScript={deleteProjectScript}
           onToggleTerminal={toggleTerminalVisibility}
+          onToggleIssues={onToggleIssues}
           onToggleDiff={onToggleDiff}
         />
       </header>
