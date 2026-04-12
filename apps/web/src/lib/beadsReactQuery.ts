@@ -1,23 +1,24 @@
 import type {
   BeadsContext,
   BeadsCreateIssueInput,
-  BeadsEpicCoordinatorSnapshot,
-  BeadsEpicCoordinatorSnapshotInput,
+  BeadsEpicIssueSummaries,
+  BeadsEpicIssueSummariesInput,
   BeadsEpicIssueInput,
+  BeadsEpicTrackerDetail,
+  BeadsEpicTrackerDetailInput,
   BeadsGetIssueInput,
   BeadsGetIssuesInput,
   BeadsGetContextInput,
   BeadsIssueGraph,
   BeadsIssueSummary,
   BeadsGetSessionActivityInput,
-  BeadsProjectCoordinatorSnapshot,
-  BeadsProjectCoordinatorSnapshotInput,
+  BeadsProjectRunSummary,
+  BeadsProjectRunSummaryInput,
   BeadsQueryIssuesInput,
   BeadsQueryIssuesResult,
   BeadsStartBacklogGroomingInput,
   BeadsUpdateIssueInput,
   BeadsCommentIssueInput,
-  BeadsListEpicTrackerSummariesInput,
   BeadsStartEpicPlannedRefineInput,
   BeadsStartEpicQuickRefineInput,
   BeadsStartEpicCoordinationPrepInput,
@@ -73,19 +74,14 @@ export const beadsQueryKeys = {
     ["beads", "epic-run-validation", cwd, epicIssueId] as const,
   epicTrackerStatus: (cwd: string | null, epicIssueId: string | null) =>
     ["beads", "epic-tracker-status", cwd, epicIssueId] as const,
-  epicTrackerSummaries: (input: BeadsListEpicTrackerSummariesInput) =>
-    ["beads", "epic-tracker-summaries", input.cwd] as const,
-  projectCoordinatorSnapshot: (input: BeadsProjectCoordinatorSnapshotInput | null) =>
+  projectRunSummary: (input: BeadsProjectRunSummaryInput | null) =>
+    ["beads", "project-run-summary", input?.cwd ?? null, input?.projectId ?? null] as const,
+  epicIssueSummaries: (input: BeadsEpicIssueSummariesInput | null) =>
+    ["beads", "epic-issue-summaries", input?.cwd ?? null, input?.epicIssueId ?? null] as const,
+  epicTrackerDetail: (input: BeadsEpicTrackerDetailInput | null) =>
     [
       "beads",
-      "project-coordinator-snapshot",
-      input?.cwd ?? null,
-      input?.projectId ?? null,
-    ] as const,
-  epicCoordinatorSnapshot: (input: BeadsEpicCoordinatorSnapshotInput | null) =>
-    [
-      "beads",
-      "epic-coordinator-snapshot",
+      "epic-tracker-detail",
       input?.cwd ?? null,
       input?.projectId ?? null,
       input?.epicIssueId ?? null,
@@ -261,43 +257,48 @@ export function beadsEpicTrackerStatusOptions(
   });
 }
 
-export function beadsListEpicTrackerSummariesOptions(
-  input: BeadsListEpicTrackerSummariesInput & { enabled?: boolean },
+export function beadsProjectRunSummaryOptions(
+  input: (BeadsProjectRunSummaryInput & { enabled?: boolean }) | null,
 ) {
   return queryOptions({
-    queryKey: beadsQueryKeys.epicTrackerSummaries(input),
-    queryFn: async () => beadsApiForCwd(input.cwd).listEpicTrackerSummaries(input),
-    enabled: (input.enabled ?? true) && input.cwd.length > 0,
-    staleTime: 5_000,
-  });
-}
-
-export function beadsProjectCoordinatorSnapshotOptions(
-  input: (BeadsProjectCoordinatorSnapshotInput & { enabled?: boolean }) | null,
-) {
-  return queryOptions({
-    queryKey: beadsQueryKeys.projectCoordinatorSnapshot(input),
-    queryFn: async (): Promise<BeadsProjectCoordinatorSnapshot> => {
+    queryKey: beadsQueryKeys.projectRunSummary(input),
+    queryFn: async (): Promise<BeadsProjectRunSummary> => {
       if (!input) {
-        throw new Error("Project coordinator snapshot is unavailable.");
+        throw new Error("Project run summary is unavailable.");
       }
-      return beadsApiForCwd(input.cwd).getProjectCoordinatorSnapshot(input);
+      return beadsApiForCwd(input.cwd).getProjectRunSummary(input);
     },
     enabled: input !== null && (input.enabled ?? true),
     staleTime: 5_000,
   });
 }
 
-export function beadsEpicCoordinatorSnapshotOptions(
-  input: (BeadsEpicCoordinatorSnapshotInput & { enabled?: boolean }) | null,
+export function beadsEpicIssueSummariesOptions(
+  input: (BeadsEpicIssueSummariesInput & { enabled?: boolean }) | null,
 ) {
   return queryOptions({
-    queryKey: beadsQueryKeys.epicCoordinatorSnapshot(input),
-    queryFn: async (): Promise<BeadsEpicCoordinatorSnapshot> => {
+    queryKey: beadsQueryKeys.epicIssueSummaries(input),
+    queryFn: async (): Promise<BeadsEpicIssueSummaries> => {
       if (!input) {
-        throw new Error("Epic coordinator snapshot is unavailable.");
+        throw new Error("Epic issue summaries are unavailable.");
       }
-      return beadsApiForCwd(input.cwd).getEpicCoordinatorSnapshot(input);
+      return beadsApiForCwd(input.cwd).getEpicIssueSummaries(input);
+    },
+    enabled: input !== null && (input.enabled ?? true),
+    staleTime: 5_000,
+  });
+}
+
+export function beadsEpicTrackerDetailOptions(
+  input: (BeadsEpicTrackerDetailInput & { enabled?: boolean }) | null,
+) {
+  return queryOptions({
+    queryKey: beadsQueryKeys.epicTrackerDetail(input),
+    queryFn: async (): Promise<BeadsEpicTrackerDetail> => {
+      if (!input) {
+        throw new Error("Epic tracker detail is unavailable.");
+      }
+      return beadsApiForCwd(input.cwd).getEpicTrackerDetail(input);
     },
     enabled: input !== null && (input.enabled ?? true),
     staleTime: 5_000,

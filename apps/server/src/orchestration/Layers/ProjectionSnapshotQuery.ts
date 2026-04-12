@@ -10,6 +10,7 @@ import {
   OrchestrationPlanImplementationLaunchStatus,
   OrchestrationReadModel,
   OrchestrationEpicRunFailureContext,
+  OrchestrationTurnTerminalSource,
   ProviderModelOptions,
   ProviderStartOptions,
   ProjectScript,
@@ -133,6 +134,7 @@ const ProjectionLatestTurnDbRowSchema = Schema.Struct({
   threadId: ProjectionThread.fields.threadId,
   turnId: TurnId,
   state: Schema.String,
+  terminalSource: Schema.NullOr(OrchestrationTurnTerminalSource),
   requestedAt: IsoDateTime,
   startedAt: Schema.NullOr(IsoDateTime),
   completedAt: Schema.NullOr(IsoDateTime),
@@ -403,6 +405,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           completed_at AS "completedAt"
         FROM projection_turns
         WHERE checkpoint_turn_count IS NOT NULL
+          AND completed_at IS NOT NULL
         ORDER BY thread_id ASC, checkpoint_turn_count ASC
       `,
   });
@@ -497,6 +500,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread_id AS "threadId",
           turn_id AS "turnId",
           state,
+          terminal_source AS "terminalSource",
           requested_at AS "requestedAt",
           started_at AS "startedAt",
           completed_at AS "completedAt",
@@ -606,6 +610,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         FROM projection_turns
         WHERE thread_id = ${threadId}
           AND checkpoint_turn_count IS NOT NULL
+          AND completed_at IS NOT NULL
         ORDER BY checkpoint_turn_count ASC
       `,
   });
@@ -870,6 +875,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               startedAt: row.startedAt,
               completedAt: row.completedAt,
               assistantMessageId: row.assistantMessageId,
+              ...(row.terminalSource !== null ? { terminalSource: row.terminalSource } : {}),
               ...(row.sourceProposedPlanThreadId !== null && row.sourceProposedPlanId !== null
                 ? {
                     sourceProposedPlan: {

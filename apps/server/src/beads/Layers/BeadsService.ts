@@ -2,15 +2,16 @@ import path from "node:path";
 
 import {
   BeadsContext,
-  BeadsEpicCoordinatorSnapshot,
   BeadsError,
+  BeadsEpicIssueSummaries,
+  BeadsEpicTrackerDetail,
   BeadsGetSessionActivityResult,
   BeadsIssueDetail,
   BeadsIssueGraph,
   BeadsIssueRelationSummary,
   BeadsIssueSummary,
   BeadsListEpicTrackerSummariesResult,
-  BeadsProjectCoordinatorSnapshot,
+  BeadsProjectRunSummary,
   BeadsEpicTrackerStatus,
   BeadsEpicTrackerSummary,
   BeadsEpicRunSupport,
@@ -49,6 +50,7 @@ import {
   Semaphore,
   SynchronizedRef,
 } from "effect";
+import { topologicallySortByDependencies } from "@t3tools/shared/dependencyOrder";
 
 import { runProcess } from "../../processRunner.ts";
 import {
@@ -58,8 +60,9 @@ import {
 } from "../../observability/Metrics.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import {
-  buildProjectCoordinatorSnapshot,
-  buildSingleEpicCoordinatorSnapshot,
+  buildEpicIssueSummaries,
+  buildEpicTrackerDetail,
+  buildProjectRunSummary,
 } from "../coordinatorSnapshots.ts";
 import { BeadsService, type BeadsServiceShape } from "../Services/BeadsService.ts";
 import {
@@ -82,9 +85,9 @@ const decodeSwarmSupport = Schema.decodeUnknownSync(BeadsEpicRunSupport);
 const decodeSwarmValidation = Schema.decodeUnknownSync(BeadsEpicRunValidation);
 const decodeSwarmStatus = Schema.decodeUnknownSync(BeadsEpicTrackerStatus);
 const decodeListSwarmsResult = Schema.decodeUnknownSync(BeadsListEpicTrackerSummariesResult);
-const decodeProjectCoordinatorSnapshot = Schema.decodeUnknownSync(BeadsProjectCoordinatorSnapshot);
-const decodeEpicCoordinatorSnapshot = Schema.decodeUnknownSync(BeadsEpicCoordinatorSnapshot);
-const PROJECT_COORDINATOR_EPIC_LOAD_CONCURRENCY = 4;
+const decodeProjectRunSummary = Schema.decodeUnknownSync(BeadsProjectRunSummary);
+const decodeEpicIssueSummaries = Schema.decodeUnknownSync(BeadsEpicIssueSummaries);
+const decodeEpicTrackerDetail = Schema.decodeUnknownSync(BeadsEpicTrackerDetail);
 const BLOCKED_ISSUE_LOOKUP_CONCURRENCY = 4;
 
 interface SessionActivityRecord {
@@ -497,46 +500,6 @@ function mapIssueRelationArray(
   });
 }
 
-function compareIssueRelationsByCreatedAt(
-  left: BeadsIssueRelationSummaryType,
-  right: BeadsIssueRelationSummaryType,
-  childDetailsById: ReadonlyMap<string, Pick<BeadsIssueDetailType, "createdAt">>,
-): number {
-  const leftCreatedAt = childDetailsById.get(left.id)?.createdAt ?? null;
-  const rightCreatedAt = childDetailsById.get(right.id)?.createdAt ?? null;
-
-  if (leftCreatedAt !== null && rightCreatedAt !== null) {
-    const createdAtDelta = leftCreatedAt.localeCompare(rightCreatedAt);
-    if (createdAtDelta !== 0) {
-      return createdAtDelta;
-    }
-  } else if (leftCreatedAt !== rightCreatedAt) {
-    return leftCreatedAt === null ? 1 : -1;
-  }
-
-  const titleDelta = left.title.localeCompare(right.title, undefined, { sensitivity: "base" });
-  if (titleDelta !== 0) {
-    return titleDelta;
-  }
-
-  return left.id.localeCompare(right.id);
-}
-
-function insertIssueRelationSorted(
-  queue: BeadsIssueRelationSummaryType[],
-  candidate: BeadsIssueRelationSummaryType,
-  childDetailsById: ReadonlyMap<string, Pick<BeadsIssueDetailType, "createdAt">>,
-): void {
-  const insertAt = queue.findIndex(
-    (entry) => compareIssueRelationsByCreatedAt(candidate, entry, childDetailsById) < 0,
-  );
-  if (insertAt === -1) {
-    queue.push(candidate);
-    return;
-  }
-  queue.splice(insertAt, 0, candidate);
-}
-
 function sortChildIssueRelationsByDependencies(input: {
   readonly children: readonly BeadsIssueRelationSummaryType[];
   readonly childDetailsById: ReadonlyMap<
@@ -544,93 +507,36 @@ function sortChildIssueRelationsByDependencies(input: {
     Pick<BeadsIssueDetailType, "createdAt" | "dependencies">
   >;
 }): BeadsIssueRelationSummaryType[] {
-  if (input.children.length <= 1) {
-    return [...input.children];
-  }
-
-  const childIds = new Set(input.children.map((child) => child.id));
-  const adjacency = new Map<string, Set<string>>();
-  const indegree = new Map<string, number>();
-
-  for (const child of input.children) {
-    adjacency.set(child.id, new Set());
-    indegree.set(child.id, 0);
-  }
-
-  const addEdge = (fromId: string, toId: string) => {
-    if (fromId === toId) {
-      return;
-    }
-
-    const neighbors = adjacency.get(fromId);
-    if (!neighbors || neighbors.has(toId)) {
-      return;
-    }
-
-    neighbors.add(toId);
-    indegree.set(toId, (indegree.get(toId) ?? 0) + 1);
-  };
-
-  for (const child of input.children) {
-    const detail = input.childDetailsById.get(child.id);
-    if (!detail) {
-      continue;
-    }
-
-    for (const dependency of detail.dependencies) {
-      if (!childIds.has(dependency.id)) {
-        continue;
+  return topologicallySortByDependencies({
+    items: input.children,
+    getId: (issue) => issue.id,
+    getCreatedAt: (issue) => input.childDetailsById.get(issue.id)?.createdAt ?? null,
+    getTitle: (issue) => issue.title,
+    getPredecessorIds: (issue, siblingIds) => {
+      const detail = input.childDetailsById.get(issue.id);
+      if (!detail) {
+        return [];
       }
 
-      switch (dependency.dependencyType) {
-        case "blocked_by":
-        case "depends_on":
-          addEdge(dependency.id, child.id);
-          break;
-        case "blocks":
-          addEdge(child.id, dependency.id);
-          break;
-        default:
-          break;
-      }
-    }
-  }
-
-  const compare = (left: BeadsIssueRelationSummaryType, right: BeadsIssueRelationSummaryType) =>
-    compareIssueRelationsByCreatedAt(left, right, input.childDetailsById);
-
-  const remainingById = new Map(input.children.map((child) => [child.id, child] as const));
-  const ready = input.children
-    .filter((child) => (indegree.get(child.id) ?? 0) === 0)
-    .toSorted(compare);
-  const result: BeadsIssueRelationSummaryType[] = [];
-
-  while (ready.length > 0) {
-    const next = ready.shift();
-    if (!next || !remainingById.has(next.id)) {
-      continue;
-    }
-
-    remainingById.delete(next.id);
-    result.push(next);
-
-    for (const dependentId of adjacency.get(next.id) ?? []) {
-      const nextIndegree = (indegree.get(dependentId) ?? 0) - 1;
-      indegree.set(dependentId, nextIndegree);
-      if (nextIndegree === 0) {
-        const dependent = remainingById.get(dependentId);
-        if (dependent) {
-          insertIssueRelationSorted(ready, dependent, input.childDetailsById);
+      return detail.dependencies.flatMap((dependency) => {
+        if (!siblingIds.has(dependency.id)) {
+          return [];
         }
-      }
-    }
-  }
 
-  if (remainingById.size > 0) {
-    result.push(...[...remainingById.values()].toSorted(compare));
-  }
-
-  return result;
+        switch (dependency.dependencyType) {
+          case "blocked_by":
+          case "depends_on":
+          case "blocks":
+            // `bd show <issue> --long` returns dependencies from the current issue's
+            // point of view: each listed sibling is a prerequisite for this issue,
+            // even when the edge label itself is `blocks`.
+            return [dependency.id];
+          default:
+            return [];
+        }
+      });
+    },
+  });
 }
 
 function buildIssueRecordLookup(
@@ -838,6 +744,16 @@ function mapIssueSummary(
     updatedAt: raw.updated_at,
     labels: Array.isArray(raw.labels) ? raw.labels : [],
     parent: mapParentRef(raw, issueTitleById),
+    dependencyRefs: asRecordArray(raw.dependencies).flatMap((entry) => {
+      const issueId = trimToNull(entry.issue_id);
+      const dependsOnId = trimToNull(entry.depends_on_id);
+      const dependencyType = trimToNull(entry.type) ?? trimToNull(entry.dependency_type);
+      if (!issueId || !dependsOnId || !dependencyType) {
+        return [];
+      }
+
+      return [{ issueId, dependsOnId, dependencyType }] as const;
+    }),
     dependencyCount: typeof raw.dependency_count === "number" ? raw.dependency_count : undefined,
     dependentCount: typeof raw.dependent_count === "number" ? raw.dependent_count : undefined,
     commentCount: typeof raw.comment_count === "number" ? raw.comment_count : undefined,
@@ -853,18 +769,6 @@ function buildIssueTitleMap(
     return id && title ? ([[id, title]] as const) : [];
   });
   return new Map(entries);
-}
-
-function buildIssueSummaryLookup(
-  issues: ReadonlyArray<BeadsIssueSummaryType>,
-): ReadonlyMap<string, BeadsIssueSummaryType> {
-  return new Map(issues.map((issue) => [issue.id, issue] as const));
-}
-
-function buildSwarmSummaryLookup(
-  swarms: ReadonlyArray<BeadsEpicTrackerSummaryType>,
-): ReadonlyMap<string, BeadsEpicTrackerSummaryType> {
-  return new Map(swarms.map((swarm) => [swarm.epicId, swarm] as const));
 }
 
 function matchesIssueSummary(issue: BeadsIssueSummaryType, input: BeadsQueryIssuesInput): boolean {
@@ -1698,6 +1602,41 @@ const makeBeadsTrackerService = Effect.gen(function* () {
 
   const getIssue: BeadsTrackerServiceShape["getIssue"] = (input) => getIssueDetail(input);
 
+  const getEpicIssueSummaries: BeadsTrackerServiceShape["getEpicIssueSummaries"] = (input) =>
+    Effect.gen(function* () {
+      const [epic, issues] = yield* Effect.all(
+        [
+          getIssueDetail({ cwd: input.cwd, issueId: input.epicIssueId }),
+          runBdJson(
+            input.cwd,
+            ["list", "--all", "--parent", input.epicIssueId, "--limit", "0"],
+            (json) => {
+              const rawIssues = asRecordArray(json);
+              const issueTitleById = buildIssueTitleMap(rawIssues);
+              return rawIssues
+                .map((entry) => mapIssueSummary(entry, issueTitleById))
+                .toSorted((left, right) => compareIssueSummaries(left, right, "updated"))
+                .slice(0, 200);
+            },
+          ),
+        ],
+        { concurrency: "unbounded" },
+      );
+
+      return decodeEpicIssueSummaries(
+        buildEpicIssueSummaries({
+          epic,
+          issues,
+        }),
+      );
+    }).pipe(
+      Effect.mapError((error) =>
+        Schema.is(BeadsError)(error)
+          ? error
+          : toBeadsError("Failed to load epic issue summaries.", error),
+      ),
+    );
+
   const updateIssue: BeadsTrackerServiceShape["updateIssue"] = (input) =>
     Effect.gen(function* () {
       const args = ["update", input.issueId];
@@ -1800,33 +1739,25 @@ const makeBeadsTrackerService = Effect.gen(function* () {
   const getEpicRunSupport: BeadsTrackerServiceShape["getEpicRunSupport"] = (input) =>
     getContext({ cwd: input.cwd }).pipe(Effect.map((context) => deriveSwarmSupport(context)));
 
-  const listEpicTrackerSummariesWithSupport: BeadsTrackerServiceShape["listEpicTrackerSummariesWithSupport"] =
-    (input) =>
-      Effect.gen(function* () {
-        if (!input.support.supported) {
-          return decodeListSwarmsResult({ trackerSummaries: [] });
-        }
+  const listEpicTrackerSummariesWithSupport = (input: {
+    cwd: string;
+    support: BeadsEpicRunSupport;
+  }): Effect.Effect<BeadsListEpicTrackerSummariesResult, BeadsError> =>
+    Effect.gen(function* () {
+      if (!input.support.supported) {
+        return decodeListSwarmsResult({ trackerSummaries: [] });
+      }
 
-        return yield* runBdJson(input.cwd, ["swarm", "list"], (json) => {
-          const record = asRecord(json);
-          const swarmsSource =
-            record && Array.isArray(record.swarms)
-              ? record.swarms
-              : Array.isArray(json)
-                ? json
-                : [];
-          return decodeListSwarmsResult({
-            trackerSummaries: swarmsSource.map((entry) =>
-              mapSwarmSummary(entry as Record<string, unknown>),
-            ),
-          });
+      return yield* runBdJson(input.cwd, ["swarm", "list"], (json) => {
+        const record = asRecord(json);
+        const swarmsSource =
+          record && Array.isArray(record.swarms) ? record.swarms : Array.isArray(json) ? json : [];
+        return decodeListSwarmsResult({
+          trackerSummaries: swarmsSource.map((entry) =>
+            mapSwarmSummary(entry as Record<string, unknown>),
+          ),
         });
       });
-
-  const listEpicTrackerSummaries: BeadsTrackerServiceShape["listEpicTrackerSummaries"] = (input) =>
-    Effect.gen(function* () {
-      const support = yield* getEpicRunSupport({ cwd: input.cwd });
-      return yield* listEpicTrackerSummariesWithSupport({ cwd: input.cwd, support });
     });
 
   const getIssueGraph: BeadsTrackerServiceShape["getIssueGraph"] = (input) =>
@@ -2317,6 +2248,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     queryIssues,
     listCoordinatorEpics,
     getIssue,
+    getEpicIssueSummaries,
     createIssue,
     updateIssue,
     commentIssue,
@@ -2326,8 +2258,6 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     getEpicTrackerSummary,
     validateEpicRun,
     getEpicTrackerStatus,
-    listEpicTrackerSummaries,
-    listEpicTrackerSummariesWithSupport,
     initializeEpicTracker,
     loadEpicCoordinatorTrackerState,
   } satisfies BeadsTrackerServiceShape;
@@ -2605,8 +2535,6 @@ const makeBeadsService = Effect.gen(function* () {
   const getContext: BeadsServiceShape["getContext"] = (input) => beadsTracker.getContext(input);
   const getEpicRunSupport: BeadsServiceShape["getEpicRunSupport"] = (input) =>
     beadsTracker.getEpicRunSupport(input);
-  const listEpicTrackerSummaries: BeadsServiceShape["listEpicTrackerSummaries"] = (input) =>
-    beadsTracker.listEpicTrackerSummaries(input);
   const getIssueGraph: BeadsServiceShape["getIssueGraph"] = (input) =>
     beadsTracker.getIssueGraph(input);
   const getEpicTrackerSummary: BeadsServiceShape["getEpicTrackerSummary"] = (input) =>
@@ -2616,13 +2544,10 @@ const makeBeadsService = Effect.gen(function* () {
   const getEpicTrackerStatus: BeadsServiceShape["getEpicTrackerStatus"] = (input) =>
     beadsTracker.getEpicTrackerStatus(input);
 
-  const getProjectCoordinatorSnapshot: BeadsServiceShape["getProjectCoordinatorSnapshot"] = (
-    input,
-  ) =>
+  const getProjectRunSummary: BeadsServiceShape["getProjectRunSummary"] = (input) =>
     Effect.gen(function* () {
-      const [support, epicIssues, readModel] = yield* Effect.all(
+      const [epicIssues, readModel] = yield* Effect.all(
         [
-          beadsTracker.getEpicRunSupport({ cwd: input.cwd }),
           beadsTracker.listCoordinatorEpics({ cwd: input.cwd }),
           orchestrationEngine
             .getReadModel()
@@ -2634,46 +2559,20 @@ const makeBeadsService = Effect.gen(function* () {
         ],
         { concurrency: "unbounded" },
       );
-      const swarms = yield* beadsTracker.listEpicTrackerSummariesWithSupport({
-        cwd: input.cwd,
-        support,
-      });
-      const issueSummaryById = buildIssueSummaryLookup(epicIssues);
-      const swarmSummaryByEpicId = buildSwarmSummaryLookup(swarms.trackerSummaries);
-      const perEpicStateEntries = yield* Effect.forEach(
-        new Set([
-          ...epicIssues.map((issue) => issue.id),
-          ...swarms.trackerSummaries.map((swarm) => swarm.epicId),
-          ...readModel.epicRuns
-            .filter((run) => run.projectId === input.projectId)
-            .map((run) => run.epicIssueId),
-        ]),
-        (epicIssueId) =>
-          beadsTracker
-            .loadEpicCoordinatorTrackerState({
-              cwd: input.cwd,
-              epicIssueId,
-              support,
-              issueSummary: issueSummaryById.get(epicIssueId) ?? null,
-              trackerSummary: swarmSummaryByEpicId.get(epicIssueId) ?? null,
-            })
-            .pipe(Effect.map((state) => [epicIssueId, state] as const)),
-        { concurrency: PROJECT_COORDINATOR_EPIC_LOAD_CONCURRENCY },
-      );
 
-      return decodeProjectCoordinatorSnapshot(
-        buildProjectCoordinatorSnapshot({
+      return decodeProjectRunSummary(
+        buildProjectRunSummary({
           projectId: input.projectId,
-          support,
           epicIssues,
-          trackerSummaries: swarms.trackerSummaries,
           readModel,
-          perEpicState: new Map(perEpicStateEntries),
         }),
       );
     });
 
-  const getEpicCoordinatorSnapshot: BeadsServiceShape["getEpicCoordinatorSnapshot"] = (input) =>
+  const getEpicIssueSummaries: BeadsServiceShape["getEpicIssueSummaries"] = (input) =>
+    beadsTracker.getEpicIssueSummaries(input);
+
+  const getEpicTrackerDetail: BeadsServiceShape["getEpicTrackerDetail"] = (input) =>
     Effect.gen(function* () {
       const [support, issue, readModel] = yield* Effect.all(
         [
@@ -2689,23 +2588,20 @@ const makeBeadsService = Effect.gen(function* () {
         ],
         { concurrency: "unbounded" },
       );
-      const swarms = yield* beadsTracker.listEpicTrackerSummariesWithSupport({
+      const trackerSummary = yield* beadsTracker.getEpicTrackerSummary({
         cwd: input.cwd,
-        support,
+        epicIssueId: input.epicIssueId,
       });
       const trackerState = yield* beadsTracker.loadEpicCoordinatorTrackerState({
         cwd: input.cwd,
         epicIssueId: input.epicIssueId,
         support,
         issueSummary: issue,
-        trackerSummary:
-          swarms.trackerSummaries.find((swarm) => swarm.epicId === input.epicIssueId) ?? null,
+        trackerSummary,
       });
 
-      return decodeEpicCoordinatorSnapshot({
-        projectId: input.projectId,
-        support,
-        epic: buildSingleEpicCoordinatorSnapshot({
+      return decodeEpicTrackerDetail(
+        buildEpicTrackerDetail({
           projectId: input.projectId,
           support,
           issue,
@@ -2715,7 +2611,7 @@ const makeBeadsService = Effect.gen(function* () {
           statusError: trackerState.statusError,
           readModel,
         }),
-      });
+      );
     });
 
   const startWorkflow: BeadsServiceShape["startWorkflow"] = (input) =>
@@ -2878,9 +2774,9 @@ const makeBeadsService = Effect.gen(function* () {
     getEpicTrackerSummary,
     validateEpicRun,
     getEpicTrackerStatus,
-    listEpicTrackerSummaries,
-    getProjectCoordinatorSnapshot,
-    getEpicCoordinatorSnapshot,
+    getProjectRunSummary,
+    getEpicIssueSummaries,
+    getEpicTrackerDetail,
     getSessionActivity,
     startWorkflow,
     startBacklogGrooming,

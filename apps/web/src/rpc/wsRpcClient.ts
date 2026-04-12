@@ -133,15 +133,9 @@ export interface WsRpcClient {
     readonly getEpicTrackerSummary: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicTrackerSummary>;
     readonly validateEpicRun: RpcUnaryMethod<typeof BEADS_WS_METHODS.validateEpicRun>;
     readonly getEpicTrackerStatus: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicTrackerStatus>;
-    readonly listEpicTrackerSummaries: RpcUnaryMethod<
-      typeof BEADS_WS_METHODS.listEpicTrackerSummaries
-    >;
-    readonly getProjectCoordinatorSnapshot: RpcUnaryMethod<
-      typeof BEADS_WS_METHODS.getProjectCoordinatorSnapshot
-    >;
-    readonly getEpicCoordinatorSnapshot: RpcUnaryMethod<
-      typeof BEADS_WS_METHODS.getEpicCoordinatorSnapshot
-    >;
+    readonly getProjectRunSummary: RpcUnaryMethod<typeof BEADS_WS_METHODS.getProjectRunSummary>;
+    readonly getEpicIssueSummaries: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicIssueSummaries>;
+    readonly getEpicTrackerDetail: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicTrackerDetail>;
     readonly getSessionActivity: RpcUnaryMethod<typeof BEADS_WS_METHODS.getSessionActivity>;
     readonly startWorkflow: RpcUnaryMethod<typeof BEADS_WS_METHODS.startWorkflow>;
     readonly startBacklogGrooming: RpcUnaryMethod<typeof BEADS_WS_METHODS.startBacklogGrooming>;
@@ -321,14 +315,12 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[BEADS_WS_METHODS.validateEpicRun](input)),
       getEpicTrackerStatus: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.getEpicTrackerStatus](input)),
-      listEpicTrackerSummaries: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.listEpicTrackerSummaries](input)),
-      getProjectCoordinatorSnapshot: (input) =>
-        transport.request((client) =>
-          client[BEADS_WS_METHODS.getProjectCoordinatorSnapshot](input),
-        ),
-      getEpicCoordinatorSnapshot: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.getEpicCoordinatorSnapshot](input)),
+      getProjectRunSummary: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getProjectRunSummary](input)),
+      getEpicIssueSummaries: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getEpicIssueSummaries](input)),
+      getEpicTrackerDetail: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getEpicTrackerDetail](input)),
       getSessionActivity: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.getSessionActivity](input)),
       startWorkflow: (input) =>

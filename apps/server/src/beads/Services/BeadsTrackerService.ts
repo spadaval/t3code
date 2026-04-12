@@ -2,6 +2,7 @@ import type {
   BeadsCommentIssueInput,
   BeadsContext,
   BeadsCreateIssueInput,
+  BeadsEpicIssueSummaries,
   BeadsEpicIssueInput,
   BeadsGetContextInput,
   BeadsGetIssueInput,
@@ -9,8 +10,6 @@ import type {
   BeadsIssueDetail,
   BeadsIssueGraph,
   BeadsIssueSummary,
-  BeadsListEpicTrackerSummariesInput,
-  BeadsListEpicTrackerSummariesResult,
   BeadsQueryIssuesInput,
   BeadsQueryIssuesResult,
   BeadsEpicTrackerStatus,
@@ -32,6 +31,9 @@ export interface BeadsTrackerServiceShape {
     cwd: string;
   }) => Effect.Effect<ReadonlyArray<BeadsIssueSummary>, BeadsError>;
   readonly getIssue: (input: BeadsGetIssueInput) => Effect.Effect<BeadsIssueDetail, BeadsError>;
+  readonly getEpicIssueSummaries: (
+    input: BeadsEpicIssueInput,
+  ) => Effect.Effect<BeadsEpicIssueSummaries, BeadsError>;
   readonly updateIssue: (
     input: BeadsUpdateIssueInput,
   ) => Effect.Effect<BeadsIssueSummary, BeadsError>;
@@ -57,13 +59,6 @@ export interface BeadsTrackerServiceShape {
   readonly getEpicTrackerStatus: (
     input: BeadsEpicIssueInput,
   ) => Effect.Effect<BeadsEpicTrackerStatus, BeadsError>;
-  readonly listEpicTrackerSummaries: (
-    input: BeadsListEpicTrackerSummariesInput,
-  ) => Effect.Effect<BeadsListEpicTrackerSummariesResult, BeadsError>;
-  readonly listEpicTrackerSummariesWithSupport: (input: {
-    cwd: string;
-    support: BeadsEpicRunSupport;
-  }) => Effect.Effect<BeadsListEpicTrackerSummariesResult, BeadsError>;
   readonly initializeEpicTracker: (
     input: BeadsEpicIssueInput,
   ) => Effect.Effect<BeadsEpicTrackerSummary, BeadsError>;

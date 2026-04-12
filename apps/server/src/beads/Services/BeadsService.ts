@@ -2,9 +2,11 @@ import type {
   BeadsContext,
   BeadsCommentIssueInput,
   BeadsCreateIssueInput,
-  BeadsEpicCoordinatorSnapshot,
-  BeadsEpicCoordinatorSnapshotInput,
+  BeadsEpicIssueSummaries,
+  BeadsEpicIssueSummariesInput,
   BeadsEpicIssueInput,
+  BeadsEpicTrackerDetail,
+  BeadsEpicTrackerDetailInput,
   BeadsGetContextInput,
   BeadsGetIssueInput,
   BeadsGetIssuesInput,
@@ -14,10 +16,8 @@ import type {
   BeadsGetEpicRunSupportInput,
   BeadsIssueDetail,
   BeadsIssueGraph,
-  BeadsListEpicTrackerSummariesInput,
-  BeadsListEpicTrackerSummariesResult,
-  BeadsProjectCoordinatorSnapshot,
-  BeadsProjectCoordinatorSnapshotInput,
+  BeadsProjectRunSummary,
+  BeadsProjectRunSummaryInput,
   BeadsQueryIssuesInput,
   BeadsQueryIssuesResult,
   BeadsStartBacklogGroomingInput,
@@ -71,15 +71,15 @@ export interface BeadsServiceShape {
   readonly getEpicTrackerStatus: (
     input: BeadsEpicIssueInput,
   ) => Effect.Effect<BeadsEpicTrackerStatus, BeadsError>;
-  readonly listEpicTrackerSummaries: (
-    input: BeadsListEpicTrackerSummariesInput,
-  ) => Effect.Effect<BeadsListEpicTrackerSummariesResult, BeadsError>;
-  readonly getProjectCoordinatorSnapshot: (
-    input: BeadsProjectCoordinatorSnapshotInput,
-  ) => Effect.Effect<BeadsProjectCoordinatorSnapshot, BeadsError>;
-  readonly getEpicCoordinatorSnapshot: (
-    input: BeadsEpicCoordinatorSnapshotInput,
-  ) => Effect.Effect<BeadsEpicCoordinatorSnapshot, BeadsError>;
+  readonly getProjectRunSummary: (
+    input: BeadsProjectRunSummaryInput,
+  ) => Effect.Effect<BeadsProjectRunSummary, BeadsError>;
+  readonly getEpicIssueSummaries: (
+    input: BeadsEpicIssueSummariesInput,
+  ) => Effect.Effect<BeadsEpicIssueSummaries, BeadsError>;
+  readonly getEpicTrackerDetail: (
+    input: BeadsEpicTrackerDetailInput,
+  ) => Effect.Effect<BeadsEpicTrackerDetail, BeadsError>;
   readonly getSessionActivity: (
     input: BeadsGetSessionActivityInput,
   ) => Effect.Effect<BeadsGetSessionActivityResult, BeadsError>;

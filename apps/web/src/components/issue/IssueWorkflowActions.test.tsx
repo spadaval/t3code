@@ -1,5 +1,6 @@
 import type {
-  BeadsEpicCoordinatorSnapshot,
+  BeadsEpicTrackerDetail,
+  BeadsProjectRunSummary,
   BeadsIssueSummary,
   ProjectId,
 } from "@t3tools/contracts";
@@ -75,18 +76,28 @@ function IssueWorkflowActionsContent(props: {
 
 function renderIssueWorkflowActions(input: {
   issue: BeadsIssueSummary;
-  epicSnapshot?: BeadsEpicCoordinatorSnapshot | undefined;
+  epicTrackerDetail?: BeadsEpicTrackerDetail | undefined;
+  projectRunSummary?: BeadsProjectRunSummary | undefined;
   showEpicLaunchActions?: boolean;
 }) {
   const queryClient = new QueryClient();
-  if (input.epicSnapshot) {
+  if (input.projectRunSummary) {
     queryClient.setQueryData(
-      beadsQueryKeys.epicCoordinatorSnapshot({
+      beadsQueryKeys.projectRunSummary({
+        cwd: "/repo",
+        projectId: PROJECT_ID,
+      }),
+      input.projectRunSummary,
+    );
+  }
+  if (input.epicTrackerDetail) {
+    queryClient.setQueryData(
+      beadsQueryKeys.epicTrackerDetail({
         cwd: "/repo",
         projectId: PROJECT_ID,
         epicIssueId: input.issue.id,
       }),
-      input.epicSnapshot,
+      input.epicTrackerDetail,
     );
   }
 
@@ -124,8 +135,8 @@ describe("IssueWorkflowActions", () => {
         title: "Epic 1",
         issueType: "epic",
       }),
-      epicSnapshot: {
-        projectId: PROJECT_ID,
+      epicTrackerDetail: {
+        epicId: "EPIC-1",
         support: {
           supported: true,
           reason: null,
@@ -138,44 +149,24 @@ describe("IssueWorkflowActions", () => {
             bdVersion: null,
           },
         },
-        epic: {
-          epicId: "EPIC-1",
-          epicTitle: "Epic 1",
-          issue: null,
-          trackerLoadState: "ready",
-          trackerLoadDetail: null,
-          coordinationSupported: true,
-          coordinationUnsupportedReason: null,
-          validationState: "valid",
-          validationErrors: [],
-          trackerState: "not_started",
-          progress: {
-            totalIssueCount: 1,
-            completedIssueCount: 0,
-            readyIssueCount: 1,
-            activeIssueCount: 0,
-            blockedIssueCount: 0,
-            internalBlockedIssueCount: 0,
-            externalBlockedIssueCount: 0,
-            unknownBlockedIssueCount: 0,
-            activeWorkerCount: 0,
-            isComplete: false,
-          },
-          primaryAction: {
-            kind: "start_epic_run",
-            label: "Start epic",
-            busyLabel: "Starting...",
-            disabled: false,
-          },
-          activeRunId: null,
-          activeExecutionId: null,
-          projectConflict: null,
-          trackerSummary: null,
-          validation: null,
-          status: null,
-          runs: [],
-          executions: [],
+        trackerLoadState: "ready",
+        trackerLoadDetail: null,
+        validationState: "valid",
+        validationErrors: [],
+        trackerState: "not_started",
+        trackerSummary: null,
+        validation: null,
+        status: null,
+        primaryAction: {
+          kind: "start_epic_run",
+          label: "Start epic",
+          busyLabel: "Starting...",
+          disabled: false,
         },
+      },
+      projectRunSummary: {
+        projectId: PROJECT_ID,
+        epics: [],
       },
     });
 

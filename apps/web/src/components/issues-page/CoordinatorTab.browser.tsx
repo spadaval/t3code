@@ -2,11 +2,11 @@ import "../../index.css";
 
 import type {
   BeadsCoordinatorEpicSnapshot,
-  BeadsProjectCoordinatorSnapshot,
   OrchestrationEpicIssueExecution,
   OrchestrationEpicRun,
   ProjectId,
 } from "@t3tools/contracts";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
@@ -60,6 +60,7 @@ vi.mock("./WorkGraph", () => ({
 }));
 
 import { CoordinatorTab } from "./CoordinatorTab";
+import { beadsQueryKeys } from "~/lib/beadsReactQuery";
 
 const PROJECT_ID = "project-1" as ProjectId;
 
@@ -175,47 +176,87 @@ const BASE_EPIC: BeadsCoordinatorEpicSnapshot = {
 
 function createSnapshot(
   epicOverrides: Partial<BeadsCoordinatorEpicSnapshot> = {},
-): BeadsProjectCoordinatorSnapshot {
+): BeadsCoordinatorEpicSnapshot {
   return {
-    projectId: PROJECT_ID,
-    support: SUPPORT,
-    epics: [
-      {
-        ...BASE_EPIC,
-        ...epicOverrides,
-        progress: {
-          ...BASE_EPIC.progress,
-          ...epicOverrides.progress,
-        },
-        primaryAction: {
-          ...BASE_EPIC.primaryAction,
-          ...epicOverrides.primaryAction,
-        },
-        runs: epicOverrides.runs ?? BASE_EPIC.runs,
-        executions: epicOverrides.executions ?? BASE_EPIC.executions,
-      },
-    ],
+    ...BASE_EPIC,
+    ...epicOverrides,
+    progress: {
+      ...BASE_EPIC.progress,
+      ...epicOverrides.progress,
+    },
+    primaryAction: {
+      ...BASE_EPIC.primaryAction,
+      ...epicOverrides.primaryAction,
+    },
+    runs: epicOverrides.runs ?? BASE_EPIC.runs,
+    executions: epicOverrides.executions ?? BASE_EPIC.executions,
   };
 }
 
 async function renderCoordinator(epicOverrides: Partial<BeadsCoordinatorEpicSnapshot> = {}) {
+  const epic = createSnapshot(epicOverrides);
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(
+    beadsQueryKeys.epicIssueSummaries({
+      cwd: "/repo",
+      epicIssueId: epic.epicId,
+    }),
+    {
+      epicId: epic.epicId,
+      epicTitle: epic.epicTitle,
+      progress: epic.progress,
+      issues: [],
+    },
+  );
+  queryClient.setQueryData(
+    beadsQueryKeys.epicTrackerDetail({
+      cwd: "/repo",
+      projectId: PROJECT_ID,
+      epicIssueId: epic.epicId,
+    }),
+    {
+      epicId: epic.epicId,
+      support: SUPPORT,
+      trackerLoadState: epic.trackerLoadState,
+      trackerLoadDetail: epic.trackerLoadDetail,
+      validationState: epic.validationState,
+      validationErrors: epic.validationErrors,
+      trackerState: epic.trackerState,
+      trackerSummary: epic.trackerSummary,
+      validation: epic.validation,
+      status: epic.status,
+      primaryAction: epic.primaryAction,
+    },
+  );
   await render(
-    <CoordinatorTab
-      cwd="/repo"
-      projectId={PROJECT_ID}
-      coordinationSupport={SUPPORT}
-      coordinationSupportPending={false}
-      coordinationSupportError={null}
-      snapshot={createSnapshot(epicOverrides)}
-      snapshotPending={false}
-      snapshotError={null}
-      selectedEpicId="EPIC-1"
-      selectedRunId={(epicOverrides.runs?.[0] ?? BASE_EPIC.runs[0])?.runId ?? null}
-      onSelectEpic={() => {}}
-      onSelectRun={() => {}}
-      onOpenEpicIssue={() => {}}
-      onOpenThread={() => {}}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <CoordinatorTab
+        cwd="/repo"
+        projectId={PROJECT_ID}
+        coordinationSupport={SUPPORT}
+        coordinationSupportPending={false}
+        coordinationSupportError={null}
+        runSummary={{
+          projectId: PROJECT_ID,
+          epics: [
+            {
+              epicIssueId: epic.epicId,
+              epicTitle: epic.epicTitle,
+              runs: epic.runs,
+              executions: epic.executions,
+            },
+          ],
+        }}
+        runSummaryPending={false}
+        runSummaryError={null}
+        selectedEpicId="EPIC-1"
+        selectedRunId={(epicOverrides.runs?.[0] ?? BASE_EPIC.runs[0])?.runId ?? null}
+        onSelectEpic={() => {}}
+        onSelectRun={() => {}}
+        onOpenEpicIssue={() => {}}
+        onOpenThread={() => {}}
+      />
+    </QueryClientProvider>,
   );
 }
 

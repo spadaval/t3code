@@ -1,13 +1,15 @@
 import type {
+  BeadsCoordinatorProgress,
   BeadsCoordinatorEpicSnapshot,
   BeadsCoordinatorProjectConflict,
+  BeadsEpicIssueSummaries,
+  BeadsEpicTrackerDetail,
   BeadsIssueDetail,
   BeadsIssueSummary,
-  BeadsProjectCoordinatorSnapshot,
   BeadsEpicTrackerStatus,
-  BeadsEpicTrackerSummary,
   BeadsEpicRunSupport,
   BeadsEpicRunValidation,
+  BeadsProjectRunSummary,
   OrchestrationReadModel,
   OrchestrationEpicRun,
   OrchestrationEpicIssueExecution,
@@ -60,55 +62,11 @@ function toIssueSummary(issue: BeadsIssueDetail | BeadsIssueSummary): BeadsIssue
     updatedAt: issue.updatedAt,
     labels: issue.labels,
     parent: issue.parent,
+    dependencyRefs: issue.dependencyRefs,
     dependencyCount: issue.dependencyCount,
     dependentCount: issue.dependentCount,
     commentCount: issue.commentCount,
   };
-}
-
-function buildCoordinatorEpicEntries(input: {
-  readonly epicIssues: ReadonlyArray<BeadsIssueSummary>;
-  readonly trackerSummaries: ReadonlyArray<BeadsEpicTrackerSummary>;
-  readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
-}) {
-  const entries = new Map<
-    string,
-    {
-      epicId: string;
-      epicTitle: string;
-      issue: BeadsIssueSummary | null;
-    }
-  >();
-
-  for (const issue of input.epicIssues) {
-    entries.set(issue.id, {
-      epicId: issue.id,
-      epicTitle: issue.title,
-      issue,
-    });
-  }
-
-  for (const swarm of input.trackerSummaries) {
-    if (!entries.has(swarm.epicId)) {
-      entries.set(swarm.epicId, {
-        epicId: swarm.epicId,
-        epicTitle: swarm.epicTitle,
-        issue: null,
-      });
-    }
-  }
-
-  for (const run of input.epicRuns) {
-    if (!entries.has(run.epicIssueId)) {
-      entries.set(run.epicIssueId, {
-        epicId: run.epicIssueId,
-        epicTitle: run.epicIssueId,
-        issue: null,
-      });
-    }
-  }
-
-  return [...entries.values()];
 }
 
 function deriveEpicPrimaryAction(input: {
@@ -341,22 +299,39 @@ export function buildCoordinatorEpicSnapshot(input: {
   };
 }
 
-export function buildProjectCoordinatorSnapshot(input: {
+function deriveIssueSummariesProgress(
+  issues: ReadonlyArray<BeadsIssueSummary>,
+): BeadsCoordinatorProgress {
+  const totalIssueCount = issues.length;
+  const completedIssueCount = issues.filter((issue) => issue.status === "closed").length;
+  const blockedIssueCount = issues.filter((issue) => issue.status === "blocked").length;
+  const activeIssueCount = issues.filter(
+    (issue) => issue.status === "in_progress" || issue.status === "hooked",
+  ).length;
+  const readyIssueCount = Math.max(
+    0,
+    totalIssueCount - completedIssueCount - blockedIssueCount - activeIssueCount,
+  );
+
+  return {
+    totalIssueCount,
+    completedIssueCount,
+    readyIssueCount,
+    activeIssueCount,
+    blockedIssueCount,
+    internalBlockedIssueCount: 0,
+    externalBlockedIssueCount: 0,
+    unknownBlockedIssueCount: blockedIssueCount,
+    activeWorkerCount: 0,
+    isComplete: totalIssueCount > 0 && completedIssueCount >= totalIssueCount,
+  };
+}
+
+export function buildProjectRunSummary(input: {
   readonly projectId: ProjectId;
-  readonly support: BeadsEpicRunSupport;
   readonly epicIssues: ReadonlyArray<BeadsIssueSummary>;
-  readonly trackerSummaries: ReadonlyArray<BeadsEpicTrackerSummary>;
   readonly readModel: OrchestrationReadModel;
-  readonly perEpicState: ReadonlyMap<
-    string,
-    {
-      readonly validation: BeadsEpicRunValidation | null;
-      readonly status: BeadsEpicTrackerStatus | null;
-      readonly validationError: string | null;
-      readonly statusError: string | null;
-    }
-  >;
-}): BeadsProjectCoordinatorSnapshot {
+}): BeadsProjectRunSummary {
   const projectEpicRuns = input.readModel.epicRuns.filter(
     (run) => run.projectId === input.projectId,
   );
@@ -365,6 +340,7 @@ export function buildProjectCoordinatorSnapshot(input: {
     OrchestrationEpicRun["runId"],
     OrchestrationEpicIssueExecution[]
   >();
+  const epicTitleById = new Map(input.epicIssues.map((issue) => [issue.id, issue.title] as const));
 
   for (const execution of input.readModel.epicIssueExecutions) {
     if (!projectRunIds.has(execution.runId)) {
@@ -379,34 +355,69 @@ export function buildProjectCoordinatorSnapshot(input: {
     }
   }
 
-  const epics = buildCoordinatorEpicEntries({
-    epicIssues: input.epicIssues,
-    trackerSummaries: input.trackerSummaries,
-    epicRuns: projectEpicRuns,
-  }).map((epic) => {
-    const epicRuns = projectEpicRuns.filter((run) => run.epicIssueId === epic.epicId);
-    const epicExecutions = epicRuns.flatMap((run) => executionsByRunId.get(run.runId) ?? []);
-    const state = input.perEpicState.get(epic.epicId);
+  const epicIds = new Set(projectEpicRuns.map((run) => run.epicIssueId));
+  const epics = [...epicIds]
+    .map((epicIssueId) => {
+      const runs = projectEpicRuns
+        .filter((run) => run.epicIssueId === epicIssueId)
+        .toSorted(compareEpicRunsByRequestedAtDesc);
+      const executions = runs.flatMap((run) => executionsByRunId.get(run.runId) ?? []);
 
-    return buildCoordinatorEpicSnapshot({
-      issue: epic.issue,
-      support: input.support,
-      validation: state?.validation ?? null,
-      status: state?.status ?? null,
-      validationError: state?.validationError ?? null,
-      statusError: state?.statusError ?? null,
-      projectEpicRuns,
-      epicRuns,
-      epicExecutions,
-      fallbackEpicId: epic.epicId,
-      fallbackEpicTitle: epic.epicTitle,
-    });
-  });
+      return {
+        epicIssueId,
+        epicTitle: epicTitleById.get(epicIssueId) ?? epicIssueId,
+        runs,
+        executions,
+      };
+    })
+    .toSorted(
+      (left, right) =>
+        (right.runs[0]?.updatedAt ?? "").localeCompare(left.runs[0]?.updatedAt ?? "") ||
+        left.epicIssueId.localeCompare(right.epicIssueId),
+    );
 
   return {
     projectId: input.projectId,
-    support: input.support,
     epics,
+  };
+}
+
+export function buildEpicIssueSummaries(input: {
+  readonly epic: BeadsIssueDetail | BeadsIssueSummary;
+  readonly issues: ReadonlyArray<BeadsIssueSummary>;
+}): BeadsEpicIssueSummaries {
+  return {
+    epicId: input.epic.id,
+    epicTitle: input.epic.title,
+    progress: deriveIssueSummariesProgress(input.issues),
+    issues: [...input.issues],
+  };
+}
+
+export function buildEpicTrackerDetail(input: {
+  readonly projectId: ProjectId;
+  readonly support: BeadsEpicRunSupport;
+  readonly issue: BeadsIssueDetail | BeadsIssueSummary;
+  readonly validation: BeadsEpicRunValidation | null;
+  readonly status: BeadsEpicTrackerStatus | null;
+  readonly validationError: string | null;
+  readonly statusError: string | null;
+  readonly readModel: OrchestrationReadModel;
+}): BeadsEpicTrackerDetail {
+  const epic = buildSingleEpicCoordinatorSnapshot(input);
+
+  return {
+    epicId: epic.epicId,
+    support: input.support,
+    trackerLoadState: epic.trackerLoadState,
+    trackerLoadDetail: epic.trackerLoadDetail,
+    validationState: epic.validationState,
+    validationErrors: epic.validationErrors,
+    trackerState: epic.trackerState,
+    trackerSummary: epic.trackerSummary,
+    validation: epic.validation,
+    status: epic.status,
+    primaryAction: epic.primaryAction,
   };
 }
 

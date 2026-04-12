@@ -14,6 +14,7 @@ import {
 
 interface WorkerObservationInput {
   readonly latestTurnState: OrchestrationTurnStatus | null | undefined;
+  readonly latestTurnTerminalSource: string | null | undefined;
   readonly sessionActiveTurnId: TurnId | null | undefined;
 }
 
@@ -36,6 +37,12 @@ export function workerThreadStillHasActiveTurn(input: WorkerObservationInput): b
 
 export function workerThreadLaunchWasObserved(input: WorkerObservationInput): boolean {
   return input.latestTurnState != null || input.sessionActiveTurnId != null;
+}
+
+function authoritativeWorkerTerminalState(
+  thread: Pick<OrchestrationThread, "latestTurn">,
+): OrchestrationTurnStatus | null {
+  return thread.latestTurn?.terminalSource === "turn_completed" ? thread.latestTurn.state : null;
 }
 
 function defaultWorkerError(
@@ -90,14 +97,16 @@ export function decideReconcileRequestedExecution(input: {
 
   const workerStillRunning = workerThreadStillHasActiveTurn({
     latestTurnState: input.thread.latestTurn?.state,
+    latestTurnTerminalSource: input.thread.latestTurn?.terminalSource,
     sessionActiveTurnId: input.thread.session?.activeTurnId,
   });
+  const terminalState = authoritativeWorkerTerminalState(input.thread);
 
-  if (input.thread.latestTurn?.state === "completed") {
+  if (terminalState === "completed") {
     return { type: "complete" };
   }
 
-  if (input.thread.latestTurn?.state === "error") {
+  if (terminalState === "error") {
     return {
       type: "fail",
       reason: input.thread.session?.lastError ?? "Worker thread completed with an error.",
@@ -108,19 +117,19 @@ export function decideReconcileRequestedExecution(input: {
     return { type: "promote_to_active" };
   }
 
-  if (input.thread.latestTurn?.state === "interrupted") {
+  if (terminalState === "interrupted") {
     return {
       type: "fail",
-      reason: defaultWorkerError(
-        input.thread,
-        input.execution.workerThreadId,
-        input.thread.latestTurn?.state,
-      ),
+      reason: defaultWorkerError(input.thread, input.execution.workerThreadId, terminalState),
     };
   }
 
   if (
-    input.thread.latestTurn === null &&
+    !workerThreadLaunchWasObserved({
+      latestTurnState: input.thread.latestTurn?.state,
+      latestTurnTerminalSource: input.thread.latestTurn?.terminalSource,
+      sessionActiveTurnId: input.thread.session?.activeTurnId,
+    }) &&
     isRequestedExecutionTimedOut({
       requestedAt: input.execution.requestedAt,
       nowMs: input.nowMs,
@@ -165,25 +174,23 @@ export function decideReconcileCurrentExecution(input: {
     };
   }
 
-  if (input.thread.latestTurn?.state === "completed") {
+  const terminalState = authoritativeWorkerTerminalState(input.thread);
+
+  if (terminalState === "completed") {
     return { type: "complete_execution" };
   }
 
-  if (input.thread.latestTurn?.state === "error") {
+  if (terminalState === "error") {
     return {
       type: "fail_execution",
       reason: input.thread.session?.lastError ?? "Worker thread completed with an error.",
     };
   }
 
-  if (input.thread.latestTurn?.state === "interrupted") {
+  if (terminalState === "interrupted") {
     return {
       type: "fail_execution",
-      reason: defaultWorkerError(
-        input.thread,
-        input.execution.workerThreadId,
-        input.thread.latestTurn?.state,
-      ),
+      reason: defaultWorkerError(input.thread, input.execution.workerThreadId, terminalState),
     };
   }
 

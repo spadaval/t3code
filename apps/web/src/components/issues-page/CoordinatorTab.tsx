@@ -1,11 +1,13 @@
 import type {
   BeadsEpicRunSupport,
-  BeadsProjectCoordinatorSnapshot,
+  BeadsCoordinatorEpicSnapshot,
+  BeadsProjectRunSummary,
   OrchestrationEpicIssueExecution,
   OrchestrationEpicRun,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
   ChevronDownIcon,
@@ -25,6 +27,11 @@ import {
   selectCoordinatorRunEntry,
   type CoordinatorRunEntry,
 } from "~/lib/epicCoordinatorUi";
+import {
+  beadsEpicIssueSummariesOptions,
+  beadsEpicTrackerDetailOptions,
+} from "~/lib/beadsReactQuery";
+import { composeCoordinatorEpicSnapshot } from "~/lib/coordinatorSnapshots";
 import { cn } from "~/lib/utils";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { useProjectById } from "~/storeSelectors";
@@ -50,9 +57,9 @@ type CoordinatorTabProps = {
   coordinationSupport: BeadsEpicRunSupport | null;
   coordinationSupportPending: boolean;
   coordinationSupportError: Error | null;
-  snapshot: BeadsProjectCoordinatorSnapshot | null;
-  snapshotPending: boolean;
-  snapshotError: Error | null;
+  runSummary: BeadsProjectRunSummary | null;
+  runSummaryPending: boolean;
+  runSummaryError: Error | null;
   selectedEpicId: string | null;
   selectedRunId: string | null;
   onSelectEpic: (epicId: string | null) => void;
@@ -129,6 +136,85 @@ function executionStatusBadgeVariant(
   }
 }
 
+function deriveRunSummaryProgress(input: {
+  executions: readonly OrchestrationEpicIssueExecution[];
+}): BeadsCoordinatorEpicSnapshot["progress"] {
+  const latestByIssueId = new Map<string, OrchestrationEpicIssueExecution>();
+
+  for (const execution of input.executions) {
+    const existing = latestByIssueId.get(execution.issueId);
+    if (
+      !existing ||
+      execution.updatedAt > existing.updatedAt ||
+      execution.sequenceNumber > existing.sequenceNumber
+    ) {
+      latestByIssueId.set(execution.issueId, execution);
+    }
+  }
+
+  let completedIssueCount = 0;
+  let activeIssueCount = 0;
+  let blockedIssueCount = 0;
+  for (const execution of latestByIssueId.values()) {
+    if (execution.status === "completed") {
+      completedIssueCount += 1;
+    } else if (
+      execution.status === "launching" ||
+      execution.status === "running" ||
+      execution.status === "stopping"
+    ) {
+      activeIssueCount += 1;
+    } else if (execution.status === "failed" || execution.status === "stopped") {
+      blockedIssueCount += 1;
+    }
+  }
+
+  return {
+    totalIssueCount: latestByIssueId.size,
+    completedIssueCount,
+    readyIssueCount: 0,
+    activeIssueCount,
+    blockedIssueCount,
+    internalBlockedIssueCount: 0,
+    externalBlockedIssueCount: 0,
+    unknownBlockedIssueCount: blockedIssueCount,
+    activeWorkerCount: activeIssueCount,
+    isComplete: latestByIssueId.size > 0 && completedIssueCount >= latestByIssueId.size,
+  };
+}
+
+function toRunSummarySnapshot(
+  epic: BeadsProjectRunSummary["epics"][number],
+): BeadsCoordinatorEpicSnapshot {
+  return {
+    epicId: epic.epicIssueId,
+    epicTitle: epic.epicTitle,
+    issue: null,
+    trackerLoadState: "ready",
+    trackerLoadDetail: null,
+    coordinationSupported: true,
+    coordinationUnsupportedReason: null,
+    validationState: "unknown",
+    validationErrors: [],
+    trackerState: "unknown",
+    progress: deriveRunSummaryProgress({ executions: epic.executions }),
+    primaryAction: {
+      kind: "open_coordinator",
+      label: "Open output",
+      busyLabel: "Opening...",
+      disabled: false,
+    },
+    activeRunId: null,
+    activeExecutionId: null,
+    projectConflict: null,
+    trackerSummary: null,
+    validation: null,
+    status: null,
+    runs: epic.runs,
+    executions: epic.executions,
+  };
+}
+
 function buildCoordinatorActions(input: { entry: CoordinatorRunEntry }): CoordinatorActionInput[] {
   const primaryAction = input.entry.epic.primaryAction;
   const defaultAction = getCoordinatorPrimaryActionInput(input.entry.epic);
@@ -154,8 +240,8 @@ function buildCoordinatorActions(input: { entry: CoordinatorRunEntry }): Coordin
 export function CoordinatorTab(props: CoordinatorTabProps) {
   const project = useProjectById(props.projectId);
   const entries = useMemo(
-    () => buildCoordinatorRunEntries(props.snapshot?.epics ?? []),
-    [props.snapshot?.epics],
+    () => buildCoordinatorRunEntries((props.runSummary?.epics ?? []).map(toRunSummarySnapshot)),
+    [props.runSummary?.epics],
   );
   const sections = useMemo(() => partitionCoordinatorRunEntries(entries), [entries]);
   const selectedEntry = useMemo(
@@ -166,6 +252,40 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
         runId: props.selectedRunId,
       }),
     [entries, props.selectedEpicId, props.selectedRunId],
+  );
+  const selectedEpicIssueSummariesQuery = useQuery(
+    props.cwd && selectedEntry
+      ? beadsEpicIssueSummariesOptions({
+          cwd: props.cwd,
+          epicIssueId: selectedEntry.epic.epicId,
+        })
+      : beadsEpicIssueSummariesOptions(null),
+  );
+  const selectedEpicTrackerDetailQuery = useQuery(
+    props.cwd && props.projectId && selectedEntry
+      ? beadsEpicTrackerDetailOptions({
+          cwd: props.cwd,
+          projectId: props.projectId,
+          epicIssueId: selectedEntry.epic.epicId,
+        })
+      : beadsEpicTrackerDetailOptions(null),
+  );
+  const selectedEpicSnapshot = useMemo(
+    () =>
+      selectedEntry && selectedEpicTrackerDetailQuery.data
+        ? composeCoordinatorEpicSnapshot({
+            epicIssueId: selectedEntry.epic.epicId,
+            projectRunSummary: props.runSummary,
+            epicIssueSummaries: selectedEpicIssueSummariesQuery.data ?? null,
+            epicTrackerDetail: selectedEpicTrackerDetailQuery.data,
+          })
+        : null,
+    [
+      props.runSummary,
+      selectedEntry,
+      selectedEpicIssueSummariesQuery.data,
+      selectedEpicTrackerDetailQuery.data,
+    ],
   );
 
   const coordinatorActions = useEpicCoordinatorActionRunner({
@@ -206,7 +326,7 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
     );
   }
 
-  if (props.snapshotPending) {
+  if (props.runSummaryPending) {
     return (
       <div className="flex h-full items-center justify-center">
         <LoadingSpinner size="md" />
@@ -214,10 +334,10 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
     );
   }
 
-  if (props.snapshotError) {
+  if (props.runSummaryError) {
     return (
       <div className="flex h-full items-center justify-center p-8">
-        <ErrorDisplay error={props.snapshotError} variant="minimal" />
+        <ErrorDisplay error={props.runSummaryError} variant="minimal" />
       </div>
     );
   }
@@ -270,6 +390,14 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
             <CoordinatorRunDetail
               cwd={props.cwd}
               entry={selectedEntry}
+              epic={selectedEpicSnapshot}
+              epicPending={
+                selectedEpicIssueSummariesQuery.isPending ||
+                selectedEpicTrackerDetailQuery.isPending
+              }
+              epicError={
+                selectedEpicIssueSummariesQuery.error ?? selectedEpicTrackerDetailQuery.error
+              }
               busyActionKey={coordinatorActions.busyActionKey}
               onOpenEpicIssue={props.onOpenEpicIssue}
               onOpenThread={props.onOpenThread}
@@ -381,28 +509,49 @@ function CoordinatorRunRow(props: {
 function CoordinatorRunDetail(props: {
   cwd: string;
   entry: CoordinatorRunEntry;
+  epic: BeadsCoordinatorEpicSnapshot | null;
+  epicPending: boolean;
+  epicError: Error | null;
   busyActionKey: string | null;
   onOpenEpicIssue: (epicId: string) => void;
   onOpenThread: (threadId: ThreadId) => void;
   onRunAction: (action: CoordinatorActionInput) => void;
 }) {
-  const runExecutions = useMemo(
-    () =>
-      props.entry.epic.executions
-        .filter((execution) => execution.runId === props.entry.run.runId)
-        .toSorted(
-          (left, right) =>
-            right.updatedAt.localeCompare(left.updatedAt) ||
-            right.requestedAt.localeCompare(left.requestedAt) ||
-            right.sequenceNumber - left.sequenceNumber,
-        ),
-    [props.entry.epic.executions, props.entry.run.runId],
-  );
-  const eventLog = useMemo(
-    () => deriveCoordinatorEventLog([props.entry.run], runExecutions),
-    [props.entry.run, runExecutions],
-  );
-  const actions = useMemo(() => buildCoordinatorActions({ entry: props.entry }), [props.entry]);
+  if (props.epicPending && !props.epic) {
+    return (
+      <div className="flex h-full min-h-80 items-center justify-center">
+        <LoadingSpinner size="md" />
+      </div>
+    );
+  }
+
+  if (props.epicError && !props.epic) {
+    return (
+      <div className="flex h-full min-h-80 items-center justify-center p-8">
+        <ErrorDisplay error={props.epicError} variant="minimal" />
+      </div>
+    );
+  }
+
+  if (!props.epic) {
+    return null;
+  }
+  const epic = props.epic;
+
+  const runExecutions = epic.executions
+    .filter((execution) => execution.runId === props.entry.run.runId)
+    .toSorted(
+      (left, right) =>
+        right.updatedAt.localeCompare(left.updatedAt) ||
+        right.requestedAt.localeCompare(left.requestedAt) ||
+        right.sequenceNumber - left.sequenceNumber,
+    );
+  const eventLog = deriveCoordinatorEventLog([props.entry.run], runExecutions);
+  const detailEntry = {
+    ...props.entry,
+    epic,
+  };
+  const actions = buildCoordinatorActions({ entry: detailEntry });
 
   return (
     <div className="space-y-6 p-5">
@@ -463,7 +612,7 @@ function CoordinatorRunDetail(props: {
                               label: "Open output",
                               busyLabel: "Opening...",
                             },
-                  epic: props.entry.epic,
+                  epic,
                   selectedRun: props.entry.run,
                 });
                 return (
@@ -506,10 +655,9 @@ function CoordinatorRunDetail(props: {
           </div>
         ) : null}
 
-        {props.entry.epic.trackerLoadDetail &&
-        props.entry.epic.primaryAction.kind === "refresh_epic_status" ? (
+        {props.epic.trackerLoadDetail && props.epic.primaryAction.kind === "refresh_epic_status" ? (
           <div className="rounded-lg border border-warning/25 bg-warning/5 px-3 py-2.5 text-sm text-foreground">
-            {props.entry.epic.trackerLoadDetail}
+            {props.epic.trackerLoadDetail}
           </div>
         ) : null}
       </div>
@@ -568,7 +716,7 @@ function CoordinatorRunDetail(props: {
         )}
       </section>
 
-      <WorkGraph cwd={props.cwd} epic={props.entry.epic} onOpenThread={props.onOpenThread} />
+      <WorkGraph cwd={props.cwd} epic={props.epic} onOpenThread={props.onOpenThread} />
     </div>
   );
 }

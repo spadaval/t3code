@@ -509,25 +509,16 @@ export function projectEvent(
             : thread.latestTurn?.turnId === payload.turnId
               ? {
                   ...thread.latestTurn,
-                  state: payload.streaming
-                    ? thread.latestTurn.state
-                    : thread.latestTurn.state === "error" ||
-                        thread.latestTurn.state === "interrupted"
-                      ? thread.latestTurn.state
-                      : "completed",
-                  completedAt: payload.streaming
-                    ? thread.latestTurn.completedAt
-                    : (thread.latestTurn.completedAt ?? payload.updatedAt),
                   assistantMessageId: payload.messageId,
                   startedAt: thread.latestTurn.startedAt ?? payload.createdAt,
                   requestedAt: thread.latestTurn.requestedAt ?? payload.createdAt,
                 }
               : {
                   turnId: payload.turnId,
-                  state: payload.streaming ? "running" : "completed",
+                  state: "running",
                   requestedAt: payload.createdAt,
                   startedAt: payload.createdAt,
-                  completedAt: payload.streaming ? null : payload.updatedAt,
+                  completedAt: null,
                   assistantMessageId: payload.messageId,
                 };
 
@@ -584,16 +575,24 @@ export function projectEvent(
                         ? thread.latestTurn.assistantMessageId
                         : null,
                   }
-                : thread.latestTurn?.state === "running"
+                : payload.settledTurn !== undefined
                   ? {
-                      ...thread.latestTurn,
-                      state:
-                        session.status === "error"
-                          ? "error"
-                          : session.status === "interrupted"
-                            ? "interrupted"
-                            : "completed",
-                      completedAt: thread.latestTurn.completedAt ?? session.updatedAt,
+                      turnId: payload.settledTurn.turnId,
+                      state: payload.settledTurn.state,
+                      requestedAt:
+                        thread.latestTurn?.turnId === payload.settledTurn.turnId
+                          ? thread.latestTurn.requestedAt
+                          : payload.settledTurn.completedAt,
+                      startedAt:
+                        thread.latestTurn?.turnId === payload.settledTurn.turnId
+                          ? (thread.latestTurn.startedAt ?? payload.settledTurn.completedAt)
+                          : payload.settledTurn.completedAt,
+                      completedAt: payload.settledTurn.completedAt,
+                      assistantMessageId:
+                        thread.latestTurn?.turnId === payload.settledTurn.turnId
+                          ? thread.latestTurn.assistantMessageId
+                          : null,
+                      terminalSource: "turn_completed",
                     }
                   : thread.latestTurn,
             updatedAt: event.occurredAt,
@@ -767,6 +766,7 @@ export function projectEvent(
                     startedAt: latestCheckpoint.completedAt,
                     completedAt: latestCheckpoint.completedAt,
                     assistantMessageId: latestCheckpoint.assistantMessageId,
+                    terminalSource: "checkpoint_fallback" as const,
                   };
 
           return {

@@ -3,7 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { Loader2Icon, PlayIcon, RefreshCwIcon, WandSparklesIcon } from "lucide-react";
 
-import { beadsEpicCoordinatorSnapshotOptions } from "~/lib/beadsReactQuery";
+import {
+  beadsEpicIssueSummariesOptions,
+  beadsEpicTrackerDetailOptions,
+  beadsProjectRunSummaryOptions,
+} from "~/lib/beadsReactQuery";
+import { composeCoordinatorEpicSnapshot } from "~/lib/coordinatorSnapshots";
 import { buildEpicExecutionViewData } from "~/lib/epicExecutionView";
 import { describeCoordinatorActionCopy, resolveEpicOutputTarget } from "~/lib/epicCoordinatorUi";
 import {
@@ -95,17 +100,42 @@ function describeEpicLaunchState(epic: NonNullable<ReturnType<typeof useEpicSnap
 }
 
 function useEpicSnapshot(input: { cwd: string; projectId: ProjectId; issueId: string }) {
-  const query = useQuery(
-    beadsEpicCoordinatorSnapshotOptions({
+  const projectRunSummaryQuery = useQuery(
+    beadsProjectRunSummaryOptions({
+      cwd: input.cwd,
+      projectId: input.projectId,
+    }),
+  );
+  const issueSummariesQuery = useQuery(
+    beadsEpicIssueSummariesOptions({
+      cwd: input.cwd,
+      epicIssueId: input.issueId,
+    }),
+  );
+  const trackerDetailQuery = useQuery(
+    beadsEpicTrackerDetailOptions({
       cwd: input.cwd,
       projectId: input.projectId,
       epicIssueId: input.issueId,
     }),
   );
+  const epic =
+    trackerDetailQuery.data && issueSummariesQuery.data
+      ? composeCoordinatorEpicSnapshot({
+          epicIssueId: input.issueId,
+          projectRunSummary: projectRunSummaryQuery.data ?? null,
+          epicIssueSummaries: issueSummariesQuery.data,
+          epicTrackerDetail: trackerDetailQuery.data,
+        })
+      : null;
 
   return {
-    ...query,
-    epic: query.data?.epic ?? null,
+    isPending:
+      trackerDetailQuery.isPending ||
+      issueSummariesQuery.isPending ||
+      projectRunSummaryQuery.isPending,
+    error: trackerDetailQuery.error ?? issueSummariesQuery.error ?? projectRunSummaryQuery.error,
+    epic,
   };
 }
 

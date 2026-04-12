@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   CheckpointRef,
   CommandId,
+  MessageId,
   ProjectId,
   EpicIssueExecutionId,
   ThreadId,
@@ -1100,6 +1101,51 @@ describe("EpicRunScheduler", () => {
     expect(issue?.comments).toHaveLength(0);
   });
 
+  it("does not fail an active execution from graceful session exit without authoritative turn settlement", async () => {
+    const harness = await createHarness();
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startEpicRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const initialSnapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const execution = initialSnapshot.epicIssueExecutions[0];
+    expect(execution?.workerThreadId).toBeTruthy();
+    if (!execution?.workerThreadId) {
+      return;
+    }
+
+    harness.patchThread(execution.workerThreadId, {
+      latestTurn: makeRunningLatestTurn("turn-worker-running"),
+      session: {
+        ...makeStoppedSession(execution.workerThreadId),
+        status: "interrupted",
+        lastError: null,
+      },
+    });
+
+    await runtime!.runPromise(Effect.scoped(harness.workflow.start));
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const run = snapshot.epicRuns.find((entry) => entry.runId === started.runId);
+    const activeExecution = snapshot.epicIssueExecutions.find(
+      (entry) => entry.executionId === execution.executionId,
+    );
+    const issue = harness.getIssue("TASK-1");
+
+    expect(run?.status).toBe("running");
+    expect(run?.failureContext).toBeNull();
+    expect(failureMessage(run)).toBeNull();
+    expect(activeExecution?.status).toBe("running");
+    expect(failureMessage(activeExecution)).toBeNull();
+    expect(issue?.comments).toHaveLength(0);
+  });
+
   it("includes observed worker state when a task stops without an upstream error reason", async () => {
     const harness = await createHarness();
 
@@ -1227,6 +1273,56 @@ describe("EpicRunScheduler", () => {
     expect(execution?.startedAt).toBeNull();
     expect(issue?.status).toBe("open");
     expect(issue?.assignee).toBe("issue-owner");
+    expect(issue?.comments).toHaveLength(0);
+  });
+
+  it("does not settle the run from a non-authoritative completed worker turn", async () => {
+    const harness = await createHarness(makeTrackerState());
+    harness.patchIssue("TASK-1", {
+      status: "open",
+      assignee: "issue-owner",
+    });
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startEpicRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const initialSnapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const initialExecution = initialSnapshot.epicIssueExecutions[0];
+    if (!initialExecution?.workerThreadId) {
+      return;
+    }
+
+    harness.patchThread(initialExecution.workerThreadId, {
+      latestTurn: {
+        turnId: TurnId.makeUnsafe("turn-worker-message-only"),
+        state: "completed",
+        requestedAt: now,
+        startedAt: now,
+        completedAt: now,
+        assistantMessageId: MessageId.makeUnsafe("assistant-message-only"),
+      },
+      session: makeReadySession(initialExecution.workerThreadId),
+    });
+
+    await runtime!.runPromise(Effect.scoped(harness.workflow.start));
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const run = snapshot.epicRuns.find((entry) => entry.runId === started.runId);
+    const execution = snapshot.epicIssueExecutions[0];
+    const issue = harness.getIssue("TASK-1");
+
+    expect(run?.status).toBe("running");
+    expect(run?.failureContext).toBeNull();
+    expect(failureMessage(run)).toBeNull();
+    expect(execution?.status).toBe("launching");
+    expect(execution?.startedAt).toBeNull();
+    expect(issue?.status).toBe("open");
     expect(issue?.comments).toHaveLength(0);
   });
 

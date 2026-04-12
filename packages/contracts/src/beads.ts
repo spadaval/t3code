@@ -31,9 +31,9 @@ export const BEADS_WS_METHODS = {
   getEpicTrackerSummary: "beads.getEpicTrackerSummary",
   validateEpicRun: "beads.validateEpicRun",
   getEpicTrackerStatus: "beads.getEpicTrackerStatus",
-  listEpicTrackerSummaries: "beads.listEpicTrackerSummaries",
-  getProjectCoordinatorSnapshot: "beads.getProjectCoordinatorSnapshot",
-  getEpicCoordinatorSnapshot: "beads.getEpicCoordinatorSnapshot",
+  getProjectRunSummary: "beads.getProjectRunSummary",
+  getEpicIssueSummaries: "beads.getEpicIssueSummaries",
+  getEpicTrackerDetail: "beads.getEpicTrackerDetail",
   startEpicQuickRefine: "beads.startEpicQuickRefine",
   startEpicPlannedRefine: "beads.startEpicPlannedRefine",
   startEpicCoordinationPrep: "beads.startEpicCoordinationPrep",
@@ -61,6 +61,13 @@ export const BeadsIssueParentRef = Schema.Struct({
 });
 export type BeadsIssueParentRef = typeof BeadsIssueParentRef.Type;
 
+export const BeadsIssueSummaryDependencyRef = Schema.Struct({
+  issueId: BeadsIssueId,
+  dependsOnId: BeadsIssueId,
+  dependencyType: TrimmedNonEmptyString,
+});
+export type BeadsIssueSummaryDependencyRef = typeof BeadsIssueSummaryDependencyRef.Type;
+
 export const BeadsIssueSummary = Schema.Struct({
   id: BeadsIssueId,
   title: TrimmedNonEmptyString,
@@ -82,6 +89,9 @@ export const BeadsIssueSummary = Schema.Struct({
   updatedAt: IsoDateTime,
   labels: Schema.Array(BeadsLabel).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   parent: Schema.NullOr(BeadsIssueParentRef).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  dependencyRefs: Schema.Array(BeadsIssueSummaryDependencyRef).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   dependencyCount: Schema.optional(NonNegativeInt),
   dependentCount: Schema.optional(NonNegativeInt),
   commentCount: Schema.optional(NonNegativeInt),
@@ -420,34 +430,75 @@ export const BeadsListEpicTrackerSummariesInput = Schema.Struct({
 });
 export type BeadsListEpicTrackerSummariesInput = typeof BeadsListEpicTrackerSummariesInput.Type;
 
-export const BeadsProjectCoordinatorSnapshotInput = Schema.Struct({
+export const BeadsProjectRunSummaryInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   projectId: ProjectId,
 });
-export type BeadsProjectCoordinatorSnapshotInput = typeof BeadsProjectCoordinatorSnapshotInput.Type;
+export type BeadsProjectRunSummaryInput = typeof BeadsProjectRunSummaryInput.Type;
 
-export const BeadsProjectCoordinatorSnapshot = Schema.Struct({
-  projectId: ProjectId,
-  support: BeadsEpicRunSupport,
-  epics: Schema.Array(BeadsCoordinatorEpicSnapshot).pipe(
+export const BeadsProjectRunSummaryEpic = Schema.Struct({
+  epicIssueId: BeadsIssueId,
+  epicTitle: TrimmedNonEmptyString,
+  runs: Schema.Array(OrchestrationEpicRun).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  executions: Schema.Array(OrchestrationEpicIssueExecution).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
 });
-export type BeadsProjectCoordinatorSnapshot = typeof BeadsProjectCoordinatorSnapshot.Type;
+export type BeadsProjectRunSummaryEpic = typeof BeadsProjectRunSummaryEpic.Type;
 
-export const BeadsEpicCoordinatorSnapshotInput = Schema.Struct({
+export const BeadsProjectRunSummary = Schema.Struct({
+  projectId: ProjectId,
+  epics: Schema.Array(BeadsProjectRunSummaryEpic).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+});
+export type BeadsProjectRunSummary = typeof BeadsProjectRunSummary.Type;
+
+export const BeadsEpicIssueSummariesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  epicIssueId: BeadsIssueId,
+});
+export type BeadsEpicIssueSummariesInput = typeof BeadsEpicIssueSummariesInput.Type;
+
+export const BeadsEpicIssueSummaries = Schema.Struct({
+  epicId: BeadsIssueId,
+  epicTitle: TrimmedNonEmptyString,
+  progress: BeadsCoordinatorProgress,
+  issues: Schema.Array(BeadsIssueSummary).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+});
+export type BeadsEpicIssueSummaries = typeof BeadsEpicIssueSummaries.Type;
+
+export const BeadsEpicTrackerDetailInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   projectId: ProjectId,
   epicIssueId: BeadsIssueId,
 });
-export type BeadsEpicCoordinatorSnapshotInput = typeof BeadsEpicCoordinatorSnapshotInput.Type;
+export type BeadsEpicTrackerDetailInput = typeof BeadsEpicTrackerDetailInput.Type;
 
-export const BeadsEpicCoordinatorSnapshot = Schema.Struct({
-  projectId: ProjectId,
+export const BeadsEpicTrackerDetail = Schema.Struct({
+  epicId: BeadsIssueId,
   support: BeadsEpicRunSupport,
-  epic: BeadsCoordinatorEpicSnapshot,
+  trackerLoadState: BeadsCoordinatorTrackerLoadState,
+  trackerLoadDetail: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  validationState: BeadsCoordinatorValidationState,
+  validationErrors: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  trackerState: BeadsCoordinatorTrackerState,
+  trackerSummary: Schema.NullOr(BeadsEpicTrackerSummary).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  validation: Schema.NullOr(BeadsEpicRunValidation).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  status: Schema.NullOr(BeadsEpicTrackerStatus).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  primaryAction: BeadsCoordinatorPrimaryAction,
 });
-export type BeadsEpicCoordinatorSnapshot = typeof BeadsEpicCoordinatorSnapshot.Type;
+export type BeadsEpicTrackerDetail = typeof BeadsEpicTrackerDetail.Type;
 
 export const BeadsUpdateIssueInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,

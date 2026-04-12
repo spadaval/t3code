@@ -15,7 +15,6 @@ import {
   type OrchestrationEpicRunStatus,
   type OrchestrationEpicIssueExecution,
   type OrchestrationEvent,
-  type OrchestrationSessionStatus,
 } from "@t3tools/contracts";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
 import { deriveEpicRunExecutionState } from "@t3tools/shared/epicRun";
@@ -180,22 +179,17 @@ function workerTurnStopped(input: Parameters<typeof workerThreadStillHasActiveTu
   return !workerThreadStillHasActiveTurn(input);
 }
 
-function isTerminalWorkerSessionStatus(status: OrchestrationSessionStatus): boolean {
-  return (
-    status === "ready" || status === "interrupted" || status === "stopped" || status === "error"
-  );
-}
-
 function isNonTerminalExecutionStatus(status: OrchestrationEpicIssueExecution["status"]): boolean {
   return status === "launching" || status === "running" || status === "stopping";
 }
 
-function isWorkerTerminalObservationEvent(
+function isWorkerLifecycleObservationEvent(
   event: OrchestrationEvent,
 ): event is Extract<OrchestrationEvent, { type: "thread.session-set" }> {
   return (
     event.type === "thread.session-set" &&
-    isTerminalWorkerSessionStatus(event.payload.session.status)
+    (event.payload.settledTurn !== undefined ||
+      (event.payload.session.status === "running" && event.payload.session.activeTurnId !== null))
   );
 }
 
@@ -387,6 +381,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         if (
           workerThreadLaunchWasObserved({
             latestTurnState: thread.value.latestTurn?.state,
+            latestTurnTerminalSource: thread.value.latestTurn?.terminalSource,
             sessionActiveTurnId: thread.value.session?.activeTurnId,
           })
         ) {
@@ -412,6 +407,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
           if (
             workerTurnStopped({
               latestTurnState: thread.value.latestTurn?.state,
+              latestTurnTerminalSource: thread.value.latestTurn?.terminalSource,
               sessionActiveTurnId: thread.value.session?.activeTurnId,
             })
           ) {
@@ -777,6 +773,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         if (
           !workerThreadStillHasActiveTurn({
             latestTurnState: thread.value.latestTurn?.state,
+            latestTurnTerminalSource: thread.value.latestTurn?.terminalSource,
             sessionActiveTurnId: thread.value.session?.activeTurnId,
           })
         ) {
@@ -1745,7 +1742,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         }
 
         return Effect.logWarning(
-          "epic-run scheduler failed to process worker terminal observation",
+          "epic-run scheduler failed to process worker lifecycle observation",
           {
             threadId,
             cause: Cause.pretty(cause),
@@ -1763,7 +1760,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
     yield* drain();
     yield* Effect.forkScoped(
       Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
-        if (!isWorkerTerminalObservationEvent(event)) {
+        if (!isWorkerLifecycleObservationEvent(event)) {
           return Effect.void;
         }
 

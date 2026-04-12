@@ -1,5 +1,5 @@
 import type {
-  BeadsEpicCoordinatorSnapshot,
+  BeadsCoordinatorEpicSnapshot,
   OrchestrationEpicIssueExecution,
   OrchestrationEpicRun,
   ProjectId,
@@ -72,62 +72,47 @@ function makeExecution(
 }
 
 function makeSnapshot(
-  epicOverrides: Partial<BeadsEpicCoordinatorSnapshot["epic"]> = {},
-): BeadsEpicCoordinatorSnapshot {
+  epicOverrides: Partial<BeadsCoordinatorEpicSnapshot> = {},
+): BeadsCoordinatorEpicSnapshot {
   return {
-    projectId: PROJECT_ID,
-    support: {
-      supported: true,
-      reason: null,
-      backend: {
-        kind: "dolt",
-        doltMode: null,
-        database: null,
-        projectId: null,
-        role: null,
-        bdVersion: null,
-      },
+    epicId: "EPIC-1",
+    epicTitle: "Epic 1",
+    issue: null,
+    trackerLoadState: "ready",
+    trackerLoadDetail: null,
+    coordinationSupported: true,
+    coordinationUnsupportedReason: null,
+    validationState: "valid",
+    validationErrors: [],
+    trackerState: "not_started",
+    progress: {
+      totalIssueCount: 3,
+      completedIssueCount: 1,
+      readyIssueCount: 2,
+      activeIssueCount: 0,
+      blockedIssueCount: 0,
+      internalBlockedIssueCount: 0,
+      externalBlockedIssueCount: 0,
+      unknownBlockedIssueCount: 0,
+      activeWorkerCount: 0,
+      isComplete: false,
     },
-    epic: {
-      epicId: "EPIC-1",
-      epicTitle: "Epic 1",
-      issue: null,
-      trackerLoadState: "ready",
-      trackerLoadDetail: null,
-      coordinationSupported: true,
-      coordinationUnsupportedReason: null,
-      validationState: "valid",
-      validationErrors: [],
-      trackerState: "not_started",
-      progress: {
-        totalIssueCount: 3,
-        completedIssueCount: 1,
-        readyIssueCount: 2,
-        activeIssueCount: 0,
-        blockedIssueCount: 0,
-        internalBlockedIssueCount: 0,
-        externalBlockedIssueCount: 0,
-        unknownBlockedIssueCount: 0,
-        activeWorkerCount: 0,
-        isComplete: false,
-      },
-      primaryAction: {
-        kind: "start_epic_run",
-        label: "Start epic",
-        busyLabel: "Starting...",
-        disabled: false,
-      },
-      activeRunId: null,
-      activeExecutionId: null,
-      projectConflict: null,
-      trackerSummary: null,
-      validation: null,
-      status: null,
-      runs: [],
-      executions: [],
-      ...epicOverrides,
+    primaryAction: {
+      kind: "start_epic_run",
+      label: "Start epic",
+      busyLabel: "Starting...",
+      disabled: false,
     },
-  } as BeadsEpicCoordinatorSnapshot;
+    activeRunId: null,
+    activeExecutionId: null,
+    projectConflict: null,
+    trackerSummary: null,
+    validation: null,
+    status: null,
+    runs: [],
+    executions: [],
+    ...epicOverrides,
+  } as BeadsCoordinatorEpicSnapshot;
 }
 
 function EpicLaunchPanelContent() {
@@ -159,15 +144,77 @@ function EpicLaunchPanelContent() {
   );
 }
 
-function renderEpicLaunchPanel(snapshot: BeadsEpicCoordinatorSnapshot) {
+function renderEpicLaunchPanel(snapshot: BeadsCoordinatorEpicSnapshot) {
   const queryClient = new QueryClient();
   queryClient.setQueryData(
-    beadsQueryKeys.epicCoordinatorSnapshot({
+    beadsQueryKeys.projectRunSummary({
+      cwd: "/repo",
+      projectId: PROJECT_ID,
+    }),
+    {
+      projectId: PROJECT_ID,
+      epics: [
+        {
+          epicIssueId: snapshot.epicId,
+          epicTitle: snapshot.epicTitle,
+          runs: snapshot.runs,
+          executions: snapshot.executions,
+        },
+        ...(snapshot.projectConflict
+          ? [
+              {
+                epicIssueId: snapshot.projectConflict.run.epicIssueId,
+                epicTitle: "Conflicting epic",
+                runs: [snapshot.projectConflict.run],
+                executions: [],
+              },
+            ]
+          : []),
+      ],
+    },
+  );
+  queryClient.setQueryData(
+    beadsQueryKeys.epicIssueSummaries({
+      cwd: "/repo",
+      epicIssueId: "EPIC-1",
+    }),
+    {
+      epicId: snapshot.epicId,
+      epicTitle: snapshot.epicTitle,
+      progress: snapshot.progress,
+      issues: [],
+    },
+  );
+  queryClient.setQueryData(
+    beadsQueryKeys.epicTrackerDetail({
       cwd: "/repo",
       projectId: PROJECT_ID,
       epicIssueId: "EPIC-1",
     }),
-    snapshot,
+    {
+      epicId: snapshot.epicId,
+      support: {
+        supported: snapshot.coordinationSupported,
+        reason: snapshot.coordinationUnsupportedReason,
+        backend: {
+          kind: "dolt",
+          doltMode: null,
+          database: null,
+          projectId: null,
+          role: null,
+          bdVersion: null,
+        },
+      },
+      trackerLoadState: snapshot.trackerLoadState,
+      trackerLoadDetail: snapshot.trackerLoadDetail,
+      validationState: snapshot.validationState,
+      validationErrors: snapshot.validationErrors,
+      trackerState: snapshot.trackerState,
+      trackerSummary: snapshot.trackerSummary,
+      validation: snapshot.validation,
+      status: snapshot.status,
+      primaryAction: snapshot.primaryAction,
+    },
   );
 
   return renderToStaticMarkup(

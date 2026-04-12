@@ -1,6 +1,5 @@
 import type {
   BeadsCoordinatorEpicSnapshot,
-  BeadsProjectCoordinatorSnapshot,
   OrchestrationEpicIssueExecution,
   OrchestrationEpicRun,
 } from "@t3tools/contracts";
@@ -8,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { beadsQueryKeys } from "~/lib/beadsReactQuery";
 import { CoordinatorTab } from "./CoordinatorTab";
 
 const SUPPORT = {
@@ -146,23 +146,60 @@ function renderCoordinator(input: {
   selectedRunId?: string;
 }) {
   const queryClient = new QueryClient();
-  const snapshot: BeadsProjectCoordinatorSnapshot = {
-    projectId: "project-1" as never,
-    support: SUPPORT,
-    epics: [...input.epics],
-  };
+  for (const epic of input.epics) {
+    queryClient.setQueryData(
+      beadsQueryKeys.epicIssueSummaries({
+        cwd: "/repo",
+        epicIssueId: epic.epicId,
+      }),
+      {
+        epicId: epic.epicId,
+        epicTitle: epic.epicTitle,
+        progress: epic.progress,
+        issues: [],
+      },
+    );
+    queryClient.setQueryData(
+      beadsQueryKeys.epicTrackerDetail({
+        cwd: "/repo",
+        projectId: "project-1" as never,
+        epicIssueId: epic.epicId,
+      }),
+      {
+        epicId: epic.epicId,
+        support: SUPPORT,
+        trackerLoadState: epic.trackerLoadState,
+        trackerLoadDetail: epic.trackerLoadDetail,
+        validationState: epic.validationState,
+        validationErrors: epic.validationErrors,
+        trackerState: epic.trackerState,
+        trackerSummary: epic.trackerSummary,
+        validation: epic.validation,
+        status: epic.status,
+        primaryAction: epic.primaryAction,
+      },
+    );
+  }
 
   return renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
       <CoordinatorTab
         cwd="/repo"
-        projectId={null}
+        projectId={"project-1" as never}
         coordinationSupport={SUPPORT}
         coordinationSupportPending={false}
         coordinationSupportError={null}
-        snapshot={snapshot}
-        snapshotPending={false}
-        snapshotError={null}
+        runSummary={{
+          projectId: "project-1" as never,
+          epics: input.epics.map((epic) => ({
+            epicIssueId: epic.epicId,
+            epicTitle: epic.epicTitle,
+            runs: [...epic.runs],
+            executions: [...epic.executions],
+          })),
+        }}
+        runSummaryPending={false}
+        runSummaryError={null}
         selectedEpicId={input.selectedEpicId ?? null}
         selectedRunId={input.selectedRunId ?? null}
         onSelectEpic={() => {}}

@@ -152,6 +152,7 @@ export function makeIssueDetail(
     updatedAt: now,
     labels: [],
     parent: { id: "EPIC-1", title: "Epic 1" },
+    dependencyRefs: [],
     dependencies: [],
     comments: [],
     ...rest,
@@ -166,6 +167,7 @@ export function makeCompletedLatestTurn(turnId: string): OrchestrationLatestTurn
     startedAt: now,
     completedAt: now,
     assistantMessageId: null,
+    terminalSource: "turn_completed",
   };
 }
 
@@ -227,6 +229,7 @@ export function makeErroredLatestTurn(turnId: string): OrchestrationLatestTurn {
     startedAt: now,
     completedAt: now,
     assistantMessageId: null,
+    terminalSource: "turn_completed",
   };
 }
 
@@ -238,6 +241,7 @@ export function makeInterruptedLatestTurn(turnId: string): OrchestrationLatestTu
     startedAt: now,
     completedAt: now,
     assistantMessageId: null,
+    terminalSource: "turn_completed",
   };
 }
 
@@ -820,6 +824,7 @@ export async function createEpicRunSchedulerHarness(
             updatedAt: issue.updatedAt,
             labels: issue.labels,
             parent: issue.parent,
+            dependencyRefs: issue.dependencyRefs,
             dependencyCount: issue.dependencyCount,
             dependentCount: issue.dependentCount,
             commentCount: issue.commentCount,
@@ -833,6 +838,36 @@ export async function createEpicRunSchedulerHarness(
           return Effect.fail(beadsError(`Unknown issue '${issueId}'.`));
         }
         return beforeGetIssue.pipe(Effect.flatMap(() => Effect.succeed(issue)));
+      }),
+    getEpicIssueSummaries: ({ epicIssueId }) =>
+      Effect.sync(() => {
+        const currentTrackerState = readTrackerStateSnapshot();
+        const trackerSummary = currentTrackerState.status.trackerSummary;
+
+        return {
+          epicId: epicIssueId,
+          epicTitle: currentTrackerState.validation.epicTitle,
+          progress: {
+            totalIssueCount: trackerSummary?.totalIssueCount ?? 0,
+            completedIssueCount: trackerSummary?.completedIssueCount ?? 0,
+            readyIssueCount: trackerSummary?.readyIssueCount ?? 0,
+            activeIssueCount: trackerSummary?.activeIssueCount ?? 0,
+            blockedIssueCount: trackerSummary?.blockedIssueCount ?? 0,
+            internalBlockedIssueCount: currentTrackerState.status.blockedBreakdown.internal.length,
+            externalBlockedIssueCount: currentTrackerState.status.blockedBreakdown.external.length,
+            unknownBlockedIssueCount: currentTrackerState.status.blockedBreakdown.unknown.length,
+            activeWorkerCount: trackerSummary?.activeWorkerCount ?? 0,
+            isComplete:
+              (trackerSummary?.totalIssueCount ?? 0) > 0 &&
+              (trackerSummary?.completedIssueCount ?? 0) >= (trackerSummary?.totalIssueCount ?? 0),
+          },
+          issues: [...issues.values()]
+            .filter((issue) => issue.parent?.id === epicIssueId)
+            .map(
+              ({ dependencies: _dependencies, comments: _comments, ...issueSummary }) =>
+                issueSummary,
+            ),
+        };
       }),
     updateIssue: (input) =>
       Effect.suspend(() => {
@@ -884,24 +919,6 @@ export async function createEpicRunSchedulerHarness(
       Effect.succeed(readTrackerStateSnapshot().validation.trackerSummary),
     validateEpicRun: () => Effect.succeed(readTrackerStateSnapshot().validation),
     getEpicTrackerStatus: () => Effect.succeed(readTrackerStateSnapshot().status),
-    listEpicTrackerSummaries: () =>
-      Effect.sync(() => {
-        const currentTrackerState = readTrackerStateSnapshot();
-        return {
-          trackerSummaries: currentTrackerState.validation.trackerSummary
-            ? [currentTrackerState.validation.trackerSummary]
-            : [],
-        };
-      }),
-    listEpicTrackerSummariesWithSupport: () =>
-      Effect.sync(() => {
-        const currentTrackerState = readTrackerStateSnapshot();
-        return {
-          trackerSummaries: currentTrackerState.validation.trackerSummary
-            ? [currentTrackerState.validation.trackerSummary]
-            : [],
-        };
-      }),
     initializeEpicTracker: ({ epicIssueId }) =>
       Effect.suspend(() => {
         initializeEpicTrackerCallCount += 1;

@@ -1527,7 +1527,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
   );
 
   it.effect(
-    "resolves turn-count conflicts when checkpoint completion rewrites provisional turns",
+    "resolves turn-count conflicts when checkpoint completion updates checkpoint metadata without rewriting turn state",
     () =>
       Effect.gen(function* () {
         const projectionPipeline = yield* OrchestrationProjectionPipeline;
@@ -1666,7 +1666,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           requested_at ASC
       `;
         assert.deepEqual(turnRows, [
-          { turnId: "turn-completed", checkpointTurnCount: 1, status: "completed" },
+          { turnId: "turn-completed", checkpointTurnCount: 1, status: "running" },
           { turnId: "turn-interrupted", checkpointTurnCount: null, status: "interrupted" },
         ]);
       }),

@@ -28,6 +28,10 @@
       "types": "./src/searchRanking.ts",
       "import": "./src/searchRanking.ts"
     },
+    "./dependencyOrder": {
+      "types": "./src/dependencyOrder.ts",
+      "import": "./src/dependencyOrder.ts"
+    },
     "./qrCode": {
       "types": "./src/qrCode.ts",
       "import": "./src/qrCode.ts"

@@ -8,7 +8,7 @@ import {
   ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
   beadsContextOptions,
   beadsEpicRunSupportOptions,
-  beadsProjectCoordinatorSnapshotOptions,
+  beadsProjectRunSummaryOptions,
   beadsQueryIssuesOptions,
 } from "~/lib/beadsReactQuery";
 import { issueStatusesForVisibility } from "~/lib/issuePanelLogic";
@@ -54,7 +54,7 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
   );
 
   const coordinatorQuery = useQuery(
-    beadsProjectCoordinatorSnapshotOptions(
+    beadsProjectRunSummaryOptions(
       cwd && projectId ? { cwd, projectId, enabled: activeTab === "coordinator" } : null,
     ),
   );
@@ -273,9 +273,9 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
             coordinationSupport={coordinationSupportQuery.data ?? null}
             coordinationSupportPending={coordinationSupportQuery.isPending}
             coordinationSupportError={coordinationSupportQuery.error}
-            snapshot={coordinatorQuery.data ?? null}
-            snapshotPending={coordinatorQuery.isPending}
-            snapshotError={coordinatorQuery.error}
+            runSummary={coordinatorQuery.data ?? null}
+            runSummaryPending={coordinatorQuery.isPending}
+            runSummaryError={coordinatorQuery.error}
             selectedEpicId={search.epicId ?? null}
             selectedRunId={search.runId ?? null}
             onSelectEpic={setSelectedEpicId}
