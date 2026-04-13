@@ -3,6 +3,8 @@ import type {
   MessageId,
   OrchestrationCheckpointSummary,
   OrchestrationEvent,
+  OrchestrationEpicIssueExecution,
+  OrchestrationEpicRun,
   OrchestrationMessage,
   OrchestrationProposedPlan,
   OrchestrationReadModel,
@@ -17,6 +19,15 @@ import type {
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
+import {
+  applyEpicIssueExecutionLifecycleEvent,
+  applyEpicRunLifecycleEvent,
+  compareEpicIssueExecutions,
+  compareEpicRunsByRequestedAtDesc,
+  createRequestedEpicIssueExecution,
+  createRequestedEpicRun,
+  materializeStartedEpicIssueExecution,
+} from "@t3tools/shared/epicRun";
 import { resolveModelSlugForProvider } from "@t3tools/shared/model";
 import { create } from "zustand";
 import {
@@ -57,6 +68,18 @@ export interface EnvironmentState {
   turnDiffIdsByThreadId: Record<ThreadId, TurnId[]>;
   turnDiffSummaryByThreadId: Record<ThreadId, Record<TurnId, TurnDiffSummary>>;
   sidebarThreadSummaryById: Record<ThreadId, SidebarThreadSummary>;
+  epicRunIds: OrchestrationEpicRun["runId"][];
+  epicRunIdsByProjectId: Record<ProjectId, OrchestrationEpicRun["runId"][]>;
+  epicRunById: Record<OrchestrationEpicRun["runId"], OrchestrationEpicRun>;
+  epicIssueExecutionIds: OrchestrationEpicIssueExecution["executionId"][];
+  epicIssueExecutionIdsByRunId: Record<
+    OrchestrationEpicRun["runId"],
+    OrchestrationEpicIssueExecution["executionId"][]
+  >;
+  epicIssueExecutionById: Record<
+    OrchestrationEpicIssueExecution["executionId"],
+    OrchestrationEpicIssueExecution
+  >;
   bootstrapComplete: boolean;
 }
 
@@ -82,6 +105,12 @@ const initialEnvironmentState: EnvironmentState = {
   turnDiffIdsByThreadId: {},
   turnDiffSummaryByThreadId: {},
   sidebarThreadSummaryById: {},
+  epicRunIds: [],
+  epicRunIdsByProjectId: {},
+  epicRunById: {},
+  epicIssueExecutionIds: [],
+  epicIssueExecutionIdsByRunId: {},
+  epicIssueExecutionById: {},
   bootstrapComplete: false,
 };
 
@@ -95,6 +124,8 @@ const MAX_THREAD_CHECKPOINTS = 500;
 const MAX_THREAD_PROPOSED_PLANS = 200;
 const MAX_THREAD_ACTIVITIES = 500;
 const EMPTY_THREAD_IDS: ThreadId[] = [];
+const EMPTY_EPIC_RUN_IDS: OrchestrationEpicRun["runId"][] = [];
+const EMPTY_EPIC_ISSUE_EXECUTION_IDS: OrchestrationEpicIssueExecution["executionId"][] = [];
 
 function arraysEqual<T>(left: readonly T[], right: readonly T[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
@@ -406,6 +437,236 @@ function getThreads(state: EnvironmentState): Thread[] {
     const thread = getThreadFromEnvironmentState(state, threadId);
     return thread ? [thread] : [];
   });
+}
+
+function getEpicRuns(state: EnvironmentState): OrchestrationEpicRun[] {
+  return state.epicRunIds.flatMap((runId) => {
+    const run = state.epicRunById[runId];
+    return run ? [run] : [];
+  });
+}
+
+function getEpicIssueExecutions(state: EnvironmentState): OrchestrationEpicIssueExecution[] {
+  return state.epicIssueExecutionIds.flatMap((executionId) => {
+    const execution = state.epicIssueExecutionById[executionId];
+    return execution ? [execution] : [];
+  });
+}
+
+function sortEpicRunIds(
+  ids: ReadonlyArray<OrchestrationEpicRun["runId"]>,
+  epicRunById: Readonly<Record<OrchestrationEpicRun["runId"], OrchestrationEpicRun>>,
+): OrchestrationEpicRun["runId"][] {
+  return [...ids].toSorted((leftId, rightId) =>
+    compareEpicRunsByRequestedAtDesc(epicRunById[leftId]!, epicRunById[rightId]!),
+  );
+}
+
+function sortEpicIssueExecutionIds(
+  ids: ReadonlyArray<OrchestrationEpicIssueExecution["executionId"]>,
+  epicIssueExecutionById: Readonly<
+    Record<OrchestrationEpicIssueExecution["executionId"], OrchestrationEpicIssueExecution>
+  >,
+): OrchestrationEpicIssueExecution["executionId"][] {
+  return [...ids].toSorted((leftId, rightId) =>
+    compareEpicIssueExecutions(epicIssueExecutionById[leftId]!, epicIssueExecutionById[rightId]!),
+  );
+}
+
+function writeEpicRunState(
+  state: EnvironmentState,
+  nextRun: OrchestrationEpicRun,
+): EnvironmentState {
+  const previousRun = state.epicRunById[nextRun.runId];
+  if (previousRun === nextRun) {
+    return state;
+  }
+
+  const epicRunById = {
+    ...state.epicRunById,
+    [nextRun.runId]: nextRun,
+  };
+
+  let epicRunIds = state.epicRunIds;
+  let epicRunIdsByProjectId = state.epicRunIdsByProjectId;
+
+  if (!previousRun) {
+    epicRunIds = sortEpicRunIds([...state.epicRunIds, nextRun.runId], epicRunById);
+    const currentProjectRunIds =
+      state.epicRunIdsByProjectId[nextRun.projectId] ?? EMPTY_EPIC_RUN_IDS;
+    epicRunIdsByProjectId = {
+      ...state.epicRunIdsByProjectId,
+      [nextRun.projectId]: sortEpicRunIds([...currentProjectRunIds, nextRun.runId], epicRunById),
+    };
+  } else if (previousRun.projectId !== nextRun.projectId) {
+    const previousProjectRunIds =
+      state.epicRunIdsByProjectId[previousRun.projectId] ?? EMPTY_EPIC_RUN_IDS;
+    const nextPreviousProjectRunIds = removeId(previousProjectRunIds, nextRun.runId);
+    const nextProjectRunIds = state.epicRunIdsByProjectId[nextRun.projectId] ?? EMPTY_EPIC_RUN_IDS;
+
+    epicRunIdsByProjectId = {
+      ...state.epicRunIdsByProjectId,
+      ...(nextPreviousProjectRunIds.length === 0
+        ? (() => {
+            const { [previousRun.projectId]: _removedProjectRunIds, ...rest } =
+              state.epicRunIdsByProjectId;
+            return rest;
+          })()
+        : { [previousRun.projectId]: nextPreviousProjectRunIds }),
+      [nextRun.projectId]: sortEpicRunIds([...nextProjectRunIds, nextRun.runId], epicRunById),
+    };
+  }
+
+  return {
+    ...state,
+    epicRunIds,
+    epicRunIdsByProjectId,
+    epicRunById,
+  };
+}
+
+function updateEpicRunState(
+  state: EnvironmentState,
+  runId: OrchestrationEpicRun["runId"],
+  updater: (run: OrchestrationEpicRun) => OrchestrationEpicRun,
+): EnvironmentState {
+  const currentRun = state.epicRunById[runId];
+  if (!currentRun) {
+    return state;
+  }
+  const nextRun = updater(currentRun);
+  return nextRun === currentRun ? state : writeEpicRunState(state, nextRun);
+}
+
+function touchEpicRunUpdatedAt(
+  state: EnvironmentState,
+  runId: OrchestrationEpicRun["runId"],
+  updatedAt: string,
+): EnvironmentState {
+  return updateEpicRunState(state, runId, (run) =>
+    run.updatedAt === updatedAt
+      ? run
+      : {
+          ...run,
+          updatedAt,
+        },
+  );
+}
+
+function writeEpicIssueExecutionState(
+  state: EnvironmentState,
+  nextExecution: OrchestrationEpicIssueExecution,
+): EnvironmentState {
+  const previousExecution = state.epicIssueExecutionById[nextExecution.executionId];
+  if (previousExecution === nextExecution) {
+    return state;
+  }
+
+  const epicIssueExecutionById = {
+    ...state.epicIssueExecutionById,
+    [nextExecution.executionId]: nextExecution,
+  };
+
+  let epicIssueExecutionIds = state.epicIssueExecutionIds;
+  let epicIssueExecutionIdsByRunId = state.epicIssueExecutionIdsByRunId;
+
+  const orderingChanged =
+    !previousExecution ||
+    previousExecution.runId !== nextExecution.runId ||
+    previousExecution.sequenceNumber !== nextExecution.sequenceNumber;
+
+  if (!previousExecution) {
+    epicIssueExecutionIds = sortEpicIssueExecutionIds(
+      [...state.epicIssueExecutionIds, nextExecution.executionId],
+      epicIssueExecutionById,
+    );
+    const currentRunExecutionIds =
+      state.epicIssueExecutionIdsByRunId[nextExecution.runId] ?? EMPTY_EPIC_ISSUE_EXECUTION_IDS;
+    epicIssueExecutionIdsByRunId = {
+      ...state.epicIssueExecutionIdsByRunId,
+      [nextExecution.runId]: sortEpicIssueExecutionIds(
+        [...currentRunExecutionIds, nextExecution.executionId],
+        epicIssueExecutionById,
+      ),
+    };
+  } else if (orderingChanged) {
+    epicIssueExecutionIds = sortEpicIssueExecutionIds(
+      state.epicIssueExecutionIds,
+      epicIssueExecutionById,
+    );
+
+    const previousRunExecutionIds =
+      state.epicIssueExecutionIdsByRunId[previousExecution.runId] ?? EMPTY_EPIC_ISSUE_EXECUTION_IDS;
+    const nextPreviousRunExecutionIds = removeId(
+      previousRunExecutionIds,
+      nextExecution.executionId,
+    );
+    const nextRunExecutionIds =
+      previousExecution.runId === nextExecution.runId
+        ? nextPreviousRunExecutionIds
+        : (state.epicIssueExecutionIdsByRunId[nextExecution.runId] ??
+          EMPTY_EPIC_ISSUE_EXECUTION_IDS);
+
+    epicIssueExecutionIdsByRunId = {
+      ...state.epicIssueExecutionIdsByRunId,
+      ...(nextPreviousRunExecutionIds.length === 0
+        ? (() => {
+            const { [previousExecution.runId]: _removedRunExecutionIds, ...rest } =
+              state.epicIssueExecutionIdsByRunId;
+            return rest;
+          })()
+        : {
+            [previousExecution.runId]:
+              previousExecution.runId === nextExecution.runId
+                ? sortEpicIssueExecutionIds(
+                    [...nextPreviousRunExecutionIds, nextExecution.executionId],
+                    epicIssueExecutionById,
+                  )
+                : nextPreviousRunExecutionIds,
+          }),
+      ...(previousExecution.runId === nextExecution.runId
+        ? {}
+        : {
+            [nextExecution.runId]: sortEpicIssueExecutionIds(
+              [...nextRunExecutionIds, nextExecution.executionId],
+              epicIssueExecutionById,
+            ),
+          }),
+    };
+  }
+
+  return {
+    ...state,
+    epicIssueExecutionIds,
+    epicIssueExecutionIdsByRunId,
+    epicIssueExecutionById,
+  };
+}
+
+function findLatestFailedEpicIssueExecutionForRun(
+  state: EnvironmentState,
+  runId: OrchestrationEpicRun["runId"],
+): OrchestrationEpicIssueExecution | null {
+  const executionIds = state.epicIssueExecutionIdsByRunId[runId] ?? EMPTY_EPIC_ISSUE_EXECUTION_IDS;
+  let latestFailedExecution: OrchestrationEpicIssueExecution | null = null;
+
+  for (const executionId of executionIds) {
+    const execution = state.epicIssueExecutionById[executionId];
+    if (!execution || execution.status !== "failed") {
+      continue;
+    }
+
+    if (
+      latestFailedExecution === null ||
+      execution.sequenceNumber > latestFailedExecution.sequenceNumber ||
+      (execution.sequenceNumber === latestFailedExecution.sequenceNumber &&
+        execution.updatedAt > latestFailedExecution.updatedAt)
+    ) {
+      latestFailedExecution = execution;
+    }
+  }
+
+  return latestFailedExecution;
 }
 
 function writeThreadState(
@@ -913,6 +1174,72 @@ function buildThreadState(
   };
 }
 
+function buildEpicRunState(
+  epicRuns: ReadonlyArray<OrchestrationEpicRun>,
+): Pick<EnvironmentState, "epicRunIds" | "epicRunIdsByProjectId" | "epicRunById"> {
+  const epicRunIdsByProjectId: Record<ProjectId, OrchestrationEpicRun["runId"][]> = {};
+  const epicRunById = Object.fromEntries(
+    epicRuns.map((run) => [run.runId, run] as const),
+  ) as Record<OrchestrationEpicRun["runId"], OrchestrationEpicRun>;
+  const epicRunIds = sortEpicRunIds(
+    epicRuns.map((run) => run.runId),
+    epicRunById,
+  );
+
+  for (const runId of epicRunIds) {
+    const run = epicRunById[runId];
+    if (!run) {
+      continue;
+    }
+    epicRunIdsByProjectId[run.projectId] = [
+      ...(epicRunIdsByProjectId[run.projectId] ?? EMPTY_EPIC_RUN_IDS),
+      runId,
+    ];
+  }
+
+  return {
+    epicRunIds,
+    epicRunIdsByProjectId,
+    epicRunById,
+  };
+}
+
+function buildEpicIssueExecutionState(
+  epicIssueExecutions: ReadonlyArray<OrchestrationEpicIssueExecution>,
+): Pick<
+  EnvironmentState,
+  "epicIssueExecutionIds" | "epicIssueExecutionIdsByRunId" | "epicIssueExecutionById"
+> {
+  const epicIssueExecutionIdsByRunId: Record<
+    OrchestrationEpicRun["runId"],
+    OrchestrationEpicIssueExecution["executionId"][]
+  > = {};
+  const epicIssueExecutionById = Object.fromEntries(
+    epicIssueExecutions.map((execution) => [execution.executionId, execution] as const),
+  ) as Record<OrchestrationEpicIssueExecution["executionId"], OrchestrationEpicIssueExecution>;
+  const epicIssueExecutionIds = sortEpicIssueExecutionIds(
+    epicIssueExecutions.map((execution) => execution.executionId),
+    epicIssueExecutionById,
+  );
+
+  for (const executionId of epicIssueExecutionIds) {
+    const execution = epicIssueExecutionById[executionId];
+    if (!execution) {
+      continue;
+    }
+    epicIssueExecutionIdsByRunId[execution.runId] = [
+      ...(epicIssueExecutionIdsByRunId[execution.runId] ?? EMPTY_EPIC_ISSUE_EXECUTION_IDS),
+      executionId,
+    ];
+  }
+
+  return {
+    epicIssueExecutionIds,
+    epicIssueExecutionIdsByRunId,
+    epicIssueExecutionById,
+  };
+}
+
 function getStoredEnvironmentState(
   state: AppState,
   environmentId: EnvironmentId,
@@ -959,6 +1286,8 @@ function syncEnvironmentReadModel(
     ...state,
     ...buildProjectState(projects),
     ...buildThreadState(threads),
+    ...buildEpicRunState(readModel.epicRuns),
+    ...buildEpicIssueExecutionState(readModel.epicIssueExecutions),
     bootstrapComplete: true,
   };
 }
@@ -1467,6 +1796,66 @@ function applyEnvironmentOrchestrationEvent(
     case "thread.approval-response-requested":
     case "thread.user-input-response-requested":
       return state;
+
+    case "epic-run.requested":
+      return writeEpicRunState(state, createRequestedEpicRun(event.payload));
+
+    case "epic-run.started":
+      return updateEpicRunState(state, event.payload.runId, (run) =>
+        applyEpicRunLifecycleEvent(run, event),
+      );
+
+    case "epic-run.failed":
+      return updateEpicRunState(state, event.payload.runId, (run) => {
+        const fallbackExecution = findLatestFailedEpicIssueExecutionForRun(
+          state,
+          event.payload.runId,
+        );
+        return applyEpicRunLifecycleEvent(run, {
+          ...event,
+          payload: {
+            ...event.payload,
+            issueId: event.payload.issueId ?? fallbackExecution?.issueId ?? null,
+            executionId: event.payload.executionId ?? fallbackExecution?.executionId ?? null,
+            workerThreadId:
+              event.payload.workerThreadId ?? fallbackExecution?.workerThreadId ?? null,
+          },
+        });
+      });
+
+    case "epic-run.stopped":
+    case "epic-run.completed":
+      return updateEpicRunState(state, event.payload.runId, (run) =>
+        applyEpicRunLifecycleEvent(run, event),
+      );
+
+    case "epic-issue-execution.requested":
+      return writeEpicIssueExecutionState(
+        touchEpicRunUpdatedAt(state, event.payload.runId, event.payload.updatedAt),
+        createRequestedEpicIssueExecution(event.payload),
+      );
+
+    case "epic-issue-execution.started":
+      return writeEpicIssueExecutionState(
+        touchEpicRunUpdatedAt(state, event.payload.runId, event.payload.updatedAt),
+        materializeStartedEpicIssueExecution({
+          event,
+          existingExecution: state.epicIssueExecutionById[event.payload.executionId] ?? null,
+        }),
+      );
+
+    case "epic-issue-execution.completed":
+    case "epic-issue-execution.failed":
+    case "epic-issue-execution.stopped": {
+      const nextState = touchEpicRunUpdatedAt(state, event.payload.runId, event.payload.updatedAt);
+      const execution = nextState.epicIssueExecutionById[event.payload.executionId];
+      return execution
+        ? writeEpicIssueExecutionState(
+            nextState,
+            applyEpicIssueExecutionLifecycleEvent(execution, event),
+          )
+        : nextState;
+    }
   }
 
   return state;
@@ -1527,6 +1916,59 @@ export function selectThreadsAcrossEnvironments(state: AppState): Thread[] {
   return getEnvironmentEntries(state).flatMap(([, environmentState]) =>
     getThreads(environmentState),
   );
+}
+
+export function selectEpicRunsAcrossEnvironments(state: AppState): OrchestrationEpicRun[] {
+  return getEnvironmentEntries(state)
+    .flatMap(([, environmentState]) => getEpicRuns(environmentState))
+    .toSorted(compareEpicRunsByRequestedAtDesc);
+}
+
+export function selectEpicIssueExecutionsAcrossEnvironments(
+  state: AppState,
+): OrchestrationEpicIssueExecution[] {
+  return getEnvironmentEntries(state)
+    .flatMap(([, environmentState]) => getEpicIssueExecutions(environmentState))
+    .toSorted(compareEpicIssueExecutions);
+}
+
+export function selectEpicRunsForProject(
+  state: AppState,
+  projectId: ProjectId | null | undefined,
+): OrchestrationEpicRun[] {
+  if (!projectId) {
+    return [];
+  }
+
+  return getEnvironmentEntries(state)
+    .flatMap(([, environmentState]) => {
+      const runIds = environmentState.epicRunIdsByProjectId[projectId] ?? EMPTY_EPIC_RUN_IDS;
+      return runIds.flatMap((runId) => {
+        const run = environmentState.epicRunById[runId];
+        return run ? [run] : [];
+      });
+    })
+    .toSorted(compareEpicRunsByRequestedAtDesc);
+}
+
+export function selectEpicIssueExecutionsForRun(
+  state: AppState,
+  runId: OrchestrationEpicRun["runId"] | null | undefined,
+): OrchestrationEpicIssueExecution[] {
+  if (!runId) {
+    return [];
+  }
+
+  return getEnvironmentEntries(state)
+    .flatMap(([, environmentState]) => {
+      const executionIds =
+        environmentState.epicIssueExecutionIdsByRunId[runId] ?? EMPTY_EPIC_ISSUE_EXECUTION_IDS;
+      return executionIds.flatMap((executionId) => {
+        const execution = environmentState.epicIssueExecutionById[executionId];
+        return execution ? [execution] : [];
+      });
+    })
+    .toSorted(compareEpicIssueExecutions);
 }
 
 /** Like `selectThreadsAcrossEnvironments` but returns stable `ThreadShell` references from the store (no derived data). */

@@ -86,6 +86,12 @@ function makeEmptyEnvironmentState(): EnvironmentState {
     turnDiffIdsByThreadId: {},
     turnDiffSummaryByThreadId: {},
     sidebarThreadSummaryById: {},
+    epicRunIds: [],
+    epicRunIdsByProjectId: {},
+    epicRunById: {},
+    epicIssueExecutionIds: [],
+    epicIssueExecutionIdsByRunId: {},
+    epicIssueExecutionById: {},
     bootstrapComplete: true,
   };
 }

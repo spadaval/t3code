@@ -15,6 +15,7 @@ import type {
   BeadsIssueSummary,
   BeadsGetSessionActivityInput,
   BeadsProjectRunSummary,
+  BeadsProjectRunSummaryEpic,
   BeadsProjectRunSummaryInput,
   BeadsQueryIssuesInput,
   BeadsQueryIssuesResult,
@@ -239,6 +240,24 @@ export function beadsProjectRunSummaryOptions(
     enabled: input !== null && (input.enabled ?? true),
     staleTime: 5_000,
   });
+}
+
+export function selectProjectRunSummaryEpic(
+  summary: BeadsProjectRunSummary | null | undefined,
+  epicIssueId: string | null | undefined,
+): BeadsProjectRunSummaryEpic | null {
+  if (!summary || !epicIssueId) {
+    return null;
+  }
+
+  return summary.epics.find((epic) => epic.epicIssueId === epicIssueId) ?? null;
+}
+
+export function getProjectRunSummaryEpicTitle(
+  summary: BeadsProjectRunSummary | null | undefined,
+  epicIssueId: string | null | undefined,
+): string | null {
+  return selectProjectRunSummaryEpic(summary, epicIssueId)?.epicTitle ?? null;
 }
 
 export function beadsEpicIssueSummariesOptions(
