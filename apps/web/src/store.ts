@@ -214,7 +214,7 @@ function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): T
     pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
-    issueLink: thread.issueLink,
+    ...(thread.issueLink !== undefined ? { issueLink: thread.issueLink } : {}),
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
   };
@@ -236,7 +236,7 @@ function toThreadShell(thread: Thread): ThreadShell {
     updatedAt: thread.updatedAt,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
-    issueLink: thread.issueLink,
+    ...(thread.issueLink !== undefined ? { issueLink: thread.issueLink } : {}),
   };
 }
 

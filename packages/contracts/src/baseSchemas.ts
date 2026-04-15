@@ -15,6 +15,9 @@ export type IsoDateTime = typeof IsoDateTime.Type;
 const makeEntityId = <Brand extends string>(brand: Brand) => {
   const schema = TrimmedNonEmptyString.pipe(Schema.brand(brand));
   return Object.assign(schema, {
+    make(value: string): typeof schema.Type {
+      return value.trim() as typeof schema.Type;
+    },
     makeUnsafe(value: string): typeof schema.Type {
       return value.trim() as typeof schema.Type;
     },

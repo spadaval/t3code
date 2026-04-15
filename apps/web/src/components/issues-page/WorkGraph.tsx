@@ -80,7 +80,7 @@ function formatExecutionStatus(status: OrchestrationEpicIssueExecution["status"]
 
 function runStatusBadgeVariant(
   status: OrchestrationEpicRun["status"],
-): "success" | "error" | "warning" | "info" | "neutral" {
+): "success" | "error" | "warning" | "info" | "secondary" {
   switch (status) {
     case "completed":
       return "success";
@@ -92,13 +92,13 @@ function runStatusBadgeVariant(
     case "running":
       return "info";
     default:
-      return "neutral";
+      return "secondary";
   }
 }
 
 function executionStatusBadgeVariant(
   status: OrchestrationEpicIssueExecution["status"],
-): "success" | "error" | "warning" | "info" | "neutral" {
+): "success" | "error" | "warning" | "info" | "secondary" {
   switch (status) {
     case "completed":
       return "success";
@@ -109,7 +109,7 @@ function executionStatusBadgeVariant(
     case "running":
       return "info";
     default:
-      return "neutral";
+      return "secondary";
   }
 }
 
@@ -370,7 +370,7 @@ function WorkGraphRunSectionView(props: {
             {formatRunStatus(section.run.status)}
           </Badge>
         ) : (
-          <Badge variant="neutral" size="sm">
+          <Badge variant="secondary" size="sm">
             Pending
           </Badge>
         )}
@@ -615,7 +615,7 @@ function WorkGraphRow(props: {
                 ? "error"
                 : node.blockedBy === "unknown"
                   ? "warning"
-                  : "neutral"
+                  : "secondary"
             }
             size="sm"
           >
@@ -626,7 +626,7 @@ function WorkGraphRow(props: {
 
         {/* Issue type badge (if not task) */}
         {node.issue.issueType !== "task" ? (
-          <Badge variant="neutral" size="sm">
+          <Badge variant="secondary" size="sm">
             {node.issue.issueType}
           </Badge>
         ) : null}
@@ -718,7 +718,7 @@ function WorkGraphRowDetail(props: {
       {/* Compact context row: wave, priority, status */}
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
         {node.waveIndex !== null ? (
-          <Badge variant="neutral" size="sm">
+          <Badge variant="secondary" size="sm">
             Wave {(node.waveIndex + 1).toString()}
             {waveCount > 1 ? ` of ${waveCount.toString()}` : ""}
           </Badge>
@@ -728,12 +728,12 @@ function WorkGraphRowDetail(props: {
           </Badge>
         ) : null}
         {node.issue.priority ? (
-          <Badge variant="neutral" size="sm">
+          <Badge variant="secondary" size="sm">
             {node.issue.priority}
           </Badge>
         ) : null}
         {node.issue.issueType !== "task" ? (
-          <Badge variant="neutral" size="sm">
+          <Badge variant="secondary" size="sm">
             {node.issue.issueType}
           </Badge>
         ) : null}
@@ -744,7 +744,7 @@ function WorkGraphRowDetail(props: {
                 ? "error"
                 : node.blockedBy === "unknown"
                   ? "warning"
-                  : "neutral"
+                  : "secondary"
             }
             size="sm"
           >
@@ -792,7 +792,7 @@ function WorkGraphRowDetail(props: {
                         ? "success"
                         : dep.status === "in_progress"
                           ? "info"
-                          : "neutral"
+                          : "secondary"
                     }
                     size="sm"
                   >

@@ -34,9 +34,13 @@ const toAuthControlPlaneError =
       cause,
     });
 
-export const makeAuthControlPlane = Effect.gen(function* () {
-  const bootstrapCredentials = yield* BootstrapCredentialService;
-  const sessions = yield* SessionCredentialService;
+export const makeAuthControlPlane: Effect.Effect<
+  AuthControlPlaneShape,
+  never,
+  BootstrapCredentialService | SessionCredentialService
+> = Effect.gen(function* () {
+  const bootstrapCredentials = yield* Effect.service(BootstrapCredentialService);
+  const sessions = yield* Effect.service(SessionCredentialService);
 
   const createPairingLink: AuthControlPlaneShape["createPairingLink"] = (input) =>
     Effect.gen(function* () {
@@ -60,11 +64,16 @@ export const makeAuthControlPlane = Effect.gen(function* () {
 
   const listPairingLinks: AuthControlPlaneShape["listPairingLinks"] = (input) =>
     bootstrapCredentials.listActive().pipe(
-      Effect.map((pairingLinks) =>
+      Effect.map((pairingLinks: ReadonlyArray<AuthPairingLink>) =>
         pairingLinks
-          .filter((pairingLink) => (input?.role ? pairingLink.role === input.role : true))
-          .filter((pairingLink) => !input?.excludeSubjects?.includes(pairingLink.subject))
-          .map((pairingLink) =>
+          .filter((pairingLink: AuthPairingLink) =>
+            input?.role ? pairingLink.role === input.role : true,
+          )
+          .filter(
+            (pairingLink: AuthPairingLink) =>
+              !input?.excludeSubjects?.includes(pairingLink.subject),
+          )
+          .map((pairingLink: AuthPairingLink) =>
             pairingLink.label
               ? ({
                   id: pairingLink.id,
@@ -133,7 +142,9 @@ export const makeAuthControlPlane = Effect.gen(function* () {
 
   const listSessions: AuthControlPlaneShape["listSessions"] = () =>
     sessions.listActive().pipe(
-      Effect.map((activeSessions) => activeSessions.toSorted(bySessionPriority)),
+      Effect.map((activeSessions: ReadonlyArray<AuthClientSession>) =>
+        activeSessions.toSorted(bySessionPriority),
+      ),
       Effect.mapError(toAuthControlPlaneError("Failed to list sessions.")),
     );
 
@@ -169,7 +180,7 @@ export const AuthStorageLive = Layer.mergeAll(ServerSecretStoreLive, SqlitePersi
 
 export const AuthRuntimeLive = AuthCoreLive.pipe(Layer.provideMerge(AuthStorageLive));
 
-export const AuthControlPlaneLive = Layer.effect(AuthControlPlane, makeAuthControlPlane);
+export const AuthControlPlaneLive = Layer.effect(AuthControlPlane)(makeAuthControlPlane);
 
 export const AuthControlPlaneRuntimeLive = AuthControlPlaneLive.pipe(
   Layer.provideMerge(AuthRuntimeLive),

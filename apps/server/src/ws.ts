@@ -1,11 +1,13 @@
 import { Cause, Effect, Layer, Queue, Ref, Schema, Stream } from "effect";
 import {
+  type AuthAccessSnapshot,
   type AuthAccessStreamEvent,
   AuthSessionId,
   BEADS_WS_METHODS,
   BeadsError,
   CommandId,
   EventId,
+  KeybindingsConfigError,
   type OrchestrationCommand,
   type GitActionProgressEvent,
   type GitManagerServiceError,
@@ -18,8 +20,12 @@ import {
   ProjectSearchEntriesError,
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
+  ServerSettingsError,
   ThreadId,
   type TerminalEvent,
+  type ServerConfig as ServerConfigSnapshot,
+  type ServerConfigStreamEvent,
+  type ServerLifecycleStreamEvent,
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
@@ -71,7 +77,7 @@ function toAuthAccessStreamEvent(
   change: BootstrapCredentialChange | SessionCredentialChange,
   revision: number,
   currentSessionId: AuthSessionId,
-): AuthAccessStreamEvent {
+): Exclude<AuthAccessStreamEvent, { type: "snapshot" }> {
   switch (change.type) {
     case "pairingLinkUpserted":
       return {
@@ -110,35 +116,35 @@ function toAuthAccessStreamEvent(
 const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
   WsRpcGroup.toLayer(
     Effect.gen(function* () {
-      const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
-      const orchestrationEngine = yield* OrchestrationEngineService;
-      const planImplementationWorkflow = yield* PlanImplementationWorkflow;
-      const epicRunScheduler = yield* EpicRunScheduler;
-      const checkpointDiffQuery = yield* CheckpointDiffQuery;
-      const keybindings = yield* Keybindings;
-      const open = yield* Open;
-      const gitManager = yield* GitManager;
-      const git = yield* GitCore;
-      const gitStatusBroadcaster = yield* GitStatusBroadcaster;
-      const terminalManager = yield* TerminalManager;
-      const providerRegistry = yield* ProviderRegistry;
-      const config = yield* ServerConfig;
-      const lifecycleEvents = yield* ServerLifecycleEvents;
-      const serverSettings = yield* ServerSettingsService;
-      const startup = yield* ServerRuntimeStartup;
-      const workspaceEntries = yield* WorkspaceEntries;
-      const workspaceFileSystem = yield* WorkspaceFileSystem;
-      const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
-      const repositoryIdentityResolver = yield* RepositoryIdentityResolver;
-      const beads = yield* BeadsService;
-      const serverEnvironment = yield* ServerEnvironment;
-      const serverAuth = yield* ServerAuth;
-      const bootstrapCredentials = yield* BootstrapCredentialService;
-      const sessions = yield* SessionCredentialService;
+      const projectionSnapshotQuery = yield* Effect.service(ProjectionSnapshotQuery);
+      const orchestrationEngine = yield* Effect.service(OrchestrationEngineService);
+      const planImplementationWorkflow = yield* Effect.service(PlanImplementationWorkflow);
+      const epicRunScheduler = yield* Effect.service(EpicRunScheduler);
+      const checkpointDiffQuery = yield* Effect.service(CheckpointDiffQuery);
+      const keybindings = yield* Effect.service(Keybindings);
+      const open = yield* Effect.service(Open);
+      const gitManager = yield* Effect.service(GitManager);
+      const git = yield* Effect.service(GitCore);
+      const gitStatusBroadcaster = yield* Effect.service(GitStatusBroadcaster);
+      const terminalManager = yield* Effect.service(TerminalManager);
+      const providerRegistry = yield* Effect.service(ProviderRegistry);
+      const config = yield* Effect.service(ServerConfig);
+      const lifecycleEvents = yield* Effect.service(ServerLifecycleEvents);
+      const serverSettings = yield* Effect.service(ServerSettingsService);
+      const startup = yield* Effect.service(ServerRuntimeStartup);
+      const workspaceEntries = yield* Effect.service(WorkspaceEntries);
+      const workspaceFileSystem = yield* Effect.service(WorkspaceFileSystem);
+      const projectSetupScriptRunner = yield* Effect.service(ProjectSetupScriptRunner);
+      const repositoryIdentityResolver = yield* Effect.service(RepositoryIdentityResolver);
+      const beads = yield* Effect.service(BeadsService);
+      const serverEnvironment = yield* Effect.service(ServerEnvironment);
+      const serverAuth = yield* Effect.service(ServerAuth);
+      const bootstrapCredentials = yield* Effect.service(BootstrapCredentialService);
+      const sessions = yield* Effect.service(SessionCredentialService);
       const serverCommandId = (tag: string) =>
         CommandId.make(`server:${tag}:${crypto.randomUUID()}`);
 
-      const loadAuthAccessSnapshot = () =>
+      const loadAuthAccessSnapshot = (): Effect.Effect<AuthAccessSnapshot, never, never> =>
         Effect.all({
           pairingLinks: serverAuth.listPairingLinks().pipe(Effect.orDie),
           clientSessions: serverAuth.listClientSessions(currentSessionId).pipe(Effect.orDie),
@@ -446,7 +452,11 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           );
       };
 
-      const loadServerConfig = Effect.gen(function* () {
+      const loadServerConfig: Effect.Effect<
+        ServerConfigSnapshot,
+        KeybindingsConfigError | ServerSettingsError,
+        never
+      > = Effect.gen(function* () {
         const keybindingsConfig = yield* keybindings.loadConfigState;
         const providers = yield* providerRegistry.getProviders;
         const settings = yield* serverSettings.getSettings;
@@ -476,7 +486,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
         };
       });
 
-      const refreshGitStatus = (cwd: string) =>
+      const refreshGitStatus = (cwd: string): Effect.Effect<void, never, never> =>
         gitStatusBroadcaster
           .refreshStatus(cwd)
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach, Effect.asVoid);
@@ -1141,12 +1151,14 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 .runStackedAction(input, {
                   actionId: input.actionId,
                   progressReporter: {
-                    publish: (event) => Queue.offer(queue, event).pipe(Effect.asVoid),
+                    publish: (event: GitActionProgressEvent) =>
+                      Queue.offer(queue, event).pipe(Effect.asVoid),
                   },
                 })
                 .pipe(
                   Effect.matchCauseEffect({
-                    onFailure: (cause) => Queue.failCause(queue, cause),
+                    onFailure: (cause: Cause.Cause<GitManagerServiceError>) =>
+                      Queue.failCause(queue, cause),
                     onSuccess: () =>
                       refreshGitStatus(input.cwd).pipe(
                         Effect.andThen(Queue.end(queue).pipe(Effect.asVoid)),
@@ -1233,7 +1245,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             WS_METHODS.subscribeTerminalEvents,
             Stream.callback<TerminalEvent>((queue) =>
               Effect.acquireRelease(
-                terminalManager.subscribe((event) => Queue.offer(queue, event)),
+                terminalManager.subscribe((event: TerminalEvent) => Queue.offer(queue, event)),
                 (unsubscribe) => Effect.sync(unsubscribe),
               ),
             ),
@@ -1243,7 +1255,9 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcStreamEffect(
             WS_METHODS.subscribeServerConfig,
             Effect.gen(function* () {
-              const keybindingsUpdates = keybindings.streamChanges.pipe(
+              const keybindingsUpdates: Stream.Stream<
+                Extract<ServerConfigStreamEvent, { type: "keybindingsUpdated" }>
+              > = keybindings.streamChanges.pipe(
                 Stream.map((event) => ({
                   version: 1 as const,
                   type: "keybindingsUpdated" as const,
@@ -1252,29 +1266,41 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                   },
                 })),
               );
-              const providerStatuses = providerRegistry.streamChanges.pipe(
+              const providerStatuses: Stream.Stream<
+                Extract<ServerConfigStreamEvent, { type: "providerStatuses" }>
+              > = providerRegistry.streamChanges.pipe(
                 Stream.map((providers) => ({
                   version: 1 as const,
                   type: "providerStatuses" as const,
                   payload: { providers },
                 })),
               );
-              const settingsUpdates = serverSettings.streamChanges.pipe(
+              const settingsUpdates: Stream.Stream<
+                Extract<ServerConfigStreamEvent, { type: "settingsUpdated" }>
+              > = serverSettings.streamChanges.pipe(
                 Stream.map((settings) => ({
                   version: 1 as const,
                   type: "settingsUpdated" as const,
                   payload: { settings },
                 })),
               );
+              const configUpdates: Stream.Stream<
+                Exclude<ServerConfigStreamEvent, { type: "snapshot" }>
+              > = Stream.merge(keybindingsUpdates, Stream.merge(providerStatuses, settingsUpdates));
+              const initialEvent: Extract<ServerConfigStreamEvent, { type: "snapshot" }> = {
+                version: 1 as const,
+                type: "snapshot" as const,
+                config: yield* loadServerConfig,
+              };
 
-              return Stream.concat(
-                Stream.make({
-                  version: 1 as const,
-                  type: "snapshot" as const,
-                  config: yield* loadServerConfig,
-                }),
-                Stream.merge(keybindingsUpdates, Stream.merge(providerStatuses, settingsUpdates)),
+              const initialEvents: Stream.Stream<
+                Extract<ServerConfigStreamEvent, { type: "snapshot" }>
+              > = Stream.make(initialEvent);
+              const serverConfigEvents: Stream.Stream<ServerConfigStreamEvent> = Stream.concat(
+                initialEvents,
+                configUpdates,
               );
+              return serverConfigEvents;
             }),
             { "rpc.aggregate": "server" },
           ),
@@ -1283,13 +1309,25 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             WS_METHODS.subscribeServerLifecycle,
             Effect.gen(function* () {
               const snapshot = yield* lifecycleEvents.snapshot;
-              const snapshotEvents = Array.from(snapshot.events).toSorted(
-                (left, right) => left.sequence - right.sequence,
+              const snapshotEvents: ReadonlyArray<ServerLifecycleStreamEvent> = Array.from(
+                snapshot.events,
+              ).toSorted(
+                (left: ServerLifecycleStreamEvent, right: ServerLifecycleStreamEvent) =>
+                  left.sequence - right.sequence,
               );
-              const liveEvents = lifecycleEvents.stream.pipe(
-                Stream.filter((event) => event.sequence > snapshot.sequence),
+              const liveEvents: Stream.Stream<ServerLifecycleStreamEvent> =
+                lifecycleEvents.stream.pipe(
+                  Stream.filter(
+                    (event: ServerLifecycleStreamEvent) => event.sequence > snapshot.sequence,
+                  ),
+                );
+              const replayedEvents: Stream.Stream<ServerLifecycleStreamEvent> =
+                Stream.fromIterable(snapshotEvents);
+              const lifecycleStream: Stream.Stream<ServerLifecycleStreamEvent> = Stream.concat(
+                replayedEvents,
+                liveEvents,
               );
-              return Stream.concat(Stream.fromIterable(snapshotEvents), liveEvents);
+              return lifecycleStream;
             }),
             { "rpc.aggregate": "server" },
           ),
@@ -1303,7 +1341,9 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 BootstrapCredentialChange | SessionCredentialChange
               > = Stream.merge(bootstrapCredentials.streamChanges, sessions.streamChanges);
 
-              const liveEvents: Stream.Stream<AuthAccessStreamEvent> = accessChanges.pipe(
+              const liveEvents: Stream.Stream<
+                Exclude<AuthAccessStreamEvent, { type: "snapshot" }>
+              > = accessChanges.pipe(
                 Stream.mapEffect((change) =>
                   Ref.updateAndGet(revisionRef, (revision) => revision + 1).pipe(
                     Effect.map((revision) =>
@@ -1312,16 +1352,21 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                   ),
                 ),
               );
+              const initialEvent: Extract<AuthAccessStreamEvent, { type: "snapshot" }> = {
+                version: 1 as const,
+                revision: 1,
+                type: "snapshot" as const,
+                payload: initialSnapshot,
+              };
 
-              return Stream.concat(
-                Stream.make({
-                  version: 1 as const,
-                  revision: 1,
-                  type: "snapshot" as const,
-                  payload: initialSnapshot,
-                }),
+              const initialEvents: Stream.Stream<
+                Extract<AuthAccessStreamEvent, { type: "snapshot" }>
+              > = Stream.make(initialEvent);
+              const authAccessEvents: Stream.Stream<AuthAccessStreamEvent> = Stream.concat(
+                initialEvents,
                 liveEvents,
               );
+              return authAccessEvents;
             }),
             { "rpc.aggregate": "auth" },
           ),
@@ -1336,8 +1381,8 @@ export const websocketRpcRouteLayer = Layer.unwrap(
       "/ws",
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
-        const serverAuth = yield* ServerAuth;
-        const sessions = yield* SessionCredentialService;
+        const serverAuth = yield* Effect.service(ServerAuth);
+        const sessions = yield* Effect.service(SessionCredentialService);
         const session = yield* serverAuth.authenticateWebSocketUpgrade(request);
         const rpcWebSocketHttpEffect = yield* RpcServer.toHttpEffectWebsocket(WsRpcGroup, {
           spanPrefix: "ws.rpc",

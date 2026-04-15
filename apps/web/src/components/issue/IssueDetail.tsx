@@ -1,4 +1,5 @@
 import type { BeadsIssueDetail, BeadsIssueRelationSummary } from "@t3tools/contracts";
+import type { TimestampFormat } from "@t3tools/contracts/settings";
 import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import { MessageSquareTextIcon } from "lucide-react";
 
@@ -328,7 +329,7 @@ function IssueDetailHeader({
   onParentClick?: ((issueId: string) => void) | undefined;
   statusVariant: "success" | "warning" | "info" | "error" | "secondary" | "primary";
   priorityComponent: ReactNode;
-  timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
+  timestampFormat: TimestampFormat;
 }) {
   const metadataItems: string[] = [];
 
@@ -505,7 +506,7 @@ function CommentItem({
   compact,
 }: {
   comment: BeadsIssueDetail["comments"][0];
-  timestampFormat: ReturnType<typeof useSettings>["timestampFormat"];
+  timestampFormat: TimestampFormat;
   compact?: boolean;
 }) {
   return (

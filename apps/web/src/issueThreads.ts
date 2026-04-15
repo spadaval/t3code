@@ -8,7 +8,7 @@ export interface IssueThreadCandidate {
   readonly createdAt: string;
   readonly updatedAt?: string | undefined;
   readonly archivedAt: string | null;
-  readonly issueLink: {
+  readonly issueLink?: {
     readonly issueId: string;
   } | null;
 }
