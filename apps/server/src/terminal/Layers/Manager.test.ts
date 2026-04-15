@@ -85,6 +85,12 @@ class FakePtyProcess implements PtyProcess {
   }
 }
 
+class UnsupportedResizePtyProcess extends FakePtyProcess {
+  override resize(): void {
+    throw new Error("Bun PTY resize is unavailable");
+  }
+}
+
 class FakePtyAdapter implements PtyAdapterShape {
   readonly spawnInputs: PtySpawnInput[] = [];
   readonly processes: FakePtyProcess[] = [];
@@ -118,6 +124,15 @@ class FakePtyAdapter implements PtyAdapterShape {
           }),
       });
     }
+    return Effect.succeed(process);
+  }
+}
+
+class UnsupportedResizePtyAdapter extends FakePtyAdapter {
+  override spawn(input: PtySpawnInput): Effect.Effect<PtyProcess, PtySpawnError> {
+    this.spawnInputs.push(input);
+    const process = new UnsupportedResizePtyProcess(10_000 + this.processes.length);
+    this.processes.push(process);
     return Effect.succeed(process);
   }
 }
@@ -361,6 +376,42 @@ it.layer(NodeServices.layer, { excludeTestServices: true })("TerminalManager", (
 
       assert.equal(reopened.status, "running");
       expect(process.resizeCalls).toEqual([{ cols: 120, rows: 30 }]);
+    }),
+  );
+
+  it.effect("ignores unsupported Bun PTY resize errors during explicit resize", () =>
+    Effect.gen(function* () {
+      const { manager } = yield* createManager(5, {
+        ptyAdapter: new UnsupportedResizePtyAdapter(),
+      });
+
+      yield* manager.open(openInput({ cols: 100, rows: 24 }));
+      yield* manager.resize({
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+        cols: 120,
+        rows: 30,
+      });
+
+      const snapshot = yield* manager.open(openInput({ cols: 120, rows: 30 }));
+      assert.equal(snapshot.status, "running");
+      assert.equal(snapshot.threadId, "thread-1");
+      assert.equal(snapshot.terminalId, DEFAULT_TERMINAL_ID);
+    }),
+  );
+
+  it.effect("ignores unsupported Bun PTY resize errors when reopening with a new size", () =>
+    Effect.gen(function* () {
+      const { manager } = yield* createManager(5, {
+        ptyAdapter: new UnsupportedResizePtyAdapter(),
+      });
+
+      yield* manager.open(openInput({ cols: 100, rows: 24 }));
+      const reopened = yield* manager.open(openInput({ cols: 120, rows: 30 }));
+
+      assert.equal(reopened.status, "running");
+      assert.equal(reopened.threadId, "thread-1");
+      assert.equal(reopened.terminalId, DEFAULT_TERMINAL_ID);
     }),
   );
 

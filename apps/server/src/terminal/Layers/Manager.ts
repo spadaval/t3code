@@ -54,6 +54,25 @@ const DEFAULT_OPEN_COLS = 120;
 const DEFAULT_OPEN_ROWS = 30;
 const TERMINAL_ENV_BLOCKLIST = new Set(["PORT", "ELECTRON_RENDERER_PORT", "ELECTRON_RUN_AS_NODE"]);
 
+function isUnsupportedResizeError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.message === "Bun PTY resize is unavailable" ||
+      error.message === "Bun PTY terminal handle is unavailable")
+  );
+}
+
+function resizeProcess(process: PtyProcess, cols: number, rows: number): void {
+  try {
+    process.resize(cols, rows);
+  } catch (error) {
+    if (isUnsupportedResizeError(error)) {
+      return;
+    }
+    throw error;
+  }
+}
+
 class TerminalSubprocessCheckError extends Schema.TaggedErrorClass<TerminalSubprocessCheckError>()(
   "TerminalSubprocessCheckError",
   {
@@ -1688,7 +1707,8 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
             liveSession.cols = targetCols;
             liveSession.rows = targetRows;
             liveSession.updatedAt = new Date().toISOString();
-            liveSession.process.resize(targetCols, targetRows);
+            const process = liveSession.process;
+            yield* Effect.sync(() => resizeProcess(process, targetCols, targetRows));
           }
 
           return snapshot(liveSession);
@@ -1722,7 +1742,7 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
       session.cols = input.cols;
       session.rows = input.rows;
       session.updatedAt = new Date().toISOString();
-      yield* Effect.sync(() => process.resize(input.cols, input.rows));
+      yield* Effect.sync(() => resizeProcess(process, input.cols, input.rows));
     });
 
     const clear: TerminalManagerShape["clear"] = (input) =>

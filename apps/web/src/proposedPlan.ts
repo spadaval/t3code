@@ -1,10 +1,3 @@
-import {
-  buildPlanImplementationPrompt as buildPlanImplementationPromptShared,
-  buildPlanImplementationThreadTitle as buildPlanImplementationThreadTitleShared,
-  buildPlanToBeadsPrompt as buildPlanToBeadsPromptShared,
-  buildPlanToBeadsThreadTitle as buildPlanToBeadsThreadTitleShared,
-} from "@t3tools/shared/plan";
-
 export function proposedPlanTitle(planMarkdown: string): string | null {
   const heading = planMarkdown.match(/^\s{0,3}#{1,6}\s+(.+)$/m)?.[1]?.trim();
   return heading && heading.length > 0 ? heading : null;
@@ -78,11 +71,15 @@ function sanitizePlanFileSegment(input: string): string {
 }
 
 export function buildPlanImplementationPrompt(planMarkdown: string): string {
-  return buildPlanImplementationPromptShared(planMarkdown);
+  return `PLEASE IMPLEMENT THIS PLAN:\n${planMarkdown.trim()}`;
 }
 
 export function buildPlanToBeadsPrompt(planMarkdown: string): string {
-  return buildPlanToBeadsPromptShared(planMarkdown);
+  return [
+    "PLEASE CONVERT THIS PLAN INTO BEADS ISSUES.",
+    "Generate the necessary beads issues with `bd` for this plan instead of implementing it.",
+    planMarkdown.trim(),
+  ].join("\n\n");
 }
 
 export function resolvePlanFollowUpSubmission(input: { draftText: string; planMarkdown: string }): {
@@ -104,11 +101,19 @@ export function resolvePlanFollowUpSubmission(input: { draftText: string; planMa
 }
 
 export function buildPlanImplementationThreadTitle(planMarkdown: string): string {
-  return buildPlanImplementationThreadTitleShared(planMarkdown);
+  const title = proposedPlanTitle(planMarkdown);
+  if (!title) {
+    return "Implement plan";
+  }
+  return `Implement ${title}`;
 }
 
 export function buildPlanToBeadsThreadTitle(planMarkdown: string): string {
-  return buildPlanToBeadsThreadTitleShared(planMarkdown);
+  const title = proposedPlanTitle(planMarkdown);
+  if (!title) {
+    return "Convert plan to beads";
+  }
+  return `Convert ${title} to beads`;
 }
 
 export function buildProposedPlanMarkdownFilename(planMarkdown: string): string {

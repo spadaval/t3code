@@ -18,13 +18,6 @@ import {
 
 import { resolveDefaultModelSelection } from "~/modelSelection";
 import {
-  deriveProgressFromExecutions,
-  executionStatusBadgeVariant,
-  formatExecutionStatus,
-  formatRunStatus,
-  runStatusBadgeVariant,
-} from "~/lib/epicRunPresentation";
-import {
   buildCoordinatorRunEntries,
   describeCoordinatorActionCopy,
   partitionCoordinatorRunEntries,
@@ -35,6 +28,13 @@ import {
   beadsEpicIssueSummariesOptions,
   beadsEpicCoordinationDetailOptions,
 } from "~/lib/beadsReactQuery";
+import {
+  deriveProgressFromExecutions,
+  executionStatusBadgeVariant,
+  formatExecutionStatus,
+  formatRunStatus,
+  runStatusBadgeVariant,
+} from "~/lib/epicRunPresentation";
 import { composeCoordinatorEpicSnapshot } from "~/lib/coordinatorSnapshots";
 import { cn } from "~/lib/utils";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
