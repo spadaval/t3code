@@ -1,4 +1,8 @@
-import type { BeadsIssueDetail, BeadsIssueRelationSummary } from "@t3tools/contracts";
+import type {
+  BeadsIssueDependency,
+  BeadsIssueDetail,
+  BeadsIssueRelationSummary,
+} from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -47,6 +51,27 @@ function makeDetail(
     comments: [],
     ...rest,
   } satisfies BeadsIssueDetail;
+}
+
+function makeDependency(
+  input: Partial<BeadsIssueDependency> &
+    Pick<BeadsIssueDependency, "id" | "title" | "dependencyType">,
+): BeadsIssueDependency {
+  const { id, title, dependencyType, ...rest } = input;
+  return {
+    id,
+    title,
+    dependencyType,
+    description: null,
+    status: "open",
+    priority: null,
+    issueType: "task",
+    owner: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    createdBy: null,
+    updatedAt: "2026-01-02T00:00:00.000Z",
+    ...rest,
+  } satisfies BeadsIssueDependency;
 }
 
 describe("issue title rendering", () => {
@@ -108,5 +133,22 @@ describe("issue title rendering", () => {
     );
 
     expect(markup.match(/border-destructive\/30[^"]*">Blocked<\/span>/g)).toHaveLength(1);
+  });
+
+  it("renders the clearer incoming blocks label in issue detail relationships", () => {
+    const markup = renderToStaticMarkup(
+      <IssueDetail
+        issue={makeDetail({
+          id: "TASK-1",
+          title: "Needs prerequisites",
+          dependencies: [
+            makeDependency({ id: "TASK-0", title: "Upstream blocker", dependencyType: "blocks" }),
+          ],
+        })}
+      />,
+    );
+
+    expect(markup).toContain("Must resolve first");
+    expect(markup).not.toContain("Blocks this issue");
   });
 });

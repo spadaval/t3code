@@ -122,7 +122,7 @@ export function buildIssueRelationshipModel(input: {
     },
     {
       key: "incoming_blocks",
-      label: "Blocks this issue",
+      label: "Must resolve first",
       emptyLabel: "No issues currently block this issue through a blocks link.",
       tone: "blocked",
       items: incomingBlocks,
@@ -156,7 +156,7 @@ export function buildIssueRelationshipModel(input: {
       },
       {
         key: "incoming_blocks",
-        label: "Blocks this issue",
+        label: "Must resolve first",
         count: incomingBlocks.length,
         tone: "blocked",
       },

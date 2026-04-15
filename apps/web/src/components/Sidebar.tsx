@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { autoAnimate } from "@formkit/auto-animate";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import React, { useCallback, useEffect, memo, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -41,6 +42,8 @@ import {
   type ThreadEnvMode,
   ThreadId,
   type GitStatusResult,
+  type OrchestrationEpicIssueExecution,
+  type OrchestrationEpicRun,
 } from "@t3tools/contracts";
 import {
   scopedProjectKey,
@@ -57,8 +60,10 @@ import { usePrimaryEnvironmentId } from "../environments/primary";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import { isLinuxPlatform, isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
+import { cn, isLinuxPlatform, isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
 import {
+  selectEpicIssueExecutionsAcrossEnvironments,
+  selectEpicRunsAcrossEnvironments,
   selectProjectByRef,
   selectProjectsAcrossEnvironments,
   selectSidebarThreadsForProjectRef,
@@ -122,6 +127,15 @@ import {
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { isNonEmpty as isNonEmptyString } from "effect/String";
 import {
+  buildSidebarProjectFeed,
+  buildSidebarRunSummaryEpics,
+  deriveIssueFirstSidebarRunGroups,
+  getVisibleRowsForEpicGroup,
+  getVisibleSidebarProjectFeed,
+  isSidebarEpicGroupExpanded,
+  type SidebarEpicExecutionRow,
+  type SidebarProjectFeedItem,
+  type SidebarIssueFirstRunGroup,
   resolveAdjacentThreadId,
   isContextMenuPointerDown,
   resolveProjectStatusIndicator,
@@ -135,11 +149,29 @@ import {
   useThreadJumpHintVisibility,
   ThreadStatusPill,
 } from "./Sidebar.logic";
+import {
+  beadsEpicIssueSummariesOptions,
+  beadsEpicCoordinationDetailOptions,
+  beadsIssuesBatchOptions,
+  beadsProjectRunSummaryOptions,
+} from "../lib/beadsReactQuery";
+import { stripRightPaneSearchParams } from "../chatRouteSearch";
+import { composeCoordinatorEpicSnapshot } from "../lib/coordinatorSnapshots";
+import { isActiveExecutionStatus } from "../lib/epicRunPresentation";
+import { resolveFallbackModelSelection } from "../lib/modelSelection";
 import { sortThreads } from "../lib/threadSort";
 import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
+import {
+  buildEpicGroupContextMenuItems,
+  buildManagedIssueRowContextMenuItems,
+} from "./sidebar/sidebarContextMenus";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { CommandDialogTrigger } from "./ui/command";
 import { readEnvironmentApi } from "../environmentApi";
+import {
+  getCoordinatorPrimaryActionInput,
+  useEpicCoordinatorActionRunner,
+} from "../hooks/useEpicCoordinatorActionRunner";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "../rpc/serverState";
 import { deriveLogicalProjectKey } from "../logicalProject";
@@ -147,7 +179,9 @@ import {
   useSavedEnvironmentRegistryStore,
   useSavedEnvironmentRuntimeStore,
 } from "../environments/runtime";
-import type { Project, SidebarThreadSummary } from "../types";
+import { DEFAULT_RUNTIME_MODE, type Project, type SidebarThreadSummary } from "../types";
+import { StatusIndicator } from "./shared/StatusIndicator";
+import { formatStatusDisplay, getStatusVariant } from "../lib/issueConstants";
 const THREAD_PREVIEW_LIMIT = 6;
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
@@ -163,6 +197,13 @@ const SIDEBAR_LIST_ANIMATION_OPTIONS = {
   easing: "ease-out",
 } as const;
 const EMPTY_THREAD_JUMP_LABELS = new Map<string, string>();
+const EMPTY_ISSUE_STATUS_BY_ID = new Map<string, string>();
+const SIDEBAR_STATUS_REFRESH_INTERVAL_MS = 30_000;
+const SidebarNowContext = React.createContext<number | null>(null);
+
+function sidebarEpicHistoryKey(projectKey: string, epicIssueId: string): string {
+  return `${projectKey}:${epicIssueId}`;
+}
 
 function threadJumpLabelMapsEqual(
   left: ReadonlyMap<string, string>,
@@ -430,11 +471,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   const isHighlighted = isActive || isSelected;
   const isThreadRunning =
     thread.session?.status === "running" && thread.session.activeTurnId != null;
+  const nowTick = React.useContext(SidebarNowContext);
   const threadStatus = resolveThreadStatusPill({
     thread: {
       ...thread,
       lastVisitedAt,
     },
+    ...(nowTick !== null ? { now: nowTick } : {}),
   });
   const pr = resolveThreadPr(thread.branch, gitStatus.data);
   const prStatus = prStatusIndicator(pr);
@@ -757,19 +800,22 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   );
 });
 
-interface SidebarProjectThreadListProps {
+interface SidebarProjectFeedListProps {
+  projectId: ProjectId;
   projectKey: string;
   projectExpanded: boolean;
-  hasOverflowingThreads: boolean;
+  hasOverflowingItems: boolean;
   hiddenThreadStatus: ThreadStatusPill | null;
   orderedProjectThreadKeys: readonly string[];
-  renderedThreads: readonly SidebarThreadSummary[];
-  showEmptyThreadState: boolean;
-  shouldShowThreadPanel: boolean;
-  isThreadListExpanded: boolean;
+  renderedItems: readonly SidebarProjectFeedItem[];
+  showEmptyState: boolean;
+  shouldShowFeedPanel: boolean;
+  isFeedExpanded: boolean;
   projectCwd: string;
   activeRouteThreadKey: string | null;
+  activeRouteThreadId: ThreadId | null;
   threadJumpLabelByKey: ReadonlyMap<string, string>;
+  projectRunThreadById: ReadonlyMap<ThreadId, SidebarThreadSummary>;
   appSettingsConfirmThreadArchive: boolean;
   renamingThreadKey: string | null;
   renamingTitle: string;
@@ -802,24 +848,38 @@ interface SidebarProjectThreadListProps {
   openPrLink: (event: React.MouseEvent<HTMLElement>, prUrl: string) => void;
   expandThreadListForProject: (projectKey: string) => void;
   collapseThreadListForProject: (projectKey: string) => void;
+  epicGroupExpandedById: Readonly<Record<string, boolean>>;
+  toggleEpicGroupExpanded: (epicKey: string) => void;
+  expandedPreviousRowsByEpic: ReadonlySet<string>;
+  expandPreviousRowsForEpic: (epicKey: string) => void;
+  collapsePreviousRowsForEpic: (epicKey: string) => void;
+  canOpenIssueInSidebar: boolean;
+  canStartNewRunByIssueId: ReadonlyMap<string, boolean>;
+  openIssueInSidebar: (issueId: string) => Promise<void>;
+  openIssueInTracker: (input: { epicIssueId: string; issueId: string }) => Promise<void>;
+  openEpicInTracker: (epicIssueId: string) => Promise<void>;
+  openEpicRunFromContextMenu: (epicIssueId: string) => Promise<void>;
 }
 
-const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
-  props: SidebarProjectThreadListProps,
+const SidebarProjectFeedList = memo(function SidebarProjectFeedList(
+  props: SidebarProjectFeedListProps,
 ) {
   const {
+    projectId,
     projectKey,
     projectExpanded,
-    hasOverflowingThreads,
+    hasOverflowingItems,
     hiddenThreadStatus,
     orderedProjectThreadKeys,
-    renderedThreads,
-    showEmptyThreadState,
-    shouldShowThreadPanel,
-    isThreadListExpanded,
+    renderedItems,
+    showEmptyState,
+    shouldShowFeedPanel,
+    isFeedExpanded,
     projectCwd,
     activeRouteThreadKey,
+    activeRouteThreadId,
     threadJumpLabelByKey,
+    projectRunThreadById,
     appSettingsConfirmThreadArchive,
     renamingThreadKey,
     renamingTitle,
@@ -841,6 +901,17 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     openPrLink,
     expandThreadListForProject,
     collapseThreadListForProject,
+    epicGroupExpandedById,
+    toggleEpicGroupExpanded,
+    expandedPreviousRowsByEpic,
+    expandPreviousRowsForEpic,
+    collapsePreviousRowsForEpic,
+    canOpenIssueInSidebar,
+    canStartNewRunByIssueId,
+    openIssueInSidebar,
+    openIssueInTracker,
+    openEpicInTracker,
+    openEpicRunFromContextMenu,
   } = props;
   const showMoreButtonRender = useMemo(() => <button type="button" />, []);
   const showLessButtonRender = useMemo(() => <button type="button" />, []);
@@ -850,7 +921,7 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
       ref={attachThreadListAutoAnimateRef}
       className="mx-1 my-0 w-full translate-x-0 gap-0.5 overflow-hidden px-1.5 py-0"
     >
-      {shouldShowThreadPanel && showEmptyThreadState ? (
+      {shouldShowFeedPanel && showEmptyState ? (
         <SidebarMenuSubItem className="w-full" data-thread-selection-safe>
           <div
             data-thread-selection-safe
@@ -860,40 +931,76 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
           </div>
         </SidebarMenuSubItem>
       ) : null}
-      {shouldShowThreadPanel &&
-        renderedThreads.map((thread) => {
-          const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+      {shouldShowFeedPanel &&
+        renderedItems.map((item) => {
+          if (item.kind === "thread") {
+            const threadKey = scopedThreadKey(
+              scopeThreadRef(item.thread.environmentId, item.thread.id),
+            );
+            return (
+              <SidebarThreadRow
+                key={threadKey}
+                thread={item.thread}
+                projectCwd={projectCwd}
+                orderedProjectThreadKeys={orderedProjectThreadKeys}
+                isActive={activeRouteThreadKey === threadKey}
+                jumpLabel={threadJumpLabelByKey.get(threadKey) ?? null}
+                appSettingsConfirmThreadArchive={appSettingsConfirmThreadArchive}
+                renamingThreadKey={renamingThreadKey}
+                renamingTitle={renamingTitle}
+                setRenamingTitle={setRenamingTitle}
+                renamingInputRef={renamingInputRef}
+                renamingCommittedRef={renamingCommittedRef}
+                confirmingArchiveThreadKey={confirmingArchiveThreadKey}
+                setConfirmingArchiveThreadKey={setConfirmingArchiveThreadKey}
+                confirmArchiveButtonRefs={confirmArchiveButtonRefs}
+                handleThreadClick={handleThreadClick}
+                navigateToThread={navigateToThread}
+                handleMultiSelectContextMenu={handleMultiSelectContextMenu}
+                handleThreadContextMenu={handleThreadContextMenu}
+                clearSelection={clearSelection}
+                commitRename={commitRename}
+                cancelRename={cancelRename}
+                attemptArchiveThread={attemptArchiveThread}
+                openPrLink={openPrLink}
+              />
+            );
+          }
+
+          const epicKey = sidebarEpicHistoryKey(projectKey, item.group.epicIssueId);
+          const isExpanded = isSidebarEpicGroupExpanded({
+            group: item.group,
+            epicKey,
+            epicGroupExpandedById,
+            activeThreadId: activeRouteThreadId,
+          });
+
           return (
-            <SidebarThreadRow
-              key={threadKey}
-              thread={thread}
-              projectCwd={projectCwd}
-              orderedProjectThreadKeys={orderedProjectThreadKeys}
-              isActive={activeRouteThreadKey === threadKey}
-              jumpLabel={threadJumpLabelByKey.get(threadKey) ?? null}
-              appSettingsConfirmThreadArchive={appSettingsConfirmThreadArchive}
-              renamingThreadKey={renamingThreadKey}
-              renamingTitle={renamingTitle}
-              setRenamingTitle={setRenamingTitle}
-              renamingInputRef={renamingInputRef}
-              renamingCommittedRef={renamingCommittedRef}
-              confirmingArchiveThreadKey={confirmingArchiveThreadKey}
-              setConfirmingArchiveThreadKey={setConfirmingArchiveThreadKey}
-              confirmArchiveButtonRefs={confirmArchiveButtonRefs}
-              handleThreadClick={handleThreadClick}
-              navigateToThread={navigateToThread}
-              handleMultiSelectContextMenu={handleMultiSelectContextMenu}
-              handleThreadContextMenu={handleThreadContextMenu}
-              clearSelection={clearSelection}
-              commitRename={commitRename}
-              cancelRename={cancelRename}
-              attemptArchiveThread={attemptArchiveThread}
-              openPrLink={openPrLink}
+            <SidebarEpicGroupCard
+              key={item.group.epicIssueId}
+              projectKey={projectKey}
+              projectId={projectId}
+              group={item.group}
+              activeThreadKey={activeRouteThreadKey}
+              activeThreadId={activeRouteThreadId}
+              threadById={projectRunThreadById}
+              threadJumpLabelByKey={threadJumpLabelByKey}
+              isExpanded={isExpanded}
+              onToggleExpanded={() => toggleEpicGroupExpanded(epicKey)}
+              expandedPreviousRowsByEpic={expandedPreviousRowsByEpic}
+              expandPreviousRowsForEpic={expandPreviousRowsForEpic}
+              collapsePreviousRowsForEpic={collapsePreviousRowsForEpic}
+              canOpenIssueInSidebar={canOpenIssueInSidebar}
+              canStartNewRun={canStartNewRunByIssueId.get(item.group.epicIssueId) ?? false}
+              openIssueInSidebar={openIssueInSidebar}
+              openIssueInTracker={openIssueInTracker}
+              openEpicInTracker={openEpicInTracker}
+              openEpicRunFromContextMenu={openEpicRunFromContextMenu}
             />
           );
         })}
 
-      {projectExpanded && hasOverflowingThreads && !isThreadListExpanded && (
+      {projectExpanded && hasOverflowingItems && !isFeedExpanded ? (
         <SidebarMenuSubItem className="w-full">
           <SidebarMenuSubButton
             render={showMoreButtonRender}
@@ -905,13 +1012,15 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
             }}
           >
             <span className="flex min-w-0 flex-1 items-center gap-2">
-              {hiddenThreadStatus && <ThreadStatusLabel status={hiddenThreadStatus} compact />}
+              {hiddenThreadStatus ? (
+                <ThreadStatusLabel status={hiddenThreadStatus} compact />
+              ) : null}
               <span>Show more</span>
             </span>
           </SidebarMenuSubButton>
         </SidebarMenuSubItem>
-      )}
-      {projectExpanded && hasOverflowingThreads && isThreadListExpanded && (
+      ) : null}
+      {projectExpanded && hasOverflowingItems && isFeedExpanded ? (
         <SidebarMenuSubItem className="w-full">
           <SidebarMenuSubButton
             render={showLessButtonRender}
@@ -925,13 +1034,409 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
             <span>Show less</span>
           </SidebarMenuSubButton>
         </SidebarMenuSubItem>
-      )}
+      ) : null}
     </SidebarMenuSub>
   );
 });
 
+/** Renders the execution status for a row as a right-side indicator. */
+function ExecutionStatusIndicator({
+  row,
+  isActive: _isActive,
+  jumpLabel,
+}: {
+  row: SidebarEpicExecutionRow;
+  isActive: boolean;
+  jumpLabel: string | null;
+}) {
+  if (jumpLabel) {
+    return (
+      <span
+        className="inline-flex h-5 items-center rounded-full border border-border/80 bg-background/90 px-1.5 font-mono text-[10px] font-medium tracking-tight text-foreground shadow-sm"
+        title={jumpLabel}
+      >
+        {jumpLabel}
+      </span>
+    );
+  }
+
+  // Active executions: status is already shown by ThreadStatusLabel — skip.
+  if (isActiveExecutionStatus(row.status)) {
+    return null;
+  }
+
+  if (row.status === "failed") {
+    const label = row.summary ?? "Failed";
+    return (
+      <span
+        className="max-w-[80px] truncate text-[10px] font-medium text-destructive"
+        title={label}
+      >
+        {label}
+      </span>
+    );
+  }
+
+  if (row.status === "completed") {
+    return (
+      <span
+        aria-label="Completed"
+        title={row.summary ?? "Completed"}
+        className="inline-flex size-2 shrink-0 rounded-full bg-emerald-500/70 dark:bg-emerald-400/60"
+      />
+    );
+  }
+
+  if (row.status === "stopped") {
+    return <span className="text-[10px] text-muted-foreground/50">Stopped</span>;
+  }
+
+  return null;
+}
+
+const SidebarRunExecutionThreadRow = memo(function SidebarRunExecutionThreadRow(props: {
+  thread: SidebarThreadSummary;
+  row: SidebarEpicExecutionRow;
+  isActive: boolean;
+  isPreviousAttempt: boolean;
+  jumpLabel: string | null;
+  onContextMenu: (event: React.MouseEvent) => void;
+}) {
+  const threadRef = scopeThreadRef(props.thread.environmentId, props.thread.id);
+  const threadKey = scopedThreadKey(threadRef);
+  const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
+  const nowTick = React.useContext(SidebarNowContext);
+  const threadStatus = resolveThreadStatusPill({
+    thread: {
+      ...props.thread,
+      lastVisitedAt,
+    },
+    ...(nowTick !== null ? { now: nowTick } : {}),
+  });
+
+  // Prefer the beads issue title (from the row), then fall back to the
+  // auto-generated thread name. The issue title is populated from the
+  // beadsEpicIssueSummariesOptions query and arrives once the data loads.
+  const displayLabel = props.row.issueTitle ?? props.thread.title;
+
+  return (
+    <SidebarMenuSubItem className="w-full">
+      <Link
+        to="/$environmentId/$threadId"
+        params={buildThreadRouteParams(threadRef)}
+        search={{ rightPane: "issues", issueId: props.row.issueId } as never}
+        data-testid={`epic-execution-row-${props.row.executionId}`}
+        className={cn(
+          resolveThreadRowClassName({
+            isActive: props.isActive,
+            isSelected: false,
+          }),
+          "flex items-center gap-1.5 rounded-lg",
+          props.isPreviousAttempt && !props.isActive && "opacity-50",
+        )}
+        onContextMenu={props.onContextMenu}
+      >
+        {threadStatus ? <ThreadStatusLabel status={threadStatus} /> : null}
+        <span className="min-w-0 flex-1 truncate text-xs">{displayLabel}</span>
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          <ExecutionStatusIndicator
+            row={props.row}
+            isActive={props.isActive}
+            jumpLabel={props.jumpLabel}
+          />
+        </span>
+      </Link>
+    </SidebarMenuSubItem>
+  );
+});
+
+function SidebarGhostExecutionRow(props: {
+  projectId: ProjectId;
+  epicIssueId: string;
+  row: SidebarEpicExecutionRow;
+  isPreviousAttempt: boolean;
+  onContextMenu: (event: React.MouseEvent) => void;
+}) {
+  return (
+    <SidebarMenuSubItem className="w-full">
+      <Link
+        to="/projects/$projectId/issues"
+        params={{ projectId: props.projectId } as never}
+        search={
+          {
+            tab: "issues",
+            epicId: props.epicIssueId,
+            issueId: props.row.issueId,
+          } as never
+        }
+        data-testid={`epic-ghost-row-${props.row.executionId}`}
+        className={cn(
+          "flex h-7 w-full items-center gap-1.5 rounded-lg px-2 text-left text-xs transition-colors hover:bg-accent hover:text-muted-foreground/90",
+          props.isPreviousAttempt
+            ? "text-muted-foreground/40 opacity-50"
+            : "text-muted-foreground/65",
+        )}
+        onContextMenu={props.onContextMenu}
+      >
+        <span className="inline-flex size-3.5 shrink-0 items-center justify-center text-[10px] opacity-60">
+          ○
+        </span>
+        <span className="min-w-0 flex-1 truncate">{props.row.issueTitle ?? props.row.issueId}</span>
+        <ExecutionStatusIndicator row={props.row} isActive={false} jumpLabel={null} />
+      </Link>
+    </SidebarMenuSubItem>
+  );
+}
+
+function EpicIssueStatusBadge(props: { status: string | null }) {
+  if (!props.status) {
+    return null;
+  }
+
+  return (
+    <StatusIndicator
+      variant={getStatusVariant(props.status)}
+      size="sm"
+      className="shrink-0 text-[10px]"
+      role="status"
+    >
+      {formatStatusDisplay(props.status)}
+    </StatusIndicator>
+  );
+}
+
+function SidebarEpicGroupCard(props: {
+  projectKey: string;
+  projectId: ProjectId;
+  group: SidebarIssueFirstRunGroup;
+  activeThreadKey: string | null;
+  activeThreadId: ThreadId | null;
+  threadById: ReadonlyMap<ThreadId, SidebarThreadSummary>;
+  threadJumpLabelByKey: ReadonlyMap<string, string>;
+  isExpanded: boolean;
+  onToggleExpanded: () => void;
+  expandedPreviousRowsByEpic: ReadonlySet<string>;
+  expandPreviousRowsForEpic: (epicKey: string) => void;
+  collapsePreviousRowsForEpic: (epicKey: string) => void;
+  canOpenIssueInSidebar: boolean;
+  canStartNewRun: boolean;
+  openIssueInSidebar: (issueId: string) => Promise<void>;
+  openIssueInTracker: (input: { epicIssueId: string; issueId: string }) => Promise<void>;
+  openEpicInTracker: (epicIssueId: string) => Promise<void>;
+  openEpicRunFromContextMenu: (epicIssueId: string) => Promise<void>;
+}) {
+  const showMoreRender = useMemo(() => <button type="button" />, []);
+  const showLessRender = useMemo(() => <button type="button" />, []);
+  const epicKey = sidebarEpicHistoryKey(props.projectKey, props.group.epicIssueId);
+  const isPreviousRowsExpanded = props.expandedPreviousRowsByEpic.has(epicKey);
+  const { currentRows, previousRows, overflowRows } = getVisibleRowsForEpicGroup({
+    group: props.group,
+    activeThreadId: props.activeThreadId,
+    isPreviousRowsExpanded,
+  });
+  const hasPreviousRows =
+    props.group.previousRows.length > 0 || props.group.overflowRows.length > 0;
+  const hiddenCount = overflowRows.length;
+  const handleEpicGroupContextMenu = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const api = readLocalApi();
+      if (!api) {
+        return;
+      }
+
+      void api.contextMenu
+        .show(
+          buildEpicGroupContextMenuItems({
+            canStartNewRun: props.canStartNewRun,
+          }),
+          {
+            x: event.clientX,
+            y: event.clientY,
+          },
+        )
+        .then((action) => {
+          if (action === "start_new_run") {
+            void props.openEpicRunFromContextMenu(props.group.epicIssueId);
+            return;
+          }
+
+          if (action === "open_epic") {
+            void props.openEpicInTracker(props.group.epicIssueId);
+          }
+        });
+    },
+    [props],
+  );
+
+  const renderRow = (row: SidebarEpicExecutionRow, isPreviousAttempt: boolean) => {
+    const thread = row.workerThreadId ? (props.threadById.get(row.workerThreadId) ?? null) : null;
+    const jumpLabel = thread
+      ? (props.threadJumpLabelByKey.get(
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+        ) ?? null)
+      : null;
+    const handleRowContextMenu = (event: React.MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const api = readLocalApi();
+      if (!api) {
+        return;
+      }
+
+      void api.contextMenu
+        .show(
+          buildManagedIssueRowContextMenuItems({
+            canOpenIssueInSidebar: props.canOpenIssueInSidebar,
+          }),
+          {
+            x: event.clientX,
+            y: event.clientY,
+          },
+        )
+        .then((action) => {
+          if (action === "open_issue_sidebar") {
+            void props.openIssueInSidebar(row.issueId);
+            return;
+          }
+
+          if (action === "open_issue_tracker") {
+            void props.openIssueInTracker({
+              epicIssueId: props.group.epicIssueId,
+              issueId: row.issueId,
+            });
+          }
+        });
+    };
+
+    if (row.isGhost || !row.workerThreadId) {
+      return (
+        <SidebarGhostExecutionRow
+          key={row.executionId}
+          projectId={props.projectId}
+          epicIssueId={props.group.epicIssueId}
+          row={row}
+          isPreviousAttempt={isPreviousAttempt}
+          onContextMenu={handleRowContextMenu}
+        />
+      );
+    }
+
+    if (!thread) {
+      return (
+        <SidebarGhostExecutionRow
+          key={row.executionId}
+          projectId={props.projectId}
+          epicIssueId={props.group.epicIssueId}
+          row={row}
+          isPreviousAttempt={isPreviousAttempt}
+          onContextMenu={handleRowContextMenu}
+        />
+      );
+    }
+
+    const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+    return (
+      <SidebarRunExecutionThreadRow
+        key={row.executionId}
+        thread={thread}
+        row={row}
+        isActive={props.activeThreadKey === threadKey}
+        isPreviousAttempt={isPreviousAttempt}
+        jumpLabel={jumpLabel}
+        onContextMenu={handleRowContextMenu}
+      />
+    );
+  };
+
+  return (
+    <div
+      data-testid={`epic-group-card-${props.group.epicIssueId}`}
+      className="rounded-lg border border-sidebar-border/70 bg-sidebar-accent/25 px-2 py-2"
+      onContextMenu={handleEpicGroupContextMenu}
+    >
+      <div className="mb-1 flex items-center gap-1">
+        <button
+          type="button"
+          aria-label={
+            props.isExpanded
+              ? `Collapse epic ${props.group.epicIssueId}`
+              : `Expand epic ${props.group.epicIssueId}`
+          }
+          aria-expanded={props.isExpanded}
+          className="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
+          onClick={props.onToggleExpanded}
+        >
+          <ChevronRightIcon
+            className={cn("size-3.5 transition-transform", props.isExpanded && "rotate-90")}
+          />
+        </button>
+        <Link
+          to="/projects/$projectId/issues"
+          params={{ projectId: props.projectId } as never}
+          search={
+            {
+              tab: "issues",
+              epicId: props.group.epicIssueId,
+              issueId: props.group.epicIssueId,
+            } as never
+          }
+          className="flex min-w-0 flex-1 items-center rounded-md px-1 py-1 text-left transition-colors hover:bg-accent"
+        >
+          <span className="min-w-0 truncate text-xs font-medium text-foreground">
+            {props.group.epicTitle}
+          </span>
+        </Link>
+        <EpicIssueStatusBadge status={props.group.epicIssueStatus} />
+      </div>
+
+      {props.isExpanded ? (
+        <SidebarMenuSub className="mx-0 w-full translate-x-0 gap-0.5 overflow-hidden px-0 pb-0">
+          {currentRows.map((row) => renderRow(row, false))}
+
+          {hasPreviousRows && currentRows.length > 0 ? (
+            <div className="my-0.5 mx-2 border-t border-sidebar-border/40" />
+          ) : null}
+
+          {previousRows.map((row) => renderRow(row, true))}
+
+          {hiddenCount > 0 && !isPreviousRowsExpanded ? (
+            <SidebarMenuSubItem className="w-full">
+              <SidebarMenuSubButton
+                render={showMoreRender}
+                data-thread-selection-safe
+                size="sm"
+                className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+                onClick={() => props.expandPreviousRowsForEpic(epicKey)}
+              >
+                <span>Show {hiddenCount} more previous</span>
+              </SidebarMenuSubButton>
+            </SidebarMenuSubItem>
+          ) : null}
+          {hasPreviousRows && isPreviousRowsExpanded ? (
+            <SidebarMenuSubItem className="w-full">
+              <SidebarMenuSubButton
+                render={showLessRender}
+                data-thread-selection-safe
+                size="sm"
+                className="h-6 w-full translate-x-0 justify-start px-2 text-left text-[10px] text-muted-foreground/60 hover:bg-accent hover:text-muted-foreground/80"
+                onClick={() => props.collapsePreviousRowsForEpic(epicKey)}
+              >
+                <span>Show less</span>
+              </SidebarMenuSubButton>
+            </SidebarMenuSubItem>
+          ) : null}
+        </SidebarMenuSub>
+      ) : null}
+    </div>
+  );
+}
+
 interface SidebarProjectItemProps {
   project: SidebarProjectSnapshot;
+  projectEpicRuns: readonly OrchestrationEpicRun[];
+  projectEpicIssueExecutions: readonly OrchestrationEpicIssueExecution[];
   isThreadListExpanded: boolean;
   activeRouteThreadKey: string | null;
   newThreadShortcutLabel: string | null;
@@ -942,6 +1447,9 @@ interface SidebarProjectItemProps {
   attachThreadListAutoAnimateRef: (node: HTMLElement | null) => void;
   expandThreadListForProject: (projectKey: string) => void;
   collapseThreadListForProject: (projectKey: string) => void;
+  expandedPreviousRowsByEpic: ReadonlySet<string>;
+  expandPreviousRowsForEpic: (epicKey: string) => void;
+  collapsePreviousRowsForEpic: (epicKey: string) => void;
   dragInProgressRef: React.RefObject<boolean>;
   suppressProjectClickAfterDragRef: React.RefObject<boolean>;
   suppressProjectClickForContextMenuRef: React.RefObject<boolean>;
@@ -952,6 +1460,8 @@ interface SidebarProjectItemProps {
 const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjectItemProps) {
   const {
     project,
+    projectEpicRuns,
+    projectEpicIssueExecutions,
     isThreadListExpanded,
     activeRouteThreadKey,
     newThreadShortcutLabel,
@@ -962,6 +1472,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     attachThreadListAutoAnimateRef,
     expandThreadListForProject,
     collapseThreadListForProject,
+    expandedPreviousRowsByEpic,
+    expandPreviousRowsForEpic,
+    collapsePreviousRowsForEpic,
     dragInProgressRef,
     suppressProjectClickAfterDragRef,
     suppressProjectClickForContextMenuRef,
@@ -983,6 +1496,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const router = useRouter();
   const markThreadUnread = useUiStateStore((state) => state.markThreadUnread);
   const toggleProject = useUiStateStore((state) => state.toggleProject);
+  const epicGroupExpandedById = useUiStateStore((state) => state.epicGroupExpandedById);
+  const toggleEpicGroupExpanded = useUiStateStore((state) => state.toggleEpicGroupExpanded);
   const toggleThreadSelection = useThreadSelectionStore((state) => state.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((state) => state.rangeSelectTo);
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
@@ -1101,11 +1616,95 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       ),
     [allSidebarThreads],
   );
-  // All threads from the representative + other member environments are
-  // already fetched into allSidebarThreads, so we can use them directly.
-  const projectThreads = allSidebarThreads;
+  const runWorkerThreadIds = useMemo(() => {
+    const next = new Set<ThreadId>();
+    for (const execution of projectEpicIssueExecutions) {
+      if (execution.workerThreadId) {
+        next.add(execution.workerThreadId);
+      }
+    }
+    return next;
+  }, [projectEpicIssueExecutions]);
+
   const projectExpanded = useUiStateStore(
     (state) => state.projectExpandedById[project.projectKey] ?? true,
+  );
+  const projectRunSummaryQuery = useQuery(
+    beadsProjectRunSummaryOptions(
+      projectExpanded ? { cwd: project.cwd, projectId: project.id, enabled: true } : null,
+    ),
+  );
+
+  const epicTitleByIssueId = useMemo(
+    () =>
+      new Map(
+        (projectRunSummaryQuery.data?.epics ?? []).map(
+          (epic) => [epic.epicIssueId, epic.epicTitle] as const,
+        ),
+      ),
+    [projectRunSummaryQuery.data?.epics],
+  );
+
+  // Derive the unique epic issue IDs from the current runs so we know which
+  // per-epic issue-summaries queries to fire.
+  const epicIssueIds = useMemo(
+    () => [...new Set(projectEpicRuns.map((run) => run.epicIssueId))],
+    [projectEpicRuns],
+  );
+  const epicIssuesBatchQuery = useQuery(
+    beadsIssuesBatchOptions(
+      projectExpanded && epicIssueIds.length > 0
+        ? { cwd: project.cwd, issueIds: epicIssueIds }
+        : null,
+    ),
+  );
+
+  // Fetch per-epic issue summaries so we can display individual issue titles
+  // inside each group (one query per epic, all cached by React Query).
+  const epicIssueSummariesQueries = useQueries({
+    queries: epicIssueIds.map((epicIssueId) =>
+      beadsEpicIssueSummariesOptions(
+        projectExpanded ? { cwd: project.cwd, epicIssueId, enabled: true } : null,
+      ),
+    ),
+  });
+  const epicCoordinationDetailQueries = useQueries({
+    queries: epicIssueIds.map((epicIssueId) =>
+      beadsEpicCoordinationDetailOptions(
+        projectExpanded
+          ? {
+              cwd: project.cwd,
+              projectId: project.id,
+              epicIssueId,
+              enabled: true,
+            }
+          : null,
+      ),
+    ),
+  });
+
+  const issueTitleByIssueId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const query of epicIssueSummariesQueries) {
+      for (const issue of query.data?.issues ?? []) {
+        map.set(issue.id, issue.title);
+      }
+    }
+    return map as ReadonlyMap<string, string>;
+  }, [epicIssueSummariesQueries]);
+  const epicIssueStatusById = useMemo(
+    () =>
+      new Map(
+        (epicIssuesBatchQuery.data?.issues ?? []).map((issue) => [issue.id, issue.status] as const),
+      ) as ReadonlyMap<string, string>,
+    [epicIssuesBatchQuery.data?.issues],
+  );
+
+  // All threads from the representative + other member environments are
+  // already fetched into allSidebarThreads, so we can use them directly.
+  const projectThreads = useMemo(
+    () => allSidebarThreads.filter((thread) => !runWorkerThreadIds.has(thread.id)),
+    [allSidebarThreads, runWorkerThreadIds],
   );
   const threadLastVisitedAts = useUiStateStore(
     useShallow((state) =>
@@ -1123,15 +1722,64 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
   const confirmArchiveButtonRefs = useRef(new Map<string, HTMLButtonElement>());
-
-  const { projectStatus, visibleProjectThreads, orderedProjectThreadKeys } = useMemo(() => {
-    const lastVisitedAtByThreadKey = new Map(
-      projectThreads.map((thread, index) => [
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-        threadLastVisitedAts[index] ?? null,
-      ]),
-    );
-    const resolveProjectThreadStatus = (thread: SidebarThreadSummary) => {
+  const activeRouteThread = activeRouteThreadKey
+    ? (sidebarThreadByKey.get(activeRouteThreadKey) ?? null)
+    : null;
+  const activeRouteFullThread = useStore(
+    useMemo(
+      () =>
+        activeRouteThread
+          ? (state: import("../store").AppState) =>
+              selectThreadByRef(
+                state,
+                scopeThreadRef(activeRouteThread.environmentId, activeRouteThread.id),
+              ) ?? null
+          : () => null,
+      [activeRouteThread],
+    ),
+  );
+  const activeRouteThreadId = activeRouteThreadKey ? (activeRouteThread?.id ?? null) : null;
+  const projectRunThreadById = useMemo(
+    () =>
+      new Map(allSidebarThreads.map((thread) => [thread.id, thread] as const)) as ReadonlyMap<
+        ThreadId,
+        SidebarThreadSummary
+      >,
+    [allSidebarThreads],
+  );
+  const projectRunGroups = useMemo(
+    () =>
+      deriveIssueFirstSidebarRunGroups({
+        epics: buildSidebarRunSummaryEpics({
+          runs: projectEpicRuns,
+          executions: projectEpicIssueExecutions,
+          epicTitleByIssueId,
+          issueTitleByIssueId,
+          epicIssueStatusById,
+        }),
+        previewLimit: THREAD_PREVIEW_LIMIT,
+      }),
+    [
+      epicTitleByIssueId,
+      epicIssueStatusById,
+      issueTitleByIssueId,
+      projectEpicIssueExecutions,
+      projectEpicRuns,
+    ],
+  );
+  const lastVisitedAtByThreadKey = useMemo(
+    () =>
+      new Map(
+        projectThreads.map((thread, index) => [
+          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+          threadLastVisitedAts[index] ?? null,
+        ]),
+      ),
+    [projectThreads, threadLastVisitedAts],
+  );
+  const nowTick = React.useContext(SidebarNowContext);
+  const resolveProjectThreadStatus = useCallback(
+    (thread: SidebarThreadSummary) => {
       const lastVisitedAt = lastVisitedAtByThreadKey.get(
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
       );
@@ -1140,97 +1788,200 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           ...thread,
           ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
         },
+        ...(nowTick !== null ? { now: nowTick } : {}),
       });
-    };
-    const visibleProjectThreads = sortThreads(
-      projectThreads.filter((thread) => thread.archivedAt === null),
-      threadSortOrder,
-    );
-    const projectStatus = resolveProjectStatusIndicator(
-      visibleProjectThreads.map((thread) => resolveProjectThreadStatus(thread)),
-    );
-    return {
-      orderedProjectThreadKeys: visibleProjectThreads.map((thread) =>
+    },
+    [lastVisitedAtByThreadKey, nowTick],
+  );
+  const visibleProjectThreads = useMemo(
+    () =>
+      sortThreads(
+        projectThreads.filter((thread) => thread.archivedAt === null),
+        threadSortOrder,
+      ),
+    [projectThreads, threadSortOrder],
+  );
+  const orderedProjectThreadKeys = useMemo(
+    () =>
+      visibleProjectThreads.map((thread) =>
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
       ),
-      projectStatus,
-      visibleProjectThreads,
-    };
-  }, [projectThreads, threadLastVisitedAts, threadSortOrder]);
+    [visibleProjectThreads],
+  );
+  const projectStatus = useMemo(
+    () =>
+      resolveProjectStatusIndicator(
+        visibleProjectThreads.map((thread) => resolveProjectThreadStatus(thread)),
+      ),
+    [resolveProjectThreadStatus, visibleProjectThreads],
+  );
+  const projectFeedItems = useMemo(
+    () =>
+      buildSidebarProjectFeed({
+        groups: projectRunGroups,
+        threads: visibleProjectThreads,
+        threadSortOrder,
+        threadById: projectRunThreadById,
+      }),
+    [projectRunGroups, projectRunThreadById, threadSortOrder, visibleProjectThreads],
+  );
+  const projectFeedVisibility = useMemo(
+    () =>
+      getVisibleSidebarProjectFeed({
+        items: projectFeedItems,
+        activeThreadId: activeRouteThreadId,
+        projectExpanded,
+        isFeedExpanded: isThreadListExpanded,
+        previewLimit: THREAD_PREVIEW_LIMIT,
+      }),
+    [activeRouteThreadId, isThreadListExpanded, projectExpanded, projectFeedItems],
+  );
+  const hiddenThreadStatus = useMemo(
+    () =>
+      resolveProjectStatusIndicator(
+        projectFeedVisibility.hiddenItems.flatMap((item) =>
+          item.kind === "thread" ? [resolveProjectThreadStatus(item.thread)] : [],
+        ),
+      ),
+    [projectFeedVisibility.hiddenItems, resolveProjectThreadStatus],
+  );
+  const epicSnapshotByIssueId = useMemo(() => {
+    const snapshots = new Map<string, ReturnType<typeof composeCoordinatorEpicSnapshot>>();
+    for (const [index, epicIssueId] of epicIssueIds.entries()) {
+      const epicCoordinationDetail = epicCoordinationDetailQueries[index]?.data;
+      if (!epicCoordinationDetail) {
+        continue;
+      }
 
-  const pinnedCollapsedThread = useMemo(() => {
-    const activeThreadKey = activeRouteThreadKey ?? undefined;
-    if (!activeThreadKey || projectExpanded) {
-      return null;
+      snapshots.set(
+        epicIssueId,
+        composeCoordinatorEpicSnapshot({
+          epicIssueId,
+          projectRunSummary: projectRunSummaryQuery.data ?? null,
+          epicIssueSummaries: epicIssueSummariesQueries[index]?.data ?? null,
+          epicCoordinationDetail,
+        }),
+      );
     }
-    return (
-      visibleProjectThreads.find(
-        (thread) =>
-          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) === activeThreadKey,
-      ) ?? null
-    );
-  }, [activeRouteThreadKey, projectExpanded, visibleProjectThreads]);
-
-  const {
-    hasOverflowingThreads,
-    hiddenThreadStatus,
-    renderedThreads,
-    showEmptyThreadState,
-    shouldShowThreadPanel,
-  } = useMemo(() => {
-    const lastVisitedAtByThreadKey = new Map(
-      projectThreads.map((thread, index) => [
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-        threadLastVisitedAts[index] ?? null,
-      ]),
-    );
-    const resolveProjectThreadStatus = (thread: SidebarThreadSummary) => {
-      const lastVisitedAt = lastVisitedAtByThreadKey.get(
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      );
-      return resolveThreadStatusPill({
-        thread: {
-          ...thread,
-          ...(lastVisitedAt !== null && lastVisitedAt !== undefined ? { lastVisitedAt } : {}),
+    return snapshots as ReadonlyMap<string, ReturnType<typeof composeCoordinatorEpicSnapshot>>;
+  }, [
+    epicIssueIds,
+    epicIssueSummariesQueries,
+    epicCoordinationDetailQueries,
+    projectRunSummaryQuery.data,
+  ]);
+  const canOpenIssueInSidebar = activeRouteThread !== null;
+  const resolvedCoordinatorModelSelection = useMemo(
+    () =>
+      resolveFallbackModelSelection(
+        activeRouteFullThread?.modelSelection ?? project.defaultModelSelection,
+      ),
+    [activeRouteFullThread?.modelSelection, project.defaultModelSelection],
+  );
+  const resolvedCoordinatorRuntimeMode = activeRouteFullThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
+  const epicActionRunner = useEpicCoordinatorActionRunner({
+    cwd: project.cwd,
+    projectId: project.id,
+    modelSelection: resolvedCoordinatorModelSelection,
+    runtimeMode: resolvedCoordinatorRuntimeMode,
+    onOpenThread: (threadId) => {
+      void router.navigate({
+        to: "/$environmentId/$threadId",
+        params: {
+          environmentId: project.environmentId,
+          threadId,
         },
       });
-    };
-    const hasOverflowingThreads = visibleProjectThreads.length > THREAD_PREVIEW_LIMIT;
-    const previewThreads =
-      isThreadListExpanded || !hasOverflowingThreads
-        ? visibleProjectThreads
-        : visibleProjectThreads.slice(0, THREAD_PREVIEW_LIMIT);
-    const visibleThreadKeys = new Set(
-      [...previewThreads, ...(pinnedCollapsedThread ? [pinnedCollapsedThread] : [])].map((thread) =>
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      ),
-    );
-    const renderedThreads = pinnedCollapsedThread
-      ? [pinnedCollapsedThread]
-      : visibleProjectThreads.filter((thread) =>
-          visibleThreadKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
-        );
-    const hiddenThreads = visibleProjectThreads.filter(
-      (thread) =>
-        !visibleThreadKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
-    );
-    return {
-      hasOverflowingThreads,
-      hiddenThreadStatus: resolveProjectStatusIndicator(
-        hiddenThreads.map((thread) => resolveProjectThreadStatus(thread)),
-      ),
-      renderedThreads,
-      showEmptyThreadState: projectExpanded && visibleProjectThreads.length === 0,
-      shouldShowThreadPanel: projectExpanded || pinnedCollapsedThread !== null,
-    };
-  }, [
-    isThreadListExpanded,
-    pinnedCollapsedThread,
-    projectExpanded,
-    projectThreads,
-    threadLastVisitedAts,
-    visibleProjectThreads,
-  ]);
+    },
+    onOpenCoordinator: (input) => {
+      void router.navigate({
+        to: "/projects/$projectId/issues" as never,
+        params: { projectId: project.id } as never,
+        search: {
+          tab: "coordinator",
+          epicId: input.epicId,
+          ...(input.runId ? { runId: input.runId } : {}),
+        } as never,
+      });
+    },
+  });
+  const canStartNewRunByIssueId = useMemo(() => {
+    const next = new Map<string, boolean>();
+    for (const epicIssueId of epicIssueIds) {
+      const snapshot = epicSnapshotByIssueId.get(epicIssueId);
+      const action = snapshot ? getCoordinatorPrimaryActionInput(snapshot) : null;
+      next.set(
+        epicIssueId,
+        action?.kind === "start_epic_run" && snapshot?.primaryAction.disabled === false,
+      );
+    }
+    return next as ReadonlyMap<string, boolean>;
+  }, [epicIssueIds, epicSnapshotByIssueId]);
+  const openIssueInSidebar = useCallback(
+    async (issueId: string) => {
+      if (!activeRouteThread) {
+        return;
+      }
+
+      await router.navigate({
+        to: "/$environmentId/$threadId",
+        params: buildThreadRouteParams(
+          scopeThreadRef(activeRouteThread.environmentId, activeRouteThread.id),
+        ),
+        replace: true,
+        search: (previous) => ({
+          ...stripRightPaneSearchParams(previous),
+          rightPane: "issues" as const,
+          issueId,
+        }),
+      });
+    },
+    [activeRouteThread, router],
+  );
+  const openIssueInTracker = useCallback(
+    async (input: { epicIssueId: string; issueId: string }) => {
+      await router.navigate({
+        to: "/projects/$projectId/issues" as never,
+        params: { projectId: project.id } as never,
+        search: {
+          tab: "issues",
+          epicId: input.epicIssueId,
+          issueId: input.issueId,
+        } as never,
+      });
+    },
+    [project.id, router],
+  );
+  const openEpicInTracker = useCallback(
+    async (epicIssueId: string) => {
+      await router.navigate({
+        to: "/projects/$projectId/issues" as never,
+        params: { projectId: project.id } as never,
+        search: {
+          tab: "issues",
+          epicId: epicIssueId,
+          issueId: epicIssueId,
+        } as never,
+      });
+    },
+    [project.id, router],
+  );
+  const openEpicRunFromContextMenu = useCallback(
+    async (epicIssueId: string) => {
+      const snapshot = epicSnapshotByIssueId.get(epicIssueId);
+      if (!snapshot) {
+        return;
+      }
+
+      const action = getCoordinatorPrimaryActionInput(snapshot);
+      if (action?.kind !== "start_epic_run" || snapshot.primaryAction.disabled) {
+        return;
+      }
+
+      await epicActionRunner.runAction(action);
+    },
+    [epicActionRunner, epicSnapshotByIssueId],
+  );
 
   const handleProjectButtonClick = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -1321,7 +2072,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         }
         if (clicked !== "delete") return;
 
-        if (projectThreads.length > 0) {
+        if (allSidebarThreads.length > 0) {
           toastManager.add({
             type: "warning",
             title: "Project is not empty",
@@ -1371,7 +2122,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       project.environmentId,
       project.id,
       project.name,
-      projectThreads.length,
+      allSidebarThreads.length,
       suppressProjectClickForContextMenuRef,
     ],
   );
@@ -1678,7 +2429,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       projectThreads,
     ],
   );
-
   return (
     <>
       <div className="group/project-header relative">
@@ -1768,19 +2518,22 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         </Tooltip>
       </div>
 
-      <SidebarProjectThreadList
+      <SidebarProjectFeedList
+        projectId={project.id}
         projectKey={project.projectKey}
         projectExpanded={projectExpanded}
-        hasOverflowingThreads={hasOverflowingThreads}
+        hasOverflowingItems={projectFeedVisibility.hasOverflowingItems}
         hiddenThreadStatus={hiddenThreadStatus}
         orderedProjectThreadKeys={orderedProjectThreadKeys}
-        renderedThreads={renderedThreads}
-        showEmptyThreadState={showEmptyThreadState}
-        shouldShowThreadPanel={shouldShowThreadPanel}
-        isThreadListExpanded={isThreadListExpanded}
+        renderedItems={projectFeedVisibility.renderedItems}
+        showEmptyState={projectFeedVisibility.showEmptyState}
+        shouldShowFeedPanel={projectFeedVisibility.shouldShowFeedPanel}
+        isFeedExpanded={isThreadListExpanded}
         projectCwd={project.cwd}
         activeRouteThreadKey={activeRouteThreadKey}
+        activeRouteThreadId={activeRouteThreadId}
         threadJumpLabelByKey={threadJumpLabelByKey}
+        projectRunThreadById={projectRunThreadById}
         appSettingsConfirmThreadArchive={appSettingsConfirmThreadArchive}
         renamingThreadKey={renamingThreadKey}
         renamingTitle={renamingTitle}
@@ -1802,6 +2555,17 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         openPrLink={openPrLink}
         expandThreadListForProject={expandThreadListForProject}
         collapseThreadListForProject={collapseThreadListForProject}
+        epicGroupExpandedById={epicGroupExpandedById}
+        toggleEpicGroupExpanded={toggleEpicGroupExpanded}
+        expandedPreviousRowsByEpic={expandedPreviousRowsByEpic}
+        expandPreviousRowsForEpic={expandPreviousRowsForEpic}
+        collapsePreviousRowsForEpic={collapsePreviousRowsForEpic}
+        canOpenIssueInSidebar={canOpenIssueInSidebar}
+        canStartNewRunByIssueId={canStartNewRunByIssueId}
+        openIssueInSidebar={openIssueInSidebar}
+        openIssueInTracker={openIssueInTracker}
+        openEpicInTracker={openEpicInTracker}
+        openEpicRunFromContextMenu={openEpicRunFromContextMenu}
       />
     </>
   );
@@ -2040,7 +2804,10 @@ interface SidebarProjectsContentProps {
   archiveThread: ReturnType<typeof useThreadActions>["archiveThread"];
   deleteThread: ReturnType<typeof useThreadActions>["deleteThread"];
   sortedProjects: readonly SidebarProjectSnapshot[];
+  epicRunsByProjectKey: ReadonlyMap<string, readonly OrchestrationEpicRun[]>;
+  epicIssueExecutionsByProjectKey: ReadonlyMap<string, readonly OrchestrationEpicIssueExecution[]>;
   expandedThreadListsByProject: ReadonlySet<string>;
+  expandedPreviousRowsByEpic: ReadonlySet<string>;
   activeRouteProjectKey: string | null;
   routeThreadKey: string | null;
   newThreadShortcutLabel: string | null;
@@ -2049,6 +2816,8 @@ interface SidebarProjectsContentProps {
   attachThreadListAutoAnimateRef: (node: HTMLElement | null) => void;
   expandThreadListForProject: (projectKey: string) => void;
   collapseThreadListForProject: (projectKey: string) => void;
+  expandPreviousRowsForEpic: (epicKey: string) => void;
+  collapsePreviousRowsForEpic: (epicKey: string) => void;
   dragInProgressRef: React.RefObject<boolean>;
   suppressProjectClickAfterDragRef: React.RefObject<boolean>;
   suppressProjectClickForContextMenuRef: React.RefObject<boolean>;
@@ -2092,7 +2861,10 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     archiveThread,
     deleteThread,
     sortedProjects,
+    epicRunsByProjectKey,
+    epicIssueExecutionsByProjectKey,
     expandedThreadListsByProject,
+    expandedPreviousRowsByEpic,
     activeRouteProjectKey,
     routeThreadKey,
     newThreadShortcutLabel,
@@ -2101,6 +2873,8 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     attachThreadListAutoAnimateRef,
     expandThreadListForProject,
     collapseThreadListForProject,
+    expandPreviousRowsForEpic,
+    collapsePreviousRowsForEpic,
     dragInProgressRef,
     suppressProjectClickAfterDragRef,
     suppressProjectClickForContextMenuRef,
@@ -2288,6 +3062,10 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                     {(dragHandleProps) => (
                       <SidebarProjectItem
                         project={project}
+                        projectEpicRuns={epicRunsByProjectKey.get(project.projectKey) ?? []}
+                        projectEpicIssueExecutions={
+                          epicIssueExecutionsByProjectKey.get(project.projectKey) ?? []
+                        }
                         isThreadListExpanded={expandedThreadListsByProject.has(project.projectKey)}
                         activeRouteThreadKey={
                           activeRouteProjectKey === project.projectKey ? routeThreadKey : null
@@ -2300,6 +3078,9 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                         attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
                         expandThreadListForProject={expandThreadListForProject}
                         collapseThreadListForProject={collapseThreadListForProject}
+                        expandedPreviousRowsByEpic={expandedPreviousRowsByEpic}
+                        expandPreviousRowsForEpic={expandPreviousRowsForEpic}
+                        collapsePreviousRowsForEpic={collapsePreviousRowsForEpic}
                         dragInProgressRef={dragInProgressRef}
                         suppressProjectClickAfterDragRef={suppressProjectClickAfterDragRef}
                         suppressProjectClickForContextMenuRef={
@@ -2320,6 +3101,10 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
               <SidebarProjectListRow
                 key={project.projectKey}
                 project={project}
+                projectEpicRuns={epicRunsByProjectKey.get(project.projectKey) ?? []}
+                projectEpicIssueExecutions={
+                  epicIssueExecutionsByProjectKey.get(project.projectKey) ?? []
+                }
                 isThreadListExpanded={expandedThreadListsByProject.has(project.projectKey)}
                 activeRouteThreadKey={
                   activeRouteProjectKey === project.projectKey ? routeThreadKey : null
@@ -2332,6 +3117,9 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
                 expandThreadListForProject={expandThreadListForProject}
                 collapseThreadListForProject={collapseThreadListForProject}
+                expandedPreviousRowsByEpic={expandedPreviousRowsByEpic}
+                expandPreviousRowsForEpic={expandPreviousRowsForEpic}
+                collapsePreviousRowsForEpic={collapsePreviousRowsForEpic}
                 dragInProgressRef={dragInProgressRef}
                 suppressProjectClickAfterDragRef={suppressProjectClickAfterDragRef}
                 suppressProjectClickForContextMenuRef={suppressProjectClickForContextMenuRef}
@@ -2355,8 +3143,11 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
 export default function Sidebar() {
   const projects = useStore(useShallow(selectProjectsAcrossEnvironments));
   const sidebarThreads = useStore(useShallow(selectSidebarThreadsAcrossEnvironments));
+  const epicRuns = useStore(useShallow(selectEpicRunsAcrossEnvironments));
+  const epicIssueExecutions = useStore(useShallow(selectEpicIssueExecutionsAcrossEnvironments));
   const activeEnvironmentId = useStore((store) => store.activeEnvironmentId);
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
+  const epicGroupExpandedById = useUiStateStore((store) => store.epicGroupExpandedById);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
   const navigate = useNavigate();
@@ -2383,11 +3174,15 @@ export default function Sidebar() {
   const [expandedThreadListsByProject, setExpandedThreadListsByProject] = useState<
     ReadonlySet<string>
   >(() => new Set());
+  const [expandedPreviousRowsByEpic, setExpandedPreviousRowsByEpic] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const { showThreadJumpHints, updateThreadJumpHintsVisibility } = useThreadJumpHintVisibility();
   const dragInProgressRef = useRef(false);
   const suppressProjectClickAfterDragRef = useRef(false);
   const suppressProjectClickForContextMenuRef = useRef(false);
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const selectedThreadCount = useThreadSelectionStore((s) => s.selectedThreadKeys.size);
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
@@ -2405,6 +3200,13 @@ export default function Sidebar() {
       getId: (project) => scopedProjectKey(scopeProjectRef(project.environmentId, project.id)),
     });
   }, [projectOrder, projects]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setNowTick(Date.now());
+    }, SIDEBAR_STATUS_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   // Build a mapping from physical project key → logical project key for
   // cross-environment grouping.  Projects that share a repositoryIdentity
@@ -2502,6 +3304,73 @@ export default function Sidebar() {
       ),
     [sidebarThreads],
   );
+  const sidebarThreadById = useMemo(
+    () => new Map(sidebarThreads.map((thread) => [thread.id, thread] as const)),
+    [sidebarThreads],
+  );
+  const logicalProjectKeyByProjectId = useMemo(() => {
+    const mapping = new Map<string, string>();
+    for (const project of sidebarProjects) {
+      for (const ref of project.memberProjectRefs) {
+        mapping.set(ref.projectId, project.projectKey);
+      }
+    }
+    return mapping;
+  }, [sidebarProjects]);
+  const epicRunsByProjectKey = useMemo(() => {
+    const next = new Map<string, OrchestrationEpicRun[]>();
+    for (const run of epicRuns) {
+      const projectKey = logicalProjectKeyByProjectId.get(run.projectId);
+      if (!projectKey) {
+        continue;
+      }
+      const existing = next.get(projectKey);
+      if (existing) {
+        existing.push(run);
+      } else {
+        next.set(projectKey, [run]);
+      }
+    }
+    return next;
+  }, [epicRuns, logicalProjectKeyByProjectId]);
+  const projectKeyByRunId = useMemo(() => {
+    const mapping = new Map<OrchestrationEpicRun["runId"], string>();
+    for (const [projectKey, runs] of epicRunsByProjectKey) {
+      for (const run of runs) {
+        mapping.set(run.runId, projectKey);
+      }
+    }
+    return mapping;
+  }, [epicRunsByProjectKey]);
+  const epicIssueExecutionsByProjectKey = useMemo(() => {
+    const next = new Map<string, OrchestrationEpicIssueExecution[]>();
+    for (const execution of epicIssueExecutions) {
+      const projectKey = projectKeyByRunId.get(execution.runId);
+      if (!projectKey) {
+        continue;
+      }
+      const existing = next.get(projectKey);
+      if (existing) {
+        existing.push(execution);
+      } else {
+        next.set(projectKey, [execution]);
+      }
+    }
+    return next;
+  }, [epicIssueExecutions, projectKeyByRunId]);
+  const runWorkerThreadIdsByProjectKey = useMemo(() => {
+    const next = new Map<string, Set<ThreadId>>();
+    for (const [projectKey, executions] of epicIssueExecutionsByProjectKey) {
+      const workerThreadIds = new Set<ThreadId>();
+      for (const execution of executions) {
+        if (execution.workerThreadId) {
+          workerThreadIds.add(execution.workerThreadId);
+        }
+      }
+      next.set(projectKey, workerThreadIds);
+    }
+    return next;
+  }, [epicIssueExecutionsByProjectKey]);
   // Resolve the active route's project key to a logical key so it matches the
   // sidebar's grouped project entries.
   const activeRouteProjectKey = useMemo(() => {
@@ -2795,45 +3664,119 @@ export default function Sidebar() {
     visibleThreads,
   ]);
   const isManualProjectSorting = sidebarProjectSortOrder === "manual";
+  const epicIssuesBatchQueries = useQueries({
+    queries: sortedProjects.map((project) => {
+      const epicIssueIds = [
+        ...new Set(
+          (epicRunsByProjectKey.get(project.projectKey) ?? []).map((run) => run.epicIssueId),
+        ),
+      ];
+      return beadsIssuesBatchOptions(
+        epicIssueIds.length > 0 ? { cwd: project.cwd, issueIds: epicIssueIds } : null,
+      );
+    }),
+  });
+  const epicIssueStatusByProjectKey = useMemo(
+    () =>
+      new Map(
+        sortedProjects.map((project, index) => [
+          project.projectKey,
+          new Map(
+            (epicIssuesBatchQueries[index]?.data?.issues ?? []).map(
+              (issue) => [issue.id, issue.status] as const,
+            ),
+          ) as ReadonlyMap<string, string>,
+        ]),
+      ),
+    [epicIssuesBatchQueries, sortedProjects],
+  );
   const visibleSidebarThreadKeys = useMemo(
     () =>
       sortedProjects.flatMap((project) => {
+        const epicIssueStatusById =
+          epicIssueStatusByProjectKey.get(project.projectKey) ?? EMPTY_ISSUE_STATUS_BY_ID;
+        const projectRunGroups = deriveIssueFirstSidebarRunGroups({
+          epics: buildSidebarRunSummaryEpics({
+            runs: epicRunsByProjectKey.get(project.projectKey) ?? [],
+            executions: epicIssueExecutionsByProjectKey.get(project.projectKey) ?? [],
+            epicIssueStatusById,
+          }),
+          previewLimit: THREAD_PREVIEW_LIMIT,
+        });
+        const runWorkerThreadIds = runWorkerThreadIdsByProjectKey.get(project.projectKey) ?? null;
         const projectThreads = sortThreads(
           (threadsByProjectKey.get(project.projectKey) ?? []).filter(
-            (thread) => thread.archivedAt === null,
+            (thread) => thread.archivedAt === null && !runWorkerThreadIds?.has(thread.id),
           ),
           sidebarThreadSortOrder,
         );
         const projectExpanded = projectExpandedById[project.projectKey] ?? true;
-        const activeThreadKey = routeThreadKey ?? undefined;
-        const pinnedCollapsedThread =
-          !projectExpanded && activeThreadKey
-            ? (projectThreads.find(
-                (thread) =>
-                  scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)) ===
-                  activeThreadKey,
-              ) ?? null)
-            : null;
-        const shouldShowThreadPanel = projectExpanded || pinnedCollapsedThread !== null;
-        if (!shouldShowThreadPanel) {
+        const activeThreadId =
+          activeRouteProjectKey === project.projectKey ? (routeThreadRef?.threadId ?? null) : null;
+        const isThreadListExpanded = expandedThreadListsByProject.has(project.projectKey);
+        const projectFeedItems = buildSidebarProjectFeed({
+          groups: projectRunGroups,
+          threads: projectThreads,
+          threadSortOrder: sidebarThreadSortOrder,
+          threadById: sidebarThreadById,
+        });
+        const projectFeedVisibility = getVisibleSidebarProjectFeed({
+          items: projectFeedItems,
+          activeThreadId,
+          projectExpanded,
+          isFeedExpanded: isThreadListExpanded,
+          previewLimit: THREAD_PREVIEW_LIMIT,
+        });
+        if (!projectFeedVisibility.shouldShowFeedPanel) {
           return [];
         }
-        const isThreadListExpanded = expandedThreadListsByProject.has(project.projectKey);
-        const hasOverflowingThreads = projectThreads.length > THREAD_PREVIEW_LIMIT;
-        const previewThreads =
-          isThreadListExpanded || !hasOverflowingThreads
-            ? projectThreads
-            : projectThreads.slice(0, THREAD_PREVIEW_LIMIT);
-        const renderedThreads = pinnedCollapsedThread ? [pinnedCollapsedThread] : previewThreads;
-        return renderedThreads.map((thread) =>
-          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-        );
+
+        return projectFeedVisibility.renderedItems.flatMap((item) => {
+          if (item.kind === "thread") {
+            return [scopedThreadKey(scopeThreadRef(item.thread.environmentId, item.thread.id))];
+          }
+
+          const epicKey = sidebarEpicHistoryKey(project.projectKey, item.group.epicIssueId);
+          const isExpanded = isSidebarEpicGroupExpanded({
+            group: item.group,
+            epicKey,
+            epicGroupExpandedById,
+            activeThreadId,
+          });
+          if (!isExpanded) {
+            return [];
+          }
+
+          const { currentRows, previousRows } = getVisibleRowsForEpicGroup({
+            group: item.group,
+            activeThreadId,
+            isPreviousRowsExpanded: expandedPreviousRowsByEpic.has(epicKey),
+          });
+          return [...currentRows, ...previousRows].flatMap((row) => {
+            if (!row.workerThreadId) {
+              return [];
+            }
+            const thread = sidebarThreadById.get(row.workerThreadId);
+            if (!thread) {
+              return [];
+            }
+            return [scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))];
+          });
+        });
       }),
     [
+      activeRouteProjectKey,
+      epicGroupExpandedById,
+      epicIssueExecutionsByProjectKey,
+      epicIssueStatusByProjectKey,
+      epicRunsByProjectKey,
+      expandedPreviousRowsByEpic,
+      runWorkerThreadIdsByProjectKey,
       sidebarThreadSortOrder,
       expandedThreadListsByProject,
       projectExpandedById,
-      routeThreadKey,
+      routeThreadRef,
+      sidebarThreadById,
       sortedProjects,
       threadsByProjectKey,
     ],
@@ -3154,67 +4097,92 @@ export default function Sidebar() {
     });
   }, []);
 
+  const expandPreviousRowsForEpic = useCallback((epicKey: string) => {
+    setExpandedPreviousRowsByEpic((current) => {
+      if (current.has(epicKey)) return current;
+      const next = new Set(current);
+      next.add(epicKey);
+      return next;
+    });
+  }, []);
+
+  const collapsePreviousRowsForEpic = useCallback((epicKey: string) => {
+    setExpandedPreviousRowsByEpic((current) => {
+      if (!current.has(epicKey)) return current;
+      const next = new Set(current);
+      next.delete(epicKey);
+      return next;
+    });
+  }, []);
+
   return (
-    <>
-      <SidebarChromeHeader isElectron={isElectron} />
+    <SidebarNowContext.Provider value={nowTick}>
+      <>
+        <SidebarChromeHeader isElectron={isElectron} />
 
-      {isOnSettings ? (
-        <SettingsSidebarNav pathname={pathname} />
-      ) : (
-        <>
-          <SidebarProjectsContent
-            showArm64IntelBuildWarning={showArm64IntelBuildWarning}
-            arm64IntelBuildWarningDescription={arm64IntelBuildWarningDescription}
-            desktopUpdateButtonAction={desktopUpdateButtonAction}
-            desktopUpdateButtonDisabled={desktopUpdateButtonDisabled}
-            handleDesktopUpdateButtonClick={handleDesktopUpdateButtonClick}
-            projectSortOrder={sidebarProjectSortOrder}
-            threadSortOrder={sidebarThreadSortOrder}
-            updateSettings={updateSettings}
-            shouldShowProjectPathEntry={shouldShowProjectPathEntry}
-            handleStartAddProject={handleStartAddProject}
-            isElectron={isElectron}
-            isPickingFolder={isPickingFolder}
-            isAddingProject={isAddingProject}
-            handlePickFolder={handlePickFolder}
-            addProjectInputRef={addProjectInputRef}
-            addProjectError={addProjectError}
-            newCwd={newCwd}
-            setNewCwd={setNewCwd}
-            setAddProjectError={setAddProjectError}
-            handleAddProject={handleAddProject}
-            setAddingProject={setAddingProject}
-            canAddProject={canAddProject}
-            isManualProjectSorting={isManualProjectSorting}
-            projectDnDSensors={projectDnDSensors}
-            projectCollisionDetection={projectCollisionDetection}
-            handleProjectDragStart={handleProjectDragStart}
-            handleProjectDragEnd={handleProjectDragEnd}
-            handleProjectDragCancel={handleProjectDragCancel}
-            handleNewThread={handleNewThread}
-            archiveThread={archiveThread}
-            deleteThread={deleteThread}
-            sortedProjects={sortedProjects}
-            expandedThreadListsByProject={expandedThreadListsByProject}
-            activeRouteProjectKey={activeRouteProjectKey}
-            routeThreadKey={routeThreadKey}
-            newThreadShortcutLabel={newThreadShortcutLabel}
-            commandPaletteShortcutLabel={commandPaletteShortcutLabel}
-            threadJumpLabelByKey={visibleThreadJumpLabelByKey}
-            attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
-            expandThreadListForProject={expandThreadListForProject}
-            collapseThreadListForProject={collapseThreadListForProject}
-            dragInProgressRef={dragInProgressRef}
-            suppressProjectClickAfterDragRef={suppressProjectClickAfterDragRef}
-            suppressProjectClickForContextMenuRef={suppressProjectClickForContextMenuRef}
-            attachProjectListAutoAnimateRef={attachProjectListAutoAnimateRef}
-            projectsLength={projects.length}
-          />
+        {isOnSettings ? (
+          <SettingsSidebarNav pathname={pathname} />
+        ) : (
+          <>
+            <SidebarProjectsContent
+              showArm64IntelBuildWarning={showArm64IntelBuildWarning}
+              arm64IntelBuildWarningDescription={arm64IntelBuildWarningDescription}
+              desktopUpdateButtonAction={desktopUpdateButtonAction}
+              desktopUpdateButtonDisabled={desktopUpdateButtonDisabled}
+              handleDesktopUpdateButtonClick={handleDesktopUpdateButtonClick}
+              projectSortOrder={sidebarProjectSortOrder}
+              threadSortOrder={sidebarThreadSortOrder}
+              updateSettings={updateSettings}
+              shouldShowProjectPathEntry={shouldShowProjectPathEntry}
+              handleStartAddProject={handleStartAddProject}
+              isElectron={isElectron}
+              isPickingFolder={isPickingFolder}
+              isAddingProject={isAddingProject}
+              handlePickFolder={handlePickFolder}
+              addProjectInputRef={addProjectInputRef}
+              addProjectError={addProjectError}
+              newCwd={newCwd}
+              setNewCwd={setNewCwd}
+              setAddProjectError={setAddProjectError}
+              handleAddProject={handleAddProject}
+              setAddingProject={setAddingProject}
+              canAddProject={canAddProject}
+              isManualProjectSorting={isManualProjectSorting}
+              projectDnDSensors={projectDnDSensors}
+              projectCollisionDetection={projectCollisionDetection}
+              handleProjectDragStart={handleProjectDragStart}
+              handleProjectDragEnd={handleProjectDragEnd}
+              handleProjectDragCancel={handleProjectDragCancel}
+              handleNewThread={handleNewThread}
+              archiveThread={archiveThread}
+              deleteThread={deleteThread}
+              sortedProjects={sortedProjects}
+              epicRunsByProjectKey={epicRunsByProjectKey}
+              epicIssueExecutionsByProjectKey={epicIssueExecutionsByProjectKey}
+              expandedThreadListsByProject={expandedThreadListsByProject}
+              expandedPreviousRowsByEpic={expandedPreviousRowsByEpic}
+              activeRouteProjectKey={activeRouteProjectKey}
+              routeThreadKey={routeThreadKey}
+              newThreadShortcutLabel={newThreadShortcutLabel}
+              commandPaletteShortcutLabel={commandPaletteShortcutLabel}
+              threadJumpLabelByKey={visibleThreadJumpLabelByKey}
+              attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
+              expandThreadListForProject={expandThreadListForProject}
+              collapseThreadListForProject={collapseThreadListForProject}
+              expandPreviousRowsForEpic={expandPreviousRowsForEpic}
+              collapsePreviousRowsForEpic={collapsePreviousRowsForEpic}
+              dragInProgressRef={dragInProgressRef}
+              suppressProjectClickAfterDragRef={suppressProjectClickAfterDragRef}
+              suppressProjectClickForContextMenuRef={suppressProjectClickForContextMenuRef}
+              attachProjectListAutoAnimateRef={attachProjectListAutoAnimateRef}
+              projectsLength={projects.length}
+            />
 
-          <SidebarSeparator />
-          <SidebarChromeFooter />
-        </>
-      )}
-    </>
+            <SidebarSeparator />
+            <SidebarChromeFooter />
+          </>
+        )}
+      </>
+    </SidebarNowContext.Provider>
   );
 }

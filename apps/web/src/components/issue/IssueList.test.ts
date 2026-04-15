@@ -119,7 +119,7 @@ describe("IssueList hierarchy rendering", () => {
     expect(markup).toMatch(/<p class="[^"]*line-through[^"]*">Epic 1<\/p>/);
   });
 
-  it("renders non-epic issues as flat leaf rows, not nested branches", () => {
+  it("renders non-epic issue hierarchies as nested branches", () => {
     const markup = renderToStaticMarkup(
       createElement(IssueList, {
         issues: [
@@ -131,7 +131,6 @@ describe("IssueList hierarchy rendering", () => {
           makeIssue({
             id: "TASK-1",
             title: "Task 1",
-            // Parented to a non-epic — should NOT create nesting
             parent: { id: "STORY-1", title: "Story 1" },
           }),
         ],
@@ -139,14 +138,12 @@ describe("IssueList hierarchy rendering", () => {
       }),
     );
 
-    // Neither is an epic, so neither gets the epic expand label
+    // The visible root is still non-epic, so it renders as an issue branch rather than an epic group.
     expect(markup).not.toContain('aria-label="Expand epic STORY-1"');
     expect(markup).not.toContain("Expand epic group");
-    // Non-epic parents no longer create a BranchIssueRow; both are flat leaves
-    expect(markup).not.toContain('aria-label="Expand issue STORY-1"');
-    // Both issues are visible as flat rows
+    expect(markup).toContain('aria-label="Expand issue STORY-1"');
     expect(markup).toContain("Story 1");
-    expect(markup).toContain("Task 1");
+    expect(markup).not.toContain("Task 1");
   });
 
   it("promotes matching descendants when filtered ancestors are hidden", () => {

@@ -18,12 +18,14 @@ const LEGACY_PERSISTED_STATE_KEYS = [
 interface PersistedUiState {
   expandedProjectCwds?: string[];
   projectOrderCwds?: string[];
+  epicGroupExpandedById?: Record<string, boolean>;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
 }
 
 export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
   projectOrder: string[];
+  epicGroupExpandedById: Record<string, boolean>;
 }
 
 export interface UiThreadState {
@@ -46,6 +48,7 @@ export interface SyncThreadInput {
 const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
+  epicGroupExpandedById: {},
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
 };
@@ -76,6 +79,7 @@ function readPersistedState(): UiState {
     hydratePersistedProjectState(parsed);
     return {
       ...initialState,
+      epicGroupExpandedById: sanitizePersistedBooleanRecord(parsed.epicGroupExpandedById),
       threadChangedFilesExpandedById: sanitizePersistedThreadChangedFilesExpanded(
         parsed.threadChangedFilesExpandedById,
       ),
@@ -83,6 +87,20 @@ function readPersistedState(): UiState {
   } catch {
     return initialState;
   }
+}
+
+function sanitizePersistedBooleanRecord(
+  value: Record<string, boolean> | undefined,
+): Record<string, boolean> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      ([key, entryValue]) => key.length > 0 && typeof entryValue === "boolean",
+    ),
+  );
 }
 
 function sanitizePersistedThreadChangedFilesExpanded(
@@ -143,6 +161,11 @@ function persistState(state: UiState): void {
       const cwd = currentProjectCwdById.get(projectId);
       return cwd ? [cwd] : [];
     });
+    const epicGroupExpandedById = Object.fromEntries(
+      Object.entries(state.epicGroupExpandedById).filter(
+        ([epicKey, expanded]) => epicKey.length > 0 && typeof expanded === "boolean",
+      ),
+    );
     const threadChangedFilesExpandedById = Object.fromEntries(
       Object.entries(state.threadChangedFilesExpandedById).flatMap(([threadId, turns]) => {
         const nextTurns = Object.fromEntries(
@@ -156,6 +179,7 @@ function persistState(state: UiState): void {
       JSON.stringify({
         expandedProjectCwds,
         projectOrderCwds,
+        epicGroupExpandedById,
         threadChangedFilesExpandedById,
       } satisfies PersistedUiState),
     );
@@ -480,6 +504,30 @@ export function setProjectExpanded(state: UiState, projectId: string, expanded: 
   };
 }
 
+export function toggleEpicGroupExpanded(state: UiState, epicKey: string): UiState {
+  const expanded = state.epicGroupExpandedById[epicKey] ?? false;
+  return {
+    ...state,
+    epicGroupExpandedById: {
+      ...state.epicGroupExpandedById,
+      [epicKey]: !expanded,
+    },
+  };
+}
+
+export function setEpicGroupExpanded(state: UiState, epicKey: string, expanded: boolean): UiState {
+  if (state.epicGroupExpandedById[epicKey] === expanded) {
+    return state;
+  }
+  return {
+    ...state,
+    epicGroupExpandedById: {
+      ...state.epicGroupExpandedById,
+      [epicKey]: expanded,
+    },
+  };
+}
+
 export function reorderProjects(
   state: UiState,
   draggedProjectIds: readonly string[],
@@ -532,6 +580,8 @@ interface UiStateStore extends UiState {
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   toggleProject: (projectId: string) => void;
   setProjectExpanded: (projectId: string, expanded: boolean) => void;
+  toggleEpicGroupExpanded: (epicKey: string) => void;
+  setEpicGroupExpanded: (epicKey: string, expanded: boolean) => void;
   reorderProjects: (
     draggedProjectIds: readonly string[],
     targetProjectIds: readonly string[],
@@ -552,6 +602,9 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),
   setProjectExpanded: (projectId, expanded) =>
     set((state) => setProjectExpanded(state, projectId, expanded)),
+  toggleEpicGroupExpanded: (epicKey) => set((state) => toggleEpicGroupExpanded(state, epicKey)),
+  setEpicGroupExpanded: (epicKey, expanded) =>
+    set((state) => setEpicGroupExpanded(state, epicKey, expanded)),
   reorderProjects: (draggedProjectIds, targetProjectIds) =>
     set((state) => reorderProjects(state, draggedProjectIds, targetProjectIds)),
 }));

@@ -11,9 +11,12 @@ import {
   deriveCompletionDividerBeforeEntryId,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
+  deriveLatestProviderActionFailure,
   PROVIDER_OPTIONS,
   derivePendingApprovals,
   derivePendingUserInputs,
+  deriveRunningSessionStallState,
+  formatRunningSessionStallError,
   deriveTimelineEntries,
   deriveWorkLogEntries,
   findLatestProposedPlan,
@@ -173,6 +176,35 @@ describe("derivePendingApprovals", () => {
 
     expect(derivePendingApprovals(activities)).toEqual([]);
   });
+
+  it("clears pending approvals when the provider session is gone and the request is no longer actionable", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "approval-open-no-session",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "approval.requested",
+        summary: "Command approval requested",
+        tone: "approval",
+        payload: {
+          requestId: "req-no-session-1",
+          requestKind: "command",
+        },
+      }),
+      makeActivity({
+        id: "approval-failed-no-session",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "provider.approval.respond.failed",
+        summary: "Provider approval response failed",
+        tone: "error",
+        payload: {
+          requestId: "req-no-session-1",
+          detail: "No active provider session is bound to this thread.",
+        },
+      }),
+    ];
+
+    expect(derivePendingApprovals(activities)).toEqual([]);
+  });
 });
 
 describe("derivePendingUserInputs", () => {
@@ -305,6 +337,48 @@ describe("derivePendingUserInputs", () => {
 
     expect(derivePendingUserInputs(activities)).toEqual([]);
   });
+
+  it("clears pending user-input prompts when the provider session is gone and the request is dead", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "user-input-open-no-session",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "user-input.requested",
+        summary: "User input requested",
+        tone: "info",
+        payload: {
+          requestId: "req-user-input-no-session-1",
+          questions: [
+            {
+              id: "sandbox_mode",
+              header: "Sandbox",
+              question: "Which mode should be used?",
+              options: [
+                {
+                  label: "workspace-write",
+                  description: "Allow workspace writes only",
+                },
+              ],
+              multiSelect: false,
+            },
+          ],
+        },
+      }),
+      makeActivity({
+        id: "user-input-failed-no-session",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "provider.user-input.respond.failed",
+        summary: "Provider user input response failed",
+        tone: "error",
+        payload: {
+          requestId: "req-user-input-no-session-1",
+          detail: "No active provider session is bound to this thread.",
+        },
+      }),
+    ];
+
+    expect(derivePendingUserInputs(activities)).toEqual([]);
+  });
 });
 
 describe("deriveActivePlanState", () => {
@@ -342,6 +416,79 @@ describe("deriveActivePlanState", () => {
       explanation: "Refined plan",
       steps: [{ step: "Implement Codex user input", status: "inProgress" }],
     });
+  });
+});
+
+describe("deriveLatestProviderActionFailure", () => {
+  it("returns the newest provider command failure detail", () => {
+    const failure = deriveLatestProviderActionFailure([
+      makeActivity({
+        id: "provider-failure-old",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "provider.turn.start.failed",
+        summary: "Provider turn start failed",
+        tone: "error",
+        payload: {
+          detail: "Older failure",
+        },
+      }),
+      makeActivity({
+        id: "provider-failure-new",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "provider.user-input.respond.failed",
+        summary: "Provider user input response failed",
+        tone: "error",
+        payload: {
+          detail: "No active provider session is bound to this thread.",
+        },
+      }),
+    ]);
+
+    expect(failure).toEqual({
+      id: "provider-failure-new",
+      createdAt: "2026-02-23T00:00:02.000Z",
+      kind: "provider.user-input.respond.failed",
+      summary: "Provider user input response failed",
+      detail: "No active provider session is bound to this thread.",
+    });
+  });
+});
+
+describe("deriveRunningSessionStallState", () => {
+  it("marks a running session stalled after prolonged inactivity", () => {
+    const stalled = deriveRunningSessionStallState({
+      session: {
+        status: "running",
+        updatedAt: "2026-02-23T00:00:00.000Z",
+      },
+      latestTurn: {
+        requestedAt: "2026-02-23T00:00:00.000Z",
+        startedAt: "2026-02-23T00:01:00.000Z",
+        completedAt: null,
+      },
+      now: "2026-02-23T00:08:30.000Z",
+    });
+
+    expect(stalled).toEqual({
+      lastActivityAt: "2026-02-23T00:01:00.000Z",
+      inactiveForMs: 450_000,
+    });
+    expect(stalled ? formatRunningSessionStallError(stalled) : null).toContain(
+      "no provider updates for 7m 30s",
+    );
+  });
+
+  it("does not mark ready sessions as stalled", () => {
+    expect(
+      deriveRunningSessionStallState({
+        session: {
+          status: "ready",
+          updatedAt: "2026-02-23T00:00:00.000Z",
+        },
+        latestTurn: null,
+        now: "2026-02-23T00:10:00.000Z",
+      }),
+    ).toBeNull();
   });
 });
 

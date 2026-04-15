@@ -92,6 +92,12 @@ describe("buildIssueRelationshipModel", () => {
         .find((section) => section.key === "outgoing_blocks")
         ?.items.map((item) => item.id),
     ).toEqual(["FOLLOW-1", "FOLLOW-2"]);
+    expect(model.sections.find((section) => section.key === "incoming_blocks")?.label).toBe(
+      "Must resolve first",
+    );
+    expect(model.summary.find((item) => item.key === "incoming_blocks")?.label).toBe(
+      "Must resolve first",
+    );
     expect(model.summary).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ key: "children", count: 1 }),

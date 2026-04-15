@@ -32,10 +32,7 @@ function makeIssue(input: Partial<BeadsIssueSummary> & Pick<BeadsIssueSummary, "
 }
 
 describe("buildIssueTree", () => {
-  it("nests children under epic parents, flattens non-epic parent references to roots", () => {
-    // STORY-1 (feature) is parented to EPIC-1 (epic) → nested under EPIC-1
-    // TASK-1 is parented to STORY-1 (feature, non-epic) → promoted to root
-    // SUBTASK-1 is parented to TASK-1 (task, non-epic) → promoted to root
+  it("preserves visible parent-child relationships recursively under an epic", () => {
     const issues = [
       makeIssue({
         id: "EPIC-1",
@@ -63,23 +60,24 @@ describe("buildIssueTree", () => {
 
     const tree = buildIssueTree(issues);
 
-    // EPIC-1 is the only epic root; TASK-1 and SUBTASK-1 are promoted to roots
-    expect(tree.roots.map((n) => n.issue.id)).toEqual(["EPIC-1", "TASK-1", "SUBTASK-1"]);
+    expect(tree.roots.map((n) => n.issue.id)).toEqual(["EPIC-1"]);
     expect(tree.roots[0]?.issue.id).toBe("EPIC-1");
     expect(tree.roots[0]?.children[0]?.issue.id).toBe("STORY-1");
-    // STORY-1 is a leaf inside the epic (no epic children)
-    expect(tree.roots[0]?.children[0]?.children).toHaveLength(0);
+    expect(tree.roots[0]?.children[0]?.children[0]?.issue.id).toBe("TASK-1");
+    expect(tree.roots[0]?.children[0]?.children[0]?.children[0]?.issue.id).toBe("SUBTASK-1");
 
-    expect(collectIssueTreeBranchIds(tree.roots)).toEqual(["EPIC-1"]);
+    expect(collectIssueTreeBranchIds(tree.roots)).toEqual(["EPIC-1", "STORY-1", "TASK-1"]);
 
     expect(flattenVisibleIssueTree(tree.roots, {})).toEqual([
       expect.objectContaining({ issue: issues[0], depth: 0, isCollapsed: true }),
-      expect.objectContaining({ issue: issues[2], depth: 0, isCollapsed: false }),
-      expect.objectContaining({ issue: issues[3], depth: 0, isCollapsed: false }),
     ]);
 
     expect(
-      flattenVisibleIssueTree(tree.roots, { "EPIC-1": false }).map((row) => row.issue.id),
+      flattenVisibleIssueTree(tree.roots, {
+        "EPIC-1": false,
+        "STORY-1": false,
+        "TASK-1": false,
+      }).map((row) => row.issue.id),
     ).toEqual(["EPIC-1", "STORY-1", "TASK-1", "SUBTASK-1"]);
   });
 
@@ -106,7 +104,7 @@ describe("buildIssueTree", () => {
     expect(tree.roots[0]?.children[0]?.children[0]?.issue.id).toBe("TASK-1");
   });
 
-  it("promotes non-epic issues to roots even when parent is in the set", () => {
+  it("nests non-epic children under their visible parent even without an epic ancestor", () => {
     const issues = [
       makeIssue({ id: "STORY-1", title: "Story 1", issueType: "feature" }),
       makeIssue({
@@ -118,11 +116,9 @@ describe("buildIssueTree", () => {
 
     const tree = buildIssueTree(issues);
 
-    // Neither STORY-1 nor TASK-1 are epics; both should be roots with no children
-    expect(tree.roots.map((n) => n.issue.id)).toEqual(["STORY-1", "TASK-1"]);
-    expect(tree.roots[0]?.children).toHaveLength(0);
-    expect(tree.roots[1]?.children).toHaveLength(0);
-    expect(collectIssueTreeBranchIds(tree.roots)).toEqual([]);
+    expect(tree.roots.map((n) => n.issue.id)).toEqual(["STORY-1"]);
+    expect(tree.roots[0]?.children[0]?.issue.id).toBe("TASK-1");
+    expect(collectIssueTreeBranchIds(tree.roots)).toEqual(["STORY-1"]);
   });
 
   it("anchors a visible parent subtree at the earliest visible descendant", () => {
@@ -188,14 +184,13 @@ describe("buildIssueTree", () => {
       makeIssue({
         id: "TASK-1",
         title: "Task 1",
-        // Parented to EPIC-1 directly so it nests under the epic
-        parent: { id: "EPIC-1", title: "Epic 1" },
+        parent: { id: "STORY-1", title: "Story 1" },
         status: "closed",
       }),
       makeIssue({
         id: "TASK-2",
         title: "Task 2",
-        parent: { id: "EPIC-1", title: "Epic 1" },
+        parent: { id: "TASK-1", title: "Task 1" },
         status: "blocked",
       }),
     ];

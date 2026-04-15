@@ -49,8 +49,11 @@ import {
   deriveTimelineEntries,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
+  deriveLatestProviderActionFailure,
+  deriveRunningSessionStallState,
   findSidebarProposedPlan,
   findLatestProposedPlan,
+  formatRunningSessionStallError,
   deriveWorkLogEntries,
   hasActionableProposedPlan,
   hasToolActivityForTurn,
@@ -118,6 +121,7 @@ import { buildDraftThreadRouteParams } from "../threadRoutes";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
+  useEffectiveComposerModelState,
   useComposerDraftStore,
   type DraftId,
 } from "../composerDraftStore";
@@ -129,11 +133,13 @@ import {
 } from "../lib/terminalContext";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
+import { getComposerProviderState } from "./chat/composerProviderRegistry";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
+import { DraftQuickLaunchPanel } from "./DraftQuickLaunchPanel";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import { resolveEffectiveEnvMode, resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
@@ -666,6 +672,9 @@ export default function ChatView(props: ChatViewProps) {
   const [respondingUserInputRequestIds, setRespondingUserInputRequestIds] = useState<
     ApprovalRequestId[]
   >([]);
+  const [dismissedProviderFailureActivityId, setDismissedProviderFailureActivityId] = useState<
+    string | null
+  >(null);
   const [pendingUserInputAnswersByRequestId, setPendingUserInputAnswersByRequestId] = useState<
     Record<string, Record<string, PendingUserInputDraftAnswer>>
   >({});
@@ -788,6 +797,9 @@ export default function ChatView(props: ChatViewProps) {
   );
   const isServerThread = routeKind === "server" && serverThread !== undefined;
   const activeThread = isServerThread ? serverThread : localDraftThread;
+  useEffect(() => {
+    setDismissedProviderFailureActivityId(null);
+  }, [activeThread?.id]);
   const runtimeMode = composerRuntimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
     composerInteractionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
@@ -1048,6 +1060,36 @@ export default function ChatView(props: ChatViewProps) {
     selectedProviderByThreadId ?? threadProvider ?? "codex",
   );
   const selectedProvider: ProviderKind = lockedProvider ?? unlockedSelectedProvider;
+  const { modelOptions: quickLaunchModelOptions, selectedModel: quickLaunchSelectedModel } =
+    useEffectiveComposerModelState({
+      threadRef: composerDraftTarget,
+      providers: providerStatuses,
+      selectedProvider,
+      threadModelSelection: activeThread?.modelSelection,
+      projectModelSelection: activeProject?.defaultModelSelection,
+      settings,
+    });
+  const quickLaunchProviderState = useMemo(
+    () =>
+      getComposerProviderState({
+        provider: selectedProvider,
+        model: quickLaunchSelectedModel,
+        models: getProviderModels(providerStatuses, selectedProvider),
+        prompt: "",
+        modelOptions: quickLaunchModelOptions,
+      }),
+    [providerStatuses, quickLaunchModelOptions, quickLaunchSelectedModel, selectedProvider],
+  );
+  const draftQuickLaunchModelSelection = useMemo<ModelSelection>(
+    () => ({
+      provider: selectedProvider,
+      model: quickLaunchSelectedModel,
+      ...(quickLaunchProviderState.modelOptionsForDispatch
+        ? { options: quickLaunchProviderState.modelOptionsForDispatch }
+        : {}),
+    }),
+    [quickLaunchProviderState.modelOptionsForDispatch, quickLaunchSelectedModel, selectedProvider],
+  );
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(
@@ -1066,6 +1108,14 @@ export default function ChatView(props: ChatViewProps) {
     () => derivePendingUserInputs(threadActivities),
     [threadActivities],
   );
+  const latestProviderActionFailure = useMemo(
+    () => deriveLatestProviderActionFailure(threadActivities),
+    [threadActivities],
+  );
+  const visibleProviderActionFailure =
+    latestProviderActionFailure?.id === dismissedProviderFailureActivityId
+      ? null
+      : latestProviderActionFailure;
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const activePendingDraftAnswers = useMemo(
     () =>
@@ -1142,8 +1192,26 @@ export default function ChatView(props: ChatViewProps) {
     activePendingUserInput: activePendingUserInput?.requestId ?? null,
     threadError: activeThread?.error,
   });
-  const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
   const nowIso = new Date(nowTick).toISOString();
+  const stalledRunningSession = useMemo(
+    () =>
+      deriveRunningSessionStallState({
+        session: activeThread?.session ?? null,
+        latestTurn: activeLatestTurn,
+        activities: threadActivities,
+        now: nowTick,
+      }),
+    [activeLatestTurn, activeThread?.session, nowTick, threadActivities],
+  );
+  const threadBannerError =
+    activeThread?.error ??
+    visibleProviderActionFailure?.detail ??
+    (stalledRunningSession ? formatRunningSessionStallError(stalledRunningSession) : null);
+  const isWorking =
+    (!stalledRunningSession && phase === "running") ||
+    isSendBusy ||
+    isConnecting ||
+    isRevertingCheckpoint;
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
     activeThread?.session ?? null,
@@ -3324,6 +3392,13 @@ export default function ChatView(props: ChatViewProps) {
     return <NoActiveThreadState />;
   }
 
+  const showDraftQuickLaunchPanel =
+    routeKind === "draft" &&
+    draftId !== null &&
+    activeProject !== undefined &&
+    timelineEntries.length === 0 &&
+    draftThread?.promotedTo == null;
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
       {/* Top bar */}
@@ -3354,6 +3429,7 @@ export default function ChatView(props: ChatViewProps) {
           gitCwd={gitCwd}
           diffOpen={diffOpen}
           issuesOpen={issuesOpen}
+          showIssuesToggle={!showDraftQuickLaunchPanel}
           onRunProjectScript={runProjectScript}
           onAddProjectScript={saveProjectScript}
           onUpdateProjectScript={updateProjectScript}
@@ -3367,8 +3443,17 @@ export default function ChatView(props: ChatViewProps) {
       {/* Error banner */}
       <ProviderStatusBanner status={activeProviderStatus} />
       <ThreadErrorBanner
-        error={activeThread.error}
-        onDismiss={() => setThreadError(activeThread.id, null)}
+        error={threadBannerError}
+        {...(activeThread.error
+          ? {
+              onDismiss: () => setThreadError(activeThread.id, null),
+            }
+          : visibleProviderActionFailure
+            ? {
+                onDismiss: () =>
+                  setDismissedProviderFailureActivityId(visibleProviderActionFailure.id),
+              }
+            : {})}
       />
       {/* Main content area with optional plan sidebar */}
       <div className="flex min-h-0 min-w-0 flex-1">
@@ -3391,34 +3476,46 @@ export default function ChatView(props: ChatViewProps) {
               onTouchEnd={onMessagesTouchEnd}
               onTouchCancel={onMessagesTouchEnd}
             >
-              <MessagesTimeline
-                key={activeThread.id}
-                hasMessages={timelineEntries.length > 0}
-                isWorking={isWorking}
-                activeTurnInProgress={isWorking || !latestTurnSettled}
-                activeTurnId={activeLatestTurn?.turnId ?? null}
-                activeTurnStartedAt={activeWorkStartedAt}
-                scrollContainer={messagesScrollElement}
-                timelineEntries={timelineEntries}
-                completionDividerBeforeEntryId={completionDividerBeforeEntryId}
-                completionSummary={completionSummary}
-                turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
-                nowIso={nowIso}
-                activeThreadEnvironmentId={activeThread.environmentId}
-                expandedWorkGroups={expandedWorkGroups}
-                onToggleWorkGroup={onToggleWorkGroup}
-                changedFilesExpandedByTurnId={changedFilesExpandedByTurnId}
-                onSetChangedFilesExpanded={handleSetChangedFilesExpanded}
-                onOpenTurnDiff={onOpenTurnDiff}
-                revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
-                onRevertUserMessage={onRevertUserMessage}
-                isRevertingCheckpoint={isRevertingCheckpoint}
-                onImageExpand={onExpandTimelineImage}
-                markdownCwd={gitCwd ?? undefined}
-                resolvedTheme={resolvedTheme}
-                timestampFormat={timestampFormat}
-                workspaceRoot={activeWorkspaceRoot}
-              />
+              {showDraftQuickLaunchPanel && draftId && activeProject ? (
+                <DraftQuickLaunchPanel
+                  environmentId={environmentId}
+                  threadId={threadId}
+                  projectId={activeProject.id}
+                  draftId={draftId}
+                  cwd={activeProject.cwd}
+                  modelSelection={draftQuickLaunchModelSelection}
+                  runtimeMode={runtimeMode}
+                />
+              ) : (
+                <MessagesTimeline
+                  key={activeThread.id}
+                  hasMessages={timelineEntries.length > 0}
+                  isWorking={isWorking}
+                  activeTurnInProgress={isWorking || !latestTurnSettled}
+                  activeTurnId={activeLatestTurn?.turnId ?? null}
+                  activeTurnStartedAt={activeWorkStartedAt}
+                  scrollContainer={messagesScrollElement}
+                  timelineEntries={timelineEntries}
+                  completionDividerBeforeEntryId={completionDividerBeforeEntryId}
+                  completionSummary={completionSummary}
+                  turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
+                  nowIso={nowIso}
+                  activeThreadEnvironmentId={activeThread.environmentId}
+                  expandedWorkGroups={expandedWorkGroups}
+                  onToggleWorkGroup={onToggleWorkGroup}
+                  changedFilesExpandedByTurnId={changedFilesExpandedByTurnId}
+                  onSetChangedFilesExpanded={handleSetChangedFilesExpanded}
+                  onOpenTurnDiff={onOpenTurnDiff}
+                  revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
+                  onRevertUserMessage={onRevertUserMessage}
+                  isRevertingCheckpoint={isRevertingCheckpoint}
+                  onImageExpand={onExpandTimelineImage}
+                  markdownCwd={gitCwd ?? undefined}
+                  resolvedTheme={resolvedTheme}
+                  timestampFormat={timestampFormat}
+                  workspaceRoot={activeWorkspaceRoot}
+                />
+              )}
             </div>
 
             {/* scroll to bottom pill — shown when user has scrolled away from the bottom */}

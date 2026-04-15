@@ -313,6 +313,7 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
     hasActionableProposedPlan: hasActionableProposedPlan(
       findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null),
     ),
+    issueLink: thread.issueLink ?? null,
   };
 }
 
@@ -336,7 +337,8 @@ function sidebarThreadSummariesEqual(
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
-    left.hasActionableProposedPlan === right.hasActionableProposedPlan
+    left.hasActionableProposedPlan === right.hasActionableProposedPlan &&
+    left.issueLink === right.issueLink
   );
 }
 

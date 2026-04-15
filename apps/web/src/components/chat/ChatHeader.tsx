@@ -36,6 +36,7 @@ interface ChatHeaderProps {
   gitCwd: string | null;
   diffOpen: boolean;
   issuesOpen: boolean;
+  showIssuesToggle?: boolean;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
@@ -64,6 +65,7 @@ export const ChatHeader = memo(function ChatHeader({
   gitCwd,
   diffOpen,
   issuesOpen,
+  showIssuesToggle = true,
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
@@ -119,7 +121,7 @@ export const ChatHeader = memo(function ChatHeader({
             {...(draftId ? { draftId } : {})}
           />
         )}
-        {activeProjectName && (
+        {activeProjectName && showIssuesToggle && (
           <Tooltip>
             <TooltipTrigger
               render={
