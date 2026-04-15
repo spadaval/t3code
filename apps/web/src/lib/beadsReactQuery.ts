@@ -238,7 +238,7 @@ export function beadsProjectRunSummaryOptions(
       return beadsApiForCwd(input.cwd).getProjectRunSummary(input);
     },
     enabled: input !== null && (input.enabled ?? true),
-    staleTime: 5_000,
+    staleTime: 30_000,
   });
 }
 

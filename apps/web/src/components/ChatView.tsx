@@ -110,9 +110,13 @@ import {
   projectScriptIdFromCommand,
 } from "~/projectScripts";
 import { newCommandId, newDraftId, newMessageId, newThreadId } from "~/lib/utils";
-import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
+import {
+  getProviderModelCapabilities,
+  getProviderModels,
+  resolveSelectableProvider,
+} from "../providerModels";
 import { useSettings } from "../hooks/useSettings";
-import { resolveAppModelSelection } from "../modelSelection";
+import { resolveAppModelSelection, resolvePlanLaunchModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { deriveLogicalProjectKey } from "../logicalProject";
 import {
@@ -315,6 +319,7 @@ function formatOutgoingPrompt(params: {
 }
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
+type PlanLaunchModelPreset = "current" | "smaller";
 
 type ChatViewProps =
   | {
@@ -3161,7 +3166,12 @@ export default function ChatView(props: ChatViewProps) {
   );
 
   const launchPlanPromptInNewThread = useCallback(
-    async (input: { prompt: string; title: string; errorTitle: string }) => {
+    async (input: {
+      prompt: string;
+      title: string;
+      errorTitle: string;
+      modelPreset?: PlanLaunchModelPreset;
+    }) => {
       const api = readEnvironmentApi(environmentId);
       if (
         !api ||
@@ -3181,24 +3191,30 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
       const {
-        selectedProvider: ctxSelectedProvider,
-        selectedModel: ctxSelectedModel,
-        selectedProviderModels: ctxSelectedProviderModels,
         selectedPromptEffort: ctxSelectedPromptEffort,
         selectedModelSelection: ctxSelectedModelSelection,
       } = sendCtx;
+      const nextThreadModelSelection = resolvePlanLaunchModelSelection({
+        preset: input.modelPreset ?? "current",
+        modelSelection: ctxSelectedModelSelection,
+        settings,
+        providers: providerStatuses,
+      });
+      const nextThreadProviderModels = getProviderModels(
+        providerStatuses,
+        nextThreadModelSelection.provider,
+      );
 
       const createdAt = new Date().toISOString();
       const nextThreadId = newThreadId();
       const outgoingPrompt = formatOutgoingPrompt({
-        provider: ctxSelectedProvider,
-        model: ctxSelectedModel,
-        models: ctxSelectedProviderModels,
+        provider: nextThreadModelSelection.provider,
+        model: nextThreadModelSelection.model,
+        models: nextThreadProviderModels,
         effort: ctxSelectedPromptEffort,
         text: input.prompt,
       });
       const nextThreadTitle = input.title;
-      const nextThreadModelSelection: ModelSelection = ctxSelectedModelSelection;
 
       sendInFlightRef.current = true;
       beginLocalDispatch({ preparingWorktree: false });
@@ -3232,7 +3248,7 @@ export default function ChatView(props: ChatViewProps) {
               text: outgoingPrompt,
               attachments: [],
             },
-            modelSelection: ctxSelectedModelSelection,
+            modelSelection: nextThreadModelSelection,
             titleSeed: nextThreadTitle,
             runtimeMode,
             interactionMode: "default",
@@ -3287,34 +3303,54 @@ export default function ChatView(props: ChatViewProps) {
       isSendBusy,
       isServerThread,
       navigate,
+      providerStatuses,
       resetLocalDispatch,
       runtimeMode,
+      settings,
       environmentId,
     ],
   );
 
-  const onImplementPlanInNewThread = useCallback(async () => {
+  const planFollowUpMenuActions = useMemo(() => {
     if (!activeProposedPlan) {
-      return;
+      return [];
     }
-    const planMarkdown = activeProposedPlan.planMarkdown;
-    await launchPlanPromptInNewThread({
-      prompt: buildPlanImplementationPrompt(planMarkdown),
-      title: truncate(buildPlanImplementationThreadTitle(planMarkdown)),
-      errorTitle: "Could not start implementation thread",
-    });
-  }, [activeProposedPlan, launchPlanPromptInNewThread]);
 
-  const onConvertPlanToBeads = useCallback(async () => {
-    if (!activeProposedPlan) {
-      return;
-    }
     const planMarkdown = activeProposedPlan.planMarkdown;
-    await launchPlanPromptInNewThread({
-      prompt: buildPlanToBeadsPrompt(planMarkdown),
-      title: truncate(buildPlanToBeadsThreadTitle(planMarkdown)),
-      errorTitle: "Could not start beads conversion thread",
-    });
+
+    return [
+      {
+        id: "implement-new-thread",
+        label: "Implement in a new thread",
+        onSelect: () =>
+          void launchPlanPromptInNewThread({
+            prompt: buildPlanImplementationPrompt(planMarkdown),
+            title: truncate(buildPlanImplementationThreadTitle(planMarkdown)),
+            errorTitle: "Could not start implementation thread",
+          }),
+      },
+      {
+        id: "implement-new-thread-smaller-model",
+        label: "Implement in a new thread with smaller model",
+        onSelect: () =>
+          void launchPlanPromptInNewThread({
+            prompt: buildPlanImplementationPrompt(planMarkdown),
+            title: truncate(buildPlanImplementationThreadTitle(planMarkdown)),
+            errorTitle: "Could not start implementation thread",
+            modelPreset: "smaller",
+          }),
+      },
+      {
+        id: "convert-to-beads",
+        label: "Convert to beads",
+        onSelect: () =>
+          void launchPlanPromptInNewThread({
+            prompt: buildPlanToBeadsPrompt(planMarkdown),
+            title: truncate(buildPlanToBeadsThreadTitle(planMarkdown)),
+            errorTitle: "Could not start beads conversion thread",
+          }),
+      },
+    ];
   }, [activeProposedPlan, launchPlanPromptInNewThread]);
 
   const onProviderModelSelect = useCallback(
@@ -3613,8 +3649,7 @@ export default function ChatView(props: ChatViewProps) {
               scheduleStickToBottom={scheduleStickToBottom}
               onSend={onSend}
               onInterrupt={onInterrupt}
-              onImplementPlanInNewThread={onImplementPlanInNewThread}
-              onConvertPlanToBeads={onConvertPlanToBeads}
+              planFollowUpMenuActions={planFollowUpMenuActions}
               onRespondToApproval={onRespondToApproval}
               onSelectActivePendingUserInputOption={onSelectActivePendingUserInputOption}
               onAdvanceActivePendingUserInput={onAdvanceActivePendingUserInput}

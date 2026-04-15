@@ -12,6 +12,13 @@ interface PendingActionState {
   isComplete: boolean;
 }
 
+export interface PlanFollowUpMenuAction {
+  id: string;
+  label: string;
+  onSelect: () => void;
+  disabled?: boolean;
+}
+
 interface ComposerPrimaryActionsProps {
   compact: boolean;
   pendingAction: PendingActionState | null;
@@ -24,8 +31,7 @@ interface ComposerPrimaryActionsProps {
   hasSendableContent: boolean;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
-  onImplementPlanInNewThread: () => void;
-  onConvertPlanToBeads: () => void;
+  planFollowUpMenuActions: ReadonlyArray<PlanFollowUpMenuAction>;
 }
 
 export const formatPendingPrimaryActionLabel = (input: {
@@ -58,8 +64,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   hasSendableContent,
   onPreviousPendingQuestion,
   onInterrupt,
-  onImplementPlanInNewThread,
-  onConvertPlanToBeads,
+  planFollowUpMenuActions,
 }: ComposerPrimaryActionsProps) {
   if (pendingAction) {
     return (
@@ -162,18 +167,15 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             <ChevronDownIcon className="size-3.5" />
           </MenuTrigger>
           <MenuPopup align="end" side="top">
-            <MenuItem
-              disabled={isSendBusy || isConnecting}
-              onClick={() => void onImplementPlanInNewThread()}
-            >
-              Implement in a new thread
-            </MenuItem>
-            <MenuItem
-              disabled={isSendBusy || isConnecting}
-              onClick={() => void onConvertPlanToBeads()}
-            >
-              Convert to beads
-            </MenuItem>
+            {planFollowUpMenuActions.map((action) => (
+              <MenuItem
+                key={action.id}
+                disabled={isSendBusy || isConnecting || action.disabled}
+                onClick={() => void action.onSelect()}
+              >
+                {action.label}
+              </MenuItem>
+            ))}
           </MenuPopup>
         </Menu>
       </div>

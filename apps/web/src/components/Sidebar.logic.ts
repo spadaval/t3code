@@ -8,13 +8,14 @@ import {
   type ThreadSortInput,
 } from "../lib/threadSort";
 import {
+  compareRunsByRecency,
   isActiveRunStatus,
-  shouldCollapseRunByDefault,
   summarizeExecution,
 } from "../lib/epicRunPresentation";
 import type { SidebarThreadSummary, Thread } from "../types";
 import { cn } from "../lib/utils";
 import { isLatestTurnSettled } from "../session-logic";
+import type { ThreadId } from "@t3tools/contracts";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 100;
@@ -247,14 +248,64 @@ export interface SidebarIssueFirstRunGroupRow {
   readonly isGhost: boolean;
 }
 
-export interface SidebarIssueFirstRunGroup {
-  readonly epicIssueId: string;
-  readonly epicTitle: string;
+export interface SidebarIssueFirstRun {
   readonly runId: OrchestrationEpicRun["runId"];
   readonly runStatus: OrchestrationEpicRun["status"];
+  readonly requestedAt: OrchestrationEpicRun["requestedAt"];
+  readonly updatedAt: OrchestrationEpicRun["updatedAt"];
   readonly defaultCollapsed: boolean;
   readonly visibleRows: readonly SidebarIssueFirstRunGroupRow[];
   readonly overflowRows: readonly SidebarIssueFirstRunGroupRow[];
+}
+
+export interface SidebarIssueFirstRunGroup {
+  readonly epicIssueId: string;
+  readonly epicTitle: string;
+  readonly visibleRuns: readonly SidebarIssueFirstRun[];
+  readonly overflowRuns: readonly SidebarIssueFirstRun[];
+}
+
+export function buildSidebarRunSummaryEpics(input: {
+  readonly runs: readonly OrchestrationEpicRun[];
+  readonly executions: readonly OrchestrationEpicIssueExecution[];
+  readonly epicTitleByIssueId?: ReadonlyMap<string, string>;
+}): Array<{
+  epicIssueId: string;
+  epicTitle: string;
+  runs: readonly OrchestrationEpicRun[];
+  executions: readonly OrchestrationEpicIssueExecution[];
+}> {
+  const runsByEpicIssueId = new Map<string, OrchestrationEpicRun[]>();
+  for (const run of input.runs) {
+    const existing = runsByEpicIssueId.get(run.epicIssueId);
+    if (existing) {
+      existing.push(run);
+    } else {
+      runsByEpicIssueId.set(run.epicIssueId, [run]);
+    }
+  }
+
+  const executionsByRunId = new Map<
+    OrchestrationEpicRun["runId"],
+    OrchestrationEpicIssueExecution[]
+  >();
+  for (const execution of input.executions) {
+    const existing = executionsByRunId.get(execution.runId);
+    if (existing) {
+      existing.push(execution);
+    } else {
+      executionsByRunId.set(execution.runId, [execution]);
+    }
+  }
+
+  return [...runsByEpicIssueId.entries()]
+    .map(([epicIssueId, runs]) => ({
+      epicIssueId,
+      epicTitle: input.epicTitleByIssueId?.get(epicIssueId) ?? epicIssueId,
+      runs: [...runs].toSorted(compareRunsByRecency),
+      executions: runs.flatMap((run) => executionsByRunId.get(run.runId) ?? []),
+    }))
+    .toSorted((left, right) => compareRunsByRecency(left.runs[0]!, right.runs[0]!));
 }
 
 export function deriveIssueFirstSidebarRunGroups(input: {
@@ -269,8 +320,17 @@ export function deriveIssueFirstSidebarRunGroups(input: {
   const previewLimit = input.previewLimit ?? 6;
 
   return input.epics
-    .flatMap((epic) =>
-      epic.runs.map((run) => {
+    .filter((epic) =>
+      epic.runs.some((run) => isActiveRunStatus(run.status) || run.status === "failed"),
+    )
+    .map((epic) => {
+      const sortedRuns = [...epic.runs].toSorted(compareRunsByRecency);
+      const activeOrFailedRuns = sortedRuns.filter(
+        (run) => isActiveRunStatus(run.status) || run.status === "failed",
+      );
+      const completedOrStoppedRuns = sortedRuns.filter((run) => !activeOrFailedRuns.includes(run));
+
+      const mapRun = (run: OrchestrationEpicRun): SidebarIssueFirstRun => {
         const rows = epic.executions
           .filter((execution) => execution.runId === run.runId)
           .toSorted(
@@ -289,21 +349,85 @@ export function deriveIssueFirstSidebarRunGroups(input: {
           }));
 
         return {
-          epicIssueId: epic.epicIssueId,
-          epicTitle: epic.epicTitle,
           runId: run.runId,
           runStatus: run.status,
-          defaultCollapsed: shouldCollapseRunByDefault(run) && !isActiveRunStatus(run.status),
+          requestedAt: run.requestedAt,
+          updatedAt: run.updatedAt,
+          defaultCollapsed: run.status === "completed" || run.status === "stopped",
           visibleRows: rows.slice(0, previewLimit),
           overflowRows: rows.slice(previewLimit),
-        } satisfies SidebarIssueFirstRunGroup;
-      }),
-    )
+        };
+      };
+
+      return {
+        epicIssueId: epic.epicIssueId,
+        epicTitle: epic.epicTitle,
+        visibleRuns: [
+          ...activeOrFailedRuns.map(mapRun),
+          ...completedOrStoppedRuns.slice(0, 1).map(mapRun),
+        ],
+        overflowRuns: completedOrStoppedRuns.slice(1).map(mapRun),
+      } satisfies SidebarIssueFirstRunGroup;
+    })
     .toSorted(
       (left, right) =>
-        Number(isActiveRunStatus(right.runStatus)) - Number(isActiveRunStatus(left.runStatus)) ||
-        right.runId.localeCompare(left.runId),
+        (right.visibleRuns[0]?.updatedAt ?? "").localeCompare(
+          left.visibleRuns[0]?.updatedAt ?? "",
+        ) ||
+        (right.visibleRuns[0]?.requestedAt ?? "").localeCompare(
+          left.visibleRuns[0]?.requestedAt ?? "",
+        ) ||
+        (right.visibleRuns[0]?.runId ?? "").localeCompare(left.visibleRuns[0]?.runId ?? ""),
     );
+}
+
+export function getVisibleRowsForSidebarRun(input: {
+  run: SidebarIssueFirstRun;
+  activeThreadId?: ThreadId | null | undefined;
+  isRunExpanded: boolean;
+  isRunOverflowExpanded: boolean;
+}): {
+  hasHiddenRows: boolean;
+  hiddenRows: SidebarIssueFirstRunGroupRow[];
+  visibleRows: SidebarIssueFirstRunGroupRow[];
+} {
+  const allRows = [...input.run.visibleRows, ...input.run.overflowRows];
+  const hiddenRowsWhenCollapsed = [...allRows];
+  const activeRow =
+    input.activeThreadId == null
+      ? null
+      : (allRows.find((row) => row.workerThreadId === input.activeThreadId) ?? null);
+
+  if (!input.isRunExpanded) {
+    return {
+      hasHiddenRows: hiddenRowsWhenCollapsed.length > 0,
+      hiddenRows: hiddenRowsWhenCollapsed.filter((row) => row !== activeRow),
+      visibleRows: activeRow ? [activeRow] : [],
+    };
+  }
+
+  if (input.isRunOverflowExpanded || input.run.overflowRows.length === 0) {
+    return {
+      hasHiddenRows: input.run.overflowRows.length > 0,
+      hiddenRows: [],
+      visibleRows: allRows,
+    };
+  }
+
+  const visibleRows = [...input.run.visibleRows];
+  if (
+    activeRow &&
+    input.run.overflowRows.includes(activeRow) &&
+    !visibleRows.some((row) => row.executionId === activeRow.executionId)
+  ) {
+    visibleRows.push(activeRow);
+  }
+
+  return {
+    hasHiddenRows: input.run.overflowRows.length > 0,
+    hiddenRows: input.run.overflowRows.filter((row) => row !== activeRow),
+    visibleRows,
+  };
 }
 
 export function getVisibleSidebarThreadIds<TThreadId>(

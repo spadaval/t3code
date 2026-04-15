@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createThreadJumpHintVisibilityController,
   deriveIssueFirstSidebarRunGroups,
+  getVisibleRowsForSidebarRun,
   getVisibleSidebarThreadIds,
   resolveAdjacentThreadId,
   getFallbackThreadIdAfterDelete,
@@ -339,7 +340,7 @@ describe("orderItemsByPreferredIds", () => {
 });
 
 describe("deriveIssueFirstSidebarRunGroups", () => {
-  it("keeps active runs first and marks queued executions without worker threads as ghost rows", () => {
+  it("groups visible epics, keeps active runs first, and marks queued executions as ghost rows", () => {
     const groups = deriveIssueFirstSidebarRunGroups({
       epics: [
         {
@@ -361,24 +362,63 @@ describe("deriveIssueFirstSidebarRunGroups", () => {
       ],
     });
 
-    expect(groups.map((group) => group.runId)).toEqual(["run-a", "run-z"]);
+    expect(groups).toHaveLength(1);
     expect(groups[0]).toMatchObject({
+      epicIssueId: "EPIC-1",
+      epicTitle: "Epic 1",
+    });
+    expect(groups[0]?.visibleRuns.map((run) => run.runId)).toEqual(["run-a", "run-z"]);
+    expect(groups[0]?.visibleRuns[0]).toMatchObject({
       runId: "run-a",
       defaultCollapsed: false,
     });
     expect(
-      groups[0]?.visibleRows.map((row) => ({ issueId: row.issueId, isGhost: row.isGhost })),
+      groups[0]?.visibleRuns[0]?.visibleRows.map((row) => ({
+        issueId: row.issueId,
+        isGhost: row.isGhost,
+      })),
     ).toEqual([
       { issueId: "TASK-1", isGhost: false },
       { issueId: "TASK-2", isGhost: true },
     ]);
-    expect(groups[1]).toMatchObject({
+    expect(groups[0]?.visibleRuns[1]).toMatchObject({
       runId: "run-z",
       defaultCollapsed: true,
     });
   });
 
-  it("splits overflow rows after the preview limit", () => {
+  it("shows only the latest completed run by default and hides older completed history", () => {
+    const groups = deriveIssueFirstSidebarRunGroups({
+      epics: [
+        {
+          epicIssueId: "EPIC-1",
+          epicTitle: "Epic 1",
+          runs: [
+            makeRun("run-active", "running", {
+              updatedAt: "2026-04-08T00:00:09.000Z",
+            }),
+            makeRun("run-completed-latest", "completed", {
+              updatedAt: "2026-04-08T00:00:08.000Z",
+              completedAt: "2026-04-08T00:00:08.000Z",
+            }),
+            makeRun("run-completed-older", "completed", {
+              updatedAt: "2026-04-08T00:00:07.000Z",
+              completedAt: "2026-04-08T00:00:07.000Z",
+            }),
+          ],
+          executions: [],
+        },
+      ],
+    });
+
+    expect(groups[0]?.visibleRuns.map((run) => run.runId)).toEqual([
+      "run-active",
+      "run-completed-latest",
+    ]);
+    expect(groups[0]?.overflowRuns.map((run) => run.runId)).toEqual(["run-completed-older"]);
+  });
+
+  it("splits overflow execution rows after the preview limit", () => {
     const groups = deriveIssueFirstSidebarRunGroups({
       previewLimit: 2,
       epics: [
@@ -403,8 +443,77 @@ describe("deriveIssueFirstSidebarRunGroups", () => {
       ],
     });
 
-    expect(groups[0]?.visibleRows.map((row) => row.issueId)).toEqual(["TASK-1", "TASK-2"]);
-    expect(groups[0]?.overflowRows.map((row) => row.issueId)).toEqual(["TASK-3"]);
+    expect(groups[0]?.visibleRuns[0]?.visibleRows.map((row) => row.issueId)).toEqual([
+      "TASK-1",
+      "TASK-2",
+    ]);
+    expect(groups[0]?.visibleRuns[0]?.overflowRows.map((row) => row.issueId)).toEqual(["TASK-3"]);
+  });
+});
+
+describe("getVisibleRowsForSidebarRun", () => {
+  it("pins the active worker thread even when the run is collapsed", () => {
+    const run = deriveIssueFirstSidebarRunGroups({
+      previewLimit: 1,
+      epics: [
+        {
+          epicIssueId: "EPIC-1",
+          epicTitle: "Epic 1",
+          runs: [makeRun("run-a", "completed")],
+          executions: [
+            makeExecution("exec-1", "run-a", "TASK-1", "completed", {
+              workerThreadId: "thread-1" as never,
+            }),
+            makeExecution("exec-2", "run-a", "TASK-2", "completed", {
+              workerThreadId: "thread-2" as never,
+              sequenceNumber: 2,
+            }),
+          ],
+        },
+      ],
+    })[0]!.visibleRuns[0]!;
+
+    const visible = getVisibleRowsForSidebarRun({
+      run,
+      activeThreadId: ThreadId.make("thread-2"),
+      isRunExpanded: false,
+      isRunOverflowExpanded: false,
+    });
+
+    expect(visible.visibleRows.map((row) => row.issueId)).toEqual(["TASK-2"]);
+    expect(visible.hiddenRows.map((row) => row.issueId)).toEqual(["TASK-1"]);
+  });
+
+  it("pins the active worker thread when it falls below the execution preview", () => {
+    const run = deriveIssueFirstSidebarRunGroups({
+      previewLimit: 1,
+      epics: [
+        {
+          epicIssueId: "EPIC-1",
+          epicTitle: "Epic 1",
+          runs: [makeRun("run-a", "running")],
+          executions: [
+            makeExecution("exec-1", "run-a", "TASK-1", "completed", {
+              workerThreadId: "thread-1" as never,
+            }),
+            makeExecution("exec-2", "run-a", "TASK-2", "running", {
+              workerThreadId: "thread-2" as never,
+              sequenceNumber: 2,
+            }),
+          ],
+        },
+      ],
+    })[0]!.visibleRuns[0]!;
+
+    const visible = getVisibleRowsForSidebarRun({
+      run,
+      activeThreadId: ThreadId.make("thread-2"),
+      isRunExpanded: true,
+      isRunOverflowExpanded: false,
+    });
+
+    expect(visible.visibleRows.map((row) => row.issueId)).toEqual(["TASK-1", "TASK-2"]);
+    expect(visible.hiddenRows).toEqual([]);
   });
 });
 

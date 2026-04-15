@@ -5597,8 +5597,91 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       implementActionsButton.click();
 
-      await expect.element(page.getByText("Implement in a new thread")).toBeInTheDocument();
+      await expect
+        .element(page.getByRole("menuitem", { name: "Implement in a new thread", exact: true }))
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByText("Implement in a new thread with smaller model"))
+        .toBeInTheDocument();
       await expect.element(page.getByText("Convert to beads")).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("launches the smaller-model implementation preset with the provider lightweight model", async () => {
+    const mounted = await mountChatView({
+      viewport: WIDE_FOOTER_VIEWPORT,
+      snapshot: createSnapshotWithPlanFollowUpPrompt({
+        modelSelection: { provider: "codex", model: "gpt-5.4" },
+      }),
+      resolveRpc: (body) => {
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return {
+            sequence: fixture.snapshot.snapshotSequence + 1,
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      const implementActionsButton = await waitForElement(
+        () =>
+          document.querySelector<HTMLButtonElement>('button[aria-label="Implementation actions"]'),
+        "Unable to find implementation actions trigger.",
+      );
+
+      implementActionsButton.click();
+      await page.getByText("Implement in a new thread with smaller model").click();
+
+      await vi.waitFor(
+        () => {
+          const threadCreateRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.create",
+          ) as
+            | {
+                _tag: string;
+                type?: string;
+                threadId?: string;
+                modelSelection?: { provider?: string; model?: string };
+              }
+            | undefined;
+          const turnStartRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.turn.start",
+          ) as
+            | {
+                _tag: string;
+                type?: string;
+                threadId?: string;
+                modelSelection?: { provider?: string; model?: string };
+              }
+            | undefined;
+
+          expect(threadCreateRequest).toMatchObject({
+            _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
+            type: "thread.create",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5.4-mini",
+            },
+          });
+          expect(turnStartRequest).toMatchObject({
+            _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
+            type: "thread.turn.start",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5.4-mini",
+            },
+          });
+          expect(turnStartRequest?.threadId).toBe(threadCreateRequest?.threadId);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
     } finally {
       await mounted.cleanup();
     }
