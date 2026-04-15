@@ -7,21 +7,24 @@ describe("parseIssuesRouteSearch", () => {
     expect(
       parseIssuesRouteSearch({
         tab: "issues",
+        runId: "run-1",
         issueId: "TASK-1",
         showClosed: "true",
         sort: "created",
       }),
     ).toEqual({
       tab: "issues",
+      runId: "run-1",
       issueId: "TASK-1",
       showClosed: true,
       sort: "created",
     });
   });
 
-  it("drops invalid showClosed and sort values", () => {
+  it("drops invalid showClosed, sort, and blank run ids", () => {
     expect(
       parseIssuesRouteSearch({
+        runId: "  ",
         showClosed: "maybe",
         sort: "oldest-first",
       }),

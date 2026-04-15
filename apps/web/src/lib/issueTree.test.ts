@@ -26,6 +26,7 @@ function makeIssue(input: Partial<BeadsIssueSummary> & Pick<BeadsIssueSummary, "
     updatedAt: "2026-01-02T00:00:00.000Z",
     labels: [],
     parent: null,
+    dependencyRefs: [],
     ...rest,
   } satisfies BeadsIssueSummary;
 }

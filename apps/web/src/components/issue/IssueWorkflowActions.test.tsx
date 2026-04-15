@@ -29,11 +29,15 @@ function makeIssue(input: Partial<BeadsIssueSummary> & Pick<BeadsIssueSummary, "
     updatedAt: "2026-01-02T00:00:00.000Z",
     labels: [],
     parent: null,
+    dependencyRefs: [],
     ...rest,
   } satisfies BeadsIssueSummary;
 }
 
-function IssueWorkflowActionsContent(props: { issue: BeadsIssueSummary }) {
+function IssueWorkflowActionsContent(props: {
+  issue: BeadsIssueSummary;
+  showEpicLaunchActions?: boolean;
+}) {
   const launchers = useIssueWorkflowLaunchers({
     cwd: "/repo",
     projectId: PROJECT_ID,
@@ -62,6 +66,9 @@ function IssueWorkflowActionsContent(props: { issue: BeadsIssueSummary }) {
       onOpenInTracker={() => {}}
       onOpenThread={() => {}}
       onOpenCoordinator={() => {}}
+      {...(props.showEpicLaunchActions !== undefined
+        ? { showEpicLaunchActions: props.showEpicLaunchActions }
+        : {})}
     />
   );
 }
@@ -69,6 +76,7 @@ function IssueWorkflowActionsContent(props: { issue: BeadsIssueSummary }) {
 function renderIssueWorkflowActions(input: {
   issue: BeadsIssueSummary;
   epicSnapshot?: BeadsEpicCoordinatorSnapshot | undefined;
+  showEpicLaunchActions?: boolean;
 }) {
   const queryClient = new QueryClient();
   if (input.epicSnapshot) {
@@ -84,7 +92,12 @@ function renderIssueWorkflowActions(input: {
 
   return renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
-      <IssueWorkflowActionsContent issue={input.issue} />
+      <IssueWorkflowActionsContent
+        issue={input.issue}
+        {...(input.showEpicLaunchActions !== undefined
+          ? { showEpicLaunchActions: input.showEpicLaunchActions }
+          : {})}
+      />
     </QueryClientProvider>,
   );
 }
@@ -170,5 +183,21 @@ describe("IssueWorkflowActions", () => {
     expect(markup).toContain("Planned refine");
     expect(markup).toContain("Start epic");
     expect(markup).not.toContain("Start work");
+  });
+
+  it("can hide epic launch actions when the issue detail owns that surface", () => {
+    const markup = renderIssueWorkflowActions({
+      issue: makeIssue({
+        id: "EPIC-1",
+        title: "Epic 1",
+        issueType: "epic",
+      }),
+      showEpicLaunchActions: false,
+    });
+
+    expect(markup).not.toContain("Quick refine");
+    expect(markup).not.toContain("Planned refine");
+    expect(markup).not.toContain("Start epic");
+    expect(markup).toContain("Open in tracker");
   });
 });

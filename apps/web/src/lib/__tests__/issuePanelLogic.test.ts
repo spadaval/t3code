@@ -29,6 +29,7 @@ const createMockIssue = (overrides: Partial<BeadsIssueSummary> = {}): BeadsIssue
   updatedAt: new Date("2024-01-02").toISOString(),
   labels: [],
   parent: null,
+  dependencyRefs: [],
   ...overrides,
 });
 
@@ -233,6 +234,56 @@ describe("issuePanelLogic", () => {
 
       expect(result.issueTree.roots.map((node) => node.issue.id)).toEqual(["epic-z", "root-1"]);
       expect(result.issueTree.roots[0]?.children.map((node) => node.issue.id)).toEqual(["task-1"]);
+    });
+
+    it("sorts sibling issues by dependency order with createdAt tie breakers", () => {
+      const issues = [
+        createMockIssue({
+          id: "epic-1",
+          title: "Stacked PR epic",
+          issueType: "epic",
+          createdAt: "2024-01-01T00:00:00Z",
+        }),
+        createMockIssue({
+          id: "pr-4",
+          title: "PR4",
+          parent: { id: "epic-1", title: "Stacked PR epic" },
+          createdAt: "2024-01-04T00:00:00Z",
+          dependencyRefs: [{ issueId: "pr-4", dependsOnId: "pr-3", dependencyType: "blocks" }],
+        }),
+        createMockIssue({
+          id: "pr-2",
+          title: "PR2",
+          parent: { id: "epic-1", title: "Stacked PR epic" },
+          createdAt: "2024-01-02T00:00:00Z",
+          dependencyRefs: [{ issueId: "pr-2", dependsOnId: "pr-1", dependencyType: "blocks" }],
+        }),
+        createMockIssue({
+          id: "pr-3",
+          title: "PR3",
+          parent: { id: "epic-1", title: "Stacked PR epic" },
+          createdAt: "2024-01-03T00:00:00Z",
+          dependencyRefs: [{ issueId: "pr-3", dependsOnId: "pr-2", dependencyType: "blocks" }],
+        }),
+        createMockIssue({
+          id: "pr-1",
+          title: "PR1",
+          parent: { id: "epic-1", title: "Stacked PR epic" },
+          createdAt: "2024-01-01T00:00:00Z",
+        }),
+      ];
+
+      const result = filterAndSortIssues(issues, {
+        showClosed: true,
+        sortBy: "updated",
+      });
+
+      expect(result.issueTree.roots[0]?.children.map((node) => node.issue.id)).toEqual([
+        "pr-1",
+        "pr-2",
+        "pr-3",
+        "pr-4",
+      ]);
     });
 
     it("uses search relevance before the selected sort", () => {

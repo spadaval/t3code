@@ -77,7 +77,7 @@ export const Route = createFileRoute("/projects/$projectId/issues")({
     throw redirect({
       to: "/projects/$projectId/issues" as never,
       params: params as never,
-      search: { ...search, tab: "coordinator" } as never,
+      search: { ...search, tab: "issues" } as never,
       replace: true,
     });
   },

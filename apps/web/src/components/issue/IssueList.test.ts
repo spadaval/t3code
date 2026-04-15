@@ -23,6 +23,7 @@ function makeIssue(input: Partial<BeadsIssueSummary> & Pick<BeadsIssueSummary, "
     updatedAt: "2026-01-02T00:00:00.000Z",
     labels: [],
     parent: null,
+    dependencyRefs: [],
     ...rest,
   } satisfies BeadsIssueSummary;
 }
@@ -207,5 +208,27 @@ describe("IssueList hierarchy rendering", () => {
 
     expect(markup).toContain("1/2 done");
     expect(markup).not.toContain("Closed task");
+  });
+
+  it("renders blocked badges on blocked issue rows", () => {
+    const markup = renderToStaticMarkup(
+      createElement(IssueList, {
+        issues: [
+          makeIssue({
+            id: "TASK-BLOCKED",
+            title: "Blocked task",
+            status: "blocked",
+          }),
+          makeIssue({
+            id: "TASK-OPEN",
+            title: "Open task",
+            status: "open",
+          }),
+        ],
+        showClosed: true,
+      }),
+    );
+
+    expect(markup.match(/border-destructive\/30[^"]*">Blocked<\/span>/g)).toHaveLength(1);
   });
 });

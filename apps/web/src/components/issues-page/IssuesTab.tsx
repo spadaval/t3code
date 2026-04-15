@@ -25,6 +25,7 @@ import {
   formatPriorityDisplay,
   isIssueDoneStatus,
 } from "~/lib/issueConstants";
+import { isEpicIssueType } from "~/issuePanel";
 import { resolveDefaultModelSelection } from "~/modelSelection";
 import { cn } from "~/lib/utils";
 import { listIssueLinkedThreads } from "~/issueThreads";
@@ -51,6 +52,7 @@ import { Textarea } from "../ui/textarea";
 import { StatusIndicator } from "../shared/StatusIndicator";
 import { toastManager } from "../ui/toast";
 import type { IssueContextAction } from "../issue/issueContextMenu";
+import { EpicLaunchPanel } from "./EpicLaunchPanel";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -356,15 +358,18 @@ function IssueDetailPanel({
     onOpenThread(targetThreadId);
   }, [linkedThreads, onOpenThread]);
   const openCoordinator = useCallback(
-    (epicId: string) => {
+    (input: { epicId: string; runId: string | null }) => {
       void navigate({
         to: "/projects/$projectId/issues" as never,
         params: { projectId } as never,
         search: (previous) =>
           ({
             tab: "coordinator",
-            epicId,
+            epicId: input.epicId,
+            ...(input.runId ? { runId: input.runId } : {}),
             ...(previous.issueId ? { issueId: previous.issueId } : {}),
+            ...(previous.showClosed !== undefined ? { showClosed: previous.showClosed } : {}),
+            ...(previous.sort ? { sort: previous.sort } : {}),
           }) as never,
       });
     },
@@ -438,6 +443,7 @@ function IssueDetailPanel({
             onOpenInTracker={() => onSelectIssue(issue.id)}
             onOpenThread={onOpenThread}
             onOpenCoordinator={openCoordinator}
+            showEpicLaunchActions={false}
           />
         </div>
 
@@ -473,6 +479,21 @@ function IssueDetailPanel({
               dependents={dependents}
               className="mt-4"
             />
+
+            {isEpicIssueType(issue.issueType) ? (
+              <div className="mt-5">
+                <EpicLaunchPanel
+                  cwd={cwd}
+                  projectId={projectId}
+                  issueId={issue.id}
+                  modelSelection={modelSelection}
+                  runtimeMode={DEFAULT_RUNTIME_MODE}
+                  launchers={workflowLaunchers}
+                  onOpenThread={onOpenThread}
+                  onOpenOutput={openCoordinator}
+                />
+              </div>
+            ) : null}
 
             {/* Editable description */}
             <div className="mt-5">

@@ -3,6 +3,7 @@ import type { BeadsIssueSortBy } from "@t3tools/contracts";
 export interface IssuesRouteSearch {
   tab?: "coordinator" | "issues" | "board";
   epicId?: string;
+  runId?: string;
   issueId?: string;
   showClosed?: boolean;
   sort?: BeadsIssueSortBy;
@@ -43,12 +44,14 @@ function parseSort(value: unknown): IssuesRouteSearch["sort"] {
 export function parseIssuesRouteSearch(search: Record<string, unknown>): IssuesRouteSearch {
   const tab = parseTab(search.tab);
   const epicId = normalizeSearchString(search.epicId);
+  const runId = normalizeSearchString(search.runId);
   const issueId = normalizeSearchString(search.issueId);
   const showClosed = parseBoolean(search.showClosed);
   const sort = parseSort(search.sort);
   return {
     ...(tab ? { tab } : {}),
     ...(epicId ? { epicId } : {}),
+    ...(runId ? { runId } : {}),
     ...(issueId ? { issueId } : {}),
     ...(showClosed !== undefined ? { showClosed } : {}),
     ...(sort ? { sort } : {}),

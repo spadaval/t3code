@@ -254,7 +254,7 @@ export function IssueSidebar(props: {
   const selectedIssueSubIssues = selectedIssueDetailQuery.data?.children ?? [];
   const selectedIssueDependents = selectedIssueDetailQuery.data?.dependents ?? [];
   const openCoordinator = useCallback(
-    (epicId: string) => {
+    (input: { epicId: string; runId: string | null }) => {
       if (!project) {
         return;
       }
@@ -264,7 +264,8 @@ export function IssueSidebar(props: {
         params: { projectId: project.id } as never,
         search: {
           tab: "coordinator",
-          epicId,
+          epicId: input.epicId,
+          ...(input.runId ? { runId: input.runId } : {}),
         } as never,
       });
     },

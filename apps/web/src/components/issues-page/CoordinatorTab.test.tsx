@@ -1,11 +1,16 @@
-import type { BeadsCoordinatorEpicSnapshot } from "@t3tools/contracts";
+import type {
+  BeadsCoordinatorEpicSnapshot,
+  BeadsProjectCoordinatorSnapshot,
+  OrchestrationEpicIssueExecution,
+  OrchestrationEpicRun,
+} from "@t3tools/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { CoordinatorTab } from "./CoordinatorTab";
 
-const SWARM_SUPPORT = {
+const SUPPORT = {
   supported: true,
   reason: null,
   backend: {
@@ -18,106 +23,150 @@ const SWARM_SUPPORT = {
   },
 } as const;
 
-function makeIssueSummary(status: "open" | "closed") {
+function makeRun(
+  runId: string,
+  status: OrchestrationEpicRun["status"],
+  overrides: Partial<OrchestrationEpicRun> = {},
+): OrchestrationEpicRun {
   return {
-    id: "EPIC-1",
-    title: "Epic 1",
-    description: null,
-    notes: null,
+    runId: runId as never,
+    projectId: "project-1" as never,
+    epicIssueId: "EPIC-1",
     status,
-    priority: null,
-    issueType: "epic",
-    assignee: null,
-    owner: null,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    createdBy: null,
-    updatedAt: "2026-01-02T00:00:00.000Z",
-    labels: [],
-    parent: null,
-  } as const;
+    provider: "codex",
+    model: "gpt-5.4",
+    modelOptions: null,
+    providerOptions: null,
+    assistantDeliveryMode: null,
+    runtimeMode: "full-access",
+    failureContext:
+      status === "failed"
+        ? {
+            kind: "issue_incomplete",
+            issueId: "TASK-1",
+            executionId: null,
+            workerThreadId: null,
+            message: "Task stayed open after the worker completed.",
+          }
+        : null,
+    requestedAt: "2026-04-08T00:00:00.000Z",
+    startedAt: "2026-04-08T00:00:01.000Z",
+    stopRequestedAt: status === "stopping" ? "2026-04-08T00:00:02.000Z" : null,
+    stoppedAt: status === "stopped" ? "2026-04-08T00:00:03.000Z" : null,
+    failedAt: status === "failed" ? "2026-04-08T00:00:03.000Z" : null,
+    completedAt: status === "completed" ? "2026-04-08T00:00:03.000Z" : null,
+    updatedAt: "2026-04-08T00:00:04.000Z",
+    ...overrides,
+  };
 }
 
-const BASE_EPIC = {
-  epicId: "EPIC-1",
-  epicTitle: "Epic 1",
-  issue: null,
-  trackerLoadState: "ready",
-  trackerLoadDetail: null,
-  coordinationSupported: true,
-  coordinationUnsupportedReason: null,
-  validationState: "valid",
-  validationErrors: [],
-  trackerState: "not_started",
-  progress: {
-    totalIssueCount: 1,
-    completedIssueCount: 0,
-    readyIssueCount: 1,
-    activeIssueCount: 0,
-    blockedIssueCount: 0,
-    internalBlockedIssueCount: 0,
-    externalBlockedIssueCount: 0,
-    unknownBlockedIssueCount: 0,
-    activeWorkerCount: 0,
-    isComplete: false,
-  },
-  primaryAction: {
-    kind: "start_epic_run",
-    label: "Start run",
-    busyLabel: "Starting...",
-    disabled: false,
-  },
-  activeRunId: null,
-  activeExecutionId: null,
-  projectConflict: null,
-  trackerSummary: null,
-  validation: null,
-  status: null,
-  runs: [
-    {
-      runId: "run-1" as never,
-      projectId: "project-1" as never,
-      epicIssueId: "EPIC-1",
-      status: "stopped",
-      provider: "codex",
-      model: "gpt-5.4",
-      modelOptions: null,
-      providerOptions: null,
-      assistantDeliveryMode: null,
-      runtimeMode: "full-access",
-      failureContext: null,
-      requestedAt: "2026-04-08T00:00:00.000Z",
-      startedAt: "2026-04-08T00:00:01.000Z",
-      stopRequestedAt: "2026-04-08T00:00:02.000Z",
-      stoppedAt: "2026-04-08T00:00:02.000Z",
-      failedAt: null,
-      completedAt: null,
-      updatedAt: "2026-04-08T00:00:02.000Z",
-    },
-  ],
-  executions: [],
-} as unknown as BeadsCoordinatorEpicSnapshot;
+function makeExecution(
+  executionId: string,
+  runId: string,
+  status: OrchestrationEpicIssueExecution["status"],
+): OrchestrationEpicIssueExecution {
+  return {
+    executionId: executionId as never,
+    runId: runId as never,
+    issueId: "TASK-1",
+    workerThreadId: "thread-1" as never,
+    sequenceNumber: 1,
+    status,
+    workspaceKey: "shared",
+    workspacePath: null,
+    failureContext:
+      status === "failed"
+        ? {
+            kind: "worker_failure",
+            issueId: "TASK-1",
+            executionId: executionId as never,
+            workerThreadId: "thread-1" as never,
+            message: "Worker crashed.",
+          }
+        : null,
+    requestedAt: "2026-04-08T00:00:00.000Z",
+    startedAt: "2026-04-08T00:00:01.000Z",
+    stopRequestedAt: null,
+    stoppedAt: status === "stopped" ? "2026-04-08T00:00:02.000Z" : null,
+    completedAt: status === "completed" ? "2026-04-08T00:00:02.000Z" : null,
+    failedAt: status === "failed" ? "2026-04-08T00:00:02.000Z" : null,
+    updatedAt: "2026-04-08T00:00:02.000Z",
+  };
+}
 
-function renderCoordinatorTab(epicOverrides?: Partial<BeadsCoordinatorEpicSnapshot>) {
+function makeEpic(
+  epicId: string,
+  runs: readonly OrchestrationEpicRun[],
+  overrides: Partial<BeadsCoordinatorEpicSnapshot> = {},
+): BeadsCoordinatorEpicSnapshot {
+  return {
+    epicId,
+    epicTitle: epicId === "EPIC-NO-RUN" ? "No Run Epic" : `Title ${epicId}`,
+    issue: null,
+    trackerLoadState: "ready",
+    trackerLoadDetail: null,
+    coordinationSupported: true,
+    coordinationUnsupportedReason: null,
+    validationState: "valid",
+    validationErrors: [],
+    trackerState: runs.length > 0 ? "in_progress" : "not_started",
+    progress: {
+      totalIssueCount: 3,
+      completedIssueCount: 1,
+      readyIssueCount: 1,
+      activeIssueCount: runs.some((run) => run.status === "running") ? 1 : 0,
+      blockedIssueCount: 0,
+      internalBlockedIssueCount: 0,
+      externalBlockedIssueCount: 0,
+      unknownBlockedIssueCount: 0,
+      activeWorkerCount: runs.some((run) => run.status === "running") ? 1 : 0,
+      isComplete: false,
+    },
+    primaryAction: {
+      kind: "start_epic_run",
+      label: "Start epic",
+      busyLabel: "Starting...",
+      disabled: false,
+    },
+    activeRunId: runs.find((run) => run.status === "running")?.runId ?? null,
+    activeExecutionId: null,
+    projectConflict: null,
+    trackerSummary: null,
+    validation: null,
+    status: null,
+    runs,
+    executions: [],
+    ...overrides,
+  } as BeadsCoordinatorEpicSnapshot;
+}
+
+function renderCoordinator(input: {
+  epics: readonly BeadsCoordinatorEpicSnapshot[];
+  selectedEpicId?: string;
+  selectedRunId?: string;
+}) {
   const queryClient = new QueryClient();
-  const epic = { ...BASE_EPIC, ...epicOverrides };
+  const snapshot: BeadsProjectCoordinatorSnapshot = {
+    projectId: "project-1" as never,
+    support: SUPPORT,
+    epics: [...input.epics],
+  };
 
   return renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
       <CoordinatorTab
         cwd="/repo"
         projectId={null}
-        coordinationSupport={SWARM_SUPPORT}
+        coordinationSupport={SUPPORT}
         coordinationSupportPending={false}
         coordinationSupportError={null}
-        snapshot={{
-          projectId: "project-1" as never,
-          support: SWARM_SUPPORT,
-          epics: [epic],
-        }}
+        snapshot={snapshot}
         snapshotPending={false}
         snapshotError={null}
-        selectedEpicId="EPIC-1"
+        selectedEpicId={input.selectedEpicId ?? null}
+        selectedRunId={input.selectedRunId ?? null}
         onSelectEpic={() => {}}
+        onSelectRun={() => {}}
         onOpenEpicIssue={() => {}}
         onOpenThread={() => {}}
       />
@@ -125,449 +174,96 @@ function renderCoordinatorTab(epicOverrides?: Partial<BeadsCoordinatorEpicSnapsh
   );
 }
 
-describe("CoordinatorTab actions", () => {
-  it("renders latest run history separately from tracker state", () => {
-    const markup = renderCoordinatorTab();
-
-    expect(markup).toContain("Tracker: Ready");
-    expect(markup).toContain("Latest run: Stopped");
-    expect(markup).toContain("Start run");
-  });
-
-  it("strikes through epic titles only when the tracker issue is closed", () => {
-    const closedMarkup = renderCoordinatorTab({
-      issue: makeIssueSummary("closed") as BeadsCoordinatorEpicSnapshot["issue"],
-    });
-    const derivedDoneMarkup = renderCoordinatorTab({
-      issue: makeIssueSummary("open") as BeadsCoordinatorEpicSnapshot["issue"],
-      trackerState: "completed",
-      progress: {
-        totalIssueCount: 1,
-        completedIssueCount: 1,
-        readyIssueCount: 0,
-        activeIssueCount: 0,
-        blockedIssueCount: 0,
-        internalBlockedIssueCount: 0,
-        externalBlockedIssueCount: 0,
-        unknownBlockedIssueCount: 0,
-        activeWorkerCount: 0,
-        isComplete: true,
-      },
-    });
-
-    expect(closedMarkup).toMatch(/<p class="[^"]*line-through[^"]*">Epic 1<\/p>/);
-    expect(closedMarkup).toMatch(/<h2 class="[^"]*line-through[^"]*">Epic 1<\/h2>/);
-    expect(derivedDoneMarkup).not.toMatch(/<p class="[^"]*line-through[^"]*">Epic 1<\/p>/);
-    expect(derivedDoneMarkup).not.toMatch(/<h2 class="[^"]*line-through[^"]*">Epic 1<\/h2>/);
-  });
-
-  it("renders inline execution preview from deterministic ready-front ordering", () => {
-    const issueA = {
-      id: "ISSUE-A",
-      title: "Task Alpha",
-      status: "open",
-      priority: 2,
-      issueType: "task",
-      assignee: null,
-      owner: null,
-      parent: null,
-    };
-    const issueB = {
-      id: "ISSUE-B",
-      title: "Task Beta",
-      status: "open",
-      priority: 1,
-      issueType: "task",
-      assignee: null,
-      owner: null,
-      parent: null,
-    };
-    const issueC = {
-      id: "ISSUE-C",
-      title: "Task Gamma",
-      status: "open",
-      priority: 3,
-      issueType: "task",
-      assignee: null,
-      owner: null,
-      parent: null,
-    };
-
-    const markup = renderCoordinatorTab({
-      validation: {
-        epicId: "EPIC-1",
-        epicTitle: "Epic 1",
-        trackerSummary: null,
-        valid: true,
-        errors: [],
-        warnings: [],
-        readyFronts: [[issueA, issueB], [issueC]],
-        maxParallelism: 1,
-        estimatedWorkerSessions: 1,
-      } as BeadsCoordinatorEpicSnapshot["validation"],
-      status: {
-        epicId: "EPIC-1",
-        epicTitle: "Epic 1",
-        trackerSummary: null,
-        completed: [],
-        active: [],
-        ready: [issueA, issueB],
-        blocked: [],
-        blockedBreakdown: { internal: [], external: [], unknown: [] },
-      } as BeadsCoordinatorEpicSnapshot["status"],
-    });
-
-    expect(markup).toContain("Execution View");
-    expect(markup).toContain("Next likely");
-    expect(markup).toContain("Also ready now");
-    expect(markup).toContain("Wave 2 advisory");
-    expect(markup.indexOf("Task Beta")).toBeLessThan(markup.indexOf("Task Alpha"));
-  });
-
-  it("renders active execution and exact execution history reasons together", () => {
-    const issueA = {
-      id: "ISSUE-A",
-      title: "Task Alpha",
-      status: "open",
-      priority: null,
-      issueType: "task",
-      assignee: null,
-      owner: null,
-      parent: null,
-    };
-    const issueB = {
-      id: "ISSUE-B",
-      title: "Task Beta",
-      status: "open",
-      priority: null,
-      issueType: "task",
-      assignee: null,
-      owner: null,
-      parent: null,
-    };
-
-    const markup = renderCoordinatorTab({
-      activeExecutionId: "exec-2" as never,
-      status: {
-        epicId: "EPIC-1",
-        epicTitle: "Epic 1",
-        trackerSummary: null,
-        completed: [],
-        active: [issueA],
-        ready: [issueB],
-        blocked: [],
-        blockedBreakdown: { internal: [], external: [], unknown: [] },
-      } as BeadsCoordinatorEpicSnapshot["status"],
-      executions: [
-        {
-          executionId: "exec-1" as never,
-          runId: "run-1" as never,
-          issueId: "ISSUE-B",
-          workerThreadId: null,
-          sequenceNumber: 1,
-          status: "failed",
-          workspaceKey: "shared",
-          workspacePath: null,
-          failureContext: {
-            kind: "worker_failure",
-            message: "Worker crashed while editing files.",
-            issueId: "ISSUE-B",
-            executionId: "exec-1" as never,
-            workerThreadId: null,
+describe("CoordinatorTab", () => {
+  it("excludes epics with no runs and groups run output by section", () => {
+    const markup = renderCoordinator({
+      epics: [
+        makeEpic("EPIC-NO-RUN", []),
+        makeEpic("EPIC-A", [makeRun("run-active", "running")], {
+          primaryAction: {
+            kind: "stop_epic_run",
+            label: "Stop run",
+            busyLabel: "Stopping...",
+            disabled: false,
           },
-          requestedAt: "2026-04-08T00:00:00.000Z",
-          startedAt: "2026-04-08T00:00:01.000Z",
-          stopRequestedAt: null,
-          stoppedAt: null,
-          completedAt: null,
-          failedAt: "2026-04-08T00:00:02.000Z",
-          updatedAt: "2026-04-08T00:00:02.000Z",
-        } as unknown as BeadsCoordinatorEpicSnapshot["executions"][number],
-        {
-          executionId: "exec-2" as never,
-          runId: "run-1" as never,
-          issueId: "ISSUE-A",
-          workerThreadId: "thread-1" as never,
-          sequenceNumber: 2,
-          status: "running",
-          workspaceKey: "shared",
-          workspacePath: null,
-          failureContext: null,
-          requestedAt: "2026-04-08T00:00:03.000Z",
-          startedAt: "2026-04-08T00:00:04.000Z",
-          stopRequestedAt: null,
-          stoppedAt: null,
-          completedAt: null,
-          failedAt: null,
-          updatedAt: "2026-04-08T00:00:04.000Z",
-        } as unknown as BeadsCoordinatorEpicSnapshot["executions"][number],
+        }),
+        makeEpic("EPIC-B", [makeRun("run-failed", "failed")]),
+        makeEpic("EPIC-C", [makeRun("run-done", "completed")]),
       ],
+      selectedRunId: "run-active",
     });
 
-    expect(markup).toContain("Now");
-    expect(markup).toContain("Execution #2");
-    expect(markup).toContain("Task Alpha");
+    expect(markup).toContain("Active");
+    expect(markup).toContain("Needs Intervention");
     expect(markup).toContain("History");
-    expect(markup).toContain("Worker crashed while editing files.");
-  });
-});
-
-describe("WorkGraph integration", () => {
-  it("renders Work Graph heading", () => {
-    const markup = renderCoordinatorTab();
-    expect(markup).toContain("Work Graph");
+    expect(markup).not.toContain("No Run Epic");
+    expect(markup).toContain("Title EPIC-A");
+    expect(markup).toContain("Title EPIC-B");
+    expect(markup).toContain("Title EPIC-C");
   });
 
-  it("shows 'No issues tracked yet' when status is null", () => {
-    const markup = renderCoordinatorTab({ status: null });
-    expect(markup).toContain("No issues tracked yet");
-  });
-
-  it("renders run bar with latest run info", () => {
-    const markup = renderCoordinatorTab();
-    expect(markup).toContain("Latest run: Stopped");
-  });
-
-  it("renders wave columns when validation has readyFronts", () => {
-    const issueA = {
-      id: "ISSUE-A",
-      title: "Task Alpha",
-      status: "open",
-      priority: null,
-      issueType: "task",
-      assignee: null,
-      owner: null,
-      parent: null,
-    };
-    const issueB = {
-      id: "ISSUE-B",
-      title: "Task Beta",
-      status: "open",
-      priority: null,
-      issueType: "task",
-      assignee: null,
-      owner: null,
-      parent: null,
-    };
-
-    const markup = renderCoordinatorTab({
-      activeRunId: "run-1" as never,
-      runs: [
-        {
-          ...BASE_EPIC.runs[0]!,
-          status: "running",
-          stopRequestedAt: null,
-          stoppedAt: null,
-        },
+  it("renders failed run detail with exact failure text and retry action", () => {
+    const markup = renderCoordinator({
+      epics: [
+        makeEpic("EPIC-FAIL", [makeRun("run-failed", "failed")], {
+          primaryAction: {
+            kind: "start_epic_run",
+            label: "Start epic",
+            busyLabel: "Starting...",
+            disabled: false,
+          },
+        }),
       ],
-      status: {
-        epicId: "EPIC-1",
-        epicTitle: "Epic 1",
-        trackerSummary: null,
-        completed: [],
-        active: [],
-        ready: [issueA, issueB],
-        blocked: [],
-        blockedBreakdown: { internal: [], external: [], unknown: [] },
-      } as BeadsCoordinatorEpicSnapshot["status"],
-      validation: {
-        epicId: "EPIC-1",
-        epicTitle: "Epic 1",
-        trackerSummary: null,
-        valid: true,
-        errors: [],
-        warnings: [],
-        readyFronts: [[issueA], [issueB]],
-        maxParallelism: 1,
-        estimatedWorkerSessions: 2,
-      } as BeadsCoordinatorEpicSnapshot["validation"],
-      progress: {
-        totalIssueCount: 2,
-        completedIssueCount: 0,
-        readyIssueCount: 2,
-        activeIssueCount: 0,
-        blockedIssueCount: 0,
-        internalBlockedIssueCount: 0,
-        externalBlockedIssueCount: 0,
-        unknownBlockedIssueCount: 0,
-        activeWorkerCount: 0,
-        isComplete: false,
-      },
+      selectedEpicId: "EPIC-FAIL",
+      selectedRunId: "run-failed",
     });
 
-    expect(markup).toContain("Wave 1");
-    expect(markup).toContain("Wave 2");
-    expect(markup).toContain("Task Alpha");
-    expect(markup).toContain("Task Beta");
-    expect(markup).toContain("Max parallelism: 1");
+    expect(markup).toContain("Run Timeline");
+    expect(markup).toContain("Task stayed open after the worker completed.");
+    expect(markup).toContain("Retry run");
   });
 
-  it("renders fallback Issues column when no wave data", () => {
-    const issueA = {
-      id: "ISSUE-A",
-      title: "Task Alpha",
-      status: "open",
-      priority: null,
-      issueType: "task",
-      assignee: null,
-      owner: null,
-      parent: null,
-    };
-
-    const markup = renderCoordinatorTab({
-      activeRunId: "run-1" as never,
-      runs: [
-        {
-          ...BASE_EPIC.runs[0]!,
-          status: "running",
-          stopRequestedAt: null,
-          stoppedAt: null,
-        },
+  it("renders active run detail with stop action and execution output", () => {
+    const markup = renderCoordinator({
+      epics: [
+        makeEpic("EPIC-RUN", [makeRun("run-active", "running")], {
+          primaryAction: {
+            kind: "stop_epic_run",
+            label: "Stop run",
+            busyLabel: "Stopping...",
+            disabled: false,
+          },
+          executions: [makeExecution("exec-1", "run-active", "running")],
+        }),
       ],
-      status: {
-        epicId: "EPIC-1",
-        epicTitle: "Epic 1",
-        trackerSummary: null,
-        completed: [],
-        active: [],
-        ready: [issueA],
-        blocked: [],
-        blockedBreakdown: { internal: [], external: [], unknown: [] },
-      } as BeadsCoordinatorEpicSnapshot["status"],
-      validation: null,
-      progress: {
-        totalIssueCount: 1,
-        completedIssueCount: 0,
-        readyIssueCount: 1,
-        activeIssueCount: 0,
-        blockedIssueCount: 0,
-        internalBlockedIssueCount: 0,
-        externalBlockedIssueCount: 0,
-        unknownBlockedIssueCount: 0,
-        activeWorkerCount: 0,
-        isComplete: false,
-      },
+      selectedEpicId: "EPIC-RUN",
+      selectedRunId: "run-active",
     });
 
-    expect(markup).toContain("Issues");
-    expect(markup).toContain("Task Alpha");
-    // Should NOT contain wave headers.
-    expect(markup).not.toContain("Wave 1");
+    expect(markup).toContain("Stop run");
+    expect(markup).toContain("Executions");
+    expect(markup).toContain("Open thread");
   });
 
-  it("renders execution sequence badge on issue nodes", () => {
-    const issueA = {
-      id: "ISSUE-A",
-      title: "Task Alpha",
-      status: "done",
-      priority: null,
-      issueType: "task",
-      assignee: null,
-      owner: null,
-      parent: null,
-    };
-
-    const markup = renderCoordinatorTab({
-      activeRunId: "run-1" as never,
-      runs: [
-        {
-          ...BASE_EPIC.runs[0]!,
-          status: "completed",
-          stopRequestedAt: null,
-          stoppedAt: null,
-          completedAt: "2026-04-08T00:00:10.000Z",
-        },
+  it("renders refresh action when tracker state needs refresh", () => {
+    const markup = renderCoordinator({
+      epics: [
+        makeEpic("EPIC-REFRESH", [makeRun("run-stopped", "stopped")], {
+          trackerLoadState: "error",
+          trackerLoadDetail: "Tracker request timed out.",
+          primaryAction: {
+            kind: "refresh_epic_status",
+            label: "Retry epic status",
+            busyLabel: "Retrying...",
+            disabled: false,
+          },
+        }),
       ],
-      status: {
-        epicId: "EPIC-1",
-        epicTitle: "Epic 1",
-        trackerSummary: null,
-        completed: [issueA],
-        active: [],
-        ready: [],
-        blocked: [],
-        blockedBreakdown: { internal: [], external: [], unknown: [] },
-      } as BeadsCoordinatorEpicSnapshot["status"],
-      executions: [
-        {
-          executionId: "exec-1" as never,
-          runId: "run-1" as never,
-          issueId: "ISSUE-A",
-          workerThreadId: null,
-          sequenceNumber: 1,
-          status: "completed",
-          workspaceKey: "shared",
-          workspacePath: null,
-          failureContext: null,
-          requestedAt: "2026-04-08T00:00:00.000Z",
-          startedAt: "2026-04-08T00:00:01.000Z",
-          stopRequestedAt: null,
-          stoppedAt: null,
-          completedAt: "2026-04-08T00:00:10.000Z",
-          failedAt: null,
-          updatedAt: "2026-04-08T00:00:10.000Z",
-        } as unknown as BeadsCoordinatorEpicSnapshot["executions"][number],
-      ],
-      progress: {
-        totalIssueCount: 1,
-        completedIssueCount: 1,
-        readyIssueCount: 0,
-        activeIssueCount: 0,
-        blockedIssueCount: 0,
-        internalBlockedIssueCount: 0,
-        externalBlockedIssueCount: 0,
-        unknownBlockedIssueCount: 0,
-        activeWorkerCount: 0,
-        isComplete: true,
-      },
+      selectedEpicId: "EPIC-REFRESH",
+      selectedRunId: "run-stopped",
     });
 
-    expect(markup).toContain("Completed");
-    expect(markup).toContain("Task Alpha");
-    // Execution sequence number badge.
-    expect(markup).toContain("#1");
-  });
-});
-
-describe("Legacy activity log removal", () => {
-  it("does not render the removed Activity section when runs exist", () => {
-    const markup = renderCoordinatorTab();
-    expect(markup).not.toContain("Activity");
-    expect(markup).not.toContain("Run requested");
-    expect(markup).not.toContain("Run stopped");
-  });
-
-  it("still does not render Activity entries when no runs or executions exist", () => {
-    const markup = renderCoordinatorTab({ runs: [], executions: [] });
-    expect(markup).not.toContain("Activity");
-    expect(markup).not.toContain("Run requested");
-  });
-
-  it("does not render legacy execution activity entries", () => {
-    const markup = renderCoordinatorTab({
-      runs: [BASE_EPIC.runs[0]!],
-      executions: [
-        {
-          executionId: "exec-1" as never,
-          runId: "run-1" as never,
-          issueId: "ISSUE-A",
-          workerThreadId: null,
-          sequenceNumber: 1,
-          status: "completed",
-          workspaceKey: "shared",
-          workspacePath: null,
-          failureContext: null,
-          requestedAt: "2026-04-08T00:00:02.000Z",
-          startedAt: "2026-04-08T00:00:03.000Z",
-          stopRequestedAt: null,
-          stoppedAt: null,
-          completedAt: "2026-04-08T00:00:10.000Z",
-          failedAt: null,
-          updatedAt: "2026-04-08T00:00:10.000Z",
-        } as unknown as BeadsCoordinatorEpicSnapshot["executions"][number],
-      ],
-    });
-    expect(markup).not.toContain("Task #1 started: ISSUE-A");
-    expect(markup).not.toContain("Task #1 completed: ISSUE-A");
+    expect(markup).toContain("Refresh status");
+    expect(markup).toContain("Tracker request timed out.");
   });
 });

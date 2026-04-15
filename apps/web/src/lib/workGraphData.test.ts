@@ -633,6 +633,7 @@ describe("buildWorkGraphData", () => {
       updatedAt: "2026-04-08T00:00:00.000Z",
       createdBy: null,
       labels: [],
+      dependencyRefs: [],
       dependencies: [
         {
           id: "B",

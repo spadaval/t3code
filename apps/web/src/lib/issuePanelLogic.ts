@@ -5,6 +5,7 @@ import type {
   OrchestrationEpicRun,
   BeadsCoordinatorEpicSnapshot,
 } from "@t3tools/contracts";
+import { topologicallySortByDependencies } from "@t3tools/shared/dependencyOrder";
 import type { IssueTreeForest, IssueTreeNode } from "~/lib/issueTree";
 import { buildIssueTree } from "~/lib/issueTree";
 import {
@@ -620,7 +621,7 @@ function sortIssueTree(
   issueTree: IssueTreeForest,
   compareIssues: (left: BeadsIssueSummary, right: BeadsIssueSummary) => number,
 ): IssueTreeForest {
-  const sortedRoots = sortIssueTreeNodes(issueTree.roots, compareIssues);
+  const sortedRoots = sortIssueTreeNodes(issueTree.roots, compareIssues, false);
   const roots = [
     ...sortedRoots.filter((node) => node.isEpic),
     ...sortedRoots.filter((node) => !node.isEpic),
@@ -634,17 +635,42 @@ function sortIssueTree(
 function sortIssueTreeNodes(
   nodes: readonly IssueTreeNode[],
   compareIssues: (left: BeadsIssueSummary, right: BeadsIssueSummary) => number,
+  useDependencyOrder: boolean,
 ): IssueTreeNode[] {
-  return nodes
-    .map((node) => {
-      const children = sortIssueTreeNodes(node.children, compareIssues);
-      return {
-        ...node,
-        children,
-        hasVisibleChildren: children.length > 0,
-      };
-    })
-    .toSorted((left, right) => compareIssues(left.issue, right.issue));
+  const sortedNodes = nodes.map((node) => {
+    const children = sortIssueTreeNodes(node.children, compareIssues, true);
+    return {
+      ...node,
+      children,
+      hasVisibleChildren: children.length > 0,
+    };
+  });
+
+  if (!useDependencyOrder) {
+    return sortedNodes.toSorted((left, right) => compareIssues(left.issue, right.issue));
+  }
+
+  return topologicallySortByDependencies({
+    items: sortedNodes,
+    getId: (node) => node.issue.id,
+    getCreatedAt: (node) => node.issue.createdAt,
+    getTitle: (node) => node.issue.title,
+    getPredecessorIds: (node, siblingIds) =>
+      node.issue.dependencyRefs.flatMap((dependencyRef) => {
+        if (!siblingIds.has(dependencyRef.dependsOnId)) {
+          return [];
+        }
+
+        switch (dependencyRef.dependencyType) {
+          case "blocked_by":
+          case "depends_on":
+          case "blocks":
+            return [dependencyRef.dependsOnId];
+          default:
+            return [];
+        }
+      }),
+  });
 }
 
 function flattenIssueTreeNodes(roots: readonly IssueTreeNode[]): BeadsIssueSummary[] {

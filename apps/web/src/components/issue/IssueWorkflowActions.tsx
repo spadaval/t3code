@@ -216,11 +216,14 @@ export function IssueWorkflowActions(props: {
   readonly onOpenLinkedThread: () => void;
   readonly onOpenInTracker: () => void;
   readonly onOpenThread: (threadId: ThreadId) => void;
-  readonly onOpenCoordinator: (epicId: string) => void;
+  readonly onOpenCoordinator: (input: { epicId: string; runId: string | null }) => void;
+  readonly showEpicLaunchActions?: boolean;
 }) {
   const isEpic = isEpicIssueType(props.issue.issueType);
+  const shouldShowEpicLaunchActions = props.showEpicLaunchActions ?? true;
+  const shouldLoadEpicActions = isEpic && shouldShowEpicLaunchActions;
   const epicSnapshotQuery = useQuery(
-    isEpic
+    shouldLoadEpicActions
       ? beadsEpicCoordinatorSnapshotOptions({
           cwd: props.cwd,
           projectId: props.projectId,
@@ -296,7 +299,7 @@ export function IssueWorkflowActions(props: {
         {renderOpenThreadLabel(props.linkedThreadCount, props.linkedThreadLabel)}
       </Button>
 
-      {isEpic ? (
+      {isEpic && shouldShowEpicLaunchActions ? (
         <>
           <Button
             size="xs"
@@ -379,7 +382,7 @@ export function IssueWorkflowActions(props: {
             </Tooltip>
           )}
         </>
-      ) : (
+      ) : !isEpic ? (
         <Select
           value=""
           onValueChange={(value) => {
@@ -413,7 +416,7 @@ export function IssueWorkflowActions(props: {
             ))}
           </SelectPopup>
         </Select>
-      )}
+      ) : null}
     </div>
   );
 }

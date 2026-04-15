@@ -12,6 +12,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 
 import { beadsQueryKeys } from "~/lib/beadsReactQuery";
+import { resolvePrimaryActionOutputTarget } from "~/lib/epicCoordinatorUi";
 import { ensureEnvironmentApi } from "~/environmentApi";
 import { toastManager } from "~/components/ui/toast";
 import { selectProjectsAcrossEnvironments, useStore } from "~/store";
@@ -21,7 +22,7 @@ export type CoordinatorActionInput =
   | { kind: "start_epic_run"; epicIssueId: string }
   | { kind: "stop_epic_run"; runId: OrchestrationEpicRun["runId"] }
   | { kind: "refresh_epic_status"; epicIssueId: string }
-  | { kind: "open_coordinator"; epicIssueId: string };
+  | { kind: "open_coordinator"; epicIssueId: string; runId: OrchestrationEpicRun["runId"] | null };
 
 export function getCoordinatorActionBusyKey(action: CoordinatorActionInput): string {
   switch (action.kind) {
@@ -34,7 +35,7 @@ export function getCoordinatorActionBusyKey(action: CoordinatorActionInput): str
     case "refresh_epic_status":
       return `refresh:${action.epicIssueId}`;
     case "open_coordinator":
-      return `open:${action.epicIssueId}`;
+      return `open:${action.epicIssueId}:${action.runId ?? "latest"}`;
   }
 }
 
@@ -77,11 +78,14 @@ export function getCoordinatorPrimaryActionInput(
         kind: "refresh_epic_status",
         epicIssueId: epic.epicId,
       };
-    case "open_coordinator":
+    case "open_coordinator": {
+      const target = resolvePrimaryActionOutputTarget(epic);
       return {
         kind: "open_coordinator",
-        epicIssueId: epic.projectConflict?.run.epicIssueId ?? epic.epicId,
+        epicIssueId: target?.epicId ?? epic.projectConflict?.run.epicIssueId ?? epic.epicId,
+        runId: target?.runId ?? null,
       };
+    }
     case "unsupported":
       return null;
   }
@@ -114,7 +118,10 @@ export function useEpicCoordinatorActionRunner(input: {
   readonly modelSelection: ModelSelection | null;
   readonly runtimeMode: RuntimeMode;
   readonly onOpenThread: (threadId: ThreadId) => void;
-  readonly onOpenCoordinator: (epicId: string) => void;
+  readonly onOpenCoordinator: (input: {
+    epicId: string;
+    runId: OrchestrationEpicRun["runId"] | null;
+  }) => void;
 }) {
   const queryClient = useQueryClient();
   const resolveEnvironmentId = useCallback((): EnvironmentId => {
@@ -168,7 +175,7 @@ export function useEpicCoordinatorActionRunner(input: {
     },
     onSuccess: async (result, action) => {
       if (action.kind === "open_coordinator") {
-        input.onOpenCoordinator(action.epicIssueId);
+        input.onOpenCoordinator({ epicId: action.epicIssueId, runId: action.runId });
         return;
       }
 

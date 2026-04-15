@@ -40,7 +40,7 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
   const navigate = useNavigate();
   const rawSearch = useSearch({ strict: false });
   const search = useMemo(() => parseIssuesRouteSearch(rawSearch), [rawSearch]);
-  const activeTab = (search.tab ?? "coordinator") as TabId;
+  const activeTab = (search.tab ?? "issues") as TabId;
   const showClosed = search.showClosed ?? false;
   const sortBy = search.sort ?? "updated";
   const project = useProjectById(projectId) ?? null;
@@ -80,6 +80,7 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
           ({
             tab,
             ...(prev.epicId ? { epicId: prev.epicId } : {}),
+            ...(prev.runId ? { runId: prev.runId } : {}),
             ...(prev.issueId ? { issueId: prev.issueId } : {}),
             ...(prev.showClosed !== undefined ? { showClosed: prev.showClosed } : {}),
             ...(prev.sort ? { sort: prev.sort } : {}),
@@ -117,6 +118,7 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
           ({
             ...(prev.tab ? { tab: prev.tab } : {}),
             ...(prev.epicId ? { epicId: prev.epicId } : {}),
+            ...(prev.runId ? { runId: prev.runId } : {}),
             ...(issueId ? { issueId } : {}),
             ...(prev.showClosed !== undefined ? { showClosed: prev.showClosed } : {}),
             ...(prev.sort ? { sort: prev.sort } : {}),
@@ -152,6 +154,7 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
           ({
             ...(prev.tab ? { tab: prev.tab } : {}),
             ...(prev.epicId ? { epicId: prev.epicId } : {}),
+            ...(prev.runId ? { runId: prev.runId } : {}),
             ...(prev.issueId ? { issueId: prev.issueId } : {}),
             ...(nextShowClosed ? { showClosed: true } : {}),
             ...(prev.sort ? { sort: prev.sort } : {}),
@@ -171,6 +174,7 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
           ({
             ...(prev.tab ? { tab: prev.tab } : {}),
             ...(prev.epicId ? { epicId: prev.epicId } : {}),
+            ...(prev.runId ? { runId: prev.runId } : {}),
             ...(prev.issueId ? { issueId: prev.issueId } : {}),
             ...(prev.showClosed !== undefined ? { showClosed: prev.showClosed } : {}),
             ...(nextSortBy !== "updated" ? { sort: nextSortBy } : {}),
@@ -192,6 +196,25 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
       });
     },
     [navigate, project],
+  );
+
+  const setSelectedCoordinatorRun = useCallback(
+    (input: { epicId: string; runId: string | null }) => {
+      void navigate({
+        to: "/projects/$projectId/issues" as never,
+        params: { projectId } as never,
+        search: (prev) =>
+          ({
+            ...(prev.tab ? { tab: prev.tab } : {}),
+            epicId: input.epicId,
+            ...(input.runId ? { runId: input.runId } : {}),
+            ...(prev.issueId ? { issueId: prev.issueId } : {}),
+            ...(prev.showClosed !== undefined ? { showClosed: prev.showClosed } : {}),
+            ...(prev.sort ? { sort: prev.sort } : {}),
+          }) as never,
+      });
+    },
+    [navigate, projectId],
   );
 
   // Issue counts for tab badge
@@ -254,7 +277,9 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
             snapshotPending={coordinatorQuery.isPending}
             snapshotError={coordinatorQuery.error}
             selectedEpicId={search.epicId ?? null}
+            selectedRunId={search.runId ?? null}
             onSelectEpic={setSelectedEpicId}
+            onSelectRun={setSelectedCoordinatorRun}
             onOpenEpicIssue={openEpicIssue}
             onOpenThread={openThread}
           />

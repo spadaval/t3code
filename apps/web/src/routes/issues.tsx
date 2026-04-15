@@ -52,8 +52,9 @@ export const Route = createFileRoute("/issues")({
       to: "/projects/$projectId/issues" as never,
       params: { projectId } as never,
       search: {
-        tab: search.tab ?? "coordinator",
+        tab: search.tab ?? "issues",
         ...(search.epicId ? { epicId: search.epicId } : {}),
+        ...(search.runId ? { runId: search.runId } : {}),
         ...(search.issueId ? { issueId: search.issueId } : {}),
       } as never,
       replace: true,
