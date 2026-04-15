@@ -75,7 +75,6 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
           ({
             tab,
             ...(prev.epicId ? { epicId: prev.epicId } : {}),
-            ...(prev.runId ? { runId: prev.runId } : {}),
             ...(prev.issueId ? { issueId: prev.issueId } : {}),
             ...(prev.showClosed !== undefined ? { showClosed: prev.showClosed } : {}),
             ...(prev.sort ? { sort: prev.sort } : {}),
@@ -113,7 +112,6 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
           ({
             ...(prev.tab ? { tab: prev.tab } : {}),
             ...(prev.epicId ? { epicId: prev.epicId } : {}),
-            ...(prev.runId ? { runId: prev.runId } : {}),
             ...(issueId ? { issueId } : {}),
             ...(prev.showClosed !== undefined ? { showClosed: prev.showClosed } : {}),
             ...(prev.sort ? { sort: prev.sort } : {}),
@@ -149,7 +147,6 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
           ({
             ...(prev.tab ? { tab: prev.tab } : {}),
             ...(prev.epicId ? { epicId: prev.epicId } : {}),
-            ...(prev.runId ? { runId: prev.runId } : {}),
             ...(prev.issueId ? { issueId: prev.issueId } : {}),
             ...(nextShowClosed ? { showClosed: true } : {}),
             ...(prev.sort ? { sort: prev.sort } : {}),
@@ -169,7 +166,6 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
           ({
             ...(prev.tab ? { tab: prev.tab } : {}),
             ...(prev.epicId ? { epicId: prev.epicId } : {}),
-            ...(prev.runId ? { runId: prev.runId } : {}),
             ...(prev.issueId ? { issueId: prev.issueId } : {}),
             ...(prev.showClosed !== undefined ? { showClosed: prev.showClosed } : {}),
             ...(nextSortBy !== "updated" ? { sort: nextSortBy } : {}),
@@ -202,7 +198,6 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
           ({
             ...(prev.tab ? { tab: prev.tab } : {}),
             epicId: input.epicId,
-            ...(input.runId ? { runId: input.runId } : {}),
             ...(prev.issueId ? { issueId: prev.issueId } : {}),
             ...(prev.showClosed !== undefined ? { showClosed: prev.showClosed } : {}),
             ...(prev.sort ? { sort: prev.sort } : {}),
@@ -269,7 +264,7 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
             runSummaryPending={coordinatorQuery.isPending}
             runSummaryError={coordinatorQuery.error}
             selectedEpicId={search.epicId ?? null}
-            selectedRunId={search.runId ?? null}
+            selectedRunId={null}
             onSelectEpic={setSelectedEpicId}
             onSelectRun={setSelectedCoordinatorRun}
             onOpenEpicIssue={openEpicIssue}

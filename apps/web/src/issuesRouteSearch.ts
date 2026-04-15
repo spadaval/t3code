@@ -1,9 +1,8 @@
 import type { BeadsIssueSortBy } from "@t3tools/contracts";
 
 export interface IssuesRouteSearch {
-  tab?: "coordinator" | "issues" | "board";
+  tab?: "issues" | "board";
   epicId?: string;
-  runId?: string;
   issueId?: string;
   showClosed?: boolean;
   sort?: BeadsIssueSortBy;
@@ -18,7 +17,7 @@ function normalizeSearchString(value: unknown): string | undefined {
 }
 
 function parseTab(value: unknown): IssuesRouteSearch["tab"] {
-  if (value === "coordinator" || value === "issues" || value === "board") {
+  if (value === "issues" || value === "board") {
     return value;
   }
   return undefined;
@@ -44,16 +43,41 @@ function parseSort(value: unknown): IssuesRouteSearch["sort"] {
 export function parseIssuesRouteSearch(search: Record<string, unknown>): IssuesRouteSearch {
   const tab = parseTab(search.tab);
   const epicId = normalizeSearchString(search.epicId);
-  const runId = normalizeSearchString(search.runId);
   const issueId = normalizeSearchString(search.issueId);
   const showClosed = parseBoolean(search.showClosed);
   const sort = parseSort(search.sort);
   return {
     ...(tab ? { tab } : {}),
     ...(epicId ? { epicId } : {}),
-    ...(runId ? { runId } : {}),
     ...(issueId ? { issueId } : {}),
     ...(showClosed !== undefined ? { showClosed } : {}),
     ...(sort ? { sort } : {}),
   };
+}
+
+export function resolveCanonicalIssuesRouteSearch(
+  search: Record<string, unknown>,
+): IssuesRouteSearch {
+  const parsed = parseIssuesRouteSearch(search);
+  const nextTab = search.tab === "board" ? "board" : "issues";
+
+  return {
+    tab: nextTab,
+    ...(parsed.epicId ? { epicId: parsed.epicId } : {}),
+    ...(parsed.issueId ? { issueId: parsed.issueId } : {}),
+    ...(parsed.showClosed !== undefined ? { showClosed: parsed.showClosed } : {}),
+    ...(parsed.sort ? { sort: parsed.sort } : {}),
+  };
+}
+
+export function issuesRouteSearchNeedsRedirect(search: Record<string, unknown>): boolean {
+  const canonical = resolveCanonicalIssuesRouteSearch(search);
+  return (
+    canonical.tab !== search.tab ||
+    canonical.epicId !== normalizeSearchString(search.epicId) ||
+    canonical.issueId !== normalizeSearchString(search.issueId) ||
+    canonical.showClosed !== parseBoolean(search.showClosed) ||
+    canonical.sort !== parseSort(search.sort) ||
+    normalizeSearchString(search.runId) !== undefined
+  );
 }

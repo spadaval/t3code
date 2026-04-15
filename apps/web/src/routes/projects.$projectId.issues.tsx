@@ -3,7 +3,11 @@ import { useEffect, lazy, Suspense } from "react";
 
 import type { ProjectId } from "@t3tools/contracts";
 import { SidebarInset, SidebarTrigger } from "~/components/ui/sidebar";
-import { parseIssuesRouteSearch } from "~/issuesRouteSearch";
+import {
+  issuesRouteSearchNeedsRedirect,
+  parseIssuesRouteSearch,
+  resolveCanonicalIssuesRouteSearch,
+} from "~/issuesRouteSearch";
 import { useProjectById } from "~/storeSelectors";
 import { isElectron } from "~/env";
 
@@ -71,13 +75,14 @@ function ProjectTrackerRouteView() {
 export const Route = createFileRoute("/projects/$projectId/issues")({
   validateSearch: (search) => parseIssuesRouteSearch(search),
   beforeLoad: ({ search, params }) => {
-    if (search.tab) {
+    if (!issuesRouteSearchNeedsRedirect(search)) {
       return;
     }
+
     throw redirect({
       to: "/projects/$projectId/issues" as never,
       params: params as never,
-      search: { ...search, tab: "issues" } as never,
+      search: resolveCanonicalIssuesRouteSearch(search) as never,
       replace: true,
     });
   },

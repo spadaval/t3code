@@ -8,14 +8,13 @@ import {
   type ThreadSortInput,
 } from "../lib/threadSort";
 import {
-  compareRunsByRecency,
   isActiveRunStatus,
+  shouldCollapseRunByDefault,
   summarizeExecution,
 } from "../lib/epicRunPresentation";
 import type { SidebarThreadSummary, Thread } from "../types";
 import { cn } from "../lib/utils";
-import { deriveRunningSessionStallState, isLatestTurnSettled } from "../session-logic";
-import type { ThreadId } from "@t3tools/contracts";
+import { isLatestTurnSettled } from "../session-logic";
 
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 100;
@@ -32,7 +31,6 @@ export type ThreadTraversalDirection = "previous" | "next";
 export interface ThreadStatusPill {
   label:
     | "Working"
-    | "Stalled"
     | "Connecting"
     | "Completed"
     | "Pending Approval"
@@ -44,9 +42,8 @@ export interface ThreadStatusPill {
 }
 
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
-  "Pending Approval": 6,
-  "Awaiting Input": 5,
-  Stalled: 4,
+  "Pending Approval": 5,
+  "Awaiting Input": 4,
   Working: 3,
   Connecting: 3,
   "Plan Ready": 2,
@@ -61,7 +58,6 @@ type ThreadStatusInput = Pick<
   | "interactionMode"
   | "latestTurn"
   | "session"
-  | "updatedAt"
 > & {
   lastVisitedAt?: string | undefined;
 };
@@ -242,396 +238,72 @@ export function orderItemsByPreferredIds<TItem, TId>(input: {
   return [...ordered, ...remaining];
 }
 
-export interface SidebarEpicExecutionRow {
+export interface SidebarIssueFirstRunGroupRow {
   readonly issueId: string;
-  /** Human-readable title of the issue, if available from the beads API. */
-  readonly issueTitle: string | null;
   readonly executionId: OrchestrationEpicIssueExecution["executionId"];
   readonly workerThreadId: OrchestrationEpicIssueExecution["workerThreadId"];
   readonly status: OrchestrationEpicIssueExecution["status"];
   readonly summary: string | null;
   readonly isGhost: boolean;
-  readonly updatedAt: OrchestrationEpicIssueExecution["updatedAt"];
-  /** True when this row comes from the most recent active/failed run for the epic. */
-  readonly isCurrentAttempt: boolean;
 }
 
 export interface SidebarIssueFirstRunGroup {
   readonly epicIssueId: string;
   readonly epicTitle: string;
-  readonly epicIssueStatus: string | null;
-  readonly isClosedByIssueStatus: boolean;
-  /** Rows from the current run (most recent active/failed), sorted by updatedAt DESC. */
-  readonly currentRows: readonly SidebarEpicExecutionRow[];
-  /** Rows from previous runs, deduplicated by issueId (latest wins), sorted by updatedAt DESC. */
-  readonly previousRows: readonly SidebarEpicExecutionRow[];
-  /** previousRows beyond the preview limit — shown via show-more. */
-  readonly overflowRows: readonly SidebarEpicExecutionRow[];
-  readonly latestRun: OrchestrationEpicRun | null;
-  readonly latestExecutionUpdatedAt: string | null;
-}
-
-export interface SidebarProjectFeedThreadItem {
-  readonly kind: "thread";
-  readonly thread: SidebarThreadSummary;
-}
-
-export interface SidebarProjectFeedEpicItem {
-  readonly kind: "epic";
-  readonly group: SidebarIssueFirstRunGroup;
-}
-
-export type SidebarProjectFeedItem = SidebarProjectFeedThreadItem | SidebarProjectFeedEpicItem;
-
-export function buildSidebarRunSummaryEpics(input: {
-  readonly runs: readonly OrchestrationEpicRun[];
-  readonly executions: readonly OrchestrationEpicIssueExecution[];
-  readonly epicTitleByIssueId?: ReadonlyMap<string, string>;
-  readonly issueTitleByIssueId?: ReadonlyMap<string, string>;
-  readonly epicIssueStatusById?: ReadonlyMap<string, string>;
-}): Array<{
-  epicIssueId: string;
-  epicTitle: string;
-  epicIssueStatus: string | null;
-  runs: readonly OrchestrationEpicRun[];
-  executions: readonly OrchestrationEpicIssueExecution[];
-  issueTitleByIssueId: ReadonlyMap<string, string>;
-}> {
-  const runsByEpicIssueId = new Map<string, OrchestrationEpicRun[]>();
-  for (const run of input.runs) {
-    const existing = runsByEpicIssueId.get(run.epicIssueId);
-    if (existing) {
-      existing.push(run);
-    } else {
-      runsByEpicIssueId.set(run.epicIssueId, [run]);
-    }
-  }
-
-  const executionsByRunId = new Map<
-    OrchestrationEpicRun["runId"],
-    OrchestrationEpicIssueExecution[]
-  >();
-  for (const execution of input.executions) {
-    const existing = executionsByRunId.get(execution.runId);
-    if (existing) {
-      existing.push(execution);
-    } else {
-      executionsByRunId.set(execution.runId, [execution]);
-    }
-  }
-
-  return [...runsByEpicIssueId.entries()]
-    .map(([epicIssueId, runs]) => ({
-      epicIssueId,
-      epicTitle: input.epicTitleByIssueId?.get(epicIssueId) ?? epicIssueId,
-      epicIssueStatus: input.epicIssueStatusById?.get(epicIssueId) ?? null,
-      runs: [...runs].toSorted(compareRunsByRecency),
-      executions: runs.flatMap((run) => executionsByRunId.get(run.runId) ?? []),
-      issueTitleByIssueId: input.issueTitleByIssueId ?? new Map<string, string>(),
-    }))
-    .toSorted((left, right) => compareRunsByRecency(left.runs[0]!, right.runs[0]!));
+  readonly runId: OrchestrationEpicRun["runId"];
+  readonly runStatus: OrchestrationEpicRun["status"];
+  readonly defaultCollapsed: boolean;
+  readonly visibleRows: readonly SidebarIssueFirstRunGroupRow[];
+  readonly overflowRows: readonly SidebarIssueFirstRunGroupRow[];
 }
 
 export function deriveIssueFirstSidebarRunGroups(input: {
   readonly epics: readonly {
     epicIssueId: string;
     epicTitle: string;
-    epicIssueStatus: string | null;
     runs: readonly OrchestrationEpicRun[];
     executions: readonly OrchestrationEpicIssueExecution[];
-    issueTitleByIssueId?: ReadonlyMap<string, string>;
   }[];
   readonly previewLimit?: number;
 }): SidebarIssueFirstRunGroup[] {
   const previewLimit = input.previewLimit ?? 6;
 
   return input.epics
-    .filter((epic) => epic.runs.length > 0)
-    .map((epic) => {
-      const sortedRuns = [...epic.runs].toSorted(compareRunsByRecency);
-      const currentRun =
-        sortedRuns.find((run) => isActiveRunStatus(run.status) || run.status === "failed") ??
-        sortedRuns[0] ??
-        null;
-      const previousRuns = sortedRuns.filter((run) => run !== currentRun);
+    .flatMap((epic) =>
+      epic.runs.map((run) => {
+        const rows = epic.executions
+          .filter((execution) => execution.runId === run.runId)
+          .toSorted(
+            (left, right) =>
+              left.sequenceNumber - right.sequenceNumber ||
+              left.requestedAt.localeCompare(right.requestedAt) ||
+              left.executionId.localeCompare(right.executionId),
+          )
+          .map<SidebarIssueFirstRunGroupRow>((execution) => ({
+            issueId: execution.issueId,
+            executionId: execution.executionId,
+            workerThreadId: execution.workerThreadId,
+            status: execution.status,
+            summary: summarizeExecution(execution),
+            isGhost: execution.workerThreadId === null,
+          }));
 
-      const toRow = (
-        execution: OrchestrationEpicIssueExecution,
-        isCurrentAttempt: boolean,
-      ): SidebarEpicExecutionRow => ({
-        issueId: execution.issueId,
-        issueTitle: epic.issueTitleByIssueId?.get(execution.issueId) ?? null,
-        executionId: execution.executionId,
-        workerThreadId: execution.workerThreadId,
-        status: execution.status,
-        summary: summarizeExecution(execution),
-        isGhost: execution.workerThreadId === null,
-        updatedAt: execution.updatedAt,
-        isCurrentAttempt,
-      });
-
-      // Current rows: all executions from the current run, sorted by updatedAt DESC.
-      const currentRows = currentRun
-        ? epic.executions
-            .filter((e) => e.runId === currentRun.runId)
-            .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-            .map((e) => toRow(e, true))
-        : [];
-
-      // Previous rows: latest execution per issueId across all non-current runs,
-      // sorted by updatedAt DESC, capped at previewLimit with overflow.
-      const latestByIssueId = new Map<string, OrchestrationEpicIssueExecution>();
-      for (const run of previousRuns) {
-        for (const execution of epic.executions) {
-          if (execution.runId !== run.runId) continue;
-          const existing = latestByIssueId.get(execution.issueId);
-          if (!existing || execution.updatedAt > existing.updatedAt) {
-            latestByIssueId.set(execution.issueId, execution);
-          }
-        }
-      }
-      const allPreviousRows = [...latestByIssueId.values()]
-        .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-        .map((e) => toRow(e, false));
-      const previousRows = allPreviousRows.slice(0, previewLimit);
-      const overflowRows = allPreviousRows.slice(previewLimit);
-      const latestExecutionUpdatedAt = epic.executions.reduce<string | null>(
-        (latest, execution) =>
-          latest === null || execution.updatedAt > latest ? execution.updatedAt : latest,
-        null,
-      );
-
-      return {
-        epicIssueId: epic.epicIssueId,
-        epicTitle: epic.epicTitle,
-        epicIssueStatus: epic.epicIssueStatus,
-        isClosedByIssueStatus: epic.epicIssueStatus === "closed",
-        currentRows,
-        previousRows,
-        overflowRows,
-        latestRun: sortedRuns[0] ?? null,
-        latestExecutionUpdatedAt,
-      } satisfies SidebarIssueFirstRunGroup;
-    })
-    .toSorted((left, right) => {
-      const leftLatest = left.latestExecutionUpdatedAt ?? left.latestRun?.updatedAt ?? "";
-      const rightLatest = right.latestExecutionUpdatedAt ?? right.latestRun?.updatedAt ?? "";
-      return (
-        rightLatest.localeCompare(leftLatest) || right.epicIssueId.localeCompare(left.epicIssueId)
-      );
-    });
-}
-
-export function getVisibleRowsForEpicGroup(input: {
-  group: SidebarIssueFirstRunGroup;
-  activeThreadId?: ThreadId | null | undefined;
-  isPreviousRowsExpanded: boolean;
-}): {
-  currentRows: SidebarEpicExecutionRow[];
-  previousRows: SidebarEpicExecutionRow[];
-  overflowRows: SidebarEpicExecutionRow[];
-} {
-  const { group, activeThreadId, isPreviousRowsExpanded } = input;
-
-  const currentRows = [...group.currentRows];
-
-  if (isPreviousRowsExpanded) {
-    return {
-      currentRows,
-      previousRows: [...group.previousRows, ...group.overflowRows],
-      overflowRows: [],
-    };
-  }
-
-  const activeOverflowRow =
-    activeThreadId != null
-      ? (group.overflowRows.find((row) => row.workerThreadId === activeThreadId) ?? null)
-      : null;
-
-  const previousRows = activeOverflowRow
-    ? [...group.previousRows, activeOverflowRow]
-    : [...group.previousRows];
-  const overflowRows = activeOverflowRow
-    ? group.overflowRows.filter((row) => row !== activeOverflowRow)
-    : [...group.overflowRows];
-
-  return {
-    currentRows,
-    previousRows,
-    overflowRows,
-  };
-}
-
-export function getEpicGroupExecutionThreadIds(group: SidebarIssueFirstRunGroup): ThreadId[] {
-  const threadIds = new Set<ThreadId>();
-  for (const row of [...group.currentRows, ...group.previousRows, ...group.overflowRows]) {
-    if (row.workerThreadId) {
-      threadIds.add(row.workerThreadId);
-    }
-  }
-  return [...threadIds];
-}
-
-function getEpicGroupSortTimestamp(input: {
-  group: SidebarIssueFirstRunGroup;
-  threadSortOrder: SidebarThreadSortOrder;
-  threadById: ReadonlyMap<ThreadId, SidebarThreadSummary>;
-}): number {
-  const threadTimestamps = getEpicGroupExecutionThreadIds(input.group)
-    .map((threadId) => input.threadById.get(threadId))
-    .flatMap((thread) => (thread ? [getThreadSortTimestamp(thread, input.threadSortOrder)] : []));
-  if (threadTimestamps.length > 0) {
-    return Math.max(...threadTimestamps);
-  }
-
-  if (input.threadSortOrder === "created_at") {
-    return toSortableTimestamp(input.group.latestRun?.requestedAt) ?? Number.NEGATIVE_INFINITY;
-  }
-
-  return (
-    toSortableTimestamp(input.group.latestExecutionUpdatedAt ?? input.group.latestRun?.updatedAt) ??
-    Number.NEGATIVE_INFINITY
-  );
-}
-
-function sidebarProjectFeedItemContainsThread(
-  item: SidebarProjectFeedItem,
-  activeThreadId: ThreadId | null,
-): boolean {
-  if (activeThreadId === null) {
-    return false;
-  }
-  return item.kind === "thread"
-    ? item.thread.id === activeThreadId
-    : getEpicGroupExecutionThreadIds(item.group).includes(activeThreadId);
-}
-
-export function getSidebarProjectFeedItemThreadIds(item: SidebarProjectFeedItem): ThreadId[] {
-  return item.kind === "thread" ? [item.thread.id] : getEpicGroupExecutionThreadIds(item.group);
-}
-
-export function isSidebarEpicGroupExpanded(input: {
-  group: SidebarIssueFirstRunGroup;
-  epicKey: string;
-  epicGroupExpandedById: Readonly<Record<string, boolean>>;
-  activeThreadId: ThreadId | null;
-}): boolean {
-  if (
-    input.activeThreadId !== null &&
-    getEpicGroupExecutionThreadIds(input.group).includes(input.activeThreadId)
-  ) {
-    return true;
-  }
-  return input.epicGroupExpandedById[input.epicKey] ?? !input.group.isClosedByIssueStatus;
-}
-
-export function buildSidebarProjectFeed(input: {
-  groups: readonly SidebarIssueFirstRunGroup[];
-  threads: readonly SidebarThreadSummary[];
-  threadSortOrder: SidebarThreadSortOrder;
-  threadById: ReadonlyMap<ThreadId, SidebarThreadSummary>;
-}): SidebarProjectFeedItem[] {
-  const items: SidebarProjectFeedItem[] = [
-    ...input.threads.map((thread) => ({ kind: "thread", thread }) as const),
-    ...input.groups.map((group) => ({ kind: "epic", group }) as const),
-  ];
-
-  return items.toSorted((left, right) => {
-    const rightTimestamp =
-      right.kind === "thread"
-        ? getThreadSortTimestamp(right.thread, input.threadSortOrder)
-        : getEpicGroupSortTimestamp({
-            group: right.group,
-            threadSortOrder: input.threadSortOrder,
-            threadById: input.threadById,
-          });
-    const leftTimestamp =
-      left.kind === "thread"
-        ? getThreadSortTimestamp(left.thread, input.threadSortOrder)
-        : getEpicGroupSortTimestamp({
-            group: left.group,
-            threadSortOrder: input.threadSortOrder,
-            threadById: input.threadById,
-          });
-    const byTimestamp =
-      rightTimestamp === leftTimestamp ? 0 : rightTimestamp > leftTimestamp ? 1 : -1;
-    if (byTimestamp !== 0) {
-      return byTimestamp;
-    }
-
-    if (left.kind !== right.kind) {
-      return left.kind === "thread" ? -1 : 1;
-    }
-
-    if (left.kind === "thread" && right.kind === "thread") {
-      return right.thread.id.localeCompare(left.thread.id);
-    }
-
-    if (left.kind === "epic" && right.kind === "epic") {
-      if (left.group.latestRun && right.group.latestRun) {
-        const byRunRecency = compareRunsByRecency(left.group.latestRun, right.group.latestRun);
-        if (byRunRecency !== 0) {
-          return byRunRecency;
-        }
-      }
-      return right.group.epicIssueId.localeCompare(left.group.epicIssueId);
-    }
-
-    return 0;
-  });
-}
-
-export function getVisibleSidebarProjectFeed(input: {
-  items: readonly SidebarProjectFeedItem[];
-  activeThreadId: ThreadId | null;
-  projectExpanded: boolean;
-  isFeedExpanded: boolean;
-  previewLimit: number;
-}): {
-  activeItem: SidebarProjectFeedItem | null;
-  hasOverflowingItems: boolean;
-  hiddenItems: SidebarProjectFeedItem[];
-  renderedItems: SidebarProjectFeedItem[];
-  showEmptyState: boolean;
-  shouldShowFeedPanel: boolean;
-} {
-  const activeItem =
-    input.items.find((item) => sidebarProjectFeedItemContainsThread(item, input.activeThreadId)) ??
-    null;
-
-  if (!input.projectExpanded) {
-    return {
-      activeItem,
-      hasOverflowingItems: false,
-      hiddenItems: activeItem
-        ? input.items.filter((item) => item !== activeItem)
-        : [...input.items],
-      renderedItems: activeItem ? [activeItem] : [],
-      showEmptyState: false,
-      shouldShowFeedPanel: activeItem !== null,
-    };
-  }
-
-  const hasOverflowingItems = input.items.length > input.previewLimit;
-  const previewItems =
-    input.isFeedExpanded || !hasOverflowingItems
-      ? [...input.items]
-      : input.items.slice(0, input.previewLimit);
-  const renderedSet =
-    activeItem && !previewItems.includes(activeItem)
-      ? new Set<SidebarProjectFeedItem>([...previewItems, activeItem])
-      : new Set<SidebarProjectFeedItem>(previewItems);
-  const renderedItems = input.items.filter((item) => renderedSet.has(item));
-  const hiddenItems = input.items.filter((item) => !renderedSet.has(item));
-
-  return {
-    activeItem,
-    hasOverflowingItems,
-    hiddenItems,
-    renderedItems,
-    showEmptyState: input.items.length === 0,
-    shouldShowFeedPanel: true,
-  };
+        return {
+          epicIssueId: epic.epicIssueId,
+          epicTitle: epic.epicTitle,
+          runId: run.runId,
+          runStatus: run.status,
+          defaultCollapsed: shouldCollapseRunByDefault(run) && !isActiveRunStatus(run.status),
+          visibleRows: rows.slice(0, previewLimit),
+          overflowRows: rows.slice(previewLimit),
+        } satisfies SidebarIssueFirstRunGroup;
+      }),
+    )
+    .toSorted(
+      (left, right) =>
+        Number(isActiveRunStatus(right.runStatus)) - Number(isActiveRunStatus(left.runStatus)) ||
+        right.runId.localeCompare(left.runId),
+    );
 }
 
 export function getVisibleSidebarThreadIds<TThreadId>(
@@ -714,7 +386,6 @@ export function resolveThreadRowClassName(input: {
 
 export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
-  now?: string | number | Date;
 }): ThreadStatusPill | null {
   const { thread } = input;
 
@@ -732,21 +403,6 @@ export function resolveThreadStatusPill(input: {
       label: "Awaiting Input",
       colorClass: "text-indigo-600 dark:text-indigo-300/90",
       dotClass: "bg-indigo-500 dark:bg-indigo-300/90",
-      pulse: false,
-    };
-  }
-
-  const stalledSession = deriveRunningSessionStallState({
-    session: thread.session,
-    latestTurn: thread.latestTurn,
-    ...(thread.updatedAt ? { activities: [{ createdAt: thread.updatedAt }] } : {}),
-    ...(input.now !== undefined ? { now: input.now } : {}),
-  });
-  if (stalledSession) {
-    return {
-      label: "Stalled",
-      colorClass: "text-rose-600 dark:text-rose-300/90",
-      dotClass: "bg-rose-500 dark:bg-rose-300/90",
       pulse: false,
     };
   }
