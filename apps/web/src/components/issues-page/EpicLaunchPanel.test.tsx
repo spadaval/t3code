@@ -78,13 +78,11 @@ function makeSnapshot(
     epicId: "EPIC-1",
     epicTitle: "Epic 1",
     issue: null,
-    trackerLoadState: "ready",
-    trackerLoadDetail: null,
-    coordinationSupported: true,
-    coordinationUnsupportedReason: null,
+    coordinationLoadState: "ready",
+    coordinationLoadDetail: null,
     validationState: "valid",
     validationErrors: [],
-    trackerState: "not_started",
+    coordinationState: "not_started",
     progress: {
       totalIssueCount: 3,
       completedIssueCount: 1,
@@ -106,7 +104,7 @@ function makeSnapshot(
     activeRunId: null,
     activeExecutionId: null,
     projectConflict: null,
-    trackerSummary: null,
+    summary: null,
     validation: null,
     status: null,
     runs: [],
@@ -186,31 +184,19 @@ function renderEpicLaunchPanel(snapshot: BeadsCoordinatorEpicSnapshot) {
     },
   );
   queryClient.setQueryData(
-    beadsQueryKeys.epicTrackerDetail({
+    beadsQueryKeys.epicCoordinationDetail({
       cwd: "/repo",
       projectId: PROJECT_ID,
       epicIssueId: "EPIC-1",
     }),
     {
       epicId: snapshot.epicId,
-      support: {
-        supported: snapshot.coordinationSupported,
-        reason: snapshot.coordinationUnsupportedReason,
-        backend: {
-          kind: "dolt",
-          doltMode: null,
-          database: null,
-          projectId: null,
-          role: null,
-          bdVersion: null,
-        },
-      },
-      trackerLoadState: snapshot.trackerLoadState,
-      trackerLoadDetail: snapshot.trackerLoadDetail,
+      coordinationLoadState: snapshot.coordinationLoadState,
+      coordinationLoadDetail: snapshot.coordinationLoadDetail,
       validationState: snapshot.validationState,
       validationErrors: snapshot.validationErrors,
-      trackerState: snapshot.trackerState,
-      trackerSummary: snapshot.trackerSummary,
+      coordinationState: snapshot.coordinationState,
+      summary: snapshot.summary,
       validation: snapshot.validation,
       status: snapshot.status,
       primaryAction: snapshot.primaryAction,
@@ -248,7 +234,7 @@ describe("EpicLaunchPanel", () => {
         validation: {
           epicId: "EPIC-1",
           epicTitle: "Epic 1",
-          trackerSummary: null,
+          summary: null,
           valid: false,
           errors: ["Epic needs prep before it can run."],
           warnings: [],
@@ -281,7 +267,7 @@ describe("EpicLaunchPanel", () => {
         validation: {
           epicId: "EPIC-1",
           epicTitle: "Epic 1",
-          trackerSummary: null,
+          summary: null,
           valid: true,
           errors: [],
           warnings: [],
@@ -305,7 +291,7 @@ describe("EpicLaunchPanel", () => {
         status: {
           epicId: "EPIC-1",
           epicTitle: "Epic 1",
-          trackerSummary: null,
+          summary: null,
           completed: [],
           active: [
             {

@@ -2,7 +2,7 @@ import type {
   BeadsCoordinatorEpicSnapshot,
   BeadsIssueDetail,
   BeadsIssueRelationSummary,
-  BeadsEpicTrackerStatus,
+  BeadsEpicCoordinationStatus,
   OrchestrationEpicRun,
   OrchestrationEpicIssueExecution,
 } from "@t3tools/contracts";
@@ -88,7 +88,7 @@ function makeRun(
 }
 
 function makeStatus(
-  overrides: Partial<BeadsEpicTrackerStatus> & {
+  overrides: Partial<BeadsEpicCoordinationStatus> & {
     completed?: BeadsIssueRelationSummary[];
     active?: BeadsIssueRelationSummary[];
     ready?: BeadsIssueRelationSummary[];
@@ -98,7 +98,7 @@ function makeStatus(
   return {
     epicId: "EPIC-1",
     epicTitle: "Test Epic",
-    trackerSummary: null,
+    summary: null,
     completed: [],
     active: [],
     ready: [],
@@ -112,13 +112,13 @@ const BASE_EPIC: BeadsCoordinatorEpicSnapshot = {
   epicId: "EPIC-1",
   epicTitle: "Test Epic",
   issue: null,
-  trackerLoadState: "ready",
-  trackerLoadDetail: null,
+  coordinationLoadState: "ready",
+  coordinationLoadDetail: null,
   coordinationSupported: true,
   coordinationUnsupportedReason: null,
   validationState: "valid",
   validationErrors: [],
-  trackerState: "in_progress",
+  coordinationState: "in_progress",
   progress: {
     totalIssueCount: 0,
     completedIssueCount: 0,
@@ -140,7 +140,7 @@ const BASE_EPIC: BeadsCoordinatorEpicSnapshot = {
   activeRunId: null,
   activeExecutionId: null,
   projectConflict: null,
-  trackerSummary: null,
+  summary: null,
   validation: null,
   status: null,
   runs: [],
@@ -206,7 +206,7 @@ describe("buildWorkGraphData", () => {
       validation: {
         epicId: "EPIC-1",
         epicTitle: "Test Epic",
-        trackerSummary: null,
+        summary: null,
         valid: true,
         errors: [],
         warnings: [],
@@ -350,7 +350,7 @@ describe("buildWorkGraphData", () => {
       validation: {
         epicId: "EPIC-1",
         epicTitle: "Test Epic",
-        trackerSummary: null,
+        summary: null,
         valid: true,
         errors: [],
         warnings: [],
@@ -406,7 +406,7 @@ describe("buildWorkGraphData", () => {
       validation: {
         epicId: "EPIC-1",
         epicTitle: "Test Epic",
-        trackerSummary: null,
+        summary: null,
         valid: true,
         errors: [],
         warnings: [],

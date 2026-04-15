@@ -1,6 +1,6 @@
 import {
   type BeadsIssueRelationSummary,
-  type BeadsEpicTrackerStatus,
+  type BeadsEpicCoordinationStatus,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_MODEL_BY_PROVIDER,
@@ -37,7 +37,7 @@ import {
 } from "../FailurePolicy.ts";
 import { EpicRunSchedulerError } from "../Errors.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
-import { EpicTrackerSnapshotReader } from "../Services/EpicTrackerSnapshotReader.ts";
+import { EpicCoordinationSnapshotReader } from "../Services/EpicTrackerSnapshotReader.ts";
 import { EpicRunScheduler, type EpicRunSchedulerShape } from "../Services/EpicRunScheduler.ts";
 import {
   decideDriveRun,
@@ -56,7 +56,7 @@ import {
   buildEpicRunWorkerPrompt,
   buildEpicRunWorkerThreadTitle,
 } from "../epicRunWorker.ts";
-import { EpicTrackerSnapshotReaderLive } from "./EpicTrackerSnapshotReader.ts";
+import { EpicCoordinationSnapshotReaderLive } from "./EpicTrackerSnapshotReader.ts";
 
 const RECONCILIATION_INTERVAL = Duration.seconds(15);
 const WORKER_STOP_POLL_INTERVAL = Duration.millis(250);
@@ -106,7 +106,7 @@ interface LaunchSnapshot {
   readonly request: EpicRunDriveRequest;
   readonly run: OrchestrationEpicRun;
   readonly project: OrchestrationProject;
-  readonly trackerStatus: BeadsEpicTrackerStatus;
+  readonly coordinationStatus: BeadsEpicCoordinationStatus;
   readonly executions: ReadonlyArray<OrchestrationEpicIssueExecution>;
 }
 
@@ -220,7 +220,7 @@ function prioritizeDriveRequests(
 const makeEpicRunScheduler = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const beadsTracker = yield* BeadsTrackerService;
-  const trackerSnapshotReader = yield* EpicTrackerSnapshotReader;
+  const coordinationSnapshotReader = yield* EpicCoordinationSnapshotReader;
   const activeProjectFibers = new Map<OrchestrationProject["id"], Fiber.Fiber<void, never>>();
 
   type DispatchInput = Parameters<typeof orchestrationEngine.dispatch>[0];
@@ -513,10 +513,13 @@ const makeEpicRunScheduler = Effect.gen(function* () {
     return { provider, model } as const;
   };
 
-  const getTrackerState = (input: { projectId: OrchestrationProject["id"]; epicIssueId: string }) =>
+  const getCoordinationState = (input: {
+    projectId: OrchestrationProject["id"];
+    epicIssueId: string;
+  }) =>
     Effect.gen(function* () {
       const project = yield* getProjectById(input.projectId);
-      const snapshot = yield* trackerSnapshotReader
+      const snapshot = yield* coordinationSnapshotReader
         .readSnapshot({
           cwd: project.workspaceRoot,
           epicIssueId: input.epicIssueId,
@@ -524,7 +527,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         .pipe(
           Effect.mapError((error) =>
             workflowError(
-              "getTrackerState",
+              "getCoordinationState",
               truncateEpicRunFailureDetail(toErrorMessage(error)),
               error,
             ),
@@ -533,7 +536,6 @@ const makeEpicRunScheduler = Effect.gen(function* () {
 
       return {
         project,
-        support: snapshot.support,
         validation: snapshot.validation,
         status: snapshot.status,
         nextReadyIssue: selectLaunchableReadyIssue({
@@ -659,25 +661,17 @@ const makeEpicRunScheduler = Effect.gen(function* () {
     operation: string,
     input: { projectId: OrchestrationProject["id"]; epicIssueId: string },
   ) =>
-    getTrackerState(input).pipe(
-      Effect.flatMap((trackerState) => {
-        if (!trackerState.support.supported) {
-          return Effect.fail(
-            workflowError(
-              operation,
-              trackerState.support.reason ?? "Epic-run execution is not supported in this project.",
-            ),
-          );
-        }
-
-        if (!trackerState.validation.valid) {
-          const detail = trackerState.validation.errors.join("; ") || "Epic-run validation failed.";
+    getCoordinationState(input).pipe(
+      Effect.flatMap((coordinationState) => {
+        if (!coordinationState.validation.valid) {
+          const detail =
+            coordinationState.validation.errors.join("; ") || "Epic-run validation failed.";
           return Effect.fail(
             workflowError(operation, `Cannot start epic run for ${input.epicIssueId}: ${detail}`),
           );
         }
 
-        return Effect.succeed(trackerState);
+        return Effect.succeed(coordinationState);
       }),
     );
 
@@ -946,7 +940,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
     Effect.gen(function* () {
       const run = yield* getRunById(snapshot.run.runId);
       const project = yield* getProjectById(run.projectId);
-      const trackerSnapshot = yield* trackerSnapshotReader
+      const coordinationSnapshot = yield* coordinationSnapshotReader
         .readSnapshot({
           cwd: project.workspaceRoot,
           epicIssueId: run.epicIssueId,
@@ -966,7 +960,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         request: snapshot.request,
         run,
         project,
-        trackerStatus: trackerSnapshot.status,
+        coordinationStatus: coordinationSnapshot.status,
         executions,
       };
     });
@@ -1320,7 +1314,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
           const launchDecision = decideLaunchNextTask({
             run: launchSnapshot.run,
             trigger: launchSnapshot.request.trigger,
-            trackerStatus: launchSnapshot.trackerStatus,
+            trackerStatus: launchSnapshot.coordinationStatus,
             executions: launchSnapshot.executions,
           });
           return yield* executeLaunchDecision({
@@ -1468,40 +1462,10 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         return existingRun;
       }
 
-      let trackerState = yield* requireStartableTrackerState("startEpicRun", {
+      yield* requireStartableTrackerState("startEpicRun", {
         projectId: input.projectId,
         epicIssueId: input.epicIssueId,
       });
-
-      if (!trackerState.validation.trackerSummary) {
-        yield* beadsTracker
-          .initializeEpicTracker({
-            cwd: project.workspaceRoot,
-            epicIssueId: input.epicIssueId,
-          })
-          .pipe(
-            Effect.mapError((error) =>
-              workflowError(
-                "startEpicRun",
-                truncateEpicRunFailureDetail(toErrorMessage(error)),
-                error,
-              ),
-            ),
-          );
-
-        trackerState = yield* requireStartableTrackerState("startEpicRun", {
-          projectId: input.projectId,
-          epicIssueId: input.epicIssueId,
-        });
-      }
-
-      const trackerSummary = trackerState.validation.trackerSummary;
-      if (!trackerSummary) {
-        return yield* workflowError(
-          "startEpicRun",
-          `Failed to initialize epic-run tracker state for ${input.epicIssueId}: epic tracker was still missing after initialization completed.`,
-        );
-      }
 
       const modelSelection = getEffectiveModelSelection(project, input);
       const runId = nextRunId();
@@ -1784,5 +1748,5 @@ const makeEpicRunScheduler = Effect.gen(function* () {
 });
 
 export const EpicRunSchedulerLive = Layer.effect(EpicRunScheduler, makeEpicRunScheduler).pipe(
-  Layer.provideMerge(EpicTrackerSnapshotReaderLive),
+  Layer.provideMerge(EpicCoordinationSnapshotReaderLive),
 );

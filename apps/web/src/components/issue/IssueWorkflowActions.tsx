@@ -19,7 +19,7 @@ import {
 
 import {
   beadsStartBacklogGroomingMutationOptions,
-  beadsEpicTrackerDetailOptions,
+  beadsEpicCoordinationDetailOptions,
   beadsProjectRunSummaryOptions,
   beadsStartEpicPlannedRefineMutationOptions,
   beadsStartEpicQuickRefineMutationOptions,
@@ -232,14 +232,14 @@ export function IssueWorkflowActions(props: {
         })
       : beadsProjectRunSummaryOptions(null),
   );
-  const epicTrackerDetailQuery = useQuery(
+  const epicCoordinationDetailQuery = useQuery(
     shouldLoadEpicActions
-      ? beadsEpicTrackerDetailOptions({
+      ? beadsEpicCoordinationDetailOptions({
           cwd: props.cwd,
           projectId: props.projectId,
           epicIssueId: props.issue.id,
         })
-      : beadsEpicTrackerDetailOptions(null),
+      : beadsEpicCoordinationDetailOptions(null),
   );
   const epicActionRunner = useEpicCoordinatorActionRunner({
     cwd: props.cwd,
@@ -252,14 +252,14 @@ export function IssueWorkflowActions(props: {
 
   const epicSnapshot = useMemo(
     () =>
-      epicTrackerDetailQuery.data
+      epicCoordinationDetailQuery.data
         ? composeCoordinatorEpicSnapshot({
             epicIssueId: props.issue.id,
             projectRunSummary: projectRunSummaryQuery.data ?? null,
-            epicTrackerDetail: epicTrackerDetailQuery.data,
+            epicCoordinationDetail: epicCoordinationDetailQuery.data,
           })
         : null,
-    [epicTrackerDetailQuery.data, projectRunSummaryQuery.data, props.issue.id],
+    [epicCoordinationDetailQuery.data, projectRunSummaryQuery.data, props.issue.id],
   );
   const coordinatorPrimaryAction = epicSnapshot?.primaryAction ?? null;
   const coordinatorActionInput = useMemo(
@@ -272,7 +272,6 @@ export function IssueWorkflowActions(props: {
   const coordinatorDisabledReason = isEpic
     ? describeDisabledEpicCoordinatorAction({
         epic: epicSnapshot,
-        supportReason: epicTrackerDetailQuery.data?.support.reason ?? null,
       })
     : null;
   const workflowBusy =
@@ -346,7 +345,7 @@ export function IssueWorkflowActions(props: {
             Planned refine
           </Button>
 
-          {epicTrackerDetailQuery.error && !epicSnapshot ? (
+          {epicCoordinationDetailQuery.error && !epicSnapshot ? (
             <Button size="xs" variant="outline" onClick={retryCoordinatorStatus}>
               <ExternalLinkIcon className="size-3.5" />
               Retry epic status

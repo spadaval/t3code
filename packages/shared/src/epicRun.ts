@@ -1,12 +1,11 @@
 import type {
-  BeadsEpicTrackerSummary,
-  BeadsCoordinatorTrackerLoadState,
-  BeadsCoordinatorTrackerState,
+  BeadsEpicCoordinationSummary,
+  BeadsCoordinatorLoadState,
+  BeadsCoordinatorState,
   BeadsCoordinatorValidationState,
   BeadsIssueRelationSummary,
-  BeadsEpicTrackerStatus,
-  BeadsEpicRunSupport,
-  BeadsEpicRunValidation,
+  BeadsEpicCoordinationStatus,
+  BeadsEpicCoordinationValidation,
   OrchestrationEvent,
   OrchestrationEpicRunFailureKind,
   OrchestrationEpicRun,
@@ -34,8 +33,8 @@ export function selectDeterministicReadyIssueFromList(
 }
 
 export function selectDeterministicReadyIssue(input: {
-  readonly validation: Pick<BeadsEpicRunValidation, "readyFronts"> | null;
-  readonly status: Pick<BeadsEpicTrackerStatus, "ready"> | null;
+  readonly validation: Pick<BeadsEpicCoordinationValidation, "readyFronts"> | null;
+  readonly status: Pick<BeadsEpicCoordinationStatus, "ready"> | null;
 }): BeadsIssueRelationSummary | null {
   if (input.status) {
     return selectDeterministicReadyIssueFromList(input.status.ready);
@@ -60,8 +59,8 @@ export interface EpicIssueExecutionBlockingState {
 
 export function deriveExecutionBlocking(
   status:
-    | (Pick<BeadsEpicTrackerStatus, "blocked"> &
-        Partial<Pick<BeadsEpicTrackerStatus, "blockedBreakdown">>)
+    | (Pick<BeadsEpicCoordinationStatus, "blocked"> &
+        Partial<Pick<BeadsEpicCoordinationStatus, "blockedBreakdown">>)
     | null,
 ): EpicIssueExecutionBlockingState {
   const fallbackBlocked = status?.blocked ?? [];
@@ -84,10 +83,10 @@ export function deriveExecutionBlocking(
   };
 }
 
-export function isEpicTrackerSummaryComplete(
-  trackerSummary:
+export function isEpicCoordinationSummaryComplete(
+  summary:
     | Pick<
-        BeadsEpicTrackerSummary,
+        BeadsEpicCoordinationSummary,
         | "totalIssueCount"
         | "completedIssueCount"
         | "readyIssueCount"
@@ -98,13 +97,13 @@ export function isEpicTrackerSummaryComplete(
     | undefined,
 ): boolean {
   return (
-    trackerSummary !== null &&
-    trackerSummary !== undefined &&
-    trackerSummary.totalIssueCount > 0 &&
-    trackerSummary.completedIssueCount >= trackerSummary.totalIssueCount &&
-    trackerSummary.readyIssueCount === 0 &&
-    trackerSummary.activeIssueCount === 0 &&
-    trackerSummary.blockedIssueCount === 0
+    summary !== null &&
+    summary !== undefined &&
+    summary.totalIssueCount > 0 &&
+    summary.completedIssueCount >= summary.totalIssueCount &&
+    summary.readyIssueCount === 0 &&
+    summary.activeIssueCount === 0 &&
+    summary.blockedIssueCount === 0
   );
 }
 
@@ -283,7 +282,7 @@ export function formatEpicRunStatusLabel(status: OrchestrationEpicRun["status"])
   return status.replace(/_/g, " ");
 }
 
-export type EpicRunCoordinatorFetchSource = "support" | "validation" | "status";
+export type EpicRunCoordinatorFetchSource = "validation" | "status";
 
 export interface EpicRunCoordinatorFetchFailure {
   readonly source: EpicRunCoordinatorFetchSource;
@@ -296,12 +295,10 @@ export function isEpicRunCoordinatorFetchTimeoutMessage(message: string): boolea
 
 function formatEpicRunCoordinatorFetchSource(source: EpicRunCoordinatorFetchSource): string {
   switch (source) {
-    case "support":
-      return "epic-run support";
     case "validation":
       return "epic validation";
     case "status":
-      return "tracker status";
+      return "coordination status";
   }
 }
 
@@ -319,10 +316,10 @@ function formatEpicRunCoordinatorFetchSources(
   }
 
   if (sources.length === 2) {
-    return `${formatEpicRunCoordinatorFetchSource(first!)} and ${second!}`;
+    return `${formatEpicRunCoordinatorFetchSource(first!)} and ${formatEpicRunCoordinatorFetchSource(second!)}`;
   }
 
-  return "epic-run support, validation, and tracker status";
+  return "epic validation and coordination status";
 }
 
 function describeSingleEpicRunCoordinatorFetchFailure(input: {
@@ -456,12 +453,6 @@ export function describeCoordinatorEpicState(input: {
         summary: "Epic needs prep before it can start.",
         category: "setup",
       };
-    case "unsupported":
-      return {
-        label: "Unavailable",
-        summary: "This backend does not support epic coordination.",
-        category: "done",
-      };
     case "completed":
       return {
         label: "Completed",
@@ -519,7 +510,6 @@ export type EpicCoordinatorStateKind =
   | "timeout"
   | "stale"
   | "error"
-  | "unsupported"
   | "needs_preparation"
   | "ready"
   | "running"
@@ -537,7 +527,6 @@ export interface EpicCoordinatorState {
 export interface EpicCoordinatorPrimaryAction {
   readonly kind:
     | "checking"
-    | "unsupported"
     | "open_coordination_prep_thread"
     | "refresh_epic_status"
     | "start_epic_run"
@@ -548,12 +537,12 @@ export interface EpicCoordinatorPrimaryAction {
   readonly disabled: boolean;
 }
 
-export interface EpicTrackerLoadStateResult {
-  readonly trackerLoadState: BeadsCoordinatorTrackerLoadState;
-  readonly trackerLoadDetail: string | null;
+export interface EpicCoordinationLoadStateResult {
+  readonly coordinationLoadState: BeadsCoordinatorLoadState;
+  readonly coordinationLoadDetail: string | null;
 }
 
-export interface EpicTrackerProgressState {
+export interface EpicCoordinationProgressState {
   readonly totalIssueCount: number;
   readonly completedIssueCount: number;
   readonly readyIssueCount: number;
@@ -566,10 +555,10 @@ export interface EpicTrackerProgressState {
   readonly isComplete: boolean;
 }
 
-export function deriveTrackerLoadState(input: {
+export function deriveCoordinationLoadState(input: {
   readonly validationError: string | null;
   readonly statusError: string | null;
-}): EpicTrackerLoadStateResult {
+}): EpicCoordinationLoadStateResult {
   const failures = [
     input.validationError === null
       ? null
@@ -590,54 +579,50 @@ export function deriveTrackerLoadState(input: {
 
   if (failures.length === 0) {
     return {
-      trackerLoadState: "ready",
-      trackerLoadDetail: null,
+      coordinationLoadState: "ready",
+      coordinationLoadDetail: null,
     };
   }
 
   return {
-    trackerLoadState: failures.some((failure) =>
+    coordinationLoadState: failures.some((failure) =>
       isEpicRunCoordinatorFetchTimeoutMessage(failure.message),
     )
       ? "timeout"
       : "error",
-    trackerLoadDetail: describeEpicRunCoordinatorFetchFailure({
+    coordinationLoadDetail: describeEpicRunCoordinatorFetchFailure({
       failures,
       stale: false,
     }),
   };
 }
 
-export function deriveValidationState(input: {
-  readonly trackerLoadState: BeadsCoordinatorTrackerLoadState;
-  readonly validation: Pick<BeadsEpicRunValidation, "valid"> | null;
+export function deriveCoordinationValidationState(input: {
+  readonly coordinationLoadState: BeadsCoordinatorLoadState;
+  readonly validation: Pick<BeadsEpicCoordinationValidation, "valid"> | null;
 }): BeadsCoordinatorValidationState {
-  if (input.trackerLoadState !== "ready" || input.validation === null) {
+  if (input.coordinationLoadState !== "ready" || input.validation === null) {
     return "unknown";
   }
 
   return input.validation.valid ? "valid" : "invalid";
 }
 
-export function deriveEpicTrackerProgress(input: {
-  readonly validation: Pick<BeadsEpicRunValidation, "trackerSummary"> | null;
+export function deriveEpicCoordinationProgress(input: {
+  readonly validation: Pick<BeadsEpicCoordinationValidation, "summary"> | null;
   readonly status:
-    | (Pick<
-        BeadsEpicTrackerStatus,
-        "trackerSummary" | "completed" | "ready" | "active" | "blocked"
-      > &
-        Partial<Pick<BeadsEpicTrackerStatus, "blockedBreakdown">>)
+    | (Pick<BeadsEpicCoordinationStatus, "summary" | "completed" | "ready" | "active" | "blocked"> &
+        Partial<Pick<BeadsEpicCoordinationStatus, "blockedBreakdown">>)
     | null;
-}): EpicTrackerProgressState {
-  const trackerSummary = input.status?.trackerSummary ?? input.validation?.trackerSummary ?? null;
+}): EpicCoordinationProgressState {
+  const summary = input.status?.summary ?? input.validation?.summary ?? null;
   const executionBlocking = deriveExecutionBlocking(input.status);
-  const totalIssueCount = trackerSummary?.totalIssueCount ?? 0;
-  const completedIssueCount =
-    trackerSummary?.completedIssueCount ?? input.status?.completed.length ?? 0;
-  const readyIssueCount = trackerSummary?.readyIssueCount ?? input.status?.ready.length ?? 0;
-  const activeIssueCount = trackerSummary?.activeIssueCount ?? input.status?.active.length ?? 0;
-  const blockedIssueCount = trackerSummary?.blockedIssueCount ?? input.status?.blocked.length ?? 0;
-  const activeWorkerCount = trackerSummary?.activeWorkerCount ?? 0;
+  const totalIssueCount = summary?.totalIssueCount ?? 0;
+  const completedIssueCount = summary?.completedIssueCount ?? input.status?.completed.length ?? 0;
+  const readyIssueCount = summary?.readyIssueCount ?? input.status?.ready.length ?? 0;
+  const activeIssueCount = summary?.activeIssueCount ?? input.status?.active.length ?? 0;
+  const blockedIssueCount = summary?.blockedIssueCount ?? input.status?.blocked.length ?? 0;
+  const activeWorkerCount = summary?.activeWorkerCount ?? 0;
 
   return {
     totalIssueCount,
@@ -649,19 +634,19 @@ export function deriveEpicTrackerProgress(input: {
     externalBlockedIssueCount: executionBlocking.externalBlockedIssues.length,
     unknownBlockedIssueCount: executionBlocking.unknownBlockedIssues.length,
     activeWorkerCount,
-    isComplete: isEpicTrackerSummaryComplete(trackerSummary),
+    isComplete: isEpicCoordinationSummaryComplete(summary),
   };
 }
 
-export function deriveTrackerState(input: {
-  readonly trackerLoadState: BeadsCoordinatorTrackerLoadState;
+export function deriveCoordinationState(input: {
+  readonly coordinationLoadState: BeadsCoordinatorLoadState;
   readonly status:
-    | (Pick<BeadsEpicTrackerStatus, "active" | "blocked"> &
-        Partial<Pick<BeadsEpicTrackerStatus, "blockedBreakdown">>)
+    | (Pick<BeadsEpicCoordinationStatus, "active" | "blocked"> &
+        Partial<Pick<BeadsEpicCoordinationStatus, "blockedBreakdown">>)
     | null;
-  readonly progress: Pick<EpicTrackerProgressState, "isComplete">;
-}): BeadsCoordinatorTrackerState {
-  if (input.trackerLoadState !== "ready" || input.status === null) {
+  readonly progress: Pick<EpicCoordinationProgressState, "isComplete">;
+}): BeadsCoordinatorState {
+  if (input.coordinationLoadState !== "ready" || input.status === null) {
     return "unknown";
   }
 
@@ -719,9 +704,8 @@ export function deriveActiveExecutionId(input: {
 }
 
 export function deriveEpicCoordinatorState(input: {
-  readonly coordinationSupport: Pick<BeadsEpicRunSupport, "supported"> | null;
-  readonly status: Pick<BeadsEpicTrackerStatus, "trackerSummary"> | null;
-  readonly validation: Pick<BeadsEpicRunValidation, "valid" | "trackerSummary"> | null;
+  readonly status: Pick<BeadsEpicCoordinationStatus, "summary"> | null;
+  readonly validation: Pick<BeadsEpicCoordinationValidation, "valid" | "summary"> | null;
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
   readonly fetchLifecycle: EpicRunCoordinatorFetchLifecycle;
 }): EpicCoordinatorState {
@@ -759,14 +743,6 @@ export function deriveEpicCoordinatorState(input: {
     };
   }
 
-  if (input.coordinationSupport?.supported !== true) {
-    return {
-      kind: "unsupported",
-      latestRun: null,
-      fetchLifecycle: input.fetchLifecycle,
-    };
-  }
-
   if (latestRun !== null) {
     return {
       kind: latestRun.status === "pending" ? "running" : latestRun.status,
@@ -799,14 +775,13 @@ export function deriveEpicCoordinatorState(input: {
 }
 
 export function getEpicCoordinatorPrimaryAction(input: {
-  readonly coordinationSupport: Pick<BeadsEpicRunSupport, "supported"> | null;
   readonly status:
-    | (Pick<BeadsEpicTrackerStatus, "trackerSummary" | "ready" | "active" | "blocked"> &
-        Partial<Pick<BeadsEpicTrackerStatus, "blockedBreakdown">>)
+    | (Pick<BeadsEpicCoordinationStatus, "summary" | "ready" | "active" | "blocked"> &
+        Partial<Pick<BeadsEpicCoordinationStatus, "blockedBreakdown">>)
     | null;
   readonly validation: Pick<
-    BeadsEpicRunValidation,
-    "valid" | "trackerSummary" | "readyFronts"
+    BeadsEpicCoordinationValidation,
+    "valid" | "summary" | "readyFronts"
   > | null;
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
   readonly hasProjectConflict: boolean;
@@ -814,8 +789,8 @@ export function getEpicCoordinatorPrimaryAction(input: {
 }): EpicCoordinatorPrimaryAction {
   const latestRun = selectLatestEpicRun(input.epicRuns);
   const activeRun = findActiveEpicRun(input.epicRuns);
-  const trackerSummary = input.status?.trackerSummary ?? input.validation?.trackerSummary ?? null;
-  const trackerIsComplete = isEpicTrackerSummaryComplete(trackerSummary);
+  const summary = input.status?.summary ?? input.validation?.summary ?? null;
+  const coordinationIsComplete = isEpicCoordinationSummaryComplete(summary);
   const executionBlocking = deriveExecutionBlocking(input.status);
 
   switch (input.fetchLifecycle.kind) {
@@ -849,15 +824,6 @@ export function getEpicCoordinatorPrimaryAction(input: {
       };
     case "ready":
       break;
-  }
-
-  if (input.coordinationSupport?.supported !== true) {
-    return {
-      kind: "unsupported",
-      label: "Epic coordination unavailable",
-      busyLabel: "Epic coordination unavailable",
-      disabled: true,
-    };
   }
 
   if (input.validation?.valid === false) {
@@ -904,7 +870,7 @@ export function getEpicCoordinatorPrimaryAction(input: {
 
   if (
     input.validation?.valid === true &&
-    !trackerIsComplete &&
+    !coordinationIsComplete &&
     !executionBlocking.hasExecutionBlockingIssues
   ) {
     return {

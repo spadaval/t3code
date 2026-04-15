@@ -1,10 +1,9 @@
 import type {
   BeadsCoordinatorEpicSnapshot,
+  BeadsEpicCoordinationStatus,
+  BeadsEpicCoordinationSummary,
+  BeadsEpicCoordinationValidation,
   BeadsIssueSummary,
-  BeadsEpicTrackerStatus,
-  BeadsEpicTrackerSummary,
-  BeadsEpicRunSupport,
-  BeadsEpicRunValidation,
   OrchestrationEpicRun,
   ThreadId,
 } from "@t3tools/contracts";
@@ -26,8 +25,8 @@ import {
 import { describeProposedPlanFollowUpOutcome as describeProposedPlanFollowUpOutcomeShared } from "@t3tools/shared/plan";
 
 export interface CoordinatorTrackerEpicSections {
-  readonly runningEpics: ReadonlyArray<BeadsEpicTrackerSummary>;
-  readonly readyToRunEpics: ReadonlyArray<BeadsEpicTrackerSummary>;
+  readonly runningEpics: ReadonlyArray<BeadsEpicCoordinationSummary>;
+  readonly readyToRunEpics: ReadonlyArray<BeadsEpicCoordinationSummary>;
 }
 
 export interface CoordinatorEpicEntry {
@@ -61,35 +60,15 @@ export type EpicCoordinatorState = SharedEpicCoordinatorState;
 export type EpicCoordinatorPrimaryAction = SharedEpicCoordinatorPrimaryAction;
 
 export function deriveCoordinatorFetchLifecycle(input: {
-  readonly support: CoordinatorFetchQueryState;
-  readonly requireTrackerState: boolean;
+  readonly support?: CoordinatorFetchQueryState;
+  readonly requireCoordinationState?: boolean;
+  readonly requireTrackerState?: boolean;
   readonly validation?: CoordinatorFetchQueryState | null;
   readonly status?: CoordinatorFetchQueryState | null;
 }): CoordinatorFetchLifecycle {
-  if (input.support.pending && !input.support.hasData) {
-    return {
-      kind: "loading",
-      detail: null,
-    };
-  }
-
-  if (input.support.error) {
-    const timedOut = isEpicRunCoordinatorFetchTimeoutMessage(input.support.error);
-    return {
-      kind: input.support.hasData ? "stale" : timedOut ? "timeout" : "error",
-      detail: describeEpicRunCoordinatorFetchFailure({
-        failures: [
-          {
-            source: "support",
-            message: input.support.error,
-          },
-        ],
-        stale: input.support.hasData,
-      }),
-    };
-  }
-
-  if (!input.requireTrackerState) {
+  const requireCoordinationState =
+    input.requireCoordinationState ?? input.requireTrackerState ?? true;
+  if (!requireCoordinationState) {
     return {
       kind: "ready",
       detail: null,
@@ -222,9 +201,8 @@ export function findConflictingSharedWorkspaceRun(input: {
 }
 
 export function deriveEpicCoordinatorState(input: {
-  readonly coordinationSupport: Pick<BeadsEpicRunSupport, "supported"> | null;
-  readonly status: Pick<BeadsEpicTrackerStatus, "trackerSummary"> | null;
-  readonly validation: Pick<BeadsEpicRunValidation, "valid" | "trackerSummary"> | null;
+  readonly status: Pick<BeadsEpicCoordinationStatus, "summary"> | null;
+  readonly validation: Pick<BeadsEpicCoordinationValidation, "valid" | "summary"> | null;
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
   readonly fetchLifecycle: CoordinatorFetchLifecycle;
 }): EpicCoordinatorState {
@@ -232,14 +210,13 @@ export function deriveEpicCoordinatorState(input: {
 }
 
 export function getEpicCoordinatorPrimaryAction(input: {
-  readonly coordinationSupport: Pick<BeadsEpicRunSupport, "supported"> | null;
   readonly status:
-    | (Pick<BeadsEpicTrackerStatus, "trackerSummary" | "ready" | "active" | "blocked"> &
-        Partial<Pick<BeadsEpicTrackerStatus, "blockedBreakdown">>)
+    | (Pick<BeadsEpicCoordinationStatus, "summary" | "ready" | "active" | "blocked"> &
+        Partial<Pick<BeadsEpicCoordinationStatus, "blockedBreakdown">>)
     | null;
   readonly validation: Pick<
-    BeadsEpicRunValidation,
-    "valid" | "trackerSummary" | "readyFronts"
+    BeadsEpicCoordinationValidation,
+    "valid" | "summary" | "readyFronts"
   > | null;
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
   readonly projectConflict: SharedWorkspaceProjectConflict | null;
@@ -262,14 +239,8 @@ function summarizeIssueIds(issues: ReadonlyArray<{ readonly id: string }>): stri
 export function describeDisabledEpicCoordinatorAction(input: {
   readonly epic: Pick<
     BeadsCoordinatorEpicSnapshot,
-    | "primaryAction"
-    | "trackerLoadState"
-    | "trackerLoadDetail"
-    | "coordinationSupported"
-    | "coordinationUnsupportedReason"
-    | "status"
+    "primaryAction" | "coordinationLoadState" | "coordinationLoadDetail" | "status"
   > | null;
-  readonly supportReason?: string | null;
 }): string | null {
   if (input.epic === null) {
     return "Checking epic status.";
@@ -279,16 +250,8 @@ export function describeDisabledEpicCoordinatorAction(input: {
     return null;
   }
 
-  if (input.epic.trackerLoadState !== "ready") {
-    return input.epic.trackerLoadDetail ?? "Checking epic status.";
-  }
-
-  if (!input.epic.coordinationSupported) {
-    return (
-      input.epic.coordinationUnsupportedReason ??
-      input.supportReason ??
-      "Epic coordination is unavailable for this project."
-    );
+  if (input.epic.coordinationLoadState !== "ready") {
+    return input.epic.coordinationLoadDetail ?? "Checking epic status.";
   }
 
   if (input.epic.primaryAction.kind === "stop_epic_run") {
@@ -305,13 +268,14 @@ export function describeDisabledEpicCoordinatorAction(input: {
   }
 
   return (
-    input.epic.trackerLoadDetail ?? `${input.epic.primaryAction.label} is currently unavailable.`
+    input.epic.coordinationLoadDetail ??
+    `${input.epic.primaryAction.label} is currently unavailable.`
   );
 }
 
 export function collectCoordinatorEpics(input: {
   readonly epicIssues: ReadonlyArray<BeadsIssueSummary>;
-  readonly trackerSummaries: ReadonlyArray<BeadsEpicTrackerSummary>;
+  readonly summaries: ReadonlyArray<BeadsEpicCoordinationSummary>;
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
 }): CoordinatorEpicEntry[] {
   const entries = new Map<string, CoordinatorEpicEntry>();
@@ -324,11 +288,11 @@ export function collectCoordinatorEpics(input: {
     });
   }
 
-  for (const trackerSummary of input.trackerSummaries) {
-    if (!entries.has(trackerSummary.epicId)) {
-      entries.set(trackerSummary.epicId, {
-        epicId: trackerSummary.epicId,
-        epicTitle: trackerSummary.epicTitle,
+  for (const summary of input.summaries) {
+    if (!entries.has(summary.epicId)) {
+      entries.set(summary.epicId, {
+        epicId: summary.epicId,
+        epicTitle: summary.epicTitle,
         issue: null,
       });
     }
@@ -349,12 +313,11 @@ export function collectCoordinatorEpics(input: {
 
 type CoordinatorEpicPartitionable = Pick<
   BeadsCoordinatorEpicSnapshot,
-  | "trackerLoadState"
-  | "coordinationSupported"
+  | "coordinationLoadState"
   | "validationState"
   | "projectConflict"
   | "activeRunId"
-  | "trackerState"
+  | "coordinationState"
   | "runs"
 >;
 
@@ -371,8 +334,7 @@ export function partitionCoordinatorEpics<T extends object>(
       : null;
 
     if (
-      item.trackerLoadState !== "ready" ||
-      !item.coordinationSupported ||
+      item.coordinationLoadState !== "ready" ||
       item.validationState === "invalid" ||
       item.projectConflict !== null ||
       activeRun?.status === "failed"
@@ -381,7 +343,7 @@ export function partitionCoordinatorEpics<T extends object>(
       continue;
     }
 
-    if (item.activeRunId !== null || item.trackerState === "in_progress") {
+    if (item.activeRunId !== null || item.coordinationState === "in_progress") {
       active.push(item);
       continue;
     }
@@ -397,7 +359,7 @@ export function partitionCoordinatorEpics<T extends object>(
 }
 
 export function partitionCoordinatorTrackerEpics(
-  trackerSummaries: ReadonlyArray<BeadsEpicTrackerSummary>,
+  trackerSummaries: ReadonlyArray<BeadsEpicCoordinationSummary>,
 ): CoordinatorTrackerEpicSections {
   const runningEpics = trackerSummaries
     .filter((trackerSummary) => trackerSummary.activeWorkerCount > 0)

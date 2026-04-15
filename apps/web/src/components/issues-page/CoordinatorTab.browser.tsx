@@ -64,19 +64,6 @@ import { beadsQueryKeys } from "~/lib/beadsReactQuery";
 
 const PROJECT_ID = "project-1" as ProjectId;
 
-const SUPPORT = {
-  supported: true,
-  reason: null,
-  backend: {
-    kind: "dolt",
-    doltMode: null,
-    database: null,
-    projectId: null,
-    role: null,
-    bdVersion: null,
-  },
-} as const;
-
 function createRun(
   runId: string,
   status: OrchestrationEpicRun["status"],
@@ -139,13 +126,11 @@ const BASE_EPIC: BeadsCoordinatorEpicSnapshot = {
   epicId: "EPIC-1" as never,
   epicTitle: "Epic 1",
   issue: null,
-  trackerLoadState: "ready",
-  trackerLoadDetail: null,
-  coordinationSupported: true,
-  coordinationUnsupportedReason: null,
+  coordinationLoadState: "ready",
+  coordinationLoadDetail: null,
   validationState: "valid",
   validationErrors: [],
-  trackerState: "in_progress",
+  coordinationState: "in_progress",
   progress: {
     totalIssueCount: 3,
     completedIssueCount: 1,
@@ -167,7 +152,7 @@ const BASE_EPIC: BeadsCoordinatorEpicSnapshot = {
   activeRunId: "run-1" as never,
   activeExecutionId: null,
   projectConflict: null,
-  trackerSummary: null,
+  summary: null,
   validation: null,
   status: null,
   runs: [createRun("run-1", "running")],
@@ -209,20 +194,19 @@ async function renderCoordinator(epicOverrides: Partial<BeadsCoordinatorEpicSnap
     },
   );
   queryClient.setQueryData(
-    beadsQueryKeys.epicTrackerDetail({
+    beadsQueryKeys.epicCoordinationDetail({
       cwd: "/repo",
       projectId: PROJECT_ID,
       epicIssueId: epic.epicId,
     }),
     {
       epicId: epic.epicId,
-      support: SUPPORT,
-      trackerLoadState: epic.trackerLoadState,
-      trackerLoadDetail: epic.trackerLoadDetail,
+      coordinationLoadState: epic.coordinationLoadState,
+      coordinationLoadDetail: epic.coordinationLoadDetail,
       validationState: epic.validationState,
       validationErrors: epic.validationErrors,
-      trackerState: epic.trackerState,
-      trackerSummary: epic.trackerSummary,
+      coordinationState: epic.coordinationState,
+      summary: epic.summary,
       validation: epic.validation,
       status: epic.status,
       primaryAction: epic.primaryAction,
@@ -233,9 +217,6 @@ async function renderCoordinator(epicOverrides: Partial<BeadsCoordinatorEpicSnap
       <CoordinatorTab
         cwd="/repo"
         projectId={PROJECT_ID}
-        coordinationSupport={SUPPORT}
-        coordinationSupportPending={false}
-        coordinationSupportError={null}
         runSummary={{
           projectId: PROJECT_ID,
           epics: [
@@ -279,7 +260,7 @@ describe("CoordinatorTab browser coverage", () => {
 
   it("dispatches retry for a failed run", async () => {
     await renderCoordinator({
-      trackerState: "not_started",
+      coordinationState: "not_started",
       primaryAction: {
         kind: "start_epic_run",
         label: "Start epic",
@@ -301,8 +282,8 @@ describe("CoordinatorTab browser coverage", () => {
 
   it("dispatches refresh for stale tracker output", async () => {
     await renderCoordinator({
-      trackerLoadState: "error",
-      trackerLoadDetail: "Tracker request timed out.",
+      coordinationLoadState: "error",
+      coordinationLoadDetail: "Tracker request timed out.",
       activeRunId: null,
       primaryAction: {
         kind: "refresh_epic_status",

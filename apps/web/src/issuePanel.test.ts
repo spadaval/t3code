@@ -234,7 +234,6 @@ describe("deriveEpicCoordinatorState", () => {
   it("returns checking while swarm support or validation is loading", () => {
     expect(
       deriveEpicCoordinatorState({
-        coordinationSupport: null,
         status: null,
         validation: null,
         epicRuns: [],
@@ -250,7 +249,6 @@ describe("deriveEpicCoordinatorState", () => {
   it("returns timeout when swarm validation/status timed out", () => {
     expect(
       deriveEpicCoordinatorState({
-        coordinationSupport: { supported: true },
         status: null,
         validation: null,
         epicRuns: [],
@@ -271,7 +269,6 @@ describe("deriveEpicCoordinatorState", () => {
 
     expect(
       deriveEpicCoordinatorState({
-        coordinationSupport: { supported: true },
         status: null,
         validation: null,
         epicRuns: [run],
@@ -287,7 +284,6 @@ describe("deriveEpicCoordinatorState", () => {
   it("returns unsupported when swarm support is unavailable", () => {
     expect(
       deriveEpicCoordinatorState({
-        coordinationSupport: { supported: false },
         status: null,
         validation: null,
         epicRuns: [],
@@ -303,9 +299,8 @@ describe("deriveEpicCoordinatorState", () => {
   it("returns needs_preparation when epic structure is invalid and there is no run history", () => {
     expect(
       deriveEpicCoordinatorState({
-        coordinationSupport: { supported: true },
-        status: { trackerSummary: null },
-        validation: { valid: false, trackerSummary: null },
+        status: { summary: null },
+        validation: { valid: false, summary: null },
         epicRuns: [],
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
@@ -319,10 +314,8 @@ describe("deriveEpicCoordinatorState", () => {
   it("returns needs_preparation when a swarm exists but beads validation fails", () => {
     expect(
       deriveEpicCoordinatorState({
-        coordinationSupport: { supported: true },
         status: {
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -335,8 +328,7 @@ describe("deriveEpicCoordinatorState", () => {
         },
         validation: {
           valid: false,
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -360,12 +352,10 @@ describe("deriveEpicCoordinatorState", () => {
   it("returns ready when a valid swarm exists and no run has started", () => {
     expect(
       deriveEpicCoordinatorState({
-        coordinationSupport: { supported: true },
         status: null,
         validation: {
           valid: true,
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "epic-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -389,9 +379,8 @@ describe("deriveEpicCoordinatorState", () => {
   it("returns ready when epic structure is valid even if swarm metadata is still missing", () => {
     expect(
       deriveEpicCoordinatorState({
-        coordinationSupport: { supported: true },
-        status: { trackerSummary: null },
-        validation: { valid: true, trackerSummary: null },
+        status: { summary: null },
+        validation: { valid: true, summary: null },
         epicRuns: [],
         fetchLifecycle: READY_FETCH_LIFECYCLE,
       }),
@@ -417,12 +406,10 @@ describe("deriveEpicCoordinatorState", () => {
 
     expect(
       deriveEpicCoordinatorState({
-        coordinationSupport: { supported: true },
         status: null,
         validation: {
           valid: true,
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "epic-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -471,12 +458,10 @@ describe("deriveEpicCoordinatorState", () => {
 
     expect(
       deriveEpicCoordinatorState({
-        coordinationSupport: { supported: true },
         status: null,
         validation: {
           valid: true,
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -520,7 +505,6 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("disables the CTA while swarm state is still loading", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: null,
         status: null,
         validation: null,
         epicRuns: [],
@@ -538,7 +522,6 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Retry epic status when fetches timed out", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: { supported: true },
         status: null,
         validation: null,
         epicRuns: [],
@@ -556,9 +539,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Open prep thread when epic structure is invalid and no swarm exists", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: { supported: true },
-        status: { trackerSummary: null, ready: [], active: [], blocked: [] },
-        validation: { valid: false, trackerSummary: null, readyFronts: [] },
+        status: { summary: null, ready: [], active: [], blocked: [] },
+        validation: { valid: false, summary: null, readyFronts: [] },
         epicRuns: [],
         projectConflict: null,
         fetchLifecycle: READY_FETCH_LIFECYCLE,
@@ -574,10 +556,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Open prep thread when the epic swarm exists but is invalid", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: { supported: true },
         status: {
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -593,8 +573,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         validation: {
           valid: false,
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -621,12 +600,10 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Start epic when the swarm is valid and runnable", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: { supported: true },
-        status: { trackerSummary: null, ready: [], active: [], blocked: [] },
+        status: { summary: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -653,12 +630,10 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Start epic again when only terminal run history exists", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: { supported: true },
-        status: { trackerSummary: null, ready: [], active: [], blocked: [] },
+        status: { summary: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -685,12 +660,10 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Stop run for active runs and Start epic again after stopped history", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: { supported: true },
-        status: { trackerSummary: null, ready: [], active: [], blocked: [] },
+        status: { summary: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -719,12 +692,10 @@ describe("getEpicCoordinatorPrimaryAction", () => {
 
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: { supported: true },
-        status: { trackerSummary: null, ready: [], active: [], blocked: [] },
+        status: { summary: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -756,12 +727,10 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("keeps Open epic for non-terminal runs that are still settling", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: { supported: true },
-        status: { trackerSummary: null, ready: [], active: [], blocked: [] },
+        status: { summary: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -793,10 +762,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Start epic when the latest run failed but the swarm is still valid", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: { supported: true },
         status: {
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -812,8 +779,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         validation: {
           valid: true,
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -851,10 +817,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Open prep thread when the latest run failed and validation is now broken", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: { supported: true },
         status: {
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -870,8 +834,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         validation: {
           valid: false,
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -909,9 +872,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Open prep thread when the latest run failed and epic structure is invalid", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: { supported: true },
-        status: { trackerSummary: null, ready: [], active: [], blocked: [] },
-        validation: { valid: false, trackerSummary: null, readyFronts: [] },
+        status: { summary: null, ready: [], active: [], blocked: [] },
+        validation: { valid: false, summary: null, readyFronts: [] },
         epicRuns: [
           makeEpicRun({
             status: "failed",
@@ -938,10 +900,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("returns Start epic for recoverable worker failures when tracker state can advance", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: { supported: true },
         status: {
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -968,8 +928,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         validation: {
           valid: true,
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -1020,10 +979,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("keeps Open epic while tracker state is still blocked after a worker failure", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: { supported: true },
         status: {
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -1050,8 +1007,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         validation: {
           valid: true,
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -1089,10 +1045,8 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("keeps Open epic for generic tracker-blocked runs", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: { supported: true },
         status: {
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -1119,8 +1073,7 @@ describe("getEpicCoordinatorPrimaryAction", () => {
         },
         validation: {
           valid: true,
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -1158,12 +1111,10 @@ describe("getEpicCoordinatorPrimaryAction", () => {
   it("redirects ready epics to the active shared-workspace run for the project", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: { supported: true },
-        status: { trackerSummary: null, ready: [], active: [], blocked: [] },
+        status: { summary: null, ready: [], active: [], blocked: [] },
         validation: {
           valid: true,
-          trackerSummary: {
-            trackerId: "swarm-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic",
             totalIssueCount: 3,
@@ -1203,24 +1154,22 @@ describe("describeDisabledEpicCoordinatorAction", () => {
     ).toBe("Checking epic status.");
   });
 
-  it("returns the unsupported coordination reason when epic actions are unavailable", () => {
+  it("returns a generic disabled-action message when no coordination detail is available", () => {
     expect(
       describeDisabledEpicCoordinatorAction({
         epic: {
           primaryAction: {
-            kind: "unsupported",
-            label: "Epic coordination unavailable",
-            busyLabel: "Epic coordination unavailable",
+            kind: "refresh_epic_status",
+            label: "Retry epic status",
+            busyLabel: "Retrying...",
             disabled: true,
           },
-          trackerLoadState: "ready",
-          trackerLoadDetail: null,
-          coordinationSupported: false,
-          coordinationUnsupportedReason: "Shared workspaces are disabled for this backend.",
+          coordinationLoadState: "ready",
+          coordinationLoadDetail: null,
           status: null,
         },
       }),
-    ).toBe("Shared workspaces are disabled for this backend.");
+    ).toBe("Retry epic status is currently unavailable.");
   });
 
   it("keeps the generic open-epic explanation for blocked tracker state", () => {
@@ -1233,14 +1182,12 @@ describe("describeDisabledEpicCoordinatorAction", () => {
             busyLabel: "Opening...",
             disabled: false,
           },
-          trackerLoadState: "ready",
-          trackerLoadDetail: null,
-          coordinationSupported: true,
-          coordinationUnsupportedReason: null,
+          coordinationLoadState: "ready",
+          coordinationLoadDetail: null,
           status: {
             epicId: "EPIC-1",
             epicTitle: "Epic 1",
-            trackerSummary: null,
+            summary: null,
             completed: [],
             active: [],
             ready: [],
@@ -1315,9 +1262,8 @@ describe("collectCoordinatorEpics", () => {
     expect(
       collectCoordinatorEpics({
         epicIssues: [epicIssue],
-        trackerSummaries: [
+        summaries: [
           {
-            trackerId: "swarm-1",
             epicId: "EPIC-1",
             epicTitle: "Epic from swarm",
             totalIssueCount: 3,
@@ -1328,7 +1274,6 @@ describe("collectCoordinatorEpics", () => {
             activeWorkerCount: 0,
           },
           {
-            trackerId: "swarm-2",
             epicId: "EPIC-2",
             epicTitle: "Epic from swarm only",
             totalIssueCount: 2,
@@ -1371,22 +1316,20 @@ describe("partitionCoordinatorEpics", () => {
       partitionCoordinatorEpics([
         {
           id: "invalid",
-          trackerLoadState: "ready" as const,
-          coordinationSupported: true,
+          coordinationLoadState: "ready" as const,
           validationState: "invalid" as const,
           projectConflict: null,
           activeRunId: null,
-          trackerState: "not_started" as const,
+          coordinationState: "not_started" as const,
           runs: [],
         },
         {
           id: "running",
-          trackerLoadState: "ready" as const,
-          coordinationSupported: true,
+          coordinationLoadState: "ready" as const,
           validationState: "valid" as const,
           projectConflict: null,
           activeRunId: "run-1" as never,
-          trackerState: "in_progress" as const,
+          coordinationState: "in_progress" as const,
           runs: [
             {
               ...makeEpicRun({
@@ -1398,22 +1341,20 @@ describe("partitionCoordinatorEpics", () => {
         },
         {
           id: "completed",
-          trackerLoadState: "ready" as const,
-          coordinationSupported: true,
+          coordinationLoadState: "ready" as const,
           validationState: "valid" as const,
           projectConflict: null,
           activeRunId: null,
-          trackerState: "completed" as const,
+          coordinationState: "completed" as const,
           runs: [],
         },
         {
           id: "idle",
-          trackerLoadState: "ready" as const,
-          coordinationSupported: true,
+          coordinationLoadState: "ready" as const,
           validationState: "valid" as const,
           projectConflict: null,
           activeRunId: null,
-          trackerState: "not_started" as const,
+          coordinationState: "not_started" as const,
           runs: [],
         },
       ]),
@@ -1421,24 +1362,22 @@ describe("partitionCoordinatorEpics", () => {
       needsAttention: [
         {
           id: "invalid",
-          trackerLoadState: "ready",
-          coordinationSupported: true,
+          coordinationLoadState: "ready",
           validationState: "invalid",
           projectConflict: null,
           activeRunId: null,
-          trackerState: "not_started",
+          coordinationState: "not_started",
           runs: [],
         },
       ],
       active: [
         {
           id: "running",
-          trackerLoadState: "ready",
-          coordinationSupported: true,
+          coordinationLoadState: "ready",
           validationState: "valid",
           projectConflict: null,
           activeRunId: "run-1",
-          trackerState: "in_progress",
+          coordinationState: "in_progress",
           runs: [
             expect.objectContaining({
               runId: "run-1",
@@ -1450,22 +1389,20 @@ describe("partitionCoordinatorEpics", () => {
       history: [
         {
           id: "completed",
-          trackerLoadState: "ready",
-          coordinationSupported: true,
+          coordinationLoadState: "ready",
           validationState: "valid",
           projectConflict: null,
           activeRunId: null,
-          trackerState: "completed",
+          coordinationState: "completed",
           runs: [],
         },
         {
           id: "idle",
-          trackerLoadState: "ready",
-          coordinationSupported: true,
+          coordinationLoadState: "ready",
           validationState: "valid",
           projectConflict: null,
           activeRunId: null,
-          trackerState: "not_started",
+          coordinationState: "not_started",
           runs: [],
         },
       ],
@@ -1477,7 +1414,6 @@ describe("partitionCoordinatorEpics", () => {
   it("partitions and sorts running and ready swarms", () => {
     const swarms = [
       {
-        trackerId: "swarm-ready-a",
         epicId: "EPIC-3",
         epicTitle: "Alpha ready",
         totalIssueCount: 5,
@@ -1488,7 +1424,6 @@ describe("partitionCoordinatorEpics", () => {
         activeWorkerCount: 0,
       },
       {
-        trackerId: "swarm-running-b",
         epicId: "EPIC-2",
         epicTitle: "Bravo running",
         totalIssueCount: 7,
@@ -1499,7 +1434,6 @@ describe("partitionCoordinatorEpics", () => {
         activeWorkerCount: 1,
       },
       {
-        trackerId: "swarm-running-a",
         epicId: "EPIC-1",
         epicTitle: "Alpha running",
         totalIssueCount: 9,
@@ -1510,7 +1444,6 @@ describe("partitionCoordinatorEpics", () => {
         activeWorkerCount: 2,
       },
       {
-        trackerId: "swarm-ready-b",
         epicId: "EPIC-4",
         epicTitle: "Zulu ready",
         totalIssueCount: 4,
@@ -1521,7 +1454,6 @@ describe("partitionCoordinatorEpics", () => {
         activeWorkerCount: 0,
       },
       {
-        trackerId: "swarm-idle",
         epicId: "EPIC-5",
         epicTitle: "Idle",
         totalIssueCount: 4,

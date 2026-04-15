@@ -5,14 +5,11 @@ import type {
   BeadsEpicIssueSummaries,
   BeadsEpicIssueSummariesInput,
   BeadsEpicIssueInput,
-  BeadsEpicTrackerDetail,
-  BeadsEpicTrackerDetailInput,
-  BeadsEpicRunSupport,
-  BeadsEpicRunValidation,
-  BeadsEpicTrackerStatus,
-  BeadsEpicTrackerSummary,
+  BeadsEpicCoordinationDetail,
+  BeadsEpicCoordinationDetailInput,
+  BeadsEpicCoordinationValidation,
+  BeadsEpicCoordinationStatus,
   BeadsGetContextInput,
-  BeadsGetEpicRunSupportInput,
   BeadsGetIssueInput,
   BeadsGetIssuesInput,
   BeadsGetIssuesResult,
@@ -329,16 +326,18 @@ export interface EnvironmentApi {
     updateIssue: (input: BeadsUpdateIssueInput) => Promise<BeadsIssueSummary>;
     commentIssue: (input: BeadsCommentIssueInput) => Promise<BeadsIssueDetail>;
     getContext: (input: BeadsGetContextInput) => Promise<BeadsContext>;
-    getEpicRunSupport: (input: BeadsGetEpicRunSupportInput) => Promise<BeadsEpicRunSupport>;
     getIssueGraph: (input: BeadsEpicIssueInput) => Promise<BeadsIssueGraph>;
-    getEpicTrackerSummary: (input: BeadsEpicIssueInput) => Promise<BeadsEpicTrackerSummary | null>;
-    validateEpicRun: (input: BeadsEpicIssueInput) => Promise<BeadsEpicRunValidation>;
-    getEpicTrackerStatus: (input: BeadsEpicIssueInput) => Promise<BeadsEpicTrackerStatus>;
+    validateEpicCoordination: (
+      input: BeadsEpicIssueInput,
+    ) => Promise<BeadsEpicCoordinationValidation>;
+    getEpicCoordinationStatus: (input: BeadsEpicIssueInput) => Promise<BeadsEpicCoordinationStatus>;
     getProjectRunSummary: (input: BeadsProjectRunSummaryInput) => Promise<BeadsProjectRunSummary>;
     getEpicIssueSummaries: (
       input: BeadsEpicIssueSummariesInput,
     ) => Promise<BeadsEpicIssueSummaries>;
-    getEpicTrackerDetail: (input: BeadsEpicTrackerDetailInput) => Promise<BeadsEpicTrackerDetail>;
+    getEpicCoordinationDetail: (
+      input: BeadsEpicCoordinationDetailInput,
+    ) => Promise<BeadsEpicCoordinationDetail>;
     getSessionActivity: (
       input: BeadsGetSessionActivityInput,
     ) => Promise<BeadsGetSessionActivityResult>;

@@ -5,7 +5,7 @@ import { Loader2Icon, PlayIcon, RefreshCwIcon, WandSparklesIcon } from "lucide-r
 
 import {
   beadsEpicIssueSummariesOptions,
-  beadsEpicTrackerDetailOptions,
+  beadsEpicCoordinationDetailOptions,
   beadsProjectRunSummaryOptions,
 } from "~/lib/beadsReactQuery";
 import { composeCoordinatorEpicSnapshot } from "~/lib/coordinatorSnapshots";
@@ -48,10 +48,10 @@ function describeEpicLaunchState(epic: NonNullable<ReturnType<typeof useEpicSnap
     } as const;
   }
 
-  if (epic.trackerLoadState === "error" || epic.trackerLoadState === "timeout") {
+  if (epic.coordinationLoadState === "error" || epic.coordinationLoadState === "timeout") {
     return {
       label: "Needs refresh",
-      summary: epic.trackerLoadDetail ?? "Epic tracker status needs refresh.",
+      summary: epic.coordinationLoadDetail ?? "Epic coordination status needs refresh.",
       variant: badgeVariantForStatus("warning"),
     } as const;
   }
@@ -81,9 +81,9 @@ function describeEpicLaunchState(epic: NonNullable<ReturnType<typeof useEpicSnap
     } as const;
   }
 
-  if (epic.trackerState === "completed") {
+  if (epic.coordinationState === "completed") {
     return {
-      label: "Tracker complete",
+      label: "Coordination complete",
       summary: "All currently tracked work is complete.",
       variant: badgeVariantForStatus("success"),
     } as const;
@@ -94,7 +94,7 @@ function describeEpicLaunchState(epic: NonNullable<ReturnType<typeof useEpicSnap
     summary:
       epic.progress.readyIssueCount > 0
         ? `${epic.progress.readyIssueCount} issue${epic.progress.readyIssueCount === 1 ? "" : "s"} ready to launch`
-        : "Tracker is ready for another run.",
+        : "Coordination is ready for another run.",
     variant: badgeVariantForStatus("success"),
   } as const;
 }
@@ -112,29 +112,30 @@ function useEpicSnapshot(input: { cwd: string; projectId: ProjectId; issueId: st
       epicIssueId: input.issueId,
     }),
   );
-  const trackerDetailQuery = useQuery(
-    beadsEpicTrackerDetailOptions({
+  const coordinationDetailQuery = useQuery(
+    beadsEpicCoordinationDetailOptions({
       cwd: input.cwd,
       projectId: input.projectId,
       epicIssueId: input.issueId,
     }),
   );
   const epic =
-    trackerDetailQuery.data && issueSummariesQuery.data
+    coordinationDetailQuery.data && issueSummariesQuery.data
       ? composeCoordinatorEpicSnapshot({
           epicIssueId: input.issueId,
           projectRunSummary: projectRunSummaryQuery.data ?? null,
           epicIssueSummaries: issueSummariesQuery.data,
-          epicTrackerDetail: trackerDetailQuery.data,
+          epicCoordinationDetail: coordinationDetailQuery.data,
         })
       : null;
 
   return {
     isPending:
-      trackerDetailQuery.isPending ||
+      coordinationDetailQuery.isPending ||
       issueSummariesQuery.isPending ||
       projectRunSummaryQuery.isPending,
-    error: trackerDetailQuery.error ?? issueSummariesQuery.error ?? projectRunSummaryQuery.error,
+    error:
+      coordinationDetailQuery.error ?? issueSummariesQuery.error ?? projectRunSummaryQuery.error,
     epic,
   };
 }

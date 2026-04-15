@@ -3,12 +3,11 @@ import type {
   BeadsCoordinatorEpicSnapshot,
   BeadsCoordinatorProjectConflict,
   BeadsEpicIssueSummaries,
-  BeadsEpicTrackerDetail,
+  BeadsEpicCoordinationDetail,
   BeadsIssueDetail,
   BeadsIssueSummary,
-  BeadsEpicTrackerStatus,
-  BeadsEpicRunSupport,
-  BeadsEpicRunValidation,
+  BeadsEpicCoordinationStatus,
+  BeadsEpicCoordinationValidation,
   BeadsProjectRunSummary,
   OrchestrationReadModel,
   OrchestrationEpicRun,
@@ -21,10 +20,10 @@ import {
   deriveActiveExecutionId,
   deriveActiveRunId,
   deriveExecutionBlocking,
-  deriveEpicTrackerProgress,
-  deriveTrackerLoadState,
-  deriveTrackerState,
-  deriveValidationState,
+  deriveEpicCoordinationProgress,
+  deriveCoordinationLoadState,
+  deriveCoordinationState,
+  deriveCoordinationValidationState,
   findActiveEpicRuns,
   findConflictingSharedWorkspaceRun as findConflictingSharedWorkspaceRunCore,
 } from "@t3tools/shared/epicRun";
@@ -71,35 +70,25 @@ function toIssueSummary(issue: BeadsIssueDetail | BeadsIssueSummary): BeadsIssue
 
 function deriveEpicPrimaryAction(input: {
   readonly epicId: string;
-  readonly coordinationSupported: boolean;
   readonly validationState: BeadsCoordinatorEpicSnapshot["validationState"];
-  readonly trackerLoadState: BeadsCoordinatorEpicSnapshot["trackerLoadState"];
-  readonly trackerState: BeadsCoordinatorEpicSnapshot["trackerState"];
+  readonly coordinationLoadState: BeadsCoordinatorEpicSnapshot["coordinationLoadState"];
+  readonly coordinationState: BeadsCoordinatorEpicSnapshot["coordinationState"];
   readonly projectConflict: BeadsCoordinatorEpicSnapshot["projectConflict"];
   readonly latestRun: OrchestrationEpicRun | null;
   readonly activeRun: OrchestrationEpicRun | null;
   readonly status: Pick<
-    BeadsEpicTrackerStatus,
+    BeadsEpicCoordinationStatus,
     "ready" | "active" | "blocked" | "blockedBreakdown"
   > | null;
 }): BeadsCoordinatorEpicSnapshot["primaryAction"] {
   const executionBlocking = deriveExecutionBlocking(input.status);
 
-  if (input.trackerLoadState === "timeout" || input.trackerLoadState === "error") {
+  if (input.coordinationLoadState === "timeout" || input.coordinationLoadState === "error") {
     return {
       kind: "refresh_epic_status",
-      label: "Retry tracker status",
+      label: "Retry coordination status",
       busyLabel: "Retrying...",
       disabled: false,
-    };
-  }
-
-  if (!input.coordinationSupported) {
-    return {
-      kind: "unsupported",
-      label: "Epic coordination unavailable",
-      busyLabel: "Epic coordination unavailable",
-      disabled: true,
     };
   }
 
@@ -152,7 +141,7 @@ function deriveEpicPrimaryAction(input: {
 
   if (
     input.validationState === "valid" &&
-    input.trackerState !== "completed" &&
+    input.coordinationState !== "completed" &&
     !executionBlocking.hasExecutionBlockingIssues
   ) {
     return {
@@ -211,9 +200,8 @@ function deriveIntegrityError(input: {
 
 export function buildCoordinatorEpicSnapshot(input: {
   readonly issue: BeadsIssueSummary | null;
-  readonly support: BeadsEpicRunSupport;
-  readonly validation: BeadsEpicRunValidation | null;
-  readonly status: BeadsEpicTrackerStatus | null;
+  readonly validation: BeadsEpicCoordinationValidation | null;
+  readonly status: BeadsEpicCoordinationStatus | null;
   readonly validationError: string | null;
   readonly statusError: string | null;
   readonly projectEpicRuns: ReadonlyArray<OrchestrationEpicRun>;
@@ -230,23 +218,23 @@ export function buildCoordinatorEpicSnapshot(input: {
     executions: input.epicExecutions,
   });
 
-  const loadState = deriveTrackerLoadState({
+  const loadState = deriveCoordinationLoadState({
     validationError: input.validationError,
     statusError: input.statusError,
   });
-  const trackerLoadState = integrityError === null ? loadState.trackerLoadState : "error";
-  const trackerLoadDetail = integrityError === null ? loadState.trackerLoadDetail : integrityError;
-  const coordinationSupported = input.support.supported;
-  const validationState = deriveValidationState({
-    trackerLoadState,
+  const coordinationLoadState = integrityError === null ? loadState.coordinationLoadState : "error";
+  const coordinationLoadDetail =
+    integrityError === null ? loadState.coordinationLoadDetail : integrityError;
+  const validationState = deriveCoordinationValidationState({
+    coordinationLoadState,
     validation: input.validation,
   });
-  const progress = deriveEpicTrackerProgress({
+  const progress = deriveEpicCoordinationProgress({
     validation: input.validation,
     status: input.status,
   });
-  const trackerState = deriveTrackerState({
-    trackerLoadState,
+  const coordinationState = deriveCoordinationState({
+    coordinationLoadState,
     status: input.status,
     progress,
   });
@@ -269,20 +257,17 @@ export function buildCoordinatorEpicSnapshot(input: {
     epicId: input.issue?.id ?? input.fallbackEpicId,
     epicTitle: input.issue?.title ?? input.fallbackEpicTitle,
     issue: input.issue,
-    trackerLoadState,
-    trackerLoadDetail,
-    coordinationSupported,
-    coordinationUnsupportedReason: input.support.reason,
+    coordinationLoadState,
+    coordinationLoadDetail,
     validationState,
     validationErrors: validationState === "invalid" ? (input.validation?.errors ?? []) : [],
-    trackerState,
+    coordinationState,
     progress,
     primaryAction: deriveEpicPrimaryAction({
       epicId: input.issue?.id ?? input.fallbackEpicId,
-      coordinationSupported,
       validationState,
-      trackerLoadState,
-      trackerState,
+      coordinationLoadState,
+      coordinationState,
       projectConflict,
       latestRun,
       activeRun,
@@ -291,7 +276,7 @@ export function buildCoordinatorEpicSnapshot(input: {
     activeRunId,
     activeExecutionId,
     projectConflict,
-    trackerSummary: input.validation?.trackerSummary ?? input.status?.trackerSummary ?? null,
+    summary: input.validation?.summary ?? input.status?.summary ?? null,
     validation: input.validation,
     status: input.status,
     runs,
@@ -394,27 +379,25 @@ export function buildEpicIssueSummaries(input: {
   };
 }
 
-export function buildEpicTrackerDetail(input: {
+export function buildEpicCoordinationDetail(input: {
   readonly projectId: ProjectId;
-  readonly support: BeadsEpicRunSupport;
   readonly issue: BeadsIssueDetail | BeadsIssueSummary;
-  readonly validation: BeadsEpicRunValidation | null;
-  readonly status: BeadsEpicTrackerStatus | null;
+  readonly validation: BeadsEpicCoordinationValidation | null;
+  readonly status: BeadsEpicCoordinationStatus | null;
   readonly validationError: string | null;
   readonly statusError: string | null;
   readonly readModel: OrchestrationReadModel;
-}): BeadsEpicTrackerDetail {
+}): BeadsEpicCoordinationDetail {
   const epic = buildSingleEpicCoordinatorSnapshot(input);
 
   return {
     epicId: epic.epicId,
-    support: input.support,
-    trackerLoadState: epic.trackerLoadState,
-    trackerLoadDetail: epic.trackerLoadDetail,
+    coordinationLoadState: epic.coordinationLoadState,
+    coordinationLoadDetail: epic.coordinationLoadDetail,
     validationState: epic.validationState,
     validationErrors: epic.validationErrors,
-    trackerState: epic.trackerState,
-    trackerSummary: epic.trackerSummary,
+    coordinationState: epic.coordinationState,
+    summary: epic.summary,
     validation: epic.validation,
     status: epic.status,
     primaryAction: epic.primaryAction,
@@ -423,10 +406,9 @@ export function buildEpicTrackerDetail(input: {
 
 export function buildSingleEpicCoordinatorSnapshot(input: {
   readonly projectId: ProjectId;
-  readonly support: BeadsEpicRunSupport;
   readonly issue: BeadsIssueDetail | BeadsIssueSummary;
-  readonly validation: BeadsEpicRunValidation | null;
-  readonly status: BeadsEpicTrackerStatus | null;
+  readonly validation: BeadsEpicCoordinationValidation | null;
+  readonly status: BeadsEpicCoordinationStatus | null;
   readonly validationError: string | null;
   readonly statusError: string | null;
   readonly readModel: OrchestrationReadModel;
@@ -443,7 +425,6 @@ export function buildSingleEpicCoordinatorSnapshot(input: {
 
   return buildCoordinatorEpicSnapshot({
     issue: issueSummary,
-    support: input.support,
     validation: input.validation,
     status: input.status,
     validationError: input.validationError,

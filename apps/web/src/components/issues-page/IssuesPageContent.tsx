@@ -7,7 +7,6 @@ import { GitBranchIcon, KanbanIcon, LayoutListIcon } from "lucide-react";
 import {
   ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
   beadsContextOptions,
-  beadsEpicRunSupportOptions,
   beadsProjectRunSummaryOptions,
   beadsQueryIssuesOptions,
 } from "~/lib/beadsReactQuery";
@@ -48,10 +47,6 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
 
   // Core data queries
   useQuery(beadsContextOptions(cwd ? { cwd } : null));
-
-  const coordinationSupportQuery = useQuery(
-    beadsEpicRunSupportOptions({ cwd, enabled: cwd !== null }),
-  );
 
   const coordinatorQuery = useQuery(
     beadsProjectRunSummaryOptions(
@@ -270,9 +265,6 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
           <CoordinatorTab
             cwd={cwd}
             projectId={projectId}
-            coordinationSupport={coordinationSupportQuery.data ?? null}
-            coordinationSupportPending={coordinationSupportQuery.isPending}
-            coordinationSupportError={coordinationSupportQuery.error}
             runSummary={coordinatorQuery.data ?? null}
             runSummaryPending={coordinatorQuery.isPending}
             runSummaryError={coordinatorQuery.error}

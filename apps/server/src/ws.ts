@@ -895,21 +895,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ),
             { "rpc.aggregate": "beads" },
           ),
-        [BEADS_WS_METHODS.getEpicRunSupport]: (input) =>
-          observeRpcEffect(
-            BEADS_WS_METHODS.getEpicRunSupport,
-            beads.getEpicRunSupport(input).pipe(
-              Effect.mapError((cause) =>
-                Schema.is(BeadsError)(cause)
-                  ? cause
-                  : new BeadsError({
-                      message: describeRpcFailure("Failed to load epic-run support", cause),
-                      cause,
-                    }),
-              ),
-            ),
-            { "rpc.aggregate": "beads" },
-          ),
         [BEADS_WS_METHODS.getIssueGraph]: (input) =>
           observeRpcEffect(
             BEADS_WS_METHODS.getIssueGraph,
@@ -925,45 +910,45 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ),
             { "rpc.aggregate": "beads" },
           ),
-        [BEADS_WS_METHODS.getEpicTrackerSummary]: (input) =>
+        [BEADS_WS_METHODS.validateEpicCoordination]: (input) =>
           observeRpcEffect(
-            BEADS_WS_METHODS.getEpicTrackerSummary,
-            beads.getEpicTrackerSummary(input).pipe(
+            BEADS_WS_METHODS.validateEpicCoordination,
+            beads.validateEpicCoordination(input).pipe(
               Effect.mapError((cause) =>
                 Schema.is(BeadsError)(cause)
                   ? cause
                   : new BeadsError({
-                      message: describeRpcFailure("Failed to load epic tracker summary", cause),
+                      message: describeRpcFailure("Failed to validate epic coordination", cause),
                       cause,
                     }),
               ),
             ),
             { "rpc.aggregate": "beads" },
           ),
-        [BEADS_WS_METHODS.validateEpicRun]: (input) =>
+        [BEADS_WS_METHODS.getEpicCoordinationStatus]: (input) =>
           observeRpcEffect(
-            BEADS_WS_METHODS.validateEpicRun,
-            beads.validateEpicRun(input).pipe(
+            BEADS_WS_METHODS.getEpicCoordinationStatus,
+            beads.getEpicCoordinationStatus(input).pipe(
               Effect.mapError((cause) =>
                 Schema.is(BeadsError)(cause)
                   ? cause
                   : new BeadsError({
-                      message: describeRpcFailure("Failed to validate epic run", cause),
+                      message: describeRpcFailure("Failed to load epic coordination status", cause),
                       cause,
                     }),
               ),
             ),
             { "rpc.aggregate": "beads" },
           ),
-        [BEADS_WS_METHODS.getEpicTrackerStatus]: (input) =>
+        [BEADS_WS_METHODS.getEpicCoordinationDetail]: (input) =>
           observeRpcEffect(
-            BEADS_WS_METHODS.getEpicTrackerStatus,
-            beads.getEpicTrackerStatus(input).pipe(
+            BEADS_WS_METHODS.getEpicCoordinationDetail,
+            beads.getEpicCoordinationDetail(input).pipe(
               Effect.mapError((cause) =>
                 Schema.is(BeadsError)(cause)
                   ? cause
                   : new BeadsError({
-                      message: describeRpcFailure("Failed to load epic tracker status", cause),
+                      message: describeRpcFailure("Failed to load epic coordination detail", cause),
                       cause,
                     }),
               ),
@@ -994,21 +979,6 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                   ? cause
                   : new BeadsError({
                       message: describeRpcFailure("Failed to load epic issue summaries", cause),
-                      cause,
-                    }),
-              ),
-            ),
-            { "rpc.aggregate": "beads" },
-          ),
-        [BEADS_WS_METHODS.getEpicTrackerDetail]: (input) =>
-          observeRpcEffect(
-            BEADS_WS_METHODS.getEpicTrackerDetail,
-            beads.getEpicTrackerDetail(input).pipe(
-              Effect.mapError((cause) =>
-                Schema.is(BeadsError)(cause)
-                  ? cause
-                  : new BeadsError({
-                      message: describeRpcFailure("Failed to load epic tracker detail", cause),
                       cause,
                     }),
               ),

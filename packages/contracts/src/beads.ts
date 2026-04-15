@@ -26,14 +26,12 @@ export const BEADS_WS_METHODS = {
   startWorkflow: "beads.startWorkflow",
   startBacklogGrooming: "beads.startBacklogGrooming",
   getContext: "beads.getContext",
-  getEpicRunSupport: "beads.getEpicRunSupport",
   getIssueGraph: "beads.getIssueGraph",
-  getEpicTrackerSummary: "beads.getEpicTrackerSummary",
-  validateEpicRun: "beads.validateEpicRun",
-  getEpicTrackerStatus: "beads.getEpicTrackerStatus",
+  validateEpicCoordination: "beads.validateEpicCoordination",
+  getEpicCoordinationStatus: "beads.getEpicCoordinationStatus",
   getProjectRunSummary: "beads.getProjectRunSummary",
   getEpicIssueSummaries: "beads.getEpicIssueSummaries",
-  getEpicTrackerDetail: "beads.getEpicTrackerDetail",
+  getEpicCoordinationDetail: "beads.getEpicCoordinationDetail",
   startEpicQuickRefine: "beads.startEpicQuickRefine",
   startEpicPlannedRefine: "beads.startEpicPlannedRefine",
   startEpicCoordinationPrep: "beads.startEpicCoordinationPrep",
@@ -88,6 +86,7 @@ export const BeadsIssueSummary = Schema.Struct({
   ),
   updatedAt: IsoDateTime,
   labels: Schema.Array(BeadsLabel).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  molType: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   parent: Schema.NullOr(BeadsIssueParentRef).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   dependencyRefs: Schema.Array(BeadsIssueSummaryDependencyRef).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
@@ -155,15 +154,6 @@ export const BeadsBackendInfo = Schema.Struct({
 });
 export type BeadsBackendInfo = typeof BeadsBackendInfo.Type;
 
-export const BeadsEpicRunSupport = Schema.Struct({
-  supported: Schema.Boolean,
-  reason: Schema.NullOr(TrimmedNonEmptyString).pipe(
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
-  backend: BeadsBackendInfo,
-});
-export type BeadsEpicRunSupport = typeof BeadsEpicRunSupport.Type;
-
 export const BeadsContext = Schema.Struct({
   beadsDir: TrimmedNonEmptyString,
   repoRoot: TrimmedNonEmptyString,
@@ -209,8 +199,7 @@ export const BeadsIssueGraph = Schema.Struct({
 });
 export type BeadsIssueGraph = typeof BeadsIssueGraph.Type;
 
-export const BeadsEpicTrackerSummary = Schema.Struct({
-  trackerId: BeadsIssueId,
+export const BeadsEpicCoordinationSummary = Schema.Struct({
   epicId: BeadsIssueId,
   epicTitle: TrimmedNonEmptyString,
   totalIssueCount: NonNegativeInt,
@@ -220,12 +209,12 @@ export const BeadsEpicTrackerSummary = Schema.Struct({
   blockedIssueCount: NonNegativeInt,
   activeWorkerCount: NonNegativeInt,
 });
-export type BeadsEpicTrackerSummary = typeof BeadsEpicTrackerSummary.Type;
+export type BeadsEpicCoordinationSummary = typeof BeadsEpicCoordinationSummary.Type;
 
-export const BeadsEpicRunValidation = Schema.Struct({
+export const BeadsEpicCoordinationValidation = Schema.Struct({
   epicId: BeadsIssueId,
   epicTitle: TrimmedNonEmptyString,
-  trackerSummary: Schema.NullOr(BeadsEpicTrackerSummary).pipe(
+  summary: Schema.NullOr(BeadsEpicCoordinationSummary).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   valid: Schema.Boolean,
@@ -243,9 +232,9 @@ export const BeadsEpicRunValidation = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
 });
-export type BeadsEpicRunValidation = typeof BeadsEpicRunValidation.Type;
+export type BeadsEpicCoordinationValidation = typeof BeadsEpicCoordinationValidation.Type;
 
-export const BeadsEpicTrackerBlockedBreakdown = Schema.Struct({
+export const BeadsEpicCoordinationBlockedBreakdown = Schema.Struct({
   internal: Schema.Array(BeadsIssueRelationSummary).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
@@ -256,12 +245,13 @@ export const BeadsEpicTrackerBlockedBreakdown = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
 });
-export type BeadsEpicTrackerBlockedBreakdown = typeof BeadsEpicTrackerBlockedBreakdown.Type;
+export type BeadsEpicCoordinationBlockedBreakdown =
+  typeof BeadsEpicCoordinationBlockedBreakdown.Type;
 
-export const BeadsEpicTrackerStatus = Schema.Struct({
+export const BeadsEpicCoordinationStatus = Schema.Struct({
   epicId: BeadsIssueId,
   epicTitle: TrimmedNonEmptyString,
-  trackerSummary: Schema.NullOr(BeadsEpicTrackerSummary).pipe(
+  summary: Schema.NullOr(BeadsEpicCoordinationSummary).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   completed: Schema.Array(BeadsIssueRelationSummary).pipe(
@@ -276,26 +266,26 @@ export const BeadsEpicTrackerStatus = Schema.Struct({
   blocked: Schema.Array(BeadsIssueRelationSummary).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
-  blockedBreakdown: BeadsEpicTrackerBlockedBreakdown.pipe(
+  blockedBreakdown: BeadsEpicCoordinationBlockedBreakdown.pipe(
     Schema.withDecodingDefault(Effect.succeed({ internal: [], external: [], unknown: [] })),
   ),
 });
-export type BeadsEpicTrackerStatus = typeof BeadsEpicTrackerStatus.Type;
+export type BeadsEpicCoordinationStatus = typeof BeadsEpicCoordinationStatus.Type;
 
-export const BeadsCoordinatorTrackerLoadState = Schema.Literals(["ready", "timeout", "error"]);
-export type BeadsCoordinatorTrackerLoadState = typeof BeadsCoordinatorTrackerLoadState.Type;
+export const BeadsCoordinatorLoadState = Schema.Literals(["ready", "timeout", "error"]);
+export type BeadsCoordinatorLoadState = typeof BeadsCoordinatorLoadState.Type;
 
 export const BeadsCoordinatorValidationState = Schema.Literals(["unknown", "valid", "invalid"]);
 export type BeadsCoordinatorValidationState = typeof BeadsCoordinatorValidationState.Type;
 
-export const BeadsCoordinatorTrackerState = Schema.Literals([
+export const BeadsCoordinatorState = Schema.Literals([
   "unknown",
   "not_started",
   "in_progress",
   "blocked",
   "completed",
 ]);
-export type BeadsCoordinatorTrackerState = typeof BeadsCoordinatorTrackerState.Type;
+export type BeadsCoordinatorState = typeof BeadsCoordinatorState.Type;
 
 export const BeadsCoordinatorProgress = Schema.Struct({
   totalIssueCount: NonNegativeInt,
@@ -313,7 +303,6 @@ export type BeadsCoordinatorProgress = typeof BeadsCoordinatorProgress.Type;
 
 export const BeadsCoordinatorPrimaryAction = Schema.Struct({
   kind: Schema.Literals([
-    "unsupported",
     "open_coordination_prep_thread",
     "refresh_epic_status",
     "start_epic_run",
@@ -336,19 +325,15 @@ export const BeadsCoordinatorEpicSnapshot = Schema.Struct({
   epicId: BeadsIssueId,
   epicTitle: TrimmedNonEmptyString,
   issue: Schema.NullOr(BeadsIssueSummary).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
-  trackerLoadState: BeadsCoordinatorTrackerLoadState,
-  trackerLoadDetail: Schema.NullOr(TrimmedNonEmptyString).pipe(
-    Schema.withDecodingDefault(Effect.succeed(null)),
-  ),
-  coordinationSupported: Schema.Boolean,
-  coordinationUnsupportedReason: Schema.NullOr(TrimmedNonEmptyString).pipe(
+  coordinationLoadState: BeadsCoordinatorLoadState,
+  coordinationLoadDetail: Schema.NullOr(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   validationState: BeadsCoordinatorValidationState,
   validationErrors: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
-  trackerState: BeadsCoordinatorTrackerState,
+  coordinationState: BeadsCoordinatorState,
   progress: BeadsCoordinatorProgress,
   primaryAction: BeadsCoordinatorPrimaryAction,
   activeRunId: Schema.NullOr(EpicRunId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
@@ -358,13 +343,13 @@ export const BeadsCoordinatorEpicSnapshot = Schema.Struct({
   projectConflict: Schema.NullOr(BeadsCoordinatorProjectConflict).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
-  trackerSummary: Schema.NullOr(BeadsEpicTrackerSummary).pipe(
+  summary: Schema.NullOr(BeadsEpicCoordinationSummary).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
-  validation: Schema.NullOr(BeadsEpicRunValidation).pipe(
+  validation: Schema.NullOr(BeadsEpicCoordinationValidation).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
-  status: Schema.NullOr(BeadsEpicTrackerStatus).pipe(
+  status: Schema.NullOr(BeadsEpicCoordinationStatus).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   runs: Schema.Array(OrchestrationEpicRun).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
@@ -414,21 +399,11 @@ export const BeadsGetContextInput = Schema.Struct({
 });
 export type BeadsGetContextInput = typeof BeadsGetContextInput.Type;
 
-export const BeadsGetEpicRunSupportInput = Schema.Struct({
-  cwd: TrimmedNonEmptyString,
-});
-export type BeadsGetEpicRunSupportInput = typeof BeadsGetEpicRunSupportInput.Type;
-
 export const BeadsEpicIssueInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   epicIssueId: BeadsIssueId,
 });
 export type BeadsEpicIssueInput = typeof BeadsEpicIssueInput.Type;
-
-export const BeadsListEpicTrackerSummariesInput = Schema.Struct({
-  cwd: TrimmedNonEmptyString,
-});
-export type BeadsListEpicTrackerSummariesInput = typeof BeadsListEpicTrackerSummariesInput.Type;
 
 export const BeadsProjectRunSummaryInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
@@ -468,37 +443,36 @@ export const BeadsEpicIssueSummaries = Schema.Struct({
 });
 export type BeadsEpicIssueSummaries = typeof BeadsEpicIssueSummaries.Type;
 
-export const BeadsEpicTrackerDetailInput = Schema.Struct({
+export const BeadsEpicCoordinationDetailInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   projectId: ProjectId,
   epicIssueId: BeadsIssueId,
 });
-export type BeadsEpicTrackerDetailInput = typeof BeadsEpicTrackerDetailInput.Type;
+export type BeadsEpicCoordinationDetailInput = typeof BeadsEpicCoordinationDetailInput.Type;
 
-export const BeadsEpicTrackerDetail = Schema.Struct({
+export const BeadsEpicCoordinationDetail = Schema.Struct({
   epicId: BeadsIssueId,
-  support: BeadsEpicRunSupport,
-  trackerLoadState: BeadsCoordinatorTrackerLoadState,
-  trackerLoadDetail: Schema.NullOr(TrimmedNonEmptyString).pipe(
+  coordinationLoadState: BeadsCoordinatorLoadState,
+  coordinationLoadDetail: Schema.NullOr(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   validationState: BeadsCoordinatorValidationState,
   validationErrors: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
-  trackerState: BeadsCoordinatorTrackerState,
-  trackerSummary: Schema.NullOr(BeadsEpicTrackerSummary).pipe(
+  coordinationState: BeadsCoordinatorState,
+  summary: Schema.NullOr(BeadsEpicCoordinationSummary).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
-  validation: Schema.NullOr(BeadsEpicRunValidation).pipe(
+  validation: Schema.NullOr(BeadsEpicCoordinationValidation).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
-  status: Schema.NullOr(BeadsEpicTrackerStatus).pipe(
+  status: Schema.NullOr(BeadsEpicCoordinationStatus).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   primaryAction: BeadsCoordinatorPrimaryAction,
 });
-export type BeadsEpicTrackerDetail = typeof BeadsEpicTrackerDetail.Type;
+export type BeadsEpicCoordinationDetail = typeof BeadsEpicCoordinationDetail.Type;
 
 export const BeadsUpdateIssueInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
@@ -618,13 +592,6 @@ export type BeadsStartEpicPlannedRefineInput = typeof BeadsStartEpicPlannedRefin
 
 export const BeadsStartEpicCoordinationPrepInput = Schema.Struct(BeadsEpicWorkflowStartInputBase);
 export type BeadsStartEpicCoordinationPrepInput = typeof BeadsStartEpicCoordinationPrepInput.Type;
-
-export const BeadsListEpicTrackerSummariesResult = Schema.Struct({
-  trackerSummaries: Schema.Array(BeadsEpicTrackerSummary).pipe(
-    Schema.withDecodingDefault(Effect.succeed([])),
-  ),
-});
-export type BeadsListEpicTrackerSummariesResult = typeof BeadsListEpicTrackerSummariesResult.Type;
 
 export class BeadsError extends Schema.TaggedErrorClass<BeadsError>()("BeadsError", {
   message: TrimmedNonEmptyString,

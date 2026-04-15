@@ -3,9 +3,8 @@ import { Effect, Layer, ManagedRuntime, Stream } from "effect";
 import {
   BeadsError,
   type BeadsIssueDetail,
-  type BeadsEpicTrackerStatus,
-  type BeadsEpicRunSupport,
-  type BeadsEpicRunValidation,
+  type BeadsEpicCoordinationStatus,
+  type BeadsEpicCoordinationValidation,
   CommandId,
   ProjectId,
   EpicIssueExecutionId,
@@ -38,22 +37,19 @@ const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
 export const now = "2026-04-06T13:00:00.000Z";
 
 export type TrackerState = {
-  support: BeadsEpicRunSupport;
-  validation: BeadsEpicRunValidation;
-  status: BeadsEpicTrackerStatus;
+  validation: BeadsEpicCoordinationValidation;
+  status: BeadsEpicCoordinationStatus;
 };
 
-export type TrackerStateOverrides = Partial<Omit<TrackerState, "validation" | "status">> & {
-  validation?: Partial<BeadsEpicRunValidation>;
-  status?: Partial<BeadsEpicTrackerStatus>;
+export type TrackerStateOverrides = {
+  validation?: Partial<BeadsEpicCoordinationValidation>;
+  status?: Partial<BeadsEpicCoordinationStatus>;
 };
 
 export type HarnessOptions = {
   failUpdateIssueForIds?: ReadonlyArray<string>;
   failDispatchForCommandTypes?: ReadonlyArray<OrchestrationCommand["type"]>;
   beforeGetIssue?: (issueId: string) => Effect.Effect<void>;
-  initializeEpicTrackerMode?: "succeed" | "fail";
-  initializeEpicTrackerErrorMessage?: string;
 };
 
 function beadsError(message: string) {
@@ -76,8 +72,7 @@ export function relationIssue(id: string, priority: number | null) {
 }
 
 export function makeTrackerState(overrides?: TrackerStateOverrides): TrackerState {
-  const trackerSummary = {
-    trackerId: "SWARM-1",
+  const summary = {
     epicId: "EPIC-1",
     epicTitle: "Epic 1",
     totalIssueCount: 2,
@@ -89,23 +84,10 @@ export function makeTrackerState(overrides?: TrackerStateOverrides): TrackerStat
   } as const;
 
   return {
-    support: {
-      supported: true,
-      reason: null,
-      backend: {
-        kind: "dolt",
-        doltMode: "remote",
-        database: "beads",
-        projectId: "proj",
-        role: "primary",
-        bdVersion: "1.0.0",
-      },
-      ...overrides?.support,
-    },
     validation: {
       epicId: "EPIC-1",
       epicTitle: "Epic 1",
-      trackerSummary,
+      summary,
       valid: true,
       errors: [],
       warnings: [],
@@ -117,7 +99,7 @@ export function makeTrackerState(overrides?: TrackerStateOverrides): TrackerStat
     status: {
       epicId: "EPIC-1",
       epicTitle: "Epic 1",
-      trackerSummary,
+      summary,
       completed: [],
       active: [],
       ready: [relationIssue("TASK-1", 1)],
@@ -736,7 +718,6 @@ type EpicRunSchedulerTestHarness = {
   ) => void;
   setTrackerState: (next: TrackerState) => void;
   setTrackerStateSequence: (next: ReadonlyArray<TrackerState>) => void;
-  getInitializeEpicTrackerCallCount: () => number;
   getReadModelCallCount: () => number;
   patchReadModel: (transform: (current: OrchestrationReadModel) => OrchestrationReadModel) => void;
   patchExecution: (
@@ -760,7 +741,6 @@ export async function createEpicRunSchedulerHarness(
   let trackerStateSequence: ReadonlyArray<TrackerState> | null = null;
   let pendingTrackerStateSnapshot: TrackerState | null = null;
   let pendingTrackerStateReadsRemaining = 0;
-  let initializeEpicTrackerCallCount = 0;
   let readModel = createEmptyReadModel();
   let readModelCallCount = 0;
   let sequence = 0;
@@ -842,24 +822,24 @@ export async function createEpicRunSchedulerHarness(
     getEpicIssueSummaries: ({ epicIssueId }) =>
       Effect.sync(() => {
         const currentTrackerState = readTrackerStateSnapshot();
-        const trackerSummary = currentTrackerState.status.trackerSummary;
+        const summary = currentTrackerState.status.summary;
 
         return {
           epicId: epicIssueId,
           epicTitle: currentTrackerState.validation.epicTitle,
           progress: {
-            totalIssueCount: trackerSummary?.totalIssueCount ?? 0,
-            completedIssueCount: trackerSummary?.completedIssueCount ?? 0,
-            readyIssueCount: trackerSummary?.readyIssueCount ?? 0,
-            activeIssueCount: trackerSummary?.activeIssueCount ?? 0,
-            blockedIssueCount: trackerSummary?.blockedIssueCount ?? 0,
+            totalIssueCount: summary?.totalIssueCount ?? 0,
+            completedIssueCount: summary?.completedIssueCount ?? 0,
+            readyIssueCount: summary?.readyIssueCount ?? 0,
+            activeIssueCount: summary?.activeIssueCount ?? 0,
+            blockedIssueCount: summary?.blockedIssueCount ?? 0,
             internalBlockedIssueCount: currentTrackerState.status.blockedBreakdown.internal.length,
             externalBlockedIssueCount: currentTrackerState.status.blockedBreakdown.external.length,
             unknownBlockedIssueCount: currentTrackerState.status.blockedBreakdown.unknown.length,
-            activeWorkerCount: trackerSummary?.activeWorkerCount ?? 0,
+            activeWorkerCount: summary?.activeWorkerCount ?? 0,
             isComplete:
-              (trackerSummary?.totalIssueCount ?? 0) > 0 &&
-              (trackerSummary?.completedIssueCount ?? 0) >= (trackerSummary?.totalIssueCount ?? 0),
+              (summary?.totalIssueCount ?? 0) > 0 &&
+              (summary?.completedIssueCount ?? 0) >= (summary?.totalIssueCount ?? 0),
           },
           issues: [...issues.values()]
             .filter((issue) => issue.parent?.id === epicIssueId)
@@ -913,58 +893,10 @@ export async function createEpicRunSchedulerHarness(
         return Effect.succeed(updated);
       }),
     getContext: () => Effect.fail(beadsError("unexpected getContext call")),
-    getEpicRunSupport: () => Effect.succeed(readTrackerStateSnapshot().support),
     getIssueGraph: () => Effect.fail(beadsError("unexpected getIssueGraph call")),
-    getEpicTrackerSummary: () =>
-      Effect.succeed(readTrackerStateSnapshot().validation.trackerSummary),
-    validateEpicRun: () => Effect.succeed(readTrackerStateSnapshot().validation),
-    getEpicTrackerStatus: () => Effect.succeed(readTrackerStateSnapshot().status),
-    initializeEpicTracker: ({ epicIssueId }) =>
-      Effect.suspend(() => {
-        initializeEpicTrackerCallCount += 1;
-
-        if (options.initializeEpicTrackerMode === "fail") {
-          return Effect.fail(
-            beadsError(
-              options.initializeEpicTrackerErrorMessage ??
-                `Failed to initialize epic tracker for ${epicIssueId}: simulated initialization failure.`,
-            ),
-          );
-        }
-
-        const currentTrackerSummary =
-          trackerState.validation.trackerSummary ?? trackerState.status.trackerSummary;
-        const trackerSummary = currentTrackerSummary ?? {
-          trackerId: `SWARM-${epicIssueId}`,
-          epicId: epicIssueId,
-          epicTitle: trackerState.validation.epicTitle,
-          totalIssueCount:
-            trackerState.status.completed.length +
-            trackerState.status.active.length +
-            trackerState.status.ready.length +
-            trackerState.status.blocked.length,
-          completedIssueCount: trackerState.status.completed.length,
-          activeIssueCount: trackerState.status.active.length,
-          readyIssueCount: trackerState.status.ready.length,
-          blockedIssueCount: trackerState.status.blocked.length,
-          activeWorkerCount: 0,
-        };
-
-        trackerState = {
-          ...trackerState,
-          validation: {
-            ...trackerState.validation,
-            trackerSummary,
-          },
-          status: {
-            ...trackerState.status,
-            trackerSummary,
-          },
-        };
-
-        return Effect.succeed(trackerSummary);
-      }),
-    loadEpicCoordinatorTrackerState: ({ issueSummary }) =>
+    validateEpicCoordination: () => Effect.succeed(readTrackerStateSnapshot().validation),
+    getEpicCoordinationStatus: () => Effect.succeed(readTrackerStateSnapshot().status),
+    loadEpicCoordinationState: ({ issueSummary }) =>
       Effect.sync(() => {
         const currentTrackerState = readTrackerStateSnapshot();
         return {
@@ -1085,7 +1017,6 @@ export async function createEpicRunSchedulerHarness(
       pendingTrackerStateSnapshot = null;
       pendingTrackerStateReadsRemaining = 0;
     },
-    getInitializeEpicTrackerCallCount: () => initializeEpicTrackerCallCount,
     getReadModelCallCount: () => readModelCallCount,
     patchReadModel: (transform) => {
       readModel = transform(readModel);

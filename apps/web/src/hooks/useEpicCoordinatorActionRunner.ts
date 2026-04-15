@@ -42,15 +42,7 @@ export function getCoordinatorActionBusyKey(action: CoordinatorActionInput): str
 export function getCoordinatorPrimaryActionInput(
   epic: BeadsCoordinatorEpicSnapshot,
 ): CoordinatorActionInput | null {
-  const primaryAction = epic.primaryAction as typeof epic.primaryAction & {
-    kind:
-      | "unsupported"
-      | "open_coordination_prep_thread"
-      | "refresh_epic_status"
-      | "start_epic_run"
-      | "stop_epic_run"
-      | "open_coordinator";
-  };
+  const primaryAction = epic.primaryAction;
   const activeRun = epic.activeRunId
     ? (epic.runs.find((run) => run.runId === epic.activeRunId) ?? null)
     : null;
@@ -86,8 +78,6 @@ export function getCoordinatorPrimaryActionInput(
         runId: target?.runId ?? null,
       };
     }
-    case "unsupported":
-      return null;
   }
 }
 
@@ -100,7 +90,7 @@ export function describeCoordinatorActionError(actionKind: CoordinatorActionInpu
     case "stop_epic_run":
       return "Unable to stop run";
     case "refresh_epic_status":
-      return "Unable to refresh tracker status";
+      return "Unable to refresh coordination status";
     case "open_coordinator":
       return "Unable to open coordinator";
   }

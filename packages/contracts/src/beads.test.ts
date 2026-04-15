@@ -5,7 +5,7 @@ import { Effect, Schema } from "effect";
 import {
   BeadsContext,
   BeadsEpicIssueSummaries,
-  BeadsEpicTrackerDetail,
+  BeadsEpicCoordinationDetail,
   BeadsIssueGraph,
   BeadsIssueSummary,
   BeadsQueryIssuesInput,
@@ -14,13 +14,13 @@ import {
   BeadsStartBacklogGroomingInput,
   BeadsStartEpicCoordinationPrepInput,
   BeadsStartWorkflowInput,
-  BeadsEpicTrackerStatus,
-  BeadsEpicRunValidation,
+  BeadsEpicCoordinationStatus,
+  BeadsEpicCoordinationValidation,
 } from "./beads";
 
 const decodeBeadsContext = Schema.decodeUnknownEffect(BeadsContext);
 const decodeBeadsEpicIssueSummaries = Schema.decodeUnknownEffect(BeadsEpicIssueSummaries);
-const decodeBeadsEpicTrackerDetail = Schema.decodeUnknownEffect(BeadsEpicTrackerDetail);
+const decodeBeadsEpicCoordinationDetail = Schema.decodeUnknownEffect(BeadsEpicCoordinationDetail);
 const decodeBeadsIssueGraph = Schema.decodeUnknownEffect(BeadsIssueGraph);
 const decodeBeadsIssueSummary = Schema.decodeUnknownEffect(BeadsIssueSummary);
 const decodeBeadsQueryIssuesInput = Schema.decodeUnknownEffect(BeadsQueryIssuesInput);
@@ -33,8 +33,10 @@ const decodeBeadsStartEpicCoordinationPrepInput = Schema.decodeUnknownEffect(
   BeadsStartEpicCoordinationPrepInput,
 );
 const decodeBeadsStartWorkflowInput = Schema.decodeUnknownEffect(BeadsStartWorkflowInput);
-const decodeBeadsEpicTrackerStatus = Schema.decodeUnknownEffect(BeadsEpicTrackerStatus);
-const decodeBeadsEpicRunValidation = Schema.decodeUnknownEffect(BeadsEpicRunValidation);
+const decodeBeadsEpicCoordinationStatus = Schema.decodeUnknownEffect(BeadsEpicCoordinationStatus);
+const decodeBeadsEpicCoordinationValidation = Schema.decodeUnknownEffect(
+  BeadsEpicCoordinationValidation,
+);
 
 it.effect("decodes beads context with backend metadata", () =>
   Effect.gen(function* () {
@@ -127,15 +129,15 @@ it.effect("accepts created/title issue sorting inputs", () =>
   }),
 );
 
-it.effect("defaults optional swarm validation metadata", () =>
+it.effect("defaults optional coordination validation metadata", () =>
   Effect.gen(function* () {
-    const parsed = yield* decodeBeadsEpicRunValidation({
+    const parsed = yield* decodeBeadsEpicCoordinationValidation({
       epicId: "epic-1",
       epicTitle: "Epic",
       valid: true,
     });
 
-    assert.strictEqual(parsed.trackerSummary, null);
+    assert.strictEqual(parsed.summary, null);
     assert.deepStrictEqual(parsed.errors, []);
     assert.deepStrictEqual(parsed.warnings, []);
     assert.deepStrictEqual(parsed.readyFronts, []);
@@ -144,9 +146,9 @@ it.effect("defaults optional swarm validation metadata", () =>
   }),
 );
 
-it.effect("defaults swarm status blocked breakdown for historical payloads", () =>
+it.effect("defaults coordination status blocked breakdown for historical payloads", () =>
   Effect.gen(function* () {
-    const parsed = yield* decodeBeadsEpicTrackerStatus({
+    const parsed = yield* decodeBeadsEpicCoordinationStatus({
       epicId: "epic-1",
       epicTitle: "Epic",
       completed: [],
@@ -264,17 +266,11 @@ it.effect("defaults focused coordinator collections", () =>
         isComplete: false,
       },
     });
-    const detail = yield* decodeBeadsEpicTrackerDetail({
+    const detail = yield* decodeBeadsEpicCoordinationDetail({
       epicId: "epic-1",
-      support: {
-        supported: true,
-        backend: {
-          kind: "dolt",
-        },
-      },
-      trackerLoadState: "ready",
+      coordinationLoadState: "ready",
       validationState: "valid",
-      trackerState: "not_started",
+      coordinationState: "not_started",
       primaryAction: {
         kind: "start_epic_run",
         label: "Start run",
@@ -285,9 +281,9 @@ it.effect("defaults focused coordinator collections", () =>
 
     assert.deepStrictEqual(project.epics, []);
     assert.deepStrictEqual(summaries.issues, []);
-    assert.strictEqual(detail.trackerLoadDetail, null);
+    assert.strictEqual(detail.coordinationLoadDetail, null);
     assert.deepStrictEqual(detail.validationErrors, []);
-    assert.strictEqual(detail.trackerSummary, null);
+    assert.strictEqual(detail.summary, null);
     assert.strictEqual(detail.validation, null);
     assert.strictEqual(detail.status, null);
   }),

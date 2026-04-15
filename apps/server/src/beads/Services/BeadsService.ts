@@ -5,15 +5,14 @@ import type {
   BeadsEpicIssueSummaries,
   BeadsEpicIssueSummariesInput,
   BeadsEpicIssueInput,
-  BeadsEpicTrackerDetail,
-  BeadsEpicTrackerDetailInput,
+  BeadsEpicCoordinationDetail,
+  BeadsEpicCoordinationDetailInput,
   BeadsGetContextInput,
   BeadsGetIssueInput,
   BeadsGetIssuesInput,
   BeadsGetIssuesResult,
   BeadsGetSessionActivityInput,
   BeadsGetSessionActivityResult,
-  BeadsGetEpicRunSupportInput,
   BeadsIssueDetail,
   BeadsIssueGraph,
   BeadsProjectRunSummary,
@@ -26,10 +25,8 @@ import type {
   BeadsStartEpicCoordinationPrepInput,
   BeadsStartWorkflowInput,
   BeadsStartWorkflowResult,
-  BeadsEpicTrackerStatus,
-  BeadsEpicTrackerSummary,
-  BeadsEpicRunSupport,
-  BeadsEpicRunValidation,
+  BeadsEpicCoordinationStatus,
+  BeadsEpicCoordinationValidation,
   BeadsUpdateIssueInput,
   BeadsIssueSummary,
 } from "@t3tools/contracts";
@@ -56,30 +53,24 @@ export interface BeadsServiceShape {
     input: BeadsCommentIssueInput,
   ) => Effect.Effect<BeadsIssueDetail, BeadsError>;
   readonly getContext: (input: BeadsGetContextInput) => Effect.Effect<BeadsContext, BeadsError>;
-  readonly getEpicRunSupport: (
-    input: BeadsGetEpicRunSupportInput,
-  ) => Effect.Effect<BeadsEpicRunSupport, BeadsError>;
   readonly getIssueGraph: (
     input: BeadsEpicIssueInput,
   ) => Effect.Effect<BeadsIssueGraph, BeadsError>;
-  readonly getEpicTrackerSummary: (
+  readonly validateEpicCoordination: (
     input: BeadsEpicIssueInput,
-  ) => Effect.Effect<BeadsEpicTrackerSummary | null, BeadsError>;
-  readonly validateEpicRun: (
+  ) => Effect.Effect<BeadsEpicCoordinationValidation, BeadsError>;
+  readonly getEpicCoordinationStatus: (
     input: BeadsEpicIssueInput,
-  ) => Effect.Effect<BeadsEpicRunValidation, BeadsError>;
-  readonly getEpicTrackerStatus: (
-    input: BeadsEpicIssueInput,
-  ) => Effect.Effect<BeadsEpicTrackerStatus, BeadsError>;
+  ) => Effect.Effect<BeadsEpicCoordinationStatus, BeadsError>;
   readonly getProjectRunSummary: (
     input: BeadsProjectRunSummaryInput,
   ) => Effect.Effect<BeadsProjectRunSummary, BeadsError>;
   readonly getEpicIssueSummaries: (
     input: BeadsEpicIssueSummariesInput,
   ) => Effect.Effect<BeadsEpicIssueSummaries, BeadsError>;
-  readonly getEpicTrackerDetail: (
-    input: BeadsEpicTrackerDetailInput,
-  ) => Effect.Effect<BeadsEpicTrackerDetail, BeadsError>;
+  readonly getEpicCoordinationDetail: (
+    input: BeadsEpicCoordinationDetailInput,
+  ) => Effect.Effect<BeadsEpicCoordinationDetail, BeadsError>;
   readonly getSessionActivity: (
     input: BeadsGetSessionActivityInput,
   ) => Effect.Effect<BeadsGetSessionActivityResult, BeadsError>;

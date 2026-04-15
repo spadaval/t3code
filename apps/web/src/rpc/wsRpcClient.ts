@@ -128,14 +128,18 @@ export interface WsRpcClient {
     readonly updateIssue: RpcUnaryMethod<typeof BEADS_WS_METHODS.updateIssue>;
     readonly commentIssue: RpcUnaryMethod<typeof BEADS_WS_METHODS.commentIssue>;
     readonly getContext: RpcUnaryMethod<typeof BEADS_WS_METHODS.getContext>;
-    readonly getEpicRunSupport: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicRunSupport>;
     readonly getIssueGraph: RpcUnaryMethod<typeof BEADS_WS_METHODS.getIssueGraph>;
-    readonly getEpicTrackerSummary: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicTrackerSummary>;
-    readonly validateEpicRun: RpcUnaryMethod<typeof BEADS_WS_METHODS.validateEpicRun>;
-    readonly getEpicTrackerStatus: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicTrackerStatus>;
+    readonly validateEpicCoordination: RpcUnaryMethod<
+      typeof BEADS_WS_METHODS.validateEpicCoordination
+    >;
+    readonly getEpicCoordinationStatus: RpcUnaryMethod<
+      typeof BEADS_WS_METHODS.getEpicCoordinationStatus
+    >;
     readonly getProjectRunSummary: RpcUnaryMethod<typeof BEADS_WS_METHODS.getProjectRunSummary>;
     readonly getEpicIssueSummaries: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicIssueSummaries>;
-    readonly getEpicTrackerDetail: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicTrackerDetail>;
+    readonly getEpicCoordinationDetail: RpcUnaryMethod<
+      typeof BEADS_WS_METHODS.getEpicCoordinationDetail
+    >;
     readonly getSessionActivity: RpcUnaryMethod<typeof BEADS_WS_METHODS.getSessionActivity>;
     readonly startWorkflow: RpcUnaryMethod<typeof BEADS_WS_METHODS.startWorkflow>;
     readonly startBacklogGrooming: RpcUnaryMethod<typeof BEADS_WS_METHODS.startBacklogGrooming>;
@@ -305,22 +309,18 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[BEADS_WS_METHODS.commentIssue](input)),
       getContext: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.getContext](input)),
-      getEpicRunSupport: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.getEpicRunSupport](input)),
       getIssueGraph: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.getIssueGraph](input)),
-      getEpicTrackerSummary: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.getEpicTrackerSummary](input)),
-      validateEpicRun: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.validateEpicRun](input)),
-      getEpicTrackerStatus: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.getEpicTrackerStatus](input)),
+      validateEpicCoordination: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.validateEpicCoordination](input)),
+      getEpicCoordinationStatus: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getEpicCoordinationStatus](input)),
       getProjectRunSummary: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.getProjectRunSummary](input)),
       getEpicIssueSummaries: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.getEpicIssueSummaries](input)),
-      getEpicTrackerDetail: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.getEpicTrackerDetail](input)),
+      getEpicCoordinationDetail: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getEpicCoordinationDetail](input)),
       getSessionActivity: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.getSessionActivity](input)),
       startWorkflow: (input) =>

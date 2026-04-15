@@ -2,22 +2,21 @@ import { Effect, Layer } from "effect";
 
 import { BeadsTrackerService } from "../../beads/Services/BeadsTrackerService.ts";
 import {
-  EpicTrackerSnapshotReader,
-  type EpicTrackerSnapshot,
+  EpicCoordinationSnapshotReader,
+  type EpicCoordinationSnapshot,
 } from "../Services/EpicTrackerSnapshotReader.ts";
 
-const makeEpicTrackerSnapshotReader = Effect.gen(function* () {
+const makeEpicCoordinationSnapshotReader = Effect.gen(function* () {
   const beadsTracker = yield* BeadsTrackerService;
 
   const readSnapshot = (input: { readonly cwd: string; readonly epicIssueId: string }) =>
     Effect.all(
       [
-        beadsTracker.getEpicRunSupport({ cwd: input.cwd }),
-        beadsTracker.validateEpicRun({
+        beadsTracker.validateEpicCoordination({
           cwd: input.cwd,
           epicIssueId: input.epicIssueId,
         }),
-        beadsTracker.getEpicTrackerStatus({
+        beadsTracker.getEpicCoordinationStatus({
           cwd: input.cwd,
           epicIssueId: input.epicIssueId,
         }),
@@ -25,12 +24,11 @@ const makeEpicTrackerSnapshotReader = Effect.gen(function* () {
       { concurrency: "unbounded" },
     ).pipe(
       Effect.map(
-        ([support, validation, status]) =>
+        ([validation, status]) =>
           ({
-            support,
             validation,
             status,
-          }) satisfies EpicTrackerSnapshot,
+          }) satisfies EpicCoordinationSnapshot,
       ),
     );
 
@@ -39,7 +37,7 @@ const makeEpicTrackerSnapshotReader = Effect.gen(function* () {
   } as const;
 });
 
-export const EpicTrackerSnapshotReaderLive = Layer.effect(
-  EpicTrackerSnapshotReader,
-  makeEpicTrackerSnapshotReader,
+export const EpicCoordinationSnapshotReaderLive = Layer.effect(
+  EpicCoordinationSnapshotReader,
+  makeEpicCoordinationSnapshotReader,
 );

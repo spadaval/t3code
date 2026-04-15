@@ -1,9 +1,4 @@
-import {
-  DEFAULT_MODEL_BY_PROVIDER,
-  type EnvironmentId,
-  type ModelSelection,
-  type ThreadId,
-} from "@t3tools/contracts";
+import { type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef } from "react";
@@ -18,6 +13,7 @@ import {
   beadsQueryIssuesOptions,
   beadsUpdateIssueMutationOptions,
 } from "~/lib/beadsReactQuery";
+import { resolveFallbackModelSelection } from "~/lib/modelSelection";
 import { isIssueDoneStatus } from "~/lib/issueConstants";
 import { issueStatusesForVisibility } from "~/lib/issuePanelLogic";
 import { cn } from "~/lib/utils";
@@ -34,18 +30,6 @@ import type { IssueContextAction } from "./issue/issueContextMenu";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
 import { toastManager } from "./ui/toast";
-
-function resolveFallbackModelSelection(
-  modelSelection: ModelSelection | null | undefined,
-): ModelSelection {
-  if (modelSelection) {
-    return modelSelection;
-  }
-  return {
-    provider: "codex",
-    model: DEFAULT_MODEL_BY_PROVIDER.codex,
-  };
-}
 
 export function IssueSidebar(props: {
   environmentId: EnvironmentId;

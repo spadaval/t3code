@@ -1,5 +1,5 @@
 import type {
-  BeadsEpicTrackerDetail,
+  BeadsEpicCoordinationDetail,
   BeadsProjectRunSummary,
   BeadsIssueSummary,
   ProjectId,
@@ -76,7 +76,7 @@ function IssueWorkflowActionsContent(props: {
 
 function renderIssueWorkflowActions(input: {
   issue: BeadsIssueSummary;
-  epicTrackerDetail?: BeadsEpicTrackerDetail | undefined;
+  epicCoordinationDetail?: BeadsEpicCoordinationDetail | undefined;
   projectRunSummary?: BeadsProjectRunSummary | undefined;
   showEpicLaunchActions?: boolean;
 }) {
@@ -90,14 +90,14 @@ function renderIssueWorkflowActions(input: {
       input.projectRunSummary,
     );
   }
-  if (input.epicTrackerDetail) {
+  if (input.epicCoordinationDetail) {
     queryClient.setQueryData(
-      beadsQueryKeys.epicTrackerDetail({
+      beadsQueryKeys.epicCoordinationDetail({
         cwd: "/repo",
         projectId: PROJECT_ID,
         epicIssueId: input.issue.id,
       }),
-      input.epicTrackerDetail,
+      input.epicCoordinationDetail,
     );
   }
 
@@ -135,26 +135,14 @@ describe("IssueWorkflowActions", () => {
         title: "Epic 1",
         issueType: "epic",
       }),
-      epicTrackerDetail: {
+      epicCoordinationDetail: {
         epicId: "EPIC-1",
-        support: {
-          supported: true,
-          reason: null,
-          backend: {
-            kind: "dolt",
-            doltMode: null,
-            database: null,
-            projectId: null,
-            role: null,
-            bdVersion: null,
-          },
-        },
-        trackerLoadState: "ready",
-        trackerLoadDetail: null,
+        coordinationLoadState: "ready",
+        coordinationLoadDetail: null,
         validationState: "valid",
         validationErrors: [],
-        trackerState: "not_started",
-        trackerSummary: null,
+        coordinationState: "not_started",
+        summary: null,
         validation: null,
         status: null,
         primaryAction: {

@@ -1,7 +1,7 @@
 import type {
   BeadsCoordinatorEpicSnapshot,
+  BeadsEpicCoordinationDetail,
   BeadsEpicIssueSummaries,
-  BeadsEpicTrackerDetail,
   BeadsProjectRunSummary,
 } from "@t3tools/contracts";
 import {
@@ -30,7 +30,7 @@ export function composeCoordinatorEpicSnapshot(input: {
   readonly epicIssueId: string;
   readonly projectRunSummary: BeadsProjectRunSummary | null;
   readonly epicIssueSummaries?: BeadsEpicIssueSummaries | null;
-  readonly epicTrackerDetail: BeadsEpicTrackerDetail;
+  readonly epicCoordinationDetail: BeadsEpicCoordinationDetail;
 }): BeadsCoordinatorEpicSnapshot {
   const runSummary =
     input.projectRunSummary?.epics.find((epic) => epic.epicIssueId === input.epicIssueId) ?? null;
@@ -45,15 +45,13 @@ export function composeCoordinatorEpicSnapshot(input: {
     epicId: input.epicIssueId,
     epicTitle: input.epicIssueSummaries?.epicTitle ?? runSummary?.epicTitle ?? input.epicIssueId,
     issue: null,
-    trackerLoadState: input.epicTrackerDetail.trackerLoadState,
-    trackerLoadDetail: input.epicTrackerDetail.trackerLoadDetail,
-    coordinationSupported: input.epicTrackerDetail.support.supported,
-    coordinationUnsupportedReason: input.epicTrackerDetail.support.reason,
-    validationState: input.epicTrackerDetail.validationState,
-    validationErrors: input.epicTrackerDetail.validationErrors,
-    trackerState: input.epicTrackerDetail.trackerState,
+    coordinationLoadState: input.epicCoordinationDetail.coordinationLoadState,
+    coordinationLoadDetail: input.epicCoordinationDetail.coordinationLoadDetail,
+    validationState: input.epicCoordinationDetail.validationState,
+    validationErrors: input.epicCoordinationDetail.validationErrors,
+    coordinationState: input.epicCoordinationDetail.coordinationState,
     progress: input.epicIssueSummaries?.progress ?? emptyProgress(),
-    primaryAction: input.epicTrackerDetail.primaryAction,
+    primaryAction: input.epicCoordinationDetail.primaryAction,
     activeRunId,
     activeExecutionId,
     projectConflict:
@@ -63,9 +61,9 @@ export function composeCoordinatorEpicSnapshot(input: {
             run: conflictRun,
             message: describeSharedWorkspaceProjectConflict(conflictRun),
           },
-    trackerSummary: input.epicTrackerDetail.trackerSummary,
-    validation: input.epicTrackerDetail.validation,
-    status: input.epicTrackerDetail.status,
+    summary: input.epicCoordinationDetail.summary,
+    validation: input.epicCoordinationDetail.validation,
+    status: input.epicCoordinationDetail.status,
     runs,
     executions,
   };

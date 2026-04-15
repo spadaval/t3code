@@ -1,9 +1,9 @@
 import type {
+  BeadsCoordinatorEpicSnapshot,
+  BeadsEpicCoordinationSummary,
   BeadsIssueSortBy,
   BeadsIssueSummary,
-  BeadsEpicTrackerSummary,
   OrchestrationEpicRun,
-  BeadsCoordinatorEpicSnapshot,
 } from "@t3tools/contracts";
 import { topologicallySortByDependencies } from "@t3tools/shared/dependencyOrder";
 import type { IssueTreeForest, IssueTreeNode } from "~/lib/issueTree";
@@ -215,10 +215,10 @@ export interface CoordinatorAnalysisResult {
     totalCompletedIssues: number;
     totalIssues: number;
   };
-  filteredEpicSummaries: readonly BeadsEpicTrackerSummary[];
-  selectedEpicSummary: BeadsEpicTrackerSummary | null;
+  filteredEpicSummaries: readonly BeadsEpicCoordinationSummary[];
+  selectedEpicSummary: BeadsEpicCoordinationSummary | null;
   hasActivity: boolean;
-  needsAttention: readonly BeadsEpicTrackerSummary[];
+  needsAttention: readonly BeadsEpicCoordinationSummary[];
 }
 
 /**
@@ -226,7 +226,7 @@ export interface CoordinatorAnalysisResult {
  * Pure function for testable coordinator logic.
  */
 export function analyzeCoordinatorState(
-  trackerSummaries: readonly BeadsEpicTrackerSummary[],
+  trackerSummaries: readonly BeadsEpicCoordinationSummary[],
   options: CoordinatorAnalysisOptions = {},
 ): CoordinatorAnalysisResult {
   const { showOnlyActive = false, selectedEpicId = null } = options;
@@ -293,7 +293,7 @@ export interface EpicCoordinationResult {
   epics: readonly BeadsCoordinatorEpicSnapshot[];
   prioritizedEpics: readonly BeadsCoordinatorEpicSnapshot[];
   epicById: Map<string, BeadsCoordinatorEpicSnapshot>;
-  epicSummaryById: Map<string, BeadsEpicTrackerSummary>;
+  epicSummaryById: Map<string, BeadsEpicCoordinationSummary>;
   runsByEpic: Map<string, readonly OrchestrationEpicRun[]>;
 }
 
@@ -303,7 +303,7 @@ export interface EpicCoordinationResult {
  */
 export function analyzeEpicCoordination(
   epics: readonly BeadsCoordinatorEpicSnapshot[],
-  trackerSummaries: readonly BeadsEpicTrackerSummary[],
+  trackerSummaries: readonly BeadsEpicCoordinationSummary[],
   epicRuns: readonly OrchestrationEpicRun[],
 ): EpicCoordinationResult {
   // Create lookup maps
@@ -312,7 +312,7 @@ export function analyzeEpicCoordination(
     epicById.set(epic.epicId, epic);
   }
 
-  const epicSummaryById = new Map<string, BeadsEpicTrackerSummary>();
+  const epicSummaryById = new Map<string, BeadsEpicCoordinationSummary>();
   for (const trackerSummary of trackerSummaries) {
     epicSummaryById.set(trackerSummary.epicId, trackerSummary);
   }
@@ -338,19 +338,17 @@ export function analyzeEpicCoordination(
     if (b.activeRunId !== null && a.activeRunId === null) return 1;
 
     // Then tracker work already in progress.
-    if (a.trackerState === "in_progress" && b.trackerState !== "in_progress") return -1;
-    if (b.trackerState === "in_progress" && a.trackerState !== "in_progress") return 1;
+    if (a.coordinationState === "in_progress" && b.coordinationState !== "in_progress") return -1;
+    if (b.coordinationState === "in_progress" && a.coordinationState !== "in_progress") return 1;
 
     // Then epics that are valid to start.
     const aReady =
-      a.coordinationSupported &&
       a.validationState === "valid" &&
-      a.trackerState !== "completed" &&
+      a.coordinationState !== "completed" &&
       a.activeRunId === null;
     const bReady =
-      b.coordinationSupported &&
       b.validationState === "valid" &&
-      b.trackerState !== "completed" &&
+      b.coordinationState !== "completed" &&
       b.activeRunId === null;
     if (aReady && !bReady) return -1;
     if (bReady && !aReady) return 1;
@@ -926,7 +924,7 @@ export function validateIssueState(
  * Validates coordinator state for operational readiness.
  */
 export function validateCoordinatorState(
-  trackerSummaries: readonly BeadsEpicTrackerSummary[],
+  trackerSummaries: readonly BeadsEpicCoordinationSummary[],
   epics: readonly BeadsCoordinatorEpicSnapshot[],
   runs: readonly OrchestrationEpicRun[],
 ): ValidationResult {
@@ -937,9 +935,7 @@ export function validateCoordinatorState(
   const epicIds = new Set(epics.map((e) => e.epicId));
   for (const trackerSummary of trackerSummaries) {
     if (!epicIds.has(trackerSummary.epicId)) {
-      warnings.push(
-        `Epic tracker ${trackerSummary.trackerId} references missing epic ${trackerSummary.epicId}`,
-      );
+      warnings.push(`Epic coordination summary references missing epic ${trackerSummary.epicId}`);
     }
   }
 
