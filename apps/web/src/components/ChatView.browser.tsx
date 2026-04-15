@@ -5582,6 +5582,28 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("shows the convert to beads action in the implementation menu", async () => {
+    const mounted = await mountChatView({
+      viewport: WIDE_FOOTER_VIEWPORT,
+      snapshot: createSnapshotWithPlanFollowUpPrompt(),
+    });
+
+    try {
+      const implementActionsButton = await waitForElement(
+        () =>
+          document.querySelector<HTMLButtonElement>('button[aria-label="Implementation actions"]'),
+        "Unable to find implementation actions trigger.",
+      );
+
+      implementActionsButton.click();
+
+      await expect.element(page.getByText("Implement in a new thread")).toBeInTheDocument();
+      await expect.element(page.getByText("Convert to beads")).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("keeps the wide desktop follow-up layout expanded when the footer still fits", async () => {
     const mounted = await mountChatView({
       viewport: WIDE_FOOTER_VIEWPORT,

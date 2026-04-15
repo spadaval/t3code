@@ -1,3 +1,10 @@
+import {
+  buildPlanImplementationPrompt as buildPlanImplementationPromptShared,
+  buildPlanImplementationThreadTitle as buildPlanImplementationThreadTitleShared,
+  buildPlanToBeadsPrompt as buildPlanToBeadsPromptShared,
+  buildPlanToBeadsThreadTitle as buildPlanToBeadsThreadTitleShared,
+} from "@t3tools/shared/plan";
+
 export function proposedPlanTitle(planMarkdown: string): string | null {
   const heading = planMarkdown.match(/^\s{0,3}#{1,6}\s+(.+)$/m)?.[1]?.trim();
   return heading && heading.length > 0 ? heading : null;
@@ -71,15 +78,11 @@ function sanitizePlanFileSegment(input: string): string {
 }
 
 export function buildPlanImplementationPrompt(planMarkdown: string): string {
-  return `PLEASE IMPLEMENT THIS PLAN:\n${planMarkdown.trim()}`;
+  return buildPlanImplementationPromptShared(planMarkdown);
 }
 
 export function buildPlanToBeadsPrompt(planMarkdown: string): string {
-  return [
-    "PLEASE CONVERT THIS PLAN INTO BEADS ISSUES.",
-    "Generate the necessary beads issues with `bd` for this plan instead of implementing it.",
-    planMarkdown.trim(),
-  ].join("\n\n");
+  return buildPlanToBeadsPromptShared(planMarkdown);
 }
 
 export function resolvePlanFollowUpSubmission(input: { draftText: string; planMarkdown: string }): {
@@ -101,22 +104,11 @@ export function resolvePlanFollowUpSubmission(input: { draftText: string; planMa
 }
 
 export function buildPlanImplementationThreadTitle(planMarkdown: string): string {
-  const title = proposedPlanTitle(planMarkdown);
-  if (!title) {
-    return "Implement plan";
-  }
-  return `Implement ${title}`;
-<<<<<<< HEAD
-=======
+  return buildPlanImplementationThreadTitleShared(planMarkdown);
 }
 
 export function buildPlanToBeadsThreadTitle(planMarkdown: string): string {
-  const title = proposedPlanTitle(planMarkdown);
-  if (!title) {
-    return "Convert plan to beads";
-  }
-  return `Convert ${title} to beads`;
->>>>>>> 2dfcca755 (Move tracker launch flows into the issues page)
+  return buildPlanToBeadsThreadTitleShared(planMarkdown);
 }
 
 export function buildProposedPlanMarkdownFilename(planMarkdown: string): string {

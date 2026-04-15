@@ -274,6 +274,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
+  onConvertPlanToBeads: () => void;
 }) {
   return (
     <>
@@ -294,6 +295,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
         onInterrupt={props.onInterrupt}
         onImplementPlanInNewThread={props.onImplementPlanInNewThread}
+        onConvertPlanToBeads={props.onConvertPlanToBeads}
       />
     </>
   );
@@ -413,6 +415,7 @@ export interface ChatComposerProps {
   onSend: (e?: { preventDefault: () => void }) => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
+  onConvertPlanToBeads: () => void;
   onRespondToApproval: (
     requestId: ApprovalRequestId,
     decision: ProviderApprovalDecision,
@@ -493,6 +496,7 @@ export const ChatComposer = memo(
       onSend,
       onInterrupt,
       onImplementPlanInNewThread,
+      onConvertPlanToBeads,
       onRespondToApproval,
       onSelectActivePendingUserInputOption,
       onAdvanceActivePendingUserInput,
@@ -1604,6 +1608,9 @@ export const ChatComposer = memo(
     const handleImplementPlanInNewThreadPrimaryAction = useCallback(() => {
       void onImplementPlanInNewThread();
     }, [onImplementPlanInNewThread]);
+    const handleConvertPlanToBeadsPrimaryAction = useCallback(() => {
+      void onConvertPlanToBeads();
+    }, [onConvertPlanToBeads]);
 
     // ------------------------------------------------------------------
     // Imperative handle
@@ -1978,6 +1985,7 @@ export const ChatComposer = memo(
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                     onInterrupt={handleInterruptPrimaryAction}
                     onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
+                    onConvertPlanToBeads={handleConvertPlanToBeadsPrimaryAction}
                   />
                 </div>
               </div>

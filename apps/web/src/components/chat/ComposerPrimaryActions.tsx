@@ -25,6 +25,7 @@ interface ComposerPrimaryActionsProps {
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
+  onConvertPlanToBeads: () => void;
 }
 
 export const formatPendingPrimaryActionLabel = (input: {
@@ -58,6 +59,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   onPreviousPendingQuestion,
   onInterrupt,
   onImplementPlanInNewThread,
+  onConvertPlanToBeads,
 }: ComposerPrimaryActionsProps) {
   if (pendingAction) {
     return (
@@ -165,6 +167,12 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
               onClick={() => void onImplementPlanInNewThread()}
             >
               Implement in a new thread
+            </MenuItem>
+            <MenuItem
+              disabled={isSendBusy || isConnecting}
+              onClick={() => void onConvertPlanToBeads()}
+            >
+              Convert to beads
             </MenuItem>
           </MenuPopup>
         </Menu>

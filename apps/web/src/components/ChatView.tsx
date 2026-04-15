@@ -78,6 +78,8 @@ import { useUiStateStore } from "../uiStateStore";
 import {
   buildPlanImplementationThreadTitle,
   buildPlanImplementationPrompt,
+  buildPlanToBeadsPrompt,
+  buildPlanToBeadsThreadTitle,
   resolvePlanFollowUpSubmission,
 } from "../proposedPlan";
 import {
@@ -3158,133 +3160,162 @@ export default function ChatView(props: ChatViewProps) {
     ],
   );
 
-  const onImplementPlanInNewThread = useCallback(async () => {
-    const api = readEnvironmentApi(environmentId);
-    if (
-      !api ||
-      !activeThread ||
-      !activeProject ||
-      !activeProposedPlan ||
-      !isServerThread ||
-      isSendBusy ||
-      isConnecting ||
-      sendInFlightRef.current
-    ) {
-      return;
-    }
+  const launchPlanPromptInNewThread = useCallback(
+    async (input: { prompt: string; title: string; errorTitle: string }) => {
+      const api = readEnvironmentApi(environmentId);
+      if (
+        !api ||
+        !activeThread ||
+        !activeProject ||
+        !activeProposedPlan ||
+        !isServerThread ||
+        isSendBusy ||
+        isConnecting ||
+        sendInFlightRef.current
+      ) {
+        return;
+      }
 
-    const sendCtx = composerRef.current?.getSendContext();
-    if (!sendCtx) {
-      return;
-    }
-    const {
-      selectedProvider: ctxSelectedProvider,
-      selectedModel: ctxSelectedModel,
-      selectedProviderModels: ctxSelectedProviderModels,
-      selectedPromptEffort: ctxSelectedPromptEffort,
-      selectedModelSelection: ctxSelectedModelSelection,
-    } = sendCtx;
+      const sendCtx = composerRef.current?.getSendContext();
+      if (!sendCtx) {
+        return;
+      }
+      const {
+        selectedProvider: ctxSelectedProvider,
+        selectedModel: ctxSelectedModel,
+        selectedProviderModels: ctxSelectedProviderModels,
+        selectedPromptEffort: ctxSelectedPromptEffort,
+        selectedModelSelection: ctxSelectedModelSelection,
+      } = sendCtx;
 
-    const createdAt = new Date().toISOString();
-    const nextThreadId = newThreadId();
-    const planMarkdown = activeProposedPlan.planMarkdown;
-    const implementationPrompt = buildPlanImplementationPrompt(planMarkdown);
-    const outgoingImplementationPrompt = formatOutgoingPrompt({
-      provider: ctxSelectedProvider,
-      model: ctxSelectedModel,
-      models: ctxSelectedProviderModels,
-      effort: ctxSelectedPromptEffort,
-      text: implementationPrompt,
-    });
-    const nextThreadTitle = truncate(buildPlanImplementationThreadTitle(planMarkdown));
-    const nextThreadModelSelection: ModelSelection = ctxSelectedModelSelection;
+      const createdAt = new Date().toISOString();
+      const nextThreadId = newThreadId();
+      const outgoingPrompt = formatOutgoingPrompt({
+        provider: ctxSelectedProvider,
+        model: ctxSelectedModel,
+        models: ctxSelectedProviderModels,
+        effort: ctxSelectedPromptEffort,
+        text: input.prompt,
+      });
+      const nextThreadTitle = input.title;
+      const nextThreadModelSelection: ModelSelection = ctxSelectedModelSelection;
 
-    sendInFlightRef.current = true;
-    beginLocalDispatch({ preparingWorktree: false });
-    const finish = () => {
-      sendInFlightRef.current = false;
-      resetLocalDispatch();
-    };
+      sendInFlightRef.current = true;
+      beginLocalDispatch({ preparingWorktree: false });
+      const finish = () => {
+        sendInFlightRef.current = false;
+        resetLocalDispatch();
+      };
 
-    await api.orchestration
-      .dispatchCommand({
-        type: "thread.create",
-        commandId: newCommandId(),
-        threadId: nextThreadId,
-        projectId: activeProject.id,
-        title: nextThreadTitle,
-        modelSelection: nextThreadModelSelection,
-        runtimeMode,
-        interactionMode: "default",
-        branch: activeThread.branch,
-        worktreePath: activeThread.worktreePath,
-        createdAt,
-      })
-      .then(() => {
-        return api.orchestration.dispatchCommand({
-          type: "thread.turn.start",
+      await api.orchestration
+        .dispatchCommand({
+          type: "thread.create",
           commandId: newCommandId(),
           threadId: nextThreadId,
-          message: {
-            messageId: newMessageId(),
-            role: "user",
-            text: outgoingImplementationPrompt,
-            attachments: [],
-          },
-          modelSelection: ctxSelectedModelSelection,
-          titleSeed: nextThreadTitle,
+          projectId: activeProject.id,
+          title: nextThreadTitle,
+          modelSelection: nextThreadModelSelection,
           runtimeMode,
           interactionMode: "default",
-          sourceProposedPlan: {
-            threadId: activeThread.id,
-            planId: activeProposedPlan.id,
-          },
+          branch: activeThread.branch,
+          worktreePath: activeThread.worktreePath,
           createdAt,
-        });
-      })
-      .then(() => {
-        return waitForStartedServerThread(scopeThreadRef(activeThread.environmentId, nextThreadId));
-      })
-      .then(() => {
-        // Signal that the plan sidebar should open on the new thread.
-        planSidebarOpenOnNextThreadRef.current = true;
-        return navigate({
-          to: "/$environmentId/$threadId",
-          params: {
-            environmentId: activeThread.environmentId,
-            threadId: nextThreadId,
-          },
-        });
-      })
-      .catch(async (err: unknown) => {
-        await api.orchestration
-          .dispatchCommand({
-            type: "thread.delete",
+        })
+        .then(() => {
+          return api.orchestration.dispatchCommand({
+            type: "thread.turn.start",
             commandId: newCommandId(),
             threadId: nextThreadId,
-          })
-          .catch(() => undefined);
-        toastManager.add({
-          type: "error",
-          title: "Could not start implementation thread",
-          description:
-            err instanceof Error ? err.message : "An error occurred while creating the new thread.",
-        });
-      })
-      .then(finish, finish);
-  }, [
-    activeProject,
-    activeProposedPlan,
-    activeThread,
-    beginLocalDispatch,
-    isConnecting,
-    isSendBusy,
-    isServerThread,
-    navigate,
-    resetLocalDispatch,
-    runtimeMode,
-    environmentId,
-  ]);
+            message: {
+              messageId: newMessageId(),
+              role: "user",
+              text: outgoingPrompt,
+              attachments: [],
+            },
+            modelSelection: ctxSelectedModelSelection,
+            titleSeed: nextThreadTitle,
+            runtimeMode,
+            interactionMode: "default",
+            sourceProposedPlan: {
+              threadId: activeThread.id,
+              planId: activeProposedPlan.id,
+            },
+            createdAt,
+          });
+        })
+        .then(() => {
+          return waitForStartedServerThread(
+            scopeThreadRef(activeThread.environmentId, nextThreadId),
+          );
+        })
+        .then(() => {
+          // Signal that the plan sidebar should open on the new thread.
+          planSidebarOpenOnNextThreadRef.current = true;
+          return navigate({
+            to: "/$environmentId/$threadId",
+            params: {
+              environmentId: activeThread.environmentId,
+              threadId: nextThreadId,
+            },
+          });
+        })
+        .catch(async (err: unknown) => {
+          await api.orchestration
+            .dispatchCommand({
+              type: "thread.delete",
+              commandId: newCommandId(),
+              threadId: nextThreadId,
+            })
+            .catch(() => undefined);
+          toastManager.add({
+            type: "error",
+            title: input.errorTitle,
+            description:
+              err instanceof Error
+                ? err.message
+                : "An error occurred while creating the new thread.",
+          });
+        })
+        .then(finish, finish);
+    },
+    [
+      activeProject,
+      activeProposedPlan,
+      activeThread,
+      beginLocalDispatch,
+      isConnecting,
+      isSendBusy,
+      isServerThread,
+      navigate,
+      resetLocalDispatch,
+      runtimeMode,
+      environmentId,
+    ],
+  );
+
+  const onImplementPlanInNewThread = useCallback(async () => {
+    if (!activeProposedPlan) {
+      return;
+    }
+    const planMarkdown = activeProposedPlan.planMarkdown;
+    await launchPlanPromptInNewThread({
+      prompt: buildPlanImplementationPrompt(planMarkdown),
+      title: truncate(buildPlanImplementationThreadTitle(planMarkdown)),
+      errorTitle: "Could not start implementation thread",
+    });
+  }, [activeProposedPlan, launchPlanPromptInNewThread]);
+
+  const onConvertPlanToBeads = useCallback(async () => {
+    if (!activeProposedPlan) {
+      return;
+    }
+    const planMarkdown = activeProposedPlan.planMarkdown;
+    await launchPlanPromptInNewThread({
+      prompt: buildPlanToBeadsPrompt(planMarkdown),
+      title: truncate(buildPlanToBeadsThreadTitle(planMarkdown)),
+      errorTitle: "Could not start beads conversion thread",
+    });
+  }, [activeProposedPlan, launchPlanPromptInNewThread]);
 
   const onProviderModelSelect = useCallback(
     (provider: ProviderKind, model: string) => {
@@ -3583,6 +3614,7 @@ export default function ChatView(props: ChatViewProps) {
               onSend={onSend}
               onInterrupt={onInterrupt}
               onImplementPlanInNewThread={onImplementPlanInNewThread}
+              onConvertPlanToBeads={onConvertPlanToBeads}
               onRespondToApproval={onRespondToApproval}
               onSelectActivePendingUserInputOption={onSelectActivePendingUserInputOption}
               onAdvanceActivePendingUserInput={onAdvanceActivePendingUserInput}
