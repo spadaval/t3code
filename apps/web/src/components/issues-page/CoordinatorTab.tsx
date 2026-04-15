@@ -1,8 +1,6 @@
 import type {
   BeadsCoordinatorEpicSnapshot,
   BeadsProjectRunSummary,
-  OrchestrationEpicIssueExecution,
-  OrchestrationEpicRun,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -19,7 +17,13 @@ import {
 } from "lucide-react";
 
 import { resolveDefaultModelSelection } from "~/modelSelection";
-import { deriveProgressFromExecutions } from "~/lib/epicRunPresentation";
+import {
+  deriveProgressFromExecutions,
+  executionStatusBadgeVariant,
+  formatExecutionStatus,
+  formatRunStatus,
+  runStatusBadgeVariant,
+} from "~/lib/epicRunPresentation";
 import {
   buildCoordinatorRunEntries,
   describeCoordinatorActionCopy,
@@ -64,74 +68,6 @@ type CoordinatorTabProps = {
   onOpenEpicIssue: (epicId: string) => void;
   onOpenThread: (threadId: ThreadId) => void;
 };
-
-function formatRunStatus(status: OrchestrationEpicRun["status"]): string {
-  switch (status) {
-    case "pending":
-      return "Pending";
-    case "running":
-      return "Running";
-    case "stopping":
-      return "Stopping";
-    case "stopped":
-      return "Stopped";
-    case "failed":
-      return "Failed";
-    case "completed":
-      return "Completed";
-  }
-}
-
-function formatExecutionStatus(status: OrchestrationEpicIssueExecution["status"]): string {
-  switch (status) {
-    case "launching":
-      return "Launching";
-    case "running":
-      return "Running";
-    case "stopping":
-      return "Stopping";
-    case "stopped":
-      return "Stopped";
-    case "failed":
-      return "Failed";
-    case "completed":
-      return "Completed";
-  }
-}
-
-function runStatusBadgeVariant(
-  status: OrchestrationEpicRun["status"],
-): "success" | "error" | "warning" | "info" | "secondary" {
-  switch (status) {
-    case "completed":
-      return "success";
-    case "failed":
-      return "error";
-    case "stopped":
-      return "warning";
-    case "pending":
-    case "running":
-    case "stopping":
-      return "info";
-  }
-}
-
-function executionStatusBadgeVariant(
-  status: OrchestrationEpicIssueExecution["status"],
-): "success" | "error" | "warning" | "info" | "secondary" {
-  switch (status) {
-    case "completed":
-      return "success";
-    case "failed":
-      return "error";
-    case "stopped":
-      return "warning";
-    case "launching":
-    case "running":
-    case "stopping":
-      return "info";
-  }
-}
 
 function toRunSummarySnapshot(
   epic: BeadsProjectRunSummary["epics"][number],

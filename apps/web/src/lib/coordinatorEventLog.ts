@@ -4,6 +4,8 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 
+import { formatDuration } from "./epicRunPresentation";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -31,22 +33,6 @@ export interface CoordinatorLogEntry {
   readonly issueId?: string | undefined;
   /** Worker thread the user can navigate to. */
   readonly workerThreadId?: ThreadId | undefined;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function formatDuration(startIso: string, endIso: string): string {
-  const ms = new Date(endIso).getTime() - new Date(startIso).getTime();
-  if (ms < 0 || !Number.isFinite(ms)) return "";
-  if (ms < 1_000) return `${Math.max(1, Math.round(ms))}ms`;
-  if (ms < 10_000) return `${(ms / 1_000).toFixed(1)}s`;
-  if (ms < 60_000) return `${Math.round(ms / 1_000)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1_000);
-  if (seconds === 0) return `${minutes}m`;
-  return `${minutes}m ${seconds}s`;
 }
 
 // ---------------------------------------------------------------------------

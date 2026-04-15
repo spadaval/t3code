@@ -426,7 +426,9 @@ export function buildWorkGraphData(
 
   // --- 1. Historical run sections (oldest first) ---
   // epic.runs is newest-first from server; reverse non-primary runs for chronological order.
-  const historicalRuns = epic.runs.filter((r) => r.runId !== primaryRun?.runId).toReversed();
+  const historicalRuns = sortRunsByRecency(epic.runs)
+    .filter((run) => run.runId !== primaryRun?.runId)
+    .toReversed();
   for (const run of historicalRuns) {
     const runExecs = runExecutionMap.get(run.runId) ?? [];
     if (runExecs.length === 0) continue; // Skip runs with no executions.

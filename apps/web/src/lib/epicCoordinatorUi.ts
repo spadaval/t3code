@@ -1,5 +1,12 @@
 import type { BeadsCoordinatorEpicSnapshot, OrchestrationEpicRun } from "@t3tools/contracts";
 
+import {
+  compareRunsByRecency,
+  getActiveRun,
+  getLatestRun,
+  summarizeRun,
+} from "./epicRunPresentation";
+
 export type CoordinatorRunSection = "active" | "needsIntervention" | "history";
 
 export interface CoordinatorOutputTarget {
@@ -21,28 +28,15 @@ export interface CoordinatorRunEntry {
   readonly failureMessage: string | null;
 }
 
-function compareRunsByRecency(left: OrchestrationEpicRun, right: OrchestrationEpicRun): number {
-  return (
-    right.updatedAt.localeCompare(left.updatedAt) ||
-    right.requestedAt.localeCompare(left.requestedAt) ||
-    right.runId.localeCompare(left.runId)
-  );
-}
-
 export function getLatestEpicRun(epic: BeadsCoordinatorEpicSnapshot): OrchestrationEpicRun | null {
-  return [...epic.runs].toSorted(compareRunsByRecency)[0] ?? null;
+  return getLatestRun(epic.runs);
 }
 
 export function getActiveEpicRun(epic: BeadsCoordinatorEpicSnapshot): OrchestrationEpicRun | null {
-  if (epic.activeRunId) {
-    return epic.runs.find((run) => run.runId === epic.activeRunId) ?? null;
-  }
-
-  return (
-    epic.runs.find(
-      (run) => run.status === "pending" || run.status === "running" || run.status === "stopping",
-    ) ?? null
-  );
+  return getActiveRun({
+    runs: epic.runs,
+    activeRunId: epic.activeRunId,
+  });
 }
 
 export function resolveEpicOutputTarget(
@@ -72,32 +66,6 @@ export function resolvePrimaryActionOutputTarget(
   return resolveEpicOutputTarget(epic);
 }
 
-function summarizeRun(
-  epic: BeadsCoordinatorEpicSnapshot,
-  run: OrchestrationEpicRun,
-): string | null {
-  const { progress } = epic;
-
-  if (run.status === "failed") {
-    return run.failureContext?.message ?? null;
-  }
-
-  if (run.status === "running" || run.status === "pending" || run.status === "stopping") {
-    if (progress.activeWorkerCount > 0) {
-      return `${progress.activeWorkerCount} worker${progress.activeWorkerCount === 1 ? "" : "s"} active`;
-    }
-    if (progress.activeIssueCount > 0) {
-      return `${progress.activeIssueCount} active issue${progress.activeIssueCount === 1 ? "" : "s"}`;
-    }
-  }
-
-  if (progress.totalIssueCount > 0) {
-    return `${progress.completedIssueCount}/${progress.totalIssueCount} issues done`;
-  }
-
-  return null;
-}
-
 export function buildCoordinatorRunEntries(
   epics: readonly BeadsCoordinatorEpicSnapshot[],
 ): CoordinatorRunEntry[] {
@@ -119,7 +87,7 @@ export function buildCoordinatorRunEntries(
           section: "active",
           epic,
           run,
-          summary: summarizeRun(epic, run),
+          summary: summarizeRun({ run, progress: epic.progress }),
           failureMessage: run.failureContext?.message ?? null,
         });
         continue;
@@ -132,7 +100,7 @@ export function buildCoordinatorRunEntries(
             section: "needsIntervention",
             epic,
             run,
-            summary: summarizeRun(epic, run),
+            summary: summarizeRun({ run, progress: epic.progress }),
             failureMessage: run.failureContext?.message ?? null,
           });
         }
@@ -144,7 +112,7 @@ export function buildCoordinatorRunEntries(
         section: "history",
         epic,
         run,
-        summary: summarizeRun(epic, run),
+        summary: summarizeRun({ run, progress: epic.progress }),
         failureMessage: run.failureContext?.message ?? null,
       });
     }
