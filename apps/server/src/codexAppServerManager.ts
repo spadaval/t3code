@@ -780,8 +780,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       runtimeMode: context.session.runtimeMode,
       resumeCursor: context.session.resumeCursor,
     });
-    if (!effectiveTurnId || !providerThreadId) {
-      return;
+    if (!providerThreadId) {
+      throw new Error("Session is missing provider resume thread id.");
+    }
+    if (!effectiveTurnId) {
+      throw new Error("No active provider turn is available to interrupt.");
     }
 
     await this.sendRequest(context, "turn/interrupt", {

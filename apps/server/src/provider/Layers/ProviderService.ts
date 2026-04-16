@@ -21,6 +21,7 @@ import {
   ProviderStopSessionInput,
   type ProviderRuntimeEvent,
   type ProviderSession,
+  TurnId,
 } from "@t3tools/contracts";
 import { Effect, Layer, Option, PubSub, Schema, SchemaIssue, Stream } from "effect";
 
@@ -139,6 +140,19 @@ function readPersistedCwd(
   if (typeof rawCwd !== "string") return undefined;
   const trimmed = rawCwd.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readPersistedActiveTurnId(
+  runtimePayload: ProviderRuntimeBinding["runtimePayload"],
+): TurnId | undefined {
+  if (!runtimePayload || typeof runtimePayload !== "object" || Array.isArray(runtimePayload)) {
+    return undefined;
+  }
+  const rawActiveTurnId =
+    "activeTurnId" in runtimePayload ? runtimePayload.activeTurnId : undefined;
+  return typeof rawActiveTurnId === "string" && rawActiveTurnId.trim().length > 0
+    ? TurnId.make(rawActiveTurnId)
+    : undefined;
 }
 
 const makeProviderService = Effect.fn("makeProviderService")(function* (
@@ -497,6 +511,10 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       });
       let metricProvider = "unknown";
       return yield* Effect.gen(function* () {
+        const persistedBinding = Option.getOrUndefined(yield* directory.getBinding(input.threadId));
+        const persistedActiveTurnId = readPersistedActiveTurnId(
+          persistedBinding?.runtimePayload ?? null,
+        );
         const routed = yield* resolveRoutableSession({
           threadId: input.threadId,
           operation: "ProviderService.interruptTurn",
@@ -507,9 +525,9 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           "provider.operation": "interrupt-turn",
           "provider.kind": routed.adapter.provider,
           "provider.thread_id": input.threadId,
-          "provider.turn_id": input.turnId,
+          "provider.turn_id": input.turnId ?? persistedActiveTurnId,
         });
-        yield* routed.adapter.interruptTurn(routed.threadId, input.turnId);
+        yield* routed.adapter.interruptTurn(routed.threadId, input.turnId ?? persistedActiveTurnId);
         yield* analytics.record("provider.turn.interrupted", {
           provider: routed.adapter.provider,
         });
