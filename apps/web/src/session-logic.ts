@@ -64,6 +64,24 @@ export interface PendingUserInput {
   questions: ReadonlyArray<UserInputQuestion>;
 }
 
+export interface ProviderActionFailure {
+  id: string;
+  createdAt: string;
+  kind:
+    | "provider.turn.start.failed"
+    | "provider.turn.interrupt.failed"
+    | "provider.approval.respond.failed"
+    | "provider.user-input.respond.failed"
+    | "provider.session.stop.failed";
+  summary: string;
+  detail: string;
+}
+
+export interface RunningSessionStallState {
+  lastActivityAt: string;
+  inactiveForMs: number;
+}
+
 export interface ActivePlanState {
   createdAt: string;
   turnId: TurnId | null;
@@ -128,6 +146,16 @@ export function formatElapsed(startIso: string, endIso: string | undefined): str
 
 type LatestTurnTiming = Pick<OrchestrationLatestTurn, "turnId" | "startedAt" | "completedAt">;
 type SessionActivityState = Pick<ThreadSession, "orchestrationStatus" | "activeTurnId">;
+type RunningSessionState = Pick<ThreadSession, "status" | "updatedAt">;
+
+const RUNNING_SESSION_STALL_THRESHOLD_MS = 5 * 60 * 1000;
+const PROVIDER_ACTION_FAILURE_KINDS = new Set<ProviderActionFailure["kind"]>([
+  "provider.turn.start.failed",
+  "provider.turn.interrupt.failed",
+  "provider.approval.respond.failed",
+  "provider.user-input.respond.failed",
+  "provider.session.stop.failed",
+]);
 
 export function isLatestTurnSettled(
   latestTurn: LatestTurnTiming | null,
@@ -188,6 +216,18 @@ function isStalePendingRequestFailureDetail(detail: string | undefined): boolean
   );
 }
 
+function isNoActiveProviderSessionFailureDetail(detail: string | undefined): boolean {
+  return (
+    detail?.toLowerCase().includes("no active provider session is bound to this thread.") ?? false
+  );
+}
+
+export function isTerminalPendingRequestFailureDetail(detail: string | undefined): boolean {
+  return (
+    isStalePendingRequestFailureDetail(detail) || isNoActiveProviderSessionFailureDetail(detail)
+  );
+}
+
 export function derivePendingApprovals(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): PendingApproval[] {
@@ -232,7 +272,7 @@ export function derivePendingApprovals(
     if (
       activity.kind === "provider.approval.respond.failed" &&
       requestId &&
-      isStalePendingRequestFailureDetail(detail)
+      isTerminalPendingRequestFailureDetail(detail)
     ) {
       openByRequestId.delete(requestId);
       continue;
@@ -332,7 +372,7 @@ export function derivePendingUserInputs(
     if (
       activity.kind === "provider.user-input.respond.failed" &&
       requestId &&
-      isStalePendingRequestFailureDetail(detail)
+      isTerminalPendingRequestFailureDetail(detail)
     ) {
       openByRequestId.delete(requestId);
     }
@@ -341,6 +381,116 @@ export function derivePendingUserInputs(
   return [...openByRequestId.values()].toSorted((left, right) =>
     left.createdAt.localeCompare(right.createdAt),
   );
+}
+
+export function deriveLatestProviderActionFailure(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): ProviderActionFailure | null {
+  const ordered = [...activities].toSorted(compareActivitiesByOrder);
+
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    const activity = ordered[index];
+    if (
+      !activity ||
+      !PROVIDER_ACTION_FAILURE_KINDS.has(activity.kind as ProviderActionFailure["kind"])
+    ) {
+      continue;
+    }
+    const payload =
+      activity.payload && typeof activity.payload === "object"
+        ? (activity.payload as Record<string, unknown>)
+        : null;
+    const detail =
+      (payload && typeof payload.detail === "string" ? payload.detail : undefined) ??
+      activity.summary;
+    if (!detail) {
+      continue;
+    }
+    return {
+      id: activity.id,
+      createdAt: activity.createdAt,
+      kind: activity.kind as ProviderActionFailure["kind"],
+      summary: activity.summary,
+      detail,
+    };
+  }
+
+  return null;
+}
+
+function toEpochMs(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function resolveNowMs(now: string | number | Date | undefined): number {
+  if (typeof now === "number") {
+    return now;
+  }
+  if (typeof now === "string") {
+    const parsed = Date.parse(now);
+    return Number.isNaN(parsed) ? Date.now() : parsed;
+  }
+  if (now instanceof Date) {
+    return now.getTime();
+  }
+  return Date.now();
+}
+
+export function deriveRunningSessionStallState(input: {
+  session: RunningSessionState | null;
+  latestTurn: Pick<OrchestrationLatestTurn, "requestedAt" | "startedAt" | "completedAt"> | null;
+  activities?: ReadonlyArray<Pick<OrchestrationThreadActivity, "createdAt">>;
+  now?: string | number | Date;
+  thresholdMs?: number;
+}): RunningSessionStallState | null {
+  if (input.session?.status !== "running") {
+    return null;
+  }
+
+  const candidateTimestamps = [
+    input.session.updatedAt,
+    input.latestTurn?.startedAt ?? null,
+    input.latestTurn?.requestedAt ?? null,
+    input.activities?.at(-1)?.createdAt ?? null,
+  ]
+    .map((value) => ({ raw: value, ms: toEpochMs(value) }))
+    .filter(
+      (entry): entry is { raw: string; ms: number } => entry.raw !== null && entry.ms !== null,
+    );
+
+  const latestActivity = candidateTimestamps.reduce<{ raw: string; ms: number } | null>(
+    (currentLatest, candidate) =>
+      currentLatest === null || candidate.ms > currentLatest.ms ? candidate : currentLatest,
+    null,
+  );
+
+  if (latestActivity === null) {
+    return null;
+  }
+
+  const inactiveForMs = resolveNowMs(input.now) - latestActivity.ms;
+  if (inactiveForMs < (input.thresholdMs ?? RUNNING_SESSION_STALL_THRESHOLD_MS)) {
+    return null;
+  }
+
+  return {
+    lastActivityAt: latestActivity.raw,
+    inactiveForMs,
+  };
+}
+
+export function formatRunningSessionStallError(state: RunningSessionStallState): string {
+  return `Thread appears stalled: no provider updates for ${formatDuration(state.inactiveForMs)}. Stop to clear it, or restart the turn if recovery fails.`;
+}
+
+export function resolveRunningSessionStopCommand(input: {
+  stalledSession: RunningSessionStallState | null;
+}): "thread.turn.interrupt" | "thread.session.stop" {
+  return input.stalledSession ? "thread.session.stop" : "thread.turn.interrupt";
 }
 
 export function deriveActivePlanState(

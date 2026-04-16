@@ -158,6 +158,7 @@ export interface SidebarThreadSummary {
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;
   hasActionableProposedPlan: boolean;
+  issueLink?: OrchestrationThreadIssueLink | null;
 }
 
 export interface ThreadSession {

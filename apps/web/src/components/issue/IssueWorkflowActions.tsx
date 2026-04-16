@@ -19,11 +19,13 @@ import {
 
 import {
   beadsStartBacklogGroomingMutationOptions,
-  beadsEpicCoordinatorSnapshotOptions,
+  beadsEpicCoordinationDetailOptions,
+  beadsProjectRunSummaryOptions,
   beadsStartEpicPlannedRefineMutationOptions,
   beadsStartEpicQuickRefineMutationOptions,
   beadsStartWorkflowMutationOptions,
 } from "~/lib/beadsReactQuery";
+import { composeCoordinatorEpicSnapshot } from "~/lib/coordinatorSnapshots";
 import { describeDisabledEpicCoordinatorAction, isEpicIssueType } from "~/issuePanel";
 import {
   getCoordinatorActionBusyKey,
@@ -216,17 +218,28 @@ export function IssueWorkflowActions(props: {
   readonly onOpenLinkedThread: () => void;
   readonly onOpenInTracker: () => void;
   readonly onOpenThread: (threadId: ThreadId) => void;
-  readonly onOpenCoordinator: (epicId: string) => void;
+  readonly onOpenCoordinator: (input: { epicId: string; runId: string | null }) => void;
+  readonly showEpicLaunchActions?: boolean;
 }) {
   const isEpic = isEpicIssueType(props.issue.issueType);
-  const epicSnapshotQuery = useQuery(
-    isEpic
-      ? beadsEpicCoordinatorSnapshotOptions({
+  const shouldShowEpicLaunchActions = props.showEpicLaunchActions ?? true;
+  const shouldLoadEpicActions = isEpic && shouldShowEpicLaunchActions;
+  const projectRunSummaryQuery = useQuery(
+    shouldLoadEpicActions
+      ? beadsProjectRunSummaryOptions({
+          cwd: props.cwd,
+          projectId: props.projectId,
+        })
+      : beadsProjectRunSummaryOptions(null),
+  );
+  const epicCoordinationDetailQuery = useQuery(
+    shouldLoadEpicActions
+      ? beadsEpicCoordinationDetailOptions({
           cwd: props.cwd,
           projectId: props.projectId,
           epicIssueId: props.issue.id,
         })
-      : beadsEpicCoordinatorSnapshotOptions(null),
+      : beadsEpicCoordinationDetailOptions(null),
   );
   const epicActionRunner = useEpicCoordinatorActionRunner({
     cwd: props.cwd,
@@ -237,21 +250,28 @@ export function IssueWorkflowActions(props: {
     onOpenCoordinator: props.onOpenCoordinator,
   });
 
-  const coordinatorPrimaryAction = epicSnapshotQuery.data?.epic.primaryAction ?? null;
-  const coordinatorActionInput = useMemo(
+  const epicSnapshot = useMemo(
     () =>
-      epicSnapshotQuery.data?.epic
-        ? getCoordinatorPrimaryActionInput(epicSnapshotQuery.data.epic)
+      epicCoordinationDetailQuery.data
+        ? composeCoordinatorEpicSnapshot({
+            epicIssueId: props.issue.id,
+            projectRunSummary: projectRunSummaryQuery.data ?? null,
+            epicCoordinationDetail: epicCoordinationDetailQuery.data,
+          })
         : null,
-    [epicSnapshotQuery.data],
+    [epicCoordinationDetailQuery.data, projectRunSummaryQuery.data, props.issue.id],
+  );
+  const coordinatorPrimaryAction = epicSnapshot?.primaryAction ?? null;
+  const coordinatorActionInput = useMemo(
+    () => (epicSnapshot ? getCoordinatorPrimaryActionInput(epicSnapshot) : null),
+    [epicSnapshot],
   );
   const coordinatorBusy =
     coordinatorActionInput !== null &&
     epicActionRunner.busyActionKey === getCoordinatorActionBusyKey(coordinatorActionInput);
   const coordinatorDisabledReason = isEpic
     ? describeDisabledEpicCoordinatorAction({
-        epic: epicSnapshotQuery.data?.epic ?? null,
-        supportReason: epicSnapshotQuery.data?.support.reason ?? null,
+        epic: epicSnapshot,
       })
     : null;
   const workflowBusy =
@@ -296,7 +316,7 @@ export function IssueWorkflowActions(props: {
         {renderOpenThreadLabel(props.linkedThreadCount, props.linkedThreadLabel)}
       </Button>
 
-      {isEpic ? (
+      {isEpic && shouldShowEpicLaunchActions ? (
         <>
           <Button
             size="xs"
@@ -325,7 +345,7 @@ export function IssueWorkflowActions(props: {
             Planned refine
           </Button>
 
-          {epicSnapshotQuery.error && !epicSnapshotQuery.data ? (
+          {epicCoordinationDetailQuery.error && !epicSnapshot ? (
             <Button size="xs" variant="outline" onClick={retryCoordinatorStatus}>
               <ExternalLinkIcon className="size-3.5" />
               Retry epic status
@@ -379,7 +399,7 @@ export function IssueWorkflowActions(props: {
             </Tooltip>
           )}
         </>
-      ) : (
+      ) : !isEpic ? (
         <Select
           value=""
           onValueChange={(value) => {
@@ -413,7 +433,7 @@ export function IssueWorkflowActions(props: {
             ))}
           </SelectPopup>
         </Select>
-      )}
+      ) : null}
     </div>
   );
 }

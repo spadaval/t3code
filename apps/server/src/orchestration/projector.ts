@@ -94,6 +94,74 @@ function updateThread(
   return threads.map((thread) => (thread.id === threadId ? { ...thread, ...patch } : thread));
 }
 
+function settleLatestTurnFromSession(input: {
+  thread: OrchestrationThread;
+  session: OrchestrationSession;
+  settledTurn?: {
+    turnId: NonNullable<OrchestrationThread["latestTurn"]>["turnId"];
+    state: NonNullable<OrchestrationThread["latestTurn"]>["state"];
+    completedAt: string;
+  };
+}): OrchestrationThread["latestTurn"] {
+  const previousLatestTurn = input.thread.latestTurn;
+  if (input.session.status === "running" && input.session.activeTurnId !== null) {
+    return {
+      turnId: input.session.activeTurnId,
+      state: "running",
+      requestedAt:
+        previousLatestTurn?.turnId === input.session.activeTurnId
+          ? previousLatestTurn.requestedAt
+          : input.session.updatedAt,
+      startedAt:
+        previousLatestTurn?.turnId === input.session.activeTurnId
+          ? (previousLatestTurn.startedAt ?? input.session.updatedAt)
+          : input.session.updatedAt,
+      completedAt: null,
+      assistantMessageId:
+        previousLatestTurn?.turnId === input.session.activeTurnId
+          ? previousLatestTurn.assistantMessageId
+          : null,
+    };
+  }
+
+  if (input.settledTurn !== undefined) {
+    return {
+      turnId: input.settledTurn.turnId,
+      state: input.settledTurn.state,
+      requestedAt:
+        previousLatestTurn?.turnId === input.settledTurn.turnId
+          ? previousLatestTurn.requestedAt
+          : input.settledTurn.completedAt,
+      startedAt:
+        previousLatestTurn?.turnId === input.settledTurn.turnId
+          ? (previousLatestTurn.startedAt ?? input.settledTurn.completedAt)
+          : input.settledTurn.completedAt,
+      completedAt: input.settledTurn.completedAt,
+      assistantMessageId:
+        previousLatestTurn?.turnId === input.settledTurn.turnId
+          ? previousLatestTurn.assistantMessageId
+          : null,
+      terminalSource: "turn_completed",
+    };
+  }
+
+  if (
+    previousLatestTurn &&
+    previousLatestTurn.completedAt === null &&
+    (input.session.status === "error" ||
+      input.session.status === "interrupted" ||
+      input.session.status === "stopped")
+  ) {
+    return {
+      ...previousLatestTurn,
+      state: input.session.status === "error" ? "error" : "interrupted",
+      completedAt: input.session.updatedAt,
+    };
+  }
+
+  return previousLatestTurn;
+}
+
 function updateLaunch(
   launches: ReadonlyArray<OrchestrationPlanImplementationLaunch>,
   launchId: OrchestrationPlanImplementationLaunch["launchId"],
@@ -509,25 +577,16 @@ export function projectEvent(
             : thread.latestTurn?.turnId === payload.turnId
               ? {
                   ...thread.latestTurn,
-                  state: payload.streaming
-                    ? thread.latestTurn.state
-                    : thread.latestTurn.state === "error" ||
-                        thread.latestTurn.state === "interrupted"
-                      ? thread.latestTurn.state
-                      : "completed",
-                  completedAt: payload.streaming
-                    ? thread.latestTurn.completedAt
-                    : (thread.latestTurn.completedAt ?? payload.updatedAt),
                   assistantMessageId: payload.messageId,
                   startedAt: thread.latestTurn.startedAt ?? payload.createdAt,
                   requestedAt: thread.latestTurn.requestedAt ?? payload.createdAt,
                 }
               : {
                   turnId: payload.turnId,
-                  state: payload.streaming ? "running" : "completed",
+                  state: "running",
                   requestedAt: payload.createdAt,
                   startedAt: payload.createdAt,
-                  completedAt: payload.streaming ? null : payload.updatedAt,
+                  completedAt: null,
                   assistantMessageId: payload.messageId,
                 };
 
@@ -565,37 +624,11 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             session,
-            latestTurn:
-              session.status === "running" && session.activeTurnId !== null
-                ? {
-                    turnId: session.activeTurnId,
-                    state: "running",
-                    requestedAt:
-                      thread.latestTurn?.turnId === session.activeTurnId
-                        ? thread.latestTurn.requestedAt
-                        : session.updatedAt,
-                    startedAt:
-                      thread.latestTurn?.turnId === session.activeTurnId
-                        ? (thread.latestTurn.startedAt ?? session.updatedAt)
-                        : session.updatedAt,
-                    completedAt: null,
-                    assistantMessageId:
-                      thread.latestTurn?.turnId === session.activeTurnId
-                        ? thread.latestTurn.assistantMessageId
-                        : null,
-                  }
-                : thread.latestTurn?.state === "running"
-                  ? {
-                      ...thread.latestTurn,
-                      state:
-                        session.status === "error"
-                          ? "error"
-                          : session.status === "interrupted"
-                            ? "interrupted"
-                            : "completed",
-                      completedAt: thread.latestTurn.completedAt ?? session.updatedAt,
-                    }
-                  : thread.latestTurn,
+            latestTurn: settleLatestTurnFromSession({
+              thread,
+              session,
+              ...(payload.settledTurn !== undefined ? { settledTurn: payload.settledTurn } : {}),
+            }),
             updatedAt: event.occurredAt,
           }),
         };
@@ -767,6 +800,7 @@ export function projectEvent(
                     startedAt: latestCheckpoint.completedAt,
                     completedAt: latestCheckpoint.completedAt,
                     assistantMessageId: latestCheckpoint.assistantMessageId,
+                    terminalSource: "checkpoint_fallback" as const,
                   };
 
           return {

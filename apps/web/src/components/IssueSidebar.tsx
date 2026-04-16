@@ -1,9 +1,4 @@
-import {
-  DEFAULT_MODEL_BY_PROVIDER,
-  type EnvironmentId,
-  type ModelSelection,
-  type ThreadId,
-} from "@t3tools/contracts";
+import { type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef } from "react";
@@ -18,8 +13,9 @@ import {
   beadsQueryIssuesOptions,
   beadsUpdateIssueMutationOptions,
 } from "~/lib/beadsReactQuery";
+import { buildIssueListQueryInput } from "~/lib/issueListQueries";
+import { resolveFallbackModelSelection } from "~/lib/modelSelection";
 import { isIssueDoneStatus } from "~/lib/issueConstants";
-import { issueStatusesForVisibility } from "~/lib/issuePanelLogic";
 import { cn } from "~/lib/utils";
 import { listIssueLinkedThreads } from "~/issueThreads";
 import { getIssuePaneState, useIssuePaneStore } from "~/issuePaneStore";
@@ -34,18 +30,6 @@ import type { IssueContextAction } from "./issue/issueContextMenu";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
 import { toastManager } from "./ui/toast";
-
-function resolveFallbackModelSelection(
-  modelSelection: ModelSelection | null | undefined,
-): ModelSelection {
-  if (modelSelection) {
-    return modelSelection;
-  }
-  return {
-    provider: "codex",
-    model: DEFAULT_MODEL_BY_PROVIDER.codex,
-  };
-}
 
 export function IssueSidebar(props: {
   environmentId: EnvironmentId;
@@ -114,14 +98,15 @@ export function IssueSidebar(props: {
   ]);
 
   const issueListQuery = useQuery(
-    beadsQueryIssuesOptions({
-      cwd: project?.cwd ?? "",
-      statuses: issueStatusesForVisibility(paneState.showClosed),
-      sortBy: paneState.sortBy,
-      enabled: project !== undefined,
-      refetchIntervalMs: ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
-      refetchOnWindowFocus: "always",
-    }),
+    beadsQueryIssuesOptions(
+      buildIssueListQueryInput({
+        cwd: project?.cwd ?? "",
+        sortBy: paneState.sortBy,
+        enabled: project !== undefined,
+        refetchIntervalMs: ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
+        refetchOnWindowFocus: "always",
+      }),
+    ),
   );
 
   const selectedIssueDetailQuery = useQuery(
@@ -254,7 +239,7 @@ export function IssueSidebar(props: {
   const selectedIssueSubIssues = selectedIssueDetailQuery.data?.children ?? [];
   const selectedIssueDependents = selectedIssueDetailQuery.data?.dependents ?? [];
   const openCoordinator = useCallback(
-    (epicId: string) => {
+    (input: { epicId: string; runId: string | null }) => {
       if (!project) {
         return;
       }
@@ -264,7 +249,8 @@ export function IssueSidebar(props: {
         params: { projectId: project.id } as never,
         search: {
           tab: "coordinator",
-          epicId,
+          epicId: input.epicId,
+          ...(input.runId ? { runId: input.runId } : {}),
         } as never,
       });
     },

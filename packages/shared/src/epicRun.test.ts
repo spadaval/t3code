@@ -1,7 +1,6 @@
 import type {
-  BeadsEpicTrackerStatus,
-  BeadsEpicRunSupport,
-  BeadsEpicRunValidation,
+  BeadsEpicCoordinationStatus,
+  BeadsEpicCoordinationValidation,
   BeadsIssueRelationSummary,
   OrchestrationEvent,
   OrchestrationEpicRun,
@@ -18,12 +17,12 @@ import {
   describeSharedWorkspaceProjectConflict,
   deriveExecutionBlocking,
   deriveEpicCoordinatorState,
-  deriveEpicTrackerProgress,
+  deriveEpicCoordinationProgress,
   deriveEpicRunExecutionState,
-  deriveTrackerState,
+  deriveCoordinationState,
   findConflictingSharedWorkspaceRun,
   getEpicCoordinatorPrimaryAction,
-  isEpicTrackerSummaryComplete,
+  isEpicCoordinationSummaryComplete,
   listEpicRuns,
   listEpicIssueExecutions,
   projectEpicRunEvent,
@@ -99,14 +98,13 @@ function makeRun(
 }
 
 function makeSwarmStatus(
-  overrides: Partial<BeadsEpicTrackerStatus> = {},
+  overrides: Partial<BeadsEpicCoordinationStatus> = {},
 ): Pick<
-  BeadsEpicTrackerStatus,
-  "trackerSummary" | "completed" | "ready" | "active" | "blocked" | "blockedBreakdown"
+  BeadsEpicCoordinationStatus,
+  "summary" | "completed" | "ready" | "active" | "blocked" | "blockedBreakdown"
 > {
   return {
-    trackerSummary: {
-      trackerId: "SWARM-1",
+    summary: {
       epicId: "EPIC-1",
       epicTitle: "Epic 1",
       totalIssueCount: 0,
@@ -130,12 +128,11 @@ function makeSwarmStatus(
 }
 
 function makeSwarmValidation(
-  overrides: Partial<BeadsEpicRunValidation> = {},
-): Pick<BeadsEpicRunValidation, "valid" | "trackerSummary" | "readyFronts"> {
+  overrides: Partial<BeadsEpicCoordinationValidation> = {},
+): Pick<BeadsEpicCoordinationValidation, "valid" | "summary" | "readyFronts"> {
   return {
     valid: true,
-    trackerSummary: {
-      trackerId: "SWARM-1",
+    summary: {
       epicId: "EPIC-1",
       epicTitle: "Epic 1",
       totalIssueCount: 0,
@@ -148,15 +145,6 @@ function makeSwarmValidation(
     readyFronts: [],
     errors: [],
     warnings: [],
-    ...overrides,
-  };
-}
-
-function makeSwarmSupport(
-  overrides: Partial<BeadsEpicRunSupport> = {},
-): Pick<BeadsEpicRunSupport, "supported"> {
-  return {
-    supported: true,
     ...overrides,
   };
 }
@@ -180,7 +168,7 @@ function makeEvent<T extends OrchestrationEvent["type"]>(
   } as unknown as Extract<OrchestrationEvent, { type: T }>;
 }
 
-describe("swarm", () => {
+describe("coordination", () => {
   it("orders ready issues by priority then id", () => {
     expect(
       [
@@ -228,7 +216,7 @@ describe("swarm", () => {
         stale: true,
       }),
     ).toBe(
-      "Showing the last known epic-run state because the latest refresh failed. Epic validation request failed: Issue 'EPIC-404' was not found. Tracker status request failed: Swarm 'swarm-404' was not found.",
+      "Showing the last known epic-run state because the latest refresh failed. Epic validation request failed: Issue 'EPIC-404' was not found. Coordination status request failed: Swarm 'swarm-404' was not found.",
     );
   });
 
@@ -250,9 +238,9 @@ describe("swarm", () => {
     ).toBe("TASK-1");
   });
 
-  it("treats tracker summary completion conservatively", () => {
+  it("treats coordination summary completion conservatively", () => {
     expect(
-      isEpicTrackerSummaryComplete({
+      isEpicCoordinationSummaryComplete({
         totalIssueCount: 2,
         completedIssueCount: 2,
         readyIssueCount: 0,
@@ -262,7 +250,7 @@ describe("swarm", () => {
     ).toBe(true);
 
     expect(
-      isEpicTrackerSummaryComplete({
+      isEpicCoordinationSummaryComplete({
         totalIssueCount: 2,
         completedIssueCount: 2,
         readyIssueCount: 1,
@@ -420,7 +408,6 @@ describe("swarm", () => {
   it("derives coordinator state from shared swarm inputs", () => {
     expect(
       deriveEpicCoordinatorState({
-        coordinationSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
         epicRuns: [
@@ -491,7 +478,7 @@ describe("swarm", () => {
     });
 
     expect(
-      deriveEpicTrackerProgress({
+      deriveEpicCoordinationProgress({
         validation: null,
         status: internalOnlyStatus,
       }),
@@ -503,16 +490,16 @@ describe("swarm", () => {
     });
 
     expect(
-      deriveTrackerState({
-        trackerLoadState: "ready",
+      deriveCoordinationState({
+        coordinationLoadState: "ready",
         status: internalOnlyStatus,
         progress: { isComplete: false },
       }),
     ).toBe("not_started");
 
     expect(
-      deriveTrackerState({
-        trackerLoadState: "ready",
+      deriveCoordinationState({
+        coordinationLoadState: "ready",
         status: externalStatus,
         progress: { isComplete: false },
       }),
@@ -522,7 +509,6 @@ describe("swarm", () => {
   it("restarts after failed runs when the tracker is still runnable", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation({
           readyFronts: [[makeIssue("TASK-1", 1)]],
@@ -553,7 +539,6 @@ describe("swarm", () => {
   it("keeps start actions available for internal-only blockers but not external blockers", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: makeSwarmSupport(),
         status: makeSwarmStatus({
           blocked: [makeIssue("TASK-2", 2)],
           blockedBreakdown: {
@@ -576,7 +561,6 @@ describe("swarm", () => {
 
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: makeSwarmSupport(),
         status: makeSwarmStatus({
           blocked: [makeIssue("TASK-9", 9)],
           blockedBreakdown: {
@@ -601,7 +585,6 @@ describe("swarm", () => {
   it("returns stop for running runs and restart for stopped runs", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
         epicRuns: [
@@ -622,7 +605,6 @@ describe("swarm", () => {
 
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
         epicRuns: [
@@ -668,7 +650,6 @@ describe("swarm", () => {
   it("prefers opening the active swarm when ready state conflicts with another shared run", () => {
     expect(
       getEpicCoordinatorPrimaryAction({
-        coordinationSupport: makeSwarmSupport(),
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
         epicRuns: [],

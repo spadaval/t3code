@@ -160,12 +160,10 @@ export const authPairingCredentialRouteLayer = HttpRouter.add(
       const request = yield* HttpServerRequest.HttpServerRequest;
       const session = yield* serverAuth.authenticateHttpRequest(request);
       if (session.role !== "owner") {
-        return yield* Effect.fail(
-          new AuthError({
-            message: "Only owner sessions can create pairing credentials.",
-            status: 403,
-          }),
-        );
+        return yield* new AuthError({
+          message: "Only owner sessions can create pairing credentials.",
+          status: 403,
+        });
       }
       const headers = yield* HttpServerRequest.schemaHeaders(PairingCredentialRequestHeaders).pipe(
         Effect.mapError(
@@ -207,12 +205,10 @@ const authenticateOwnerSession: Effect.Effect<
   const serverAuth = yield* Effect.service(ServerAuth);
   const session = yield* serverAuth.authenticateHttpRequest(request);
   if (session.role !== "owner") {
-    return yield* Effect.fail(
-      new AuthError({
-        message: "Only owner sessions can manage network access.",
-        status: 403,
-      }),
-    );
+    return yield* new AuthError({
+      message: "Only owner sessions can manage network access.",
+      status: 403,
+    });
   }
   return { serverAuth, session } as const;
 });

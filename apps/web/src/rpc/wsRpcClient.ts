@@ -141,19 +141,17 @@ export interface WsRpcClient {
     readonly updateIssue: RpcUnaryMethod<typeof BEADS_WS_METHODS.updateIssue>;
     readonly commentIssue: RpcUnaryMethod<typeof BEADS_WS_METHODS.commentIssue>;
     readonly getContext: RpcUnaryMethod<typeof BEADS_WS_METHODS.getContext>;
-    readonly getEpicRunSupport: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicRunSupport>;
     readonly getIssueGraph: RpcUnaryMethod<typeof BEADS_WS_METHODS.getIssueGraph>;
-    readonly getEpicTrackerSummary: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicTrackerSummary>;
-    readonly validateEpicRun: RpcUnaryMethod<typeof BEADS_WS_METHODS.validateEpicRun>;
-    readonly getEpicTrackerStatus: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicTrackerStatus>;
-    readonly listEpicTrackerSummaries: RpcUnaryMethod<
-      typeof BEADS_WS_METHODS.listEpicTrackerSummaries
+    readonly validateEpicCoordination: RpcUnaryMethod<
+      typeof BEADS_WS_METHODS.validateEpicCoordination
     >;
-    readonly getProjectCoordinatorSnapshot: RpcUnaryMethod<
-      typeof BEADS_WS_METHODS.getProjectCoordinatorSnapshot
+    readonly getEpicCoordinationStatus: RpcUnaryMethod<
+      typeof BEADS_WS_METHODS.getEpicCoordinationStatus
     >;
-    readonly getEpicCoordinatorSnapshot: RpcUnaryMethod<
-      typeof BEADS_WS_METHODS.getEpicCoordinatorSnapshot
+    readonly getProjectRunSummary: RpcUnaryMethod<typeof BEADS_WS_METHODS.getProjectRunSummary>;
+    readonly getEpicIssueSummaries: RpcUnaryMethod<typeof BEADS_WS_METHODS.getEpicIssueSummaries>;
+    readonly getEpicCoordinationDetail: RpcUnaryMethod<
+      typeof BEADS_WS_METHODS.getEpicCoordinationDetail
     >;
     readonly getSessionActivity: RpcUnaryMethod<typeof BEADS_WS_METHODS.getSessionActivity>;
     readonly startWorkflow: RpcUnaryMethod<typeof BEADS_WS_METHODS.startWorkflow>;
@@ -337,24 +335,18 @@ export function createWsRpcClient(transport: WsTransport): WsRpcClient {
         transport.request((client) => client[BEADS_WS_METHODS.commentIssue](input)),
       getContext: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.getContext](input)),
-      getEpicRunSupport: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.getEpicRunSupport](input)),
       getIssueGraph: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.getIssueGraph](input)),
-      getEpicTrackerSummary: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.getEpicTrackerSummary](input)),
-      validateEpicRun: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.validateEpicRun](input)),
-      getEpicTrackerStatus: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.getEpicTrackerStatus](input)),
-      listEpicTrackerSummaries: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.listEpicTrackerSummaries](input)),
-      getProjectCoordinatorSnapshot: (input) =>
-        transport.request((client) =>
-          client[BEADS_WS_METHODS.getProjectCoordinatorSnapshot](input),
-        ),
-      getEpicCoordinatorSnapshot: (input) =>
-        transport.request((client) => client[BEADS_WS_METHODS.getEpicCoordinatorSnapshot](input)),
+      validateEpicCoordination: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.validateEpicCoordination](input)),
+      getEpicCoordinationStatus: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getEpicCoordinationStatus](input)),
+      getProjectRunSummary: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getProjectRunSummary](input)),
+      getEpicIssueSummaries: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getEpicIssueSummaries](input)),
+      getEpicCoordinationDetail: (input) =>
+        transport.request((client) => client[BEADS_WS_METHODS.getEpicCoordinationDetail](input)),
       getSessionActivity: (input) =>
         transport.request((client) => client[BEADS_WS_METHODS.getSessionActivity](input)),
       startWorkflow: (input) =>

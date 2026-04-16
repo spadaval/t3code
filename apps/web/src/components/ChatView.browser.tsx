@@ -2,12 +2,18 @@
 import "../index.css";
 
 import {
+  BEADS_WS_METHODS,
   EventId,
   ORCHESTRATION_WS_METHODS,
   EnvironmentId,
   type EnvironmentApi,
   type MessageId,
+  type DesktopBridge,
+  type OrchestrationEvent,
+  type OrchestrationEpicIssueExecution,
+  type OrchestrationEpicRun,
   type OrchestrationReadModel,
+  type OrchestrationStartEpicRunInput,
   type ProjectId,
   type ServerConfig,
   type ServerLifecycleWelcomePayload,
@@ -17,7 +23,12 @@ import {
   OrchestrationSessionStatus,
   DEFAULT_SERVER_SETTINGS,
 } from "@t3tools/contracts";
-import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime";
+import {
+  scopedProjectKey,
+  scopedThreadKey,
+  scopeProjectRef,
+  scopeThreadRef,
+} from "@t3tools/client-runtime";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { HttpResponse, http, ws } from "msw";
 import { setupWorker } from "msw/browser";
@@ -48,6 +59,7 @@ import { AppAtomRegistryProvider } from "../rpc/atomRegistry";
 import { getServerConfig } from "../rpc/serverState";
 import { getRouter } from "../router";
 import { deriveLogicalProjectKeyFromSettings } from "../logicalProject";
+import { parseChatRouteSearch } from "../chatRouteSearch";
 import { selectBootstrapCompleteForActiveEnvironment, useStore } from "../store";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { useUiStateStore } from "../uiStateStore";
@@ -66,6 +78,7 @@ vi.mock("../lib/gitStatusState", () => ({
 const THREAD_ID = "thread-browser-test" as ThreadId;
 const THREAD_TITLE = "Browser test thread";
 const ARCHIVED_SECONDARY_THREAD_ID = "thread-secondary-project-archived" as ThreadId;
+const MANAGED_WORKER_THREAD_ID = "thread-managed-worker" as ThreadId;
 const PROJECT_ID = "project-1" as ProjectId;
 const SECOND_PROJECT_ID = "project-2" as ProjectId;
 const LOCAL_ENVIRONMENT_ID = EnvironmentId.make("environment-local");
@@ -86,6 +99,17 @@ const PROJECT_LOGICAL_KEY = deriveLogicalProjectKeyFromSettings(
     sidebarProjectGroupingOverrides: DEFAULT_CLIENT_SETTINGS.sidebarProjectGroupingOverrides,
   },
 );
+const PROJECT_KEY = scopedProjectKey(scopeProjectRef(LOCAL_ENVIRONMENT_ID, PROJECT_ID));
+const EPIC_ID = "EPIC-1";
+const MANAGED_ISSUE_ID = "TASK-1";
+const GHOST_ISSUE_ID = "TASK-2";
+const MANAGED_EXECUTION_ID = "exec-managed";
+const GHOST_EXECUTION_ID = "exec-ghost";
+const EPIC_RUN_ID = "run-epic";
+const QUICK_LAUNCH_EPIC_ID = "EPIC-READY";
+const QUICK_LAUNCH_STANDALONE_ID = "TASK-STANDALONE";
+const QUICK_LAUNCH_BLOCKED_ID = "TASK-BLOCKED";
+const QUICK_LAUNCH_BLOCKER_ID = "TASK-BLOCKER";
 const NOW_ISO = "2026-03-04T12:00:00.000Z";
 const BASE_TIME_MS = Date.parse(NOW_ISO);
 const ATTACHMENT_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'></svg>";
@@ -211,10 +235,205 @@ function createMockEnvironmentApi(input: {
       getFullThreadDiff: (() => {
         throw new Error("Not implemented in browser test.");
       }) as EnvironmentApi["orchestration"]["getFullThreadDiff"],
+      replayEvents: (async () => []) as EnvironmentApi["orchestration"]["replayEvents"],
+      launchPlanImplementation: (async () => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["orchestration"]["launchPlanImplementation"],
+      cancelPlanImplementationLaunch: (async () => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["orchestration"]["cancelPlanImplementationLaunch"],
+      retryPlanImplementationLaunch: (async () => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["orchestration"]["retryPlanImplementationLaunch"],
+      startEpicRun: (async () => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["orchestration"]["startEpicRun"],
+      stopEpicRun: (async () => {
+        throw new Error("Not implemented in browser test.");
+      }) as EnvironmentApi["orchestration"]["stopEpicRun"],
+      onDomainEvent: (() => () => undefined) as EnvironmentApi["orchestration"]["onDomainEvent"],
       subscribeShell: (() => () => undefined) as EnvironmentApi["orchestration"]["subscribeShell"],
       subscribeThread: (() => () =>
         undefined) as EnvironmentApi["orchestration"]["subscribeThread"],
     },
+    beads: {} as EnvironmentApi["beads"],
+  };
+}
+
+function createDesktopBridgeStub(
+  overrides?: Partial<Pick<DesktopBridge, "showContextMenu" | "confirm" | "openExternal">>,
+): DesktopBridge {
+  return {
+    getLocalEnvironmentBootstrap: () => ({
+      label: "Local environment",
+      httpBaseUrl: "http://127.0.0.1:3773",
+      wsBaseUrl: "ws://127.0.0.1:3773",
+      bootstrapToken: "desktop-bootstrap-token",
+    }),
+    getAppBranding: vi.fn().mockResolvedValue({
+      appName: "T3 Code",
+      displayName: "T3 Code",
+      accentColor: null,
+    }),
+    getClientSettings: vi.fn().mockResolvedValue(null),
+    setClientSettings: vi.fn().mockResolvedValue(undefined),
+    getSavedEnvironmentRegistry: vi.fn().mockResolvedValue([]),
+    setSavedEnvironmentRegistry: vi.fn().mockResolvedValue(undefined),
+    getSavedEnvironmentSecret: vi.fn().mockResolvedValue(null),
+    setSavedEnvironmentSecret: vi.fn().mockResolvedValue(true),
+    removeSavedEnvironmentSecret: vi.fn().mockResolvedValue(undefined),
+    getServerExposureState: vi.fn().mockResolvedValue({
+      mode: "local-only",
+      endpointUrl: null,
+      advertisedHost: null,
+    }),
+    setServerExposureMode: vi.fn().mockResolvedValue({
+      mode: "local-only",
+      endpointUrl: null,
+      advertisedHost: null,
+    }),
+    pickFolder: vi.fn().mockResolvedValue(null),
+    confirm: overrides?.confirm ?? vi.fn().mockResolvedValue(false),
+    setTheme: vi.fn().mockResolvedValue(undefined),
+    showContextMenu: overrides?.showContextMenu ?? vi.fn().mockResolvedValue(null),
+    openExternal: overrides?.openExternal ?? vi.fn().mockResolvedValue(true),
+    onMenuAction: () => () => {},
+    getUpdateState: vi.fn().mockResolvedValue({
+      enabled: false,
+      status: "idle",
+      currentVersion: "0.0.0-test",
+      hostArch: "arm64",
+      appArch: "arm64",
+      runningUnderArm64Translation: false,
+      availableVersion: null,
+      downloadedVersion: null,
+      downloadPercent: null,
+      checkedAt: null,
+      message: null,
+      errorContext: null,
+      canRetry: false,
+    }),
+    checkForUpdate: vi.fn().mockResolvedValue({
+      checked: false,
+      state: {
+        enabled: false,
+        status: "idle",
+        currentVersion: "0.0.0-test",
+        hostArch: "arm64",
+        appArch: "arm64",
+        runningUnderArm64Translation: false,
+        availableVersion: null,
+        downloadedVersion: null,
+        downloadPercent: null,
+        checkedAt: null,
+        message: null,
+        errorContext: null,
+        canRetry: false,
+      },
+    }),
+    downloadUpdate: vi.fn().mockResolvedValue({
+      accepted: false,
+      completed: false,
+      state: {
+        enabled: false,
+        status: "idle",
+        currentVersion: "0.0.0-test",
+        hostArch: "arm64",
+        appArch: "arm64",
+        runningUnderArm64Translation: false,
+        availableVersion: null,
+        downloadedVersion: null,
+        downloadPercent: null,
+        checkedAt: null,
+        message: null,
+        errorContext: null,
+        canRetry: false,
+      },
+    }),
+    installUpdate: vi.fn().mockResolvedValue({
+      accepted: false,
+      completed: false,
+      state: {
+        enabled: false,
+        status: "idle",
+        currentVersion: "0.0.0-test",
+        hostArch: "arm64",
+        appArch: "arm64",
+        runningUnderArm64Translation: false,
+        availableVersion: null,
+        downloadedVersion: null,
+        downloadPercent: null,
+        checkedAt: null,
+        message: null,
+        errorContext: null,
+        canRetry: false,
+      },
+    }),
+    setUpdateChannel: vi.fn().mockResolvedValue(undefined),
+    onUpdateState: () => () => {},
+  };
+}
+
+function createEpicRun(
+  status: OrchestrationEpicRun["status"],
+  overrides: Partial<OrchestrationEpicRun> = {},
+): OrchestrationEpicRun {
+  return {
+    runId: EPIC_RUN_ID as never,
+    projectId: PROJECT_ID,
+    epicIssueId: EPIC_ID,
+    status,
+    provider: "codex",
+    model: "gpt-5.4",
+    modelOptions: null,
+    providerOptions: null,
+    assistantDeliveryMode: null,
+    runtimeMode: "full-access",
+    failureContext:
+      status === "failed"
+        ? {
+            kind: "issue_incomplete",
+            issueId: GHOST_ISSUE_ID,
+            executionId: null,
+            workerThreadId: null,
+            message: "Issue remained open after the run stopped.",
+          }
+        : null,
+    requestedAt: isoAt(200),
+    startedAt: isoAt(201),
+    stopRequestedAt: null,
+    stoppedAt: status === "stopped" ? isoAt(202) : null,
+    failedAt: status === "failed" ? isoAt(202) : null,
+    completedAt: status === "completed" ? isoAt(202) : null,
+    updatedAt: isoAt(203),
+    ...overrides,
+  };
+}
+
+function createEpicExecution(input: {
+  executionId: string;
+  issueId: string;
+  workerThreadId: ThreadId | null;
+  status: OrchestrationEpicIssueExecution["status"];
+  sequenceNumber: number;
+}): OrchestrationEpicIssueExecution {
+  return {
+    executionId: input.executionId as never,
+    runId: EPIC_RUN_ID as never,
+    issueId: input.issueId,
+    workerThreadId: input.workerThreadId,
+    sequenceNumber: input.sequenceNumber,
+    status: input.status,
+    workspaceKey: "shared",
+    workspacePath: null,
+    failureContext: null,
+    requestedAt: isoAt(200 + input.sequenceNumber),
+    startedAt: isoAt(201 + input.sequenceNumber),
+    stopRequestedAt: null,
+    stoppedAt: null,
+    completedAt: input.status === "completed" ? isoAt(204 + input.sequenceNumber) : null,
+    failedAt: input.status === "failed" ? isoAt(204 + input.sequenceNumber) : null,
+    updatedAt: isoAt(205 + input.sequenceNumber),
   };
 }
 
@@ -370,6 +589,573 @@ function createSnapshotForTargetUser(options: {
     epicRuns: [],
     epicIssueExecutions: [],
     updatedAt: NOW_ISO,
+  };
+}
+
+function createSnapshotWithManagedIssueSidebar(): OrchestrationReadModel {
+  const snapshot = createSnapshotForTargetUser({
+    targetMessageId: "msg-user-managed-issue-target" as MessageId,
+    targetText: "managed issue sidebar",
+  });
+
+  const workerThread: OrchestrationReadModel["threads"][number] = {
+    id: MANAGED_WORKER_THREAD_ID,
+    projectId: PROJECT_ID,
+    title: "Implement TASK-1",
+    modelSelection: {
+      provider: "codex",
+      model: "gpt-5",
+    },
+    interactionMode: "default",
+    runtimeMode: "full-access",
+    branch: "task/task-1",
+    worktreePath: null,
+    issueLink: {
+      title: "Implement TASK-1",
+      priority: null,
+      issueId: MANAGED_ISSUE_ID,
+      status: "open",
+      repoRoot: "/repo/project",
+      linkedAt: isoAt(210),
+    },
+    latestTurn: null,
+    createdAt: isoAt(210),
+    updatedAt: isoAt(211),
+    archivedAt: null,
+    deletedAt: null,
+    messages: [],
+    activities: [],
+    proposedPlans: [],
+    checkpoints: [],
+    pendingCheckpointCaptures: [],
+    session: {
+      threadId: MANAGED_WORKER_THREAD_ID,
+      status: "ready",
+      providerName: "codex",
+      runtimeMode: "full-access",
+      activeTurnId: null,
+      lastError: null,
+      updatedAt: isoAt(211),
+    },
+  };
+
+  return {
+    ...snapshot,
+    threads: [
+      {
+        ...snapshot.threads[0]!,
+        title: "Project thread",
+        updatedAt: isoAt(209),
+      },
+      workerThread,
+    ],
+    epicRuns: [createEpicRun("failed")],
+    epicIssueExecutions: [
+      createEpicExecution({
+        executionId: MANAGED_EXECUTION_ID,
+        issueId: MANAGED_ISSUE_ID,
+        workerThreadId: MANAGED_WORKER_THREAD_ID,
+        status: "completed",
+        sequenceNumber: 1,
+      }),
+      createEpicExecution({
+        executionId: GHOST_EXECUTION_ID,
+        issueId: GHOST_ISSUE_ID,
+        workerThreadId: null,
+        status: "failed",
+        sequenceNumber: 2,
+      }),
+    ],
+  };
+}
+
+function addSecondaryProjectToSnapshot(snapshot: OrchestrationReadModel): OrchestrationReadModel {
+  return {
+    ...snapshot,
+    projects: [
+      ...snapshot.projects,
+      {
+        id: SECOND_PROJECT_ID,
+        title: "Docs Project",
+        workspaceRoot: "/repo/docs-project",
+        defaultModelSelection: {
+          provider: "codex",
+          model: "gpt-5",
+        },
+        scripts: [],
+        createdAt: NOW_ISO,
+        updatedAt: NOW_ISO,
+        deletedAt: null,
+      },
+    ],
+    threads: [
+      ...snapshot.threads,
+      {
+        id: "thread-secondary-project" as ThreadId,
+        projectId: SECOND_PROJECT_ID,
+        title: "Docs thread",
+        modelSelection: { provider: "codex", model: "gpt-5" },
+        interactionMode: "default",
+        runtimeMode: "full-access",
+        branch: "docs/main",
+        worktreePath: null,
+        issueLink: null,
+        latestTurn: null,
+        createdAt: isoAt(320),
+        updatedAt: isoAt(321),
+        archivedAt: null,
+        deletedAt: null,
+        messages: [],
+        activities: [],
+        proposedPlans: [],
+        checkpoints: [],
+        pendingCheckpointCaptures: [],
+        session: {
+          threadId: "thread-secondary-project" as ThreadId,
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: isoAt(321),
+        },
+      },
+    ],
+  };
+}
+
+function createManagedIssueSidebarRpcResolver(options?: {
+  readonly trackerPrimaryAction?: {
+    kind:
+      | "start_epic_run"
+      | "open_coordinator"
+      | "refresh_epic_status"
+      | "open_coordination_prep_thread";
+    label: string;
+    busyLabel: string;
+    disabled: boolean;
+  };
+  readonly onStartEpicRun?: (input: { projectId: ProjectId; epicIssueId: string }) => void;
+}) {
+  const run = createEpicRun("failed");
+  const executions = [
+    createEpicExecution({
+      executionId: MANAGED_EXECUTION_ID,
+      issueId: MANAGED_ISSUE_ID,
+      workerThreadId: MANAGED_WORKER_THREAD_ID,
+      status: "completed",
+      sequenceNumber: 1,
+    }),
+    createEpicExecution({
+      executionId: GHOST_EXECUTION_ID,
+      issueId: GHOST_ISSUE_ID,
+      workerThreadId: null,
+      status: "failed",
+      sequenceNumber: 2,
+    }),
+  ];
+  const trackerPrimaryAction = options?.trackerPrimaryAction ?? {
+    kind: "start_epic_run" as const,
+    label: "Start epic",
+    busyLabel: "Starting...",
+    disabled: false,
+  };
+
+  return (body: NormalizedWsRpcRequestBody): unknown | undefined => {
+    switch (body._tag) {
+      case BEADS_WS_METHODS.queryIssues:
+        return {
+          issues: [
+            {
+              id: EPIC_ID,
+              title: "Epic 1",
+              description: null,
+              notes: null,
+              status: "open",
+              priority: null,
+              issueType: "epic",
+              assignee: null,
+              owner: null,
+              createdAt: isoAt(100),
+              createdBy: null,
+              updatedAt: isoAt(101),
+              labels: [],
+              parent: null,
+              dependencyRefs: [],
+            },
+            {
+              id: MANAGED_ISSUE_ID,
+              title: "Implement TASK-1",
+              description: null,
+              notes: null,
+              status: "open",
+              priority: null,
+              issueType: "task",
+              assignee: null,
+              owner: null,
+              createdAt: isoAt(102),
+              createdBy: null,
+              updatedAt: isoAt(103),
+              labels: [],
+              parent: { id: EPIC_ID, title: "Epic 1" },
+              dependencyRefs: [],
+            },
+            {
+              id: GHOST_ISSUE_ID,
+              title: "Implement TASK-2",
+              description: null,
+              notes: null,
+              status: "open",
+              priority: null,
+              issueType: "task",
+              assignee: null,
+              owner: null,
+              createdAt: isoAt(104),
+              createdBy: null,
+              updatedAt: isoAt(105),
+              labels: [],
+              parent: { id: EPIC_ID, title: "Epic 1" },
+              dependencyRefs: [],
+            },
+          ],
+        };
+      case BEADS_WS_METHODS.getIssueGraph:
+        return {
+          epic: {
+            id: body.epicIssueId,
+            title:
+              body.epicIssueId === EPIC_ID
+                ? "Epic 1"
+                : body.epicIssueId === MANAGED_ISSUE_ID
+                  ? "Implement TASK-1"
+                  : "Implement TASK-2",
+            description: null,
+            notes: null,
+            status: "open",
+            priority: null,
+            issueType: body.epicIssueId === EPIC_ID ? "epic" : "task",
+            assignee: null,
+            owner: null,
+            createdAt: isoAt(100),
+            createdBy: null,
+            updatedAt: isoAt(101),
+            labels: [],
+            parent:
+              body.epicIssueId === EPIC_ID
+                ? null
+                : {
+                    id: EPIC_ID,
+                    title: "Epic 1",
+                  },
+            dependencyRefs: [],
+          },
+          parent:
+            body.epicIssueId === EPIC_ID
+              ? null
+              : {
+                  id: EPIC_ID,
+                  title: "Epic 1",
+                  status: "open",
+                  issueType: "epic",
+                },
+          children: [],
+          dependents: [],
+        };
+      case BEADS_WS_METHODS.getProjectRunSummary:
+        return {
+          projectId: PROJECT_ID,
+          epics: [
+            {
+              epicIssueId: EPIC_ID,
+              epicTitle: "Epic 1",
+              runs: [run],
+              executions,
+            },
+          ],
+        };
+      case BEADS_WS_METHODS.getEpicIssueSummaries:
+        return {
+          epicId: EPIC_ID,
+          epicTitle: "Epic 1",
+          progress: {
+            totalIssueCount: 2,
+            completedIssueCount: 1,
+            readyIssueCount: 1,
+            activeIssueCount: 0,
+            blockedIssueCount: 0,
+            internalBlockedIssueCount: 0,
+            externalBlockedIssueCount: 0,
+            unknownBlockedIssueCount: 0,
+            activeWorkerCount: 0,
+            isComplete: false,
+          },
+          issues: [
+            {
+              id: MANAGED_ISSUE_ID,
+              title: "Implement TASK-1",
+              description: null,
+              notes: null,
+              status: "open",
+              priority: null,
+              issueType: "task",
+              assignee: null,
+              owner: null,
+              createdAt: isoAt(102),
+              createdBy: null,
+              updatedAt: isoAt(103),
+              labels: [],
+              parent: { id: EPIC_ID, title: "Epic 1" },
+              dependencyRefs: [],
+            },
+            {
+              id: GHOST_ISSUE_ID,
+              title: "Implement TASK-2",
+              description: null,
+              notes: null,
+              status: "open",
+              priority: null,
+              issueType: "task",
+              assignee: null,
+              owner: null,
+              createdAt: isoAt(104),
+              createdBy: null,
+              updatedAt: isoAt(105),
+              labels: [],
+              parent: { id: EPIC_ID, title: "Epic 1" },
+              dependencyRefs: [],
+            },
+          ],
+        };
+      case BEADS_WS_METHODS.getEpicCoordinationDetail:
+        return {
+          epicId: EPIC_ID,
+          coordinationLoadState: "ready",
+          coordinationLoadDetail: null,
+          validationState: "valid",
+          validationErrors: [],
+          coordinationState: "not_started",
+          summary: null,
+          validation: null,
+          status: null,
+          primaryAction: trackerPrimaryAction,
+        };
+      case ORCHESTRATION_WS_METHODS.startEpicRun: {
+        const action = body as unknown as OrchestrationStartEpicRunInput;
+        options?.onStartEpicRun?.({
+          projectId: action.projectId,
+          epicIssueId: action.epicIssueId,
+        });
+        return {};
+      }
+      default:
+        return undefined;
+    }
+  };
+}
+
+function createDraftQuickLaunchRpcResolver() {
+  return (body: NormalizedWsRpcRequestBody): unknown | undefined => {
+    switch (body._tag) {
+      case BEADS_WS_METHODS.queryIssues:
+        return {
+          issues: [
+            {
+              id: QUICK_LAUNCH_EPIC_ID,
+              title: "Ship the ready launcher",
+              description: null,
+              notes: null,
+              status: "open",
+              priority: 1,
+              issueType: "epic",
+              assignee: null,
+              owner: null,
+              createdAt: isoAt(500),
+              createdBy: null,
+              updatedAt: isoAt(540),
+              labels: [],
+              parent: null,
+              dependencyRefs: [],
+            },
+            {
+              id: QUICK_LAUNCH_STANDALONE_ID,
+              title: "Polish the draft empty state",
+              description: null,
+              notes: null,
+              status: "open",
+              priority: 2,
+              issueType: "task",
+              assignee: null,
+              owner: null,
+              createdAt: isoAt(510),
+              createdBy: null,
+              updatedAt: isoAt(550),
+              labels: [],
+              parent: null,
+              dependencyRefs: [],
+            },
+            {
+              id: QUICK_LAUNCH_BLOCKER_ID,
+              title: "Waiting dependency",
+              description: null,
+              notes: null,
+              status: "open",
+              priority: 0,
+              issueType: "task",
+              assignee: null,
+              owner: null,
+              createdAt: isoAt(520),
+              createdBy: null,
+              updatedAt: isoAt(521),
+              labels: [],
+              parent: null,
+              dependencyRefs: [],
+            },
+            {
+              id: QUICK_LAUNCH_BLOCKED_ID,
+              title: "Blocked issue should stay hidden",
+              description: null,
+              notes: null,
+              status: "open",
+              priority: 1,
+              issueType: "task",
+              assignee: null,
+              owner: null,
+              createdAt: isoAt(530),
+              createdBy: null,
+              updatedAt: isoAt(531),
+              labels: [],
+              parent: null,
+              dependencyRefs: [
+                {
+                  issueId: QUICK_LAUNCH_BLOCKED_ID,
+                  dependsOnId: QUICK_LAUNCH_BLOCKER_ID,
+                  dependencyType: "blocked_by",
+                },
+              ],
+            },
+            {
+              id: "TASK-EPIC-CHILD",
+              title: "Ready child issue should not render",
+              description: null,
+              notes: null,
+              status: "open",
+              priority: 2,
+              issueType: "task",
+              assignee: null,
+              owner: null,
+              createdAt: isoAt(535),
+              createdBy: null,
+              updatedAt: isoAt(536),
+              labels: [],
+              parent: { id: QUICK_LAUNCH_EPIC_ID, title: "Ship the ready launcher" },
+              dependencyRefs: [],
+            },
+          ],
+        };
+      case BEADS_WS_METHODS.getProjectRunSummary:
+        return {
+          projectId: PROJECT_ID,
+          epics: [
+            {
+              epicIssueId: QUICK_LAUNCH_EPIC_ID,
+              epicTitle: "Ship the ready launcher",
+              runs: [],
+              executions: [],
+            },
+          ],
+        };
+      case BEADS_WS_METHODS.getEpicCoordinationDetail:
+        if (body.epicIssueId !== QUICK_LAUNCH_EPIC_ID) {
+          throw new Error(
+            `Unexpected epic coordination detail request for ${String(body.epicIssueId)}.`,
+          );
+        }
+        return {
+          epicId: QUICK_LAUNCH_EPIC_ID,
+          coordinationLoadState: "ready",
+          coordinationLoadDetail: null,
+          validationState: "valid",
+          validationErrors: [],
+          coordinationState: "not_started",
+          summary: {
+            epicId: QUICK_LAUNCH_EPIC_ID,
+            epicTitle: "Ship the ready launcher",
+            totalIssueCount: 3,
+            completedIssueCount: 1,
+            activeIssueCount: 0,
+            readyIssueCount: 2,
+            blockedIssueCount: 0,
+            activeWorkerCount: 0,
+          },
+          validation: {
+            epicId: QUICK_LAUNCH_EPIC_ID,
+            epicTitle: "Ship the ready launcher",
+            summary: {
+              epicId: QUICK_LAUNCH_EPIC_ID,
+              epicTitle: "Ship the ready launcher",
+              totalIssueCount: 3,
+              completedIssueCount: 1,
+              activeIssueCount: 0,
+              readyIssueCount: 2,
+              blockedIssueCount: 0,
+              activeWorkerCount: 0,
+            },
+            valid: true,
+            errors: [],
+            warnings: [],
+            readyFronts: [
+              [
+                {
+                  id: "TASK-EPIC-CHILD",
+                  title: "Ready child issue should not render",
+                  status: "open",
+                  priority: 2,
+                  issueType: "task",
+                  assignee: null,
+                  owner: null,
+                  parent: {
+                    id: QUICK_LAUNCH_EPIC_ID,
+                    title: "Ship the ready launcher",
+                  },
+                },
+              ],
+            ],
+            maxParallelism: null,
+            estimatedWorkerSessions: null,
+          },
+          status: {
+            epicId: QUICK_LAUNCH_EPIC_ID,
+            epicTitle: "Ship the ready launcher",
+            summary: {
+              epicId: QUICK_LAUNCH_EPIC_ID,
+              epicTitle: "Ship the ready launcher",
+              totalIssueCount: 3,
+              completedIssueCount: 1,
+              activeIssueCount: 0,
+              readyIssueCount: 2,
+              blockedIssueCount: 0,
+              activeWorkerCount: 0,
+            },
+            completed: [],
+            ready: [],
+            active: [],
+            blocked: [],
+            blockedBreakdown: {
+              internal: [],
+              external: [],
+              unknown: [],
+            },
+          },
+          primaryAction: {
+            kind: "start_epic_run",
+            label: "Start epic",
+            busyLabel: "Starting...",
+            disabled: false,
+          },
+        };
+      default:
+        return undefined;
+    }
   };
 }
 
@@ -651,10 +1437,10 @@ function withProjectScripts(
   };
 }
 
-function setDraftThreadWithoutWorktree(): void {
+function setDraftThreadWithoutWorktree(draftId: string = THREAD_KEY): void {
   useComposerDraftStore.setState({
     draftThreadsByThreadKey: {
-      [THREAD_KEY]: {
+      [draftId]: {
         threadId: THREAD_ID,
         environmentId: LOCAL_ENVIRONMENT_ID,
         projectId: PROJECT_ID,
@@ -668,7 +1454,7 @@ function setDraftThreadWithoutWorktree(): void {
       },
     },
     logicalProjectDraftThreadKeyByLogicalProjectKey: {
-      [PROJECT_DRAFT_KEY]: THREAD_KEY,
+      [PROJECT_DRAFT_KEY]: draftId,
     },
   });
 }
@@ -1076,6 +1862,18 @@ async function waitForElement<T extends Element>(
     throw new Error(errorMessage);
   }
   return element;
+}
+
+function dispatchContextMenu(target: Element): void {
+  target.dispatchEvent(
+    new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+      clientX: 40,
+      clientY: 60,
+    }),
+  );
 }
 
 async function waitForURL(
@@ -1617,6 +2415,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     await setViewport(DEFAULT_VIEWPORT);
     localStorage.clear();
     document.body.innerHTML = "";
+    Reflect.deleteProperty(window, "desktopBridge");
     wsRequests.length = 0;
     customWsRpcResolver = null;
     __resetEnvironmentApiOverridesForTests();
@@ -1654,6 +2453,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   afterEach(() => {
     customWsRpcResolver = null;
+    Reflect.deleteProperty(window, "desktopBridge");
     document.body.innerHTML = "";
   });
   it("re-expands the bootstrap project using its logical key", async () => {
@@ -1693,6 +2493,264 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       await expect.element(page.getByText("No threads yet")).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows the ready launcher in the empty draft route and hides child issues", async () => {
+    const draftId = "draft-ready-launcher";
+    setDraftThreadWithoutWorktree(draftId);
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+      initialPath: `/draft/${draftId}`,
+      resolveRpc: createDraftQuickLaunchRpcResolver(),
+    });
+
+    try {
+      await expect.element(page.getByTestId("draft-quick-launch-panel")).toBeInTheDocument();
+      await expect.element(page.getByText("Ready epics")).toBeInTheDocument();
+      await expect.element(page.getByText("Ready standalone issues")).toBeInTheDocument();
+      await expect.element(page.getByText("Ship the ready launcher")).toBeInTheDocument();
+      await expect.element(page.getByText("Polish the draft empty state")).toBeInTheDocument();
+      expect(document.querySelector('[aria-label="Show issues"]')).toBeNull();
+      expect(document.body.textContent).not.toContain("Ready child issue should not render");
+      expect(document.body.textContent).not.toContain("Blocked issue should stay hidden");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("opens the full tracker from the draft ready launcher header CTA", async () => {
+    const draftId = "draft-ready-launcher-open-tracker";
+    setDraftThreadWithoutWorktree(draftId);
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+      initialPath: `/draft/${draftId}`,
+      resolveRpc: createDraftQuickLaunchRpcResolver(),
+    });
+
+    try {
+      await page.getByTestId("draft-quick-launch-open-tracker").click();
+
+      await vi.waitFor(
+        () => {
+          expect(mounted.router.state.location.pathname).toBe(`/projects/${PROJECT_ID}/issues`);
+          expect(mounted.router.state.location.search).toMatchObject({
+            tab: "issues",
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("opens the epic issue in the full tracker from the draft ready launcher row", async () => {
+    const draftId = "draft-ready-launcher-open-epic";
+    setDraftThreadWithoutWorktree(draftId);
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+      initialPath: `/draft/${draftId}`,
+      resolveRpc: createDraftQuickLaunchRpcResolver(),
+    });
+
+    try {
+      const row = await waitForElement(
+        () =>
+          document.querySelector<HTMLElement>(
+            `[data-testid="draft-quick-launch-row-epic-${QUICK_LAUNCH_EPIC_ID}"]`,
+          ),
+        "Unable to find the ready epic launcher row.",
+      );
+
+      row.click();
+
+      await vi.waitFor(
+        () => {
+          expect(mounted.router.state.location.pathname).toBe(`/projects/${PROJECT_ID}/issues`);
+          expect(mounted.router.state.location.search).toMatchObject({
+            tab: "issues",
+            epicId: QUICK_LAUNCH_EPIC_ID,
+            issueId: QUICK_LAUNCH_EPIC_ID,
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("opens the standalone issue in the full tracker from the draft ready launcher row", async () => {
+    const draftId = "draft-ready-launcher-open-standalone";
+    setDraftThreadWithoutWorktree(draftId);
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+      initialPath: `/draft/${draftId}`,
+      resolveRpc: createDraftQuickLaunchRpcResolver(),
+    });
+
+    try {
+      const row = await waitForElement(
+        () =>
+          document.querySelector<HTMLElement>(
+            `[data-testid="draft-quick-launch-row-standalone-${QUICK_LAUNCH_STANDALONE_ID}"]`,
+          ),
+        "Unable to find the ready standalone launcher row.",
+      );
+
+      row.click();
+
+      await vi.waitFor(
+        () => {
+          expect(mounted.router.state.location.pathname).toBe(`/projects/${PROJECT_ID}/issues`);
+          expect(mounted.router.state.location.search).toMatchObject({
+            tab: "issues",
+            issueId: QUICK_LAUNCH_STANDALONE_ID,
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows epic context actions in the draft ready launcher and opens the tracker", async () => {
+    const draftId = "draft-ready-launcher-epic-context";
+    const showContextMenu = vi.fn().mockResolvedValue("open_in_tracker");
+    window.desktopBridge = createDesktopBridgeStub({ showContextMenu });
+    setDraftThreadWithoutWorktree(draftId);
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+      initialPath: `/draft/${draftId}`,
+      resolveRpc: createDraftQuickLaunchRpcResolver(),
+    });
+
+    try {
+      const row = await waitForElement(
+        () =>
+          document.querySelector<HTMLElement>(
+            `[data-testid="draft-quick-launch-row-epic-${QUICK_LAUNCH_EPIC_ID}"]`,
+          ),
+        "Unable to find the ready epic launcher row.",
+      );
+
+      dispatchContextMenu(row);
+
+      await vi.waitFor(
+        () => {
+          expect(showContextMenu).toHaveBeenCalledTimes(1);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      expect(showContextMenu.mock.calls[0]?.[0]).toEqual([
+        { id: "quick_refine", label: "Quick refine" },
+        { id: "planned_refine", label: "Planned refine" },
+        { id: "copy_id", label: "Copy ID" },
+        { id: "copy_title", label: "Copy title" },
+        { id: "open_in_tracker", label: "Open in tracker" },
+        { id: "mark_closed", label: "Mark closed", destructive: true },
+      ]);
+
+      await vi.waitFor(
+        () => {
+          expect(mounted.router.state.location.pathname).toBe(`/projects/${PROJECT_ID}/issues`);
+          expect(mounted.router.state.location.search).toMatchObject({
+            tab: "issues",
+            epicId: QUICK_LAUNCH_EPIC_ID,
+            issueId: QUICK_LAUNCH_EPIC_ID,
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows standalone context actions in the draft ready launcher and opens the tracker", async () => {
+    const draftId = "draft-ready-launcher-standalone-context";
+    const showContextMenu = vi.fn().mockResolvedValue("open_in_tracker");
+    window.desktopBridge = createDesktopBridgeStub({ showContextMenu });
+    setDraftThreadWithoutWorktree(draftId);
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createDraftOnlySnapshot(),
+      initialPath: `/draft/${draftId}`,
+      resolveRpc: createDraftQuickLaunchRpcResolver(),
+    });
+
+    try {
+      const row = await waitForElement(
+        () =>
+          document.querySelector<HTMLElement>(
+            `[data-testid="draft-quick-launch-row-standalone-${QUICK_LAUNCH_STANDALONE_ID}"]`,
+          ),
+        "Unable to find the ready standalone launcher row.",
+      );
+
+      dispatchContextMenu(row);
+
+      await vi.waitFor(
+        () => {
+          expect(showContextMenu).toHaveBeenCalledTimes(1);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      expect(showContextMenu.mock.calls[0]?.[0]).toEqual([
+        { id: "implement", label: "Implement" },
+        { id: "refine", label: "Refine" },
+        { id: "copy_id", label: "Copy ID" },
+        { id: "copy_title", label: "Copy title" },
+        { id: "open_in_tracker", label: "Open in tracker" },
+        { id: "mark_closed", label: "Mark closed", destructive: true },
+      ]);
+
+      await vi.waitFor(
+        () => {
+          expect(mounted.router.state.location.pathname).toBe(`/projects/${PROJECT_ID}/issues`);
+          expect(mounted.router.state.location.search).toMatchObject({
+            tab: "issues",
+            issueId: QUICK_LAUNCH_STANDALONE_ID,
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("does not show the ready launcher on the server thread route", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-server-route-no-launcher" as MessageId,
+        targetText: "server route no launcher",
+      }),
+      resolveRpc: createDraftQuickLaunchRpcResolver(),
+    });
+
+    try {
+      await waitForLayout();
+      expect(document.querySelector('[data-testid="draft-quick-launch-panel"]')).toBeNull();
+      expect(document.querySelector('[aria-label="Show issues"]')).not.toBeNull();
     } finally {
       await mounted.cleanup();
     }
@@ -3578,6 +4636,283 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("shows managed issue actions for concrete epic rows and opens the issue sidebar on the current thread", async () => {
+    const showContextMenu = vi.fn().mockResolvedValue("open_issue_sidebar");
+    window.desktopBridge = createDesktopBridgeStub({ showContextMenu });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithManagedIssueSidebar(),
+      resolveRpc: createManagedIssueSidebarRpcResolver(),
+    });
+
+    try {
+      const row = await waitForElement(
+        () =>
+          document.querySelector<HTMLElement>(
+            `[data-testid="epic-execution-row-${MANAGED_EXECUTION_ID}"]`,
+          ),
+        "Unable to find the concrete managed issue row.",
+      );
+
+      dispatchContextMenu(row);
+
+      await vi.waitFor(
+        () => {
+          expect(showContextMenu).toHaveBeenCalledTimes(1);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      expect(showContextMenu.mock.calls[0]?.[0]).toEqual([
+        {
+          id: "open_issue_sidebar",
+          label: "Open in sidebar",
+          disabled: false,
+        },
+        {
+          id: "open_issue_tracker",
+          label: "Open in tracker",
+        },
+      ]);
+
+      await vi.waitFor(
+        () => {
+          expect(mounted.router.state.location.pathname).toBe(serverThreadPath(THREAD_ID));
+          expect(
+            parseChatRouteSearch(
+              mounted.router.state.location.search as unknown as Record<string, unknown>,
+            ),
+          ).toMatchObject({
+            rightPane: "issues",
+            issueId: MANAGED_ISSUE_ID,
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows managed issue actions for ghost rows and opens the tracker issue", async () => {
+    const showContextMenu = vi.fn().mockResolvedValue("open_issue_tracker");
+    window.desktopBridge = createDesktopBridgeStub({ showContextMenu });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithManagedIssueSidebar(),
+      resolveRpc: createManagedIssueSidebarRpcResolver(),
+    });
+
+    try {
+      const row = await waitForElement(
+        () =>
+          document.querySelector<HTMLElement>(
+            `[data-testid="epic-ghost-row-${GHOST_EXECUTION_ID}"]`,
+          ),
+        "Unable to find the ghost managed issue row.",
+      );
+
+      dispatchContextMenu(row);
+
+      await vi.waitFor(
+        () => {
+          expect(showContextMenu).toHaveBeenCalledTimes(1);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      expect(showContextMenu.mock.calls[0]?.[0]).toEqual([
+        {
+          id: "open_issue_sidebar",
+          label: "Open in sidebar",
+          disabled: false,
+        },
+        {
+          id: "open_issue_tracker",
+          label: "Open in tracker",
+        },
+      ]);
+
+      await vi.waitFor(
+        () => {
+          expect(mounted.router.state.location.pathname).toBe(`/projects/${PROJECT_ID}/issues`);
+          expect(mounted.router.state.location.search).toMatchObject({
+            tab: "issues",
+            epicId: EPIC_ID,
+            issueId: GHOST_ISSUE_ID,
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("disables open in sidebar for managed issue rows when another project thread is active", async () => {
+    const showContextMenu = vi.fn().mockResolvedValue(null);
+    window.desktopBridge = createDesktopBridgeStub({ showContextMenu });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: addSecondaryProjectToSnapshot(createSnapshotWithManagedIssueSidebar()),
+      initialPath: `/${LOCAL_ENVIRONMENT_ID}/thread-secondary-project`,
+      resolveRpc: createManagedIssueSidebarRpcResolver(),
+    });
+
+    try {
+      const row = await waitForElement(
+        () =>
+          document.querySelector<HTMLElement>(
+            `[data-testid="epic-execution-row-${MANAGED_EXECUTION_ID}"]`,
+          ),
+        "Unable to find the concrete managed issue row.",
+      );
+
+      dispatchContextMenu(row);
+
+      await vi.waitFor(
+        () => {
+          expect(showContextMenu).toHaveBeenCalledTimes(1);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      expect(showContextMenu.mock.calls[0]?.[0]).toEqual([
+        {
+          id: "open_issue_sidebar",
+          label: "Open in sidebar",
+          disabled: true,
+        },
+        {
+          id: "open_issue_tracker",
+          label: "Open in tracker",
+        },
+      ]);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows epic card actions with start disabled when the tracker does not allow a new run", async () => {
+    const showContextMenu = vi.fn().mockResolvedValue(null);
+    window.desktopBridge = createDesktopBridgeStub({ showContextMenu });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithManagedIssueSidebar(),
+      resolveRpc: createManagedIssueSidebarRpcResolver({
+        trackerPrimaryAction: {
+          kind: "open_coordinator",
+          label: "Open output",
+          busyLabel: "Opening...",
+          disabled: false,
+        },
+      }),
+    });
+
+    try {
+      const epicCard = await waitForElement(
+        () => document.querySelector<HTMLElement>(`[data-testid="epic-group-card-${EPIC_ID}"]`),
+        "Unable to find the epic group card.",
+      );
+
+      dispatchContextMenu(epicCard);
+
+      await vi.waitFor(
+        () => {
+          expect(showContextMenu).toHaveBeenCalledTimes(1);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      expect(showContextMenu.mock.calls[0]?.[0]).toEqual([
+        {
+          id: "start_new_run",
+          label: "Start new run",
+          disabled: true,
+        },
+        {
+          id: "open_epic",
+          label: "Open epic",
+        },
+      ]);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("starts a new epic run from the epic card context menu", async () => {
+    const showContextMenu = vi.fn().mockResolvedValue("start_new_run");
+    const startEpicRun = vi.fn();
+    window.desktopBridge = createDesktopBridgeStub({ showContextMenu });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithManagedIssueSidebar(),
+      resolveRpc: createManagedIssueSidebarRpcResolver({
+        onStartEpicRun: startEpicRun,
+      }),
+    });
+
+    try {
+      const epicCard = await waitForElement(
+        () => document.querySelector<HTMLElement>(`[data-testid="epic-group-card-${EPIC_ID}"]`),
+        "Unable to find the epic group card.",
+      );
+
+      dispatchContextMenu(epicCard);
+
+      await vi.waitFor(
+        () => {
+          expect(startEpicRun).toHaveBeenCalledWith({
+            projectId: PROJECT_ID,
+            epicIssueId: EPIC_ID,
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("opens the epic issue from the epic card context menu", async () => {
+    const showContextMenu = vi.fn().mockResolvedValue("open_epic");
+    window.desktopBridge = createDesktopBridgeStub({ showContextMenu });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithManagedIssueSidebar(),
+      resolveRpc: createManagedIssueSidebarRpcResolver(),
+    });
+
+    try {
+      const epicCard = await waitForElement(
+        () => document.querySelector<HTMLElement>(`[data-testid="epic-group-card-${EPIC_ID}"]`),
+        "Unable to find the epic group card.",
+      );
+
+      dispatchContextMenu(epicCard);
+
+      await vi.waitFor(
+        () => {
+          expect(mounted.router.state.location.pathname).toBe(`/projects/${PROJECT_ID}/issues`);
+          expect(mounted.router.state.location.search).toMatchObject({
+            tab: "issues",
+            epicId: EPIC_ID,
+            issueId: EPIC_ID,
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("canonicalizes promoted draft threads to the server thread route", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -5416,6 +6751,111 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(Math.abs(compactModelPickerOffset - initialModelPickerOffset)).toBeLessThanOrEqual(
             1,
           );
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows the convert to beads action in the implementation menu", async () => {
+    const mounted = await mountChatView({
+      viewport: WIDE_FOOTER_VIEWPORT,
+      snapshot: createSnapshotWithPlanFollowUpPrompt(),
+    });
+
+    try {
+      const implementActionsButton = await waitForElement(
+        () =>
+          document.querySelector<HTMLButtonElement>('button[aria-label="Implementation actions"]'),
+        "Unable to find implementation actions trigger.",
+      );
+
+      implementActionsButton.click();
+
+      await expect
+        .element(page.getByRole("menuitem", { name: "Implement in a new thread", exact: true }))
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByText("Implement in a new thread with smaller model"))
+        .toBeInTheDocument();
+      await expect.element(page.getByText("Convert to beads")).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("launches the smaller-model implementation preset with the provider lightweight model", async () => {
+    const mounted = await mountChatView({
+      viewport: WIDE_FOOTER_VIEWPORT,
+      snapshot: createSnapshotWithPlanFollowUpPrompt({
+        modelSelection: { provider: "codex", model: "gpt-5.4" },
+      }),
+      resolveRpc: (body) => {
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return {
+            sequence: fixture.snapshot.snapshotSequence + 1,
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      const implementActionsButton = await waitForElement(
+        () =>
+          document.querySelector<HTMLButtonElement>('button[aria-label="Implementation actions"]'),
+        "Unable to find implementation actions trigger.",
+      );
+
+      implementActionsButton.click();
+      await page.getByText("Implement in a new thread with smaller model").click();
+
+      await vi.waitFor(
+        () => {
+          const threadCreateRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.create",
+          ) as
+            | {
+                _tag: string;
+                type?: string;
+                threadId?: string;
+                modelSelection?: { provider?: string; model?: string };
+              }
+            | undefined;
+          const turnStartRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.turn.start",
+          ) as
+            | {
+                _tag: string;
+                type?: string;
+                threadId?: string;
+                modelSelection?: { provider?: string; model?: string };
+              }
+            | undefined;
+
+          expect(threadCreateRequest).toMatchObject({
+            _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
+            type: "thread.create",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5.4-mini",
+            },
+          });
+          expect(turnStartRequest).toMatchObject({
+            _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
+            type: "thread.turn.start",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5.4-mini",
+            },
+          });
+          expect(turnStartRequest?.threadId).toBe(threadCreateRequest?.threadId);
         },
         { timeout: 8_000, interval: 16 },
       );

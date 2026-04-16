@@ -235,7 +235,7 @@ describe("orchestration projector", () => {
     );
 
     const thread = finalState.threads.find((entry) => entry.id === "thread-legacy-missing");
-    expect(thread?.latestTurn?.state).toBe("completed");
+    expect(thread?.latestTurn?.state).toBe("running");
     expect(thread?.checkpoints).toHaveLength(0);
     expect(thread?.pendingCheckpointCaptures).toEqual([
       {
@@ -247,7 +247,7 @@ describe("orchestration projector", () => {
     ]);
   });
 
-  it("preserves latest turn lifecycle state when finalized checkpoint metadata arrives", async () => {
+  it("preserves terminal latest turn state when later checkpoint data arrives after a session error", async () => {
     const createdAt = "2026-02-25T11:00:00.000Z";
     const model = createEmptyReadModel(createdAt);
 
@@ -345,6 +345,201 @@ describe("orchestration projector", () => {
     expect(thread?.latestTurn?.turnId).toBe("turn-1");
     expect(thread?.checkpoints).toHaveLength(1);
     expect(thread?.checkpoints[0]?.checkpointTurnCount).toBe(1);
+  });
+
+  it("applies authoritative settled turns from thread.session-set without mutating unrelated session-only updates", async () => {
+    const createdAt = "2026-02-25T11:30:00.000Z";
+    const model = createEmptyReadModel(createdAt);
+
+    const events: ReadonlyArray<OrchestrationEvent> = [
+      makeEvent({
+        sequence: 1,
+        type: "thread.created",
+        aggregateKind: "thread",
+        aggregateId: "thread-settled-turn",
+        occurredAt: createdAt,
+        commandId: "cmd-create-thread",
+        payload: {
+          threadId: "thread-settled-turn",
+          projectId: "project-1",
+          title: "demo",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5.3-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+      makeEvent({
+        sequence: 2,
+        type: "thread.session-set",
+        aggregateKind: "thread",
+        aggregateId: "thread-settled-turn",
+        occurredAt: "2026-02-25T11:30:01.000Z",
+        commandId: "cmd-session-running",
+        payload: {
+          threadId: "thread-settled-turn",
+          session: {
+            threadId: "thread-settled-turn",
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: "turn-1",
+            lastError: null,
+            updatedAt: "2026-02-25T11:30:01.000Z",
+          },
+        },
+      }),
+      makeEvent({
+        sequence: 3,
+        type: "thread.message-sent",
+        aggregateKind: "thread",
+        aggregateId: "thread-settled-turn",
+        occurredAt: "2026-02-25T11:30:02.000Z",
+        commandId: "cmd-assistant-complete",
+        payload: {
+          threadId: "thread-settled-turn",
+          messageId: "assistant-1",
+          role: "assistant",
+          text: "done",
+          turnId: "turn-1",
+          streaming: false,
+          createdAt: "2026-02-25T11:30:02.000Z",
+          updatedAt: "2026-02-25T11:30:02.000Z",
+        },
+      }),
+      makeEvent({
+        sequence: 4,
+        type: "thread.session-set",
+        aggregateKind: "thread",
+        aggregateId: "thread-settled-turn",
+        occurredAt: "2026-02-25T11:30:03.000Z",
+        commandId: "cmd-session-ready-settled",
+        payload: {
+          threadId: "thread-settled-turn",
+          session: {
+            threadId: "thread-settled-turn",
+            status: "ready",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: "2026-02-25T11:30:03.000Z",
+          },
+          settledTurn: {
+            turnId: "turn-1",
+            state: "completed",
+            completedAt: "2026-02-25T11:30:03.000Z",
+          },
+        },
+      }),
+    ];
+
+    const finalState = await events.reduce<Promise<ReturnType<typeof createEmptyReadModel>>>(
+      (statePromise, event) =>
+        statePromise.then((state) => Effect.runPromise(projectEvent(state, event))),
+      Promise.resolve(model),
+    );
+
+    const thread = finalState.threads.find((entry) => entry.id === "thread-settled-turn");
+    expect(thread?.latestTurn).toEqual(
+      expect.objectContaining({
+        turnId: "turn-1",
+        state: "completed",
+        assistantMessageId: "assistant-1",
+        terminalSource: "turn_completed",
+      }),
+    );
+  });
+
+  it("settles the latest turn when thread.session-set ends a running session without an explicit settledTurn", async () => {
+    const createdAt = "2026-02-25T11:30:00.000Z";
+    const model = createEmptyReadModel(createdAt);
+
+    const events: ReadonlyArray<OrchestrationEvent> = [
+      makeEvent({
+        sequence: 1,
+        type: "thread.created",
+        aggregateKind: "thread",
+        aggregateId: "thread-session-error",
+        occurredAt: createdAt,
+        commandId: "cmd-create-thread-error",
+        payload: {
+          threadId: "thread-session-error",
+          projectId: "project-1",
+          title: "demo",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5.3-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+      makeEvent({
+        sequence: 2,
+        type: "thread.session-set",
+        aggregateKind: "thread",
+        aggregateId: "thread-session-error",
+        occurredAt: "2026-02-25T11:30:01.000Z",
+        commandId: "cmd-session-running-error",
+        payload: {
+          threadId: "thread-session-error",
+          session: {
+            threadId: "thread-session-error",
+            status: "running",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: "turn-1",
+            lastError: null,
+            updatedAt: "2026-02-25T11:30:01.000Z",
+          },
+        },
+      }),
+      makeEvent({
+        sequence: 3,
+        type: "thread.session-set",
+        aggregateKind: "thread",
+        aggregateId: "thread-session-error",
+        occurredAt: "2026-02-25T11:30:04.000Z",
+        commandId: "cmd-session-error",
+        payload: {
+          threadId: "thread-session-error",
+          session: {
+            threadId: "thread-session-error",
+            status: "error",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: "provider process exited unexpectedly",
+            updatedAt: "2026-02-25T11:30:04.000Z",
+          },
+        },
+      }),
+    ];
+
+    const finalState = await events.reduce<Promise<ReturnType<typeof createEmptyReadModel>>>(
+      (statePromise, event) =>
+        statePromise.then((state) => Effect.runPromise(projectEvent(state, event))),
+      Promise.resolve(model),
+    );
+
+    const thread = finalState.threads.find((entry) => entry.id === "thread-session-error");
+    expect(thread?.session?.status).toBe("error");
+    expect(thread?.latestTurn).toEqual(
+      expect.objectContaining({
+        turnId: "turn-1",
+        state: "error",
+        completedAt: "2026-02-25T11:30:04.000Z",
+      }),
+    );
   });
 
   it("applies thread.archived and thread.unarchived events", async () => {
@@ -796,6 +991,7 @@ describe("orchestration projector", () => {
     expect(message?.text).toBe("hello");
     expect(message?.streaming).toBe(false);
     expect(message?.updatedAt).toBe(completeAt);
+    expect(afterComplete.threads[0]?.latestTurn?.state).toBe("running");
   });
 
   it("prunes reverted turn messages from in-memory thread snapshot", async () => {

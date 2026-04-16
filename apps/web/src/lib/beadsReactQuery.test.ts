@@ -1,9 +1,12 @@
+import { ProjectId } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
   ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
   beadsIssueGraphOptions,
+  getProjectRunSummaryEpicTitle,
   beadsQueryIssuesOptions,
+  selectProjectRunSummaryEpic,
 } from "./beadsReactQuery";
 
 describe("beads issue query options", () => {
@@ -30,5 +33,23 @@ describe("beads issue query options", () => {
 
     expect(options.refetchInterval).toBe(ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS);
     expect(options.refetchOnWindowFocus).toBe("always");
+  });
+
+  it("reads epic titles from project run summary payloads", () => {
+    const summary = {
+      projectId: ProjectId.make("project-1"),
+      epics: [
+        {
+          epicIssueId: "EPIC-1",
+          epicTitle: "Epic Title",
+          runs: [],
+          executions: [],
+        },
+      ],
+    };
+
+    expect(selectProjectRunSummaryEpic(summary, "EPIC-1")?.epicTitle).toBe("Epic Title");
+    expect(getProjectRunSummaryEpicTitle(summary, "EPIC-1")).toBe("Epic Title");
+    expect(getProjectRunSummaryEpicTitle(summary, "EPIC-2")).toBeNull();
   });
 });

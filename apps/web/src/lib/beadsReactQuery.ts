@@ -1,8 +1,12 @@
 import type {
   BeadsContext,
   BeadsCreateIssueInput,
-  BeadsEpicCoordinatorSnapshot,
-  BeadsEpicCoordinatorSnapshotInput,
+  BeadsEpicCoordinationDetail,
+  BeadsEpicCoordinationDetailInput,
+  BeadsEpicCoordinationStatus,
+  BeadsEpicCoordinationValidation,
+  BeadsEpicIssueSummaries,
+  BeadsEpicIssueSummariesInput,
   BeadsEpicIssueInput,
   BeadsGetIssueInput,
   BeadsGetIssuesInput,
@@ -10,22 +14,18 @@ import type {
   BeadsIssueGraph,
   BeadsIssueSummary,
   BeadsGetSessionActivityInput,
-  BeadsProjectCoordinatorSnapshot,
-  BeadsProjectCoordinatorSnapshotInput,
+  BeadsProjectRunSummary,
+  BeadsProjectRunSummaryEpic,
+  BeadsProjectRunSummaryInput,
   BeadsQueryIssuesInput,
   BeadsQueryIssuesResult,
   BeadsStartBacklogGroomingInput,
   BeadsUpdateIssueInput,
   BeadsCommentIssueInput,
-  BeadsListEpicTrackerSummariesInput,
   BeadsStartEpicPlannedRefineInput,
   BeadsStartEpicQuickRefineInput,
   BeadsStartEpicCoordinationPrepInput,
   BeadsStartWorkflowInput,
-  BeadsEpicTrackerStatus,
-  BeadsEpicTrackerSummary,
-  BeadsEpicRunSupport,
-  BeadsEpicRunValidation,
 } from "@t3tools/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 
@@ -66,26 +66,18 @@ export const beadsQueryKeys = {
   issuesBatch: (cwd: string | null, issueIds: readonly string[]) =>
     ["beads", "issues-batch", cwd, [...issueIds].toSorted()] as const,
   context: (input: BeadsGetContextInput) => ["beads", "context", input.cwd] as const,
-  epicRunSupport: (cwd: string | null) => ["beads", "epic-run-support", cwd] as const,
-  epicTrackerSummary: (cwd: string | null, epicIssueId: string | null) =>
-    ["beads", "epic-tracker-summary", cwd, epicIssueId] as const,
-  epicRunValidation: (cwd: string | null, epicIssueId: string | null) =>
-    ["beads", "epic-run-validation", cwd, epicIssueId] as const,
-  epicTrackerStatus: (cwd: string | null, epicIssueId: string | null) =>
-    ["beads", "epic-tracker-status", cwd, epicIssueId] as const,
-  epicTrackerSummaries: (input: BeadsListEpicTrackerSummariesInput) =>
-    ["beads", "epic-tracker-summaries", input.cwd] as const,
-  projectCoordinatorSnapshot: (input: BeadsProjectCoordinatorSnapshotInput | null) =>
+  epicCoordinationValidation: (cwd: string | null, epicIssueId: string | null) =>
+    ["beads", "epic-coordination-validation", cwd, epicIssueId] as const,
+  epicCoordinationStatus: (cwd: string | null, epicIssueId: string | null) =>
+    ["beads", "epic-coordination-status", cwd, epicIssueId] as const,
+  projectRunSummary: (input: BeadsProjectRunSummaryInput | null) =>
+    ["beads", "project-run-summary", input?.cwd ?? null, input?.projectId ?? null] as const,
+  epicIssueSummaries: (input: BeadsEpicIssueSummariesInput | null) =>
+    ["beads", "epic-issue-summaries", input?.cwd ?? null, input?.epicIssueId ?? null] as const,
+  epicCoordinationDetail: (input: BeadsEpicCoordinationDetailInput | null) =>
     [
       "beads",
-      "project-coordinator-snapshot",
-      input?.cwd ?? null,
-      input?.projectId ?? null,
-    ] as const,
-  epicCoordinatorSnapshot: (input: BeadsEpicCoordinatorSnapshotInput | null) =>
-    [
-      "beads",
-      "epic-coordinator-snapshot",
+      "epic-coordination-detail",
       input?.cwd ?? null,
       input?.projectId ?? null,
       input?.epicIssueId ?? null,
@@ -199,105 +191,101 @@ export function beadsContextOptions(input: (BeadsGetContextInput & { enabled?: b
   });
 }
 
-export function beadsEpicRunSupportOptions(input: { cwd: string | null; enabled?: boolean }) {
-  return queryOptions({
-    queryKey: beadsQueryKeys.epicRunSupport(input.cwd),
-    queryFn: async (): Promise<BeadsEpicRunSupport> => {
-      if (!input.cwd) {
-        throw new Error("Epic-run support is unavailable.");
-      }
-      return beadsApiForCwd(input.cwd).getEpicRunSupport({ cwd: input.cwd });
-    },
-    enabled: Boolean(input.cwd) && (input.enabled ?? true),
-    staleTime: 10_000,
-  });
-}
-
-export function beadsEpicTrackerSummaryOptions(
+export function beadsEpicCoordinationValidationOptions(
   input: (BeadsEpicIssueInput & { enabled?: boolean }) | null,
 ) {
   return queryOptions({
-    queryKey: beadsQueryKeys.epicTrackerSummary(input?.cwd ?? null, input?.epicIssueId ?? null),
-    queryFn: async (): Promise<BeadsEpicTrackerSummary | null> => {
+    queryKey: beadsQueryKeys.epicCoordinationValidation(
+      input?.cwd ?? null,
+      input?.epicIssueId ?? null,
+    ),
+    queryFn: async (): Promise<BeadsEpicCoordinationValidation> => {
       if (!input) {
-        throw new Error("Epic tracker summary is unavailable.");
+        throw new Error("Epic coordination validation is unavailable.");
       }
-      return beadsApiForCwd(input.cwd).getEpicTrackerSummary(input);
+      return beadsApiForCwd(input.cwd).validateEpicCoordination(input);
     },
     enabled: input !== null && (input.enabled ?? true),
     staleTime: 5_000,
   });
 }
 
-export function beadsEpicRunValidationOptions(
+export function beadsEpicCoordinationStatusOptions(
   input: (BeadsEpicIssueInput & { enabled?: boolean }) | null,
 ) {
   return queryOptions({
-    queryKey: beadsQueryKeys.epicRunValidation(input?.cwd ?? null, input?.epicIssueId ?? null),
-    queryFn: async (): Promise<BeadsEpicRunValidation> => {
+    queryKey: beadsQueryKeys.epicCoordinationStatus(input?.cwd ?? null, input?.epicIssueId ?? null),
+    queryFn: async (): Promise<BeadsEpicCoordinationStatus> => {
       if (!input) {
-        throw new Error("Epic-run validation is unavailable.");
+        throw new Error("Epic coordination status is unavailable.");
       }
-      return beadsApiForCwd(input.cwd).validateEpicRun(input);
+      return beadsApiForCwd(input.cwd).getEpicCoordinationStatus(input);
     },
     enabled: input !== null && (input.enabled ?? true),
     staleTime: 5_000,
   });
 }
 
-export function beadsEpicTrackerStatusOptions(
-  input: (BeadsEpicIssueInput & { enabled?: boolean }) | null,
+export function beadsProjectRunSummaryOptions(
+  input: (BeadsProjectRunSummaryInput & { enabled?: boolean }) | null,
 ) {
   return queryOptions({
-    queryKey: beadsQueryKeys.epicTrackerStatus(input?.cwd ?? null, input?.epicIssueId ?? null),
-    queryFn: async (): Promise<BeadsEpicTrackerStatus> => {
+    queryKey: beadsQueryKeys.projectRunSummary(input),
+    queryFn: async (): Promise<BeadsProjectRunSummary> => {
       if (!input) {
-        throw new Error("Epic tracker status is unavailable.");
+        throw new Error("Project run summary is unavailable.");
       }
-      return beadsApiForCwd(input.cwd).getEpicTrackerStatus(input);
+      return beadsApiForCwd(input.cwd).getProjectRunSummary(input);
+    },
+    enabled: input !== null && (input.enabled ?? true),
+    staleTime: 30_000,
+  });
+}
+
+export function selectProjectRunSummaryEpic(
+  summary: BeadsProjectRunSummary | null | undefined,
+  epicIssueId: string | null | undefined,
+): BeadsProjectRunSummaryEpic | null {
+  if (!summary || !epicIssueId) {
+    return null;
+  }
+
+  return summary.epics.find((epic) => epic.epicIssueId === epicIssueId) ?? null;
+}
+
+export function getProjectRunSummaryEpicTitle(
+  summary: BeadsProjectRunSummary | null | undefined,
+  epicIssueId: string | null | undefined,
+): string | null {
+  return selectProjectRunSummaryEpic(summary, epicIssueId)?.epicTitle ?? null;
+}
+
+export function beadsEpicIssueSummariesOptions(
+  input: (BeadsEpicIssueSummariesInput & { enabled?: boolean }) | null,
+) {
+  return queryOptions({
+    queryKey: beadsQueryKeys.epicIssueSummaries(input),
+    queryFn: async (): Promise<BeadsEpicIssueSummaries> => {
+      if (!input) {
+        throw new Error("Epic issue summaries are unavailable.");
+      }
+      return beadsApiForCwd(input.cwd).getEpicIssueSummaries(input);
     },
     enabled: input !== null && (input.enabled ?? true),
     staleTime: 5_000,
   });
 }
 
-export function beadsListEpicTrackerSummariesOptions(
-  input: BeadsListEpicTrackerSummariesInput & { enabled?: boolean },
+export function beadsEpicCoordinationDetailOptions(
+  input: (BeadsEpicCoordinationDetailInput & { enabled?: boolean }) | null,
 ) {
   return queryOptions({
-    queryKey: beadsQueryKeys.epicTrackerSummaries(input),
-    queryFn: async () => beadsApiForCwd(input.cwd).listEpicTrackerSummaries(input),
-    enabled: (input.enabled ?? true) && input.cwd.length > 0,
-    staleTime: 5_000,
-  });
-}
-
-export function beadsProjectCoordinatorSnapshotOptions(
-  input: (BeadsProjectCoordinatorSnapshotInput & { enabled?: boolean }) | null,
-) {
-  return queryOptions({
-    queryKey: beadsQueryKeys.projectCoordinatorSnapshot(input),
-    queryFn: async (): Promise<BeadsProjectCoordinatorSnapshot> => {
+    queryKey: beadsQueryKeys.epicCoordinationDetail(input),
+    queryFn: async (): Promise<BeadsEpicCoordinationDetail> => {
       if (!input) {
-        throw new Error("Project coordinator snapshot is unavailable.");
+        throw new Error("Epic coordination detail is unavailable.");
       }
-      return beadsApiForCwd(input.cwd).getProjectCoordinatorSnapshot(input);
-    },
-    enabled: input !== null && (input.enabled ?? true),
-    staleTime: 5_000,
-  });
-}
-
-export function beadsEpicCoordinatorSnapshotOptions(
-  input: (BeadsEpicCoordinatorSnapshotInput & { enabled?: boolean }) | null,
-) {
-  return queryOptions({
-    queryKey: beadsQueryKeys.epicCoordinatorSnapshot(input),
-    queryFn: async (): Promise<BeadsEpicCoordinatorSnapshot> => {
-      if (!input) {
-        throw new Error("Epic coordinator snapshot is unavailable.");
-      }
-      return beadsApiForCwd(input.cwd).getEpicCoordinatorSnapshot(input);
+      return beadsApiForCwd(input.cwd).getEpicCoordinationDetail(input);
     },
     enabled: input !== null && (input.enabled ?? true),
     staleTime: 5_000,

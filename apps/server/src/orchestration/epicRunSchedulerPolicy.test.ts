@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 import type {
-  BeadsEpicTrackerStatus,
+  BeadsEpicCoordinationStatus,
   BeadsIssueRelationSummary,
   OrchestrationEpicRun,
   OrchestrationEpicIssueExecution,
@@ -79,12 +79,13 @@ function execution(
   };
 }
 
-function trackerStatus(overrides: Partial<BeadsEpicTrackerStatus> = {}): BeadsEpicTrackerStatus {
+function trackerStatus(
+  overrides: Partial<BeadsEpicCoordinationStatus> = {},
+): BeadsEpicCoordinationStatus {
   return {
     epicId: "EPIC-1",
     epicTitle: "Epic 1",
-    trackerSummary: {
-      trackerId: "SWARM-1",
+    summary: {
       epicId: "EPIC-1",
       epicTitle: "Epic 1",
       totalIssueCount: 2,
@@ -210,7 +211,9 @@ describe("epicRunSchedulerPolicy", () => {
         attemptedIssueIds: new Set(["TASK-1", "TASK-9"]),
         readyIssues: [issue("TASK-1", 1), issue("TASK-9", null)],
       }),
-    ).toContain("Stop the run, fix the tracker or code state, then start a new run when ready.");
+    ).toContain(
+      "Stop the run, fix the coordination or code state, then start a new run when ready.",
+    );
   });
 
   it("fails the losing run during drive reconciliation when another project run already won admission", () => {
@@ -251,15 +254,14 @@ describe("epicRunSchedulerPolicy", () => {
     ).toEqual({ type: "reconcile_current" });
   });
 
-  it("keeps a run idle instead of completing when the tracker has no ready issue but is incomplete", () => {
+  it("keeps a run idle instead of completing when coordination has no ready issue but is incomplete", () => {
     expect(
       decideLaunchNextTask({
         run: run("run-1", { status: "running" }),
         trigger: "periodic_reconcile",
         trackerStatus: trackerStatus({
           ready: [],
-          trackerSummary: {
-            trackerId: "SWARM-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic 1",
             totalIssueCount: 2,
@@ -281,7 +283,7 @@ describe("epicRunSchedulerPolicy", () => {
     ).toEqual({ type: "idle_run" });
   });
 
-  it("blocks the run when tracker state shows external execution blockers", () => {
+  it("blocks the run when coordination state shows external execution blockers", () => {
     expect(
       decideLaunchNextTask({
         run: run("run-1", { status: "running" }),
@@ -300,15 +302,14 @@ describe("epicRunSchedulerPolicy", () => {
     ).toEqual({ type: "block_run" });
   });
 
-  it("completes the run only when tracker summary proves the epic is done", () => {
+  it("completes the run only when the coordination summary proves the epic is done", () => {
     expect(
       decideLaunchNextTask({
         run: run("run-1", { status: "running" }),
         trigger: "execution_settled",
         trackerStatus: trackerStatus({
           ready: [],
-          trackerSummary: {
-            trackerId: "SWARM-1",
+          summary: {
             epicId: "EPIC-1",
             epicTitle: "Epic 1",
             totalIssueCount: 2,

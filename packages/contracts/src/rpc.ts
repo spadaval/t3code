@@ -8,23 +8,22 @@ import {
   BeadsContext,
   BeadsCommentIssueInput,
   BeadsError,
-  BeadsEpicCoordinatorSnapshot,
-  BeadsEpicCoordinatorSnapshotInput,
+  BeadsEpicIssueSummaries,
+  BeadsEpicIssueSummariesInput,
   BeadsEpicIssueInput,
+  BeadsEpicCoordinationDetail,
+  BeadsEpicCoordinationDetailInput,
   BeadsGetIssueInput,
   BeadsGetIssuesInput,
   BeadsGetIssuesResult,
   BeadsGetContextInput,
   BeadsGetSessionActivityInput,
   BeadsGetSessionActivityResult,
-  BeadsGetEpicRunSupportInput,
   BeadsIssueDetail,
   BeadsIssueGraph,
   BeadsIssueSummary,
-  BeadsListEpicTrackerSummariesInput,
-  BeadsListEpicTrackerSummariesResult,
-  BeadsProjectCoordinatorSnapshot,
-  BeadsProjectCoordinatorSnapshotInput,
+  BeadsProjectRunSummary,
+  BeadsProjectRunSummaryInput,
   BeadsQueryIssuesInput,
   BeadsQueryIssuesResult,
   BeadsStartBacklogGroomingInput,
@@ -33,10 +32,8 @@ import {
   BeadsStartEpicPlannedRefineInput,
   BeadsStartEpicQuickRefineInput,
   BeadsStartEpicCoordinationPrepInput,
-  BeadsEpicTrackerStatus,
-  BeadsEpicTrackerSummary,
-  BeadsEpicRunSupport,
-  BeadsEpicRunValidation,
+  BeadsEpicCoordinationStatus,
+  BeadsEpicCoordinationValidation,
   BeadsUpdateIssueInput,
   BeadsCreateIssueInput,
   BEADS_WS_METHODS,
@@ -386,59 +383,47 @@ export const WsBeadsGetContextRpc = Rpc.make(BEADS_WS_METHODS.getContext, {
   error: BeadsError,
 });
 
-export const WsBeadsGetEpicRunSupportRpc = Rpc.make(BEADS_WS_METHODS.getEpicRunSupport, {
-  payload: BeadsGetEpicRunSupportInput,
-  success: BeadsEpicRunSupport,
-  error: BeadsError,
-});
-
 export const WsBeadsGetIssueGraphRpc = Rpc.make(BEADS_WS_METHODS.getIssueGraph, {
   payload: BeadsEpicIssueInput,
   success: BeadsIssueGraph,
   error: BeadsError,
 });
 
-export const WsBeadsGetEpicTrackerSummaryRpc = Rpc.make(BEADS_WS_METHODS.getEpicTrackerSummary, {
-  payload: BeadsEpicIssueInput,
-  success: Schema.NullOr(BeadsEpicTrackerSummary),
-  error: BeadsError,
-});
-
-export const WsBeadsValidateEpicRunRpc = Rpc.make(BEADS_WS_METHODS.validateEpicRun, {
-  payload: BeadsEpicIssueInput,
-  success: BeadsEpicRunValidation,
-  error: BeadsError,
-});
-
-export const WsBeadsGetEpicTrackerStatusRpc = Rpc.make(BEADS_WS_METHODS.getEpicTrackerStatus, {
-  payload: BeadsEpicIssueInput,
-  success: BeadsEpicTrackerStatus,
-  error: BeadsError,
-});
-
-export const WsBeadsListEpicTrackerSummariesRpc = Rpc.make(
-  BEADS_WS_METHODS.listEpicTrackerSummaries,
+export const WsBeadsValidateEpicCoordinationRpc = Rpc.make(
+  BEADS_WS_METHODS.validateEpicCoordination,
   {
-    payload: BeadsListEpicTrackerSummariesInput,
-    success: BeadsListEpicTrackerSummariesResult,
+    payload: BeadsEpicIssueInput,
+    success: BeadsEpicCoordinationValidation,
     error: BeadsError,
   },
 );
 
-export const WsBeadsGetProjectCoordinatorSnapshotRpc = Rpc.make(
-  BEADS_WS_METHODS.getProjectCoordinatorSnapshot,
+export const WsBeadsGetEpicCoordinationStatusRpc = Rpc.make(
+  BEADS_WS_METHODS.getEpicCoordinationStatus,
   {
-    payload: BeadsProjectCoordinatorSnapshotInput,
-    success: BeadsProjectCoordinatorSnapshot,
+    payload: BeadsEpicIssueInput,
+    success: BeadsEpicCoordinationStatus,
     error: BeadsError,
   },
 );
 
-export const WsBeadsGetEpicCoordinatorSnapshotRpc = Rpc.make(
-  BEADS_WS_METHODS.getEpicCoordinatorSnapshot,
+export const WsBeadsGetProjectRunSummaryRpc = Rpc.make(BEADS_WS_METHODS.getProjectRunSummary, {
+  payload: BeadsProjectRunSummaryInput,
+  success: BeadsProjectRunSummary,
+  error: BeadsError,
+});
+
+export const WsBeadsGetEpicIssueSummariesRpc = Rpc.make(BEADS_WS_METHODS.getEpicIssueSummaries, {
+  payload: BeadsEpicIssueSummariesInput,
+  success: BeadsEpicIssueSummaries,
+  error: BeadsError,
+});
+
+export const WsBeadsGetEpicCoordinationDetailRpc = Rpc.make(
+  BEADS_WS_METHODS.getEpicCoordinationDetail,
   {
-    payload: BeadsEpicCoordinatorSnapshotInput,
-    success: BeadsEpicCoordinatorSnapshot,
+    payload: BeadsEpicCoordinationDetailInput,
+    success: BeadsEpicCoordinationDetail,
     error: BeadsError,
   },
 );
@@ -621,14 +606,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsBeadsStartWorkflowRpc,
   WsBeadsStartBacklogGroomingRpc,
   WsBeadsGetContextRpc,
-  WsBeadsGetEpicRunSupportRpc,
   WsBeadsGetIssueGraphRpc,
-  WsBeadsGetEpicTrackerSummaryRpc,
-  WsBeadsValidateEpicRunRpc,
-  WsBeadsGetEpicTrackerStatusRpc,
-  WsBeadsListEpicTrackerSummariesRpc,
-  WsBeadsGetProjectCoordinatorSnapshotRpc,
-  WsBeadsGetEpicCoordinatorSnapshotRpc,
+  WsBeadsValidateEpicCoordinationRpc,
+  WsBeadsGetEpicCoordinationStatusRpc,
+  WsBeadsGetProjectRunSummaryRpc,
+  WsBeadsGetEpicIssueSummariesRpc,
+  WsBeadsGetEpicCoordinationDetailRpc,
   WsBeadsStartEpicQuickRefineRpc,
   WsBeadsStartEpicPlannedRefineRpc,
   WsBeadsStartEpicCoordinationPrepRpc,

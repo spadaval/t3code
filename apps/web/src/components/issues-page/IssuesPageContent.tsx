@@ -7,11 +7,11 @@ import { GitBranchIcon, KanbanIcon, LayoutListIcon } from "lucide-react";
 import {
   ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
   beadsContextOptions,
-  beadsEpicRunSupportOptions,
-  beadsProjectCoordinatorSnapshotOptions,
+  beadsProjectRunSummaryOptions,
   beadsQueryIssuesOptions,
 } from "~/lib/beadsReactQuery";
-import { issueStatusesForVisibility } from "~/lib/issuePanelLogic";
+import { buildIssueListQueryInput } from "~/lib/issueListQueries";
+import { matchesIssueListVisibility } from "~/lib/issuePanelLogic";
 import { parseIssuesRouteSearch } from "~/issuesRouteSearch";
 import { cn } from "~/lib/utils";
 import { useProjectById } from "~/storeSelectors";
@@ -40,7 +40,7 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
   const navigate = useNavigate();
   const rawSearch = useSearch({ strict: false });
   const search = useMemo(() => parseIssuesRouteSearch(rawSearch), [rawSearch]);
-  const activeTab = (search.tab ?? "coordinator") as TabId;
+  const activeTab = (search.tab ?? "issues") as TabId;
   const showClosed = search.showClosed ?? false;
   const sortBy = search.sort ?? "updated";
   const project = useProjectById(projectId) ?? null;
@@ -49,25 +49,22 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
   // Core data queries
   useQuery(beadsContextOptions(cwd ? { cwd } : null));
 
-  const coordinationSupportQuery = useQuery(
-    beadsEpicRunSupportOptions({ cwd, enabled: cwd !== null }),
-  );
-
   const coordinatorQuery = useQuery(
-    beadsProjectCoordinatorSnapshotOptions(
+    beadsProjectRunSummaryOptions(
       cwd && projectId ? { cwd, projectId, enabled: activeTab === "coordinator" } : null,
     ),
   );
 
   const issuesQuery = useQuery(
-    beadsQueryIssuesOptions({
-      cwd: cwd ?? "",
-      statuses: issueStatusesForVisibility(showClosed),
-      sortBy,
-      enabled: cwd !== null && (activeTab === "issues" || activeTab === "board"),
-      refetchIntervalMs: ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
-      refetchOnWindowFocus: "always",
-    }),
+    beadsQueryIssuesOptions(
+      buildIssueListQueryInput({
+        cwd: cwd ?? "",
+        sortBy,
+        enabled: cwd !== null && (activeTab === "issues" || activeTab === "board"),
+        refetchIntervalMs: ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
+        refetchOnWindowFocus: "always",
+      }),
+    ),
   );
 
   // Navigation helpers
@@ -194,8 +191,28 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
     [navigate, project],
   );
 
+  const setSelectedCoordinatorRun = useCallback(
+    (input: { epicId: string; runId: string | null }) => {
+      void navigate({
+        to: "/projects/$projectId/issues" as never,
+        params: { projectId } as never,
+        search: (prev) =>
+          ({
+            ...(prev.tab ? { tab: prev.tab } : {}),
+            epicId: input.epicId,
+            ...(prev.issueId ? { issueId: prev.issueId } : {}),
+            ...(prev.showClosed !== undefined ? { showClosed: prev.showClosed } : {}),
+            ...(prev.sort ? { sort: prev.sort } : {}),
+          }) as never,
+      });
+    },
+    [navigate, projectId],
+  );
+
   // Issue counts for tab badge
-  const issueCount = issuesQuery.data?.issues.length ?? null;
+  const issueCount =
+    issuesQuery.data?.issues.filter((issue) => matchesIssueListVisibility(issue, showClosed))
+      .length ?? null;
   const epicCount = coordinatorQuery.data?.epics.length ?? null;
 
   if (!project || !cwd) {
@@ -247,14 +264,13 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
           <CoordinatorTab
             cwd={cwd}
             projectId={projectId}
-            coordinationSupport={coordinationSupportQuery.data ?? null}
-            coordinationSupportPending={coordinationSupportQuery.isPending}
-            coordinationSupportError={coordinationSupportQuery.error}
-            snapshot={coordinatorQuery.data ?? null}
-            snapshotPending={coordinatorQuery.isPending}
-            snapshotError={coordinatorQuery.error}
+            runSummary={coordinatorQuery.data ?? null}
+            runSummaryPending={coordinatorQuery.isPending}
+            runSummaryError={coordinatorQuery.error}
             selectedEpicId={search.epicId ?? null}
+            selectedRunId={null}
             onSelectEpic={setSelectedEpicId}
+            onSelectRun={setSelectedCoordinatorRun}
             onOpenEpicIssue={openEpicIssue}
             onOpenThread={openThread}
           />

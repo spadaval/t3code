@@ -1527,7 +1527,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
   );
 
   it.effect(
-    "resolves turn-count conflicts when checkpoint completion rewrites provisional turns",
+    "resolves turn-count conflicts when checkpoint completion updates checkpoint metadata without rewriting turn state",
     () =>
       Effect.gen(function* () {
         const projectionPipeline = yield* OrchestrationProjectionPipeline;
@@ -1666,7 +1666,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           requested_at ASC
       `;
         assert.deepEqual(turnRows, [
-          { turnId: "turn-completed", checkpointTurnCount: 1, status: "completed" },
+          { turnId: "turn-completed", checkpointTurnCount: 1, status: "running" },
           { turnId: "turn-interrupted", checkpointTurnCount: null, status: "interrupted" },
         ]);
       }),
@@ -2285,6 +2285,131 @@ it.effect("restores pending turn-start metadata across projection pipeline resta
     ),
   ),
 );
+
+it.layer(BaseTestLayer)("OrchestrationProjectionPipeline terminal session settlement", (it) => {
+  it.effect(
+    "settles the persisted latest turn when thread.session-set ends a running turn without settledTurn metadata",
+    () =>
+      Effect.gen(function* () {
+        const eventStore = yield* OrchestrationEventStore;
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* eventStore.append({
+          type: "project.created",
+          eventId: EventId.makeUnsafe("evt-session-terminal-project"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.makeUnsafe("project-session-terminal"),
+          occurredAt: "2026-03-01T12:00:00.000Z",
+          commandId: CommandId.makeUnsafe("cmd-session-terminal-project"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-session-terminal-project"),
+          metadata: {},
+          payload: {
+            projectId: ProjectId.makeUnsafe("project-session-terminal"),
+            title: "Session Terminal Project",
+            workspaceRoot: "/tmp/project-session-terminal",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: "2026-03-01T12:00:00.000Z",
+            updatedAt: "2026-03-01T12:00:00.000Z",
+          },
+        });
+
+        yield* eventStore.append({
+          type: "thread.created",
+          eventId: EventId.makeUnsafe("evt-session-terminal-thread"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-session-terminal"),
+          occurredAt: "2026-03-01T12:00:01.000Z",
+          commandId: CommandId.makeUnsafe("cmd-session-terminal-thread"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-session-terminal-thread"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-session-terminal"),
+            projectId: ProjectId.makeUnsafe("project-session-terminal"),
+            title: "Thread Session Terminal",
+            modelSelection: { provider: "codex", model: "gpt-5-codex" },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: "2026-03-01T12:00:01.000Z",
+            updatedAt: "2026-03-01T12:00:01.000Z",
+          },
+        });
+
+        yield* eventStore.append({
+          type: "thread.session-set",
+          eventId: EventId.makeUnsafe("evt-session-terminal-running"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-session-terminal"),
+          occurredAt: "2026-03-01T12:00:02.000Z",
+          commandId: CommandId.makeUnsafe("cmd-session-terminal-running"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-session-terminal-running"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-session-terminal"),
+            session: {
+              threadId: ThreadId.makeUnsafe("thread-session-terminal"),
+              status: "running",
+              providerName: "codex",
+              runtimeMode: "full-access",
+              activeTurnId: TurnId.makeUnsafe("turn-session-terminal"),
+              lastError: null,
+              updatedAt: "2026-03-01T12:00:02.000Z",
+            },
+          },
+        });
+
+        yield* eventStore.append({
+          type: "thread.session-set",
+          eventId: EventId.makeUnsafe("evt-session-terminal-error"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-session-terminal"),
+          occurredAt: "2026-03-01T12:00:05.000Z",
+          commandId: CommandId.makeUnsafe("cmd-session-terminal-error"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-session-terminal-error"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-session-terminal"),
+            session: {
+              threadId: ThreadId.makeUnsafe("thread-session-terminal"),
+              status: "error",
+              providerName: "codex",
+              runtimeMode: "full-access",
+              activeTurnId: null,
+              lastError: "provider process exited unexpectedly",
+              updatedAt: "2026-03-01T12:00:05.000Z",
+            },
+          },
+        });
+
+        yield* projectionPipeline.bootstrap;
+
+        const turnRows = yield* sql<{
+          readonly state: string;
+          readonly completedAt: string | null;
+        }>`
+            SELECT
+              state,
+              completed_at AS "completedAt"
+            FROM projection_turns
+            WHERE thread_id = 'thread-session-terminal'
+              AND turn_id = 'turn-session-terminal'
+          `;
+
+        assert.deepEqual(turnRows, [
+          {
+            state: "error",
+            completedAt: "2026-03-01T12:00:05.000Z",
+          },
+        ]);
+      }),
+  );
+});
 
 const engineLayer = it.layer(
   (() => {

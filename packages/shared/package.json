@@ -20,6 +20,10 @@
       "types": "./src/epicRun.ts",
       "import": "./src/epicRun.ts"
     },
+    "./epicCoordination": {
+      "types": "./src/epicCoordination.ts",
+      "import": "./src/epicCoordination.ts"
+    },
     "./projectScripts": {
       "types": "./src/projectScripts.ts",
       "import": "./src/projectScripts.ts"
@@ -27,6 +31,10 @@
     "./searchRanking": {
       "types": "./src/searchRanking.ts",
       "import": "./src/searchRanking.ts"
+    },
+    "./dependencyOrder": {
+      "types": "./src/dependencyOrder.ts",
+      "import": "./src/dependencyOrder.ts"
     },
     "./qrCode": {
       "types": "./src/qrCode.ts",

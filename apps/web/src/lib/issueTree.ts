@@ -116,7 +116,6 @@ export function buildIssueTree(issues: readonly BeadsIssueSummary[]): IssueTreeF
 
     if (
       parent === undefined ||
-      !parent.isEpic ||
       parent.issue.id === issue.id ||
       wouldIntroduceCycle(parent, issue.id, nodesById)
     ) {

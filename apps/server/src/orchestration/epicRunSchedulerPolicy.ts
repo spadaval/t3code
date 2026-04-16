@@ -1,5 +1,5 @@
 import type {
-  BeadsEpicTrackerStatus,
+  BeadsEpicCoordinationStatus,
   BeadsIssueRelationSummary,
   OrchestrationEpicRun,
   OrchestrationEpicIssueExecution,
@@ -7,9 +7,9 @@ import type {
 } from "@t3tools/contracts";
 import {
   deriveExecutionBlocking,
-  isEpicTrackerSummaryComplete,
   selectDeterministicReadyIssueFromList,
 } from "@t3tools/shared/epicRun";
+import { isEpicCoordinationComplete } from "@t3tools/shared/epicCoordination";
 
 export {
   describeSharedWorkspaceProjectInvariantViolation,
@@ -98,7 +98,7 @@ export function getAttemptedIssueIds(
 export function decideLaunchNextTask(input: {
   readonly run: OrchestrationEpicRun;
   readonly trigger: EpicRunSchedulerTrigger;
-  readonly trackerStatus: BeadsEpicTrackerStatus;
+  readonly trackerStatus: BeadsEpicCoordinationStatus;
   readonly executions: ReadonlyArray<OrchestrationEpicIssueExecution>;
 }): LaunchNextTaskDecision {
   const executionBlocking = deriveExecutionBlocking(input.trackerStatus);
@@ -140,7 +140,7 @@ export function decideLaunchNextTask(input: {
     };
   }
 
-  if (!isEpicTrackerSummaryComplete(input.trackerStatus.trackerSummary)) {
+  if (!isEpicCoordinationComplete(input.trackerStatus.summary)) {
     return { type: "idle_run" };
   }
 
@@ -184,6 +184,6 @@ export function describeReadyIssueExhaustion(input: {
         .join(", ") || "none"
     }.`,
     `Previously attempted ready issues: ${attemptedReadyIssueIds.join(", ") || "none"}.`,
-    "Stop the run, fix the tracker or code state, then start a new run when ready.",
+    "Stop the run, fix the coordination or code state, then start a new run when ready.",
   ].join(" ");
 }

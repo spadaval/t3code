@@ -1,15 +1,16 @@
 import type {
   BeadsCoordinatorEpicSnapshot,
+  BeadsEpicCoordinationStatus,
+  BeadsEpicCoordinationValidation,
   BeadsIssueDependency,
   BeadsIssueDetail,
   BeadsIssueRelationSummary,
-  BeadsEpicTrackerStatus,
-  BeadsEpicRunValidation,
   OrchestrationEpicRun,
   OrchestrationEpicIssueExecution,
 } from "@t3tools/contracts";
 
 import { type CoordinatorLogEntry, executionEntries, runEntries } from "./coordinatorEventLog";
+import { getActiveRun, getLatestRun, sortRunsByRecency } from "./epicRunPresentation";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -168,7 +169,7 @@ function buildWaveMap(
 /**
  * Build a set-based lookup for blocked issue classifications from the blocked breakdown.
  */
-function buildBlockedByMap(status: BeadsEpicTrackerStatus): Map<string, WorkGraphBlockedBy> {
+function buildBlockedByMap(status: BeadsEpicCoordinationStatus): Map<string, WorkGraphBlockedBy> {
   const map = new Map<string, WorkGraphBlockedBy>();
   for (const issue of status.blockedBreakdown.internal) {
     map.set(issue.id, "internal");
@@ -209,7 +210,7 @@ function sortNodes(nodes: WorkGraphIssueNode[]): WorkGraphIssueNode[] {
  * Deduplicates by issue id (first occurrence wins).
  */
 function collectStatusIssues(
-  status: BeadsEpicTrackerStatus,
+  status: BeadsEpicCoordinationStatus,
 ): Array<{ issue: BeadsIssueRelationSummary; status: WorkGraphIssueStatus }> {
   const seen = new Set<string>();
   const result: Array<{ issue: BeadsIssueRelationSummary; status: WorkGraphIssueStatus }> = [];
@@ -352,12 +353,13 @@ export function buildWorkGraphData(
   epic: BeadsCoordinatorEpicSnapshot,
   issueDetails?: ReadonlyMap<string, BeadsIssueDetail>,
 ): WorkGraphData {
-  const activeRun = epic.activeRunId
-    ? (epic.runs.find((r) => r.runId === epic.activeRunId) ?? null)
-    : null;
-  const latestRun = epic.runs[0] ?? null;
-  const validation: BeadsEpicRunValidation | null = epic.validation;
-  const status: BeadsEpicTrackerStatus | null = epic.status;
+  const activeRun = getActiveRun({
+    runs: epic.runs,
+    activeRunId: epic.activeRunId,
+  });
+  const latestRun = getLatestRun(epic.runs);
+  const validation: BeadsEpicCoordinationValidation | null = epic.validation;
+  const status: BeadsEpicCoordinationStatus | null = epic.status;
   const executions = epic.executions ?? [];
   const activeExecutionId = epic.activeExecutionId;
   const hasWaveData = validation !== null && validation.readyFronts.length > 0;
@@ -424,7 +426,9 @@ export function buildWorkGraphData(
 
   // --- 1. Historical run sections (oldest first) ---
   // epic.runs is newest-first from server; reverse non-primary runs for chronological order.
-  const historicalRuns = epic.runs.filter((r) => r.runId !== primaryRun?.runId).toReversed();
+  const historicalRuns = sortRunsByRecency(epic.runs)
+    .filter((run) => run.runId !== primaryRun?.runId)
+    .toReversed();
   for (const run of historicalRuns) {
     const runExecs = runExecutionMap.get(run.runId) ?? [];
     if (runExecs.length === 0) continue; // Skip runs with no executions.
@@ -438,7 +442,7 @@ export function buildWorkGraphData(
       if (!issue) continue;
 
       // For historical runs, derive status from the execution outcome rather than
-      // the current tracker status (which reflects the latest state, not this run's era).
+      // the current coordination status (which reflects the latest state, not this run's era).
       const latestExec = issueExecs[0]!;
       let histStatus: WorkGraphIssueStatus;
       if (latestExec.status === "completed") histStatus = "completed";

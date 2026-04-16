@@ -397,6 +397,20 @@ export const OrchestrationTurnStatus = Schema.Literals([
 ]);
 export type OrchestrationTurnStatus = typeof OrchestrationTurnStatus.Type;
 
+export const OrchestrationTurnTerminalSource = Schema.Literals([
+  "turn_completed",
+  "interrupt_request",
+  "checkpoint_fallback",
+]);
+export type OrchestrationTurnTerminalSource = typeof OrchestrationTurnTerminalSource.Type;
+
+export const OrchestrationSettledTurn = Schema.Struct({
+  turnId: TurnId,
+  state: Schema.Literals(["completed", "interrupted", "error"]),
+  completedAt: IsoDateTime,
+});
+export type OrchestrationSettledTurn = typeof OrchestrationSettledTurn.Type;
+
 export const OrchestrationLatestTurn = Schema.Struct({
   turnId: TurnId,
   state: OrchestrationTurnStatus,
@@ -404,6 +418,7 @@ export const OrchestrationLatestTurn = Schema.Struct({
   startedAt: Schema.NullOr(IsoDateTime),
   completedAt: Schema.NullOr(IsoDateTime),
   assistantMessageId: Schema.NullOr(MessageId),
+  terminalSource: Schema.optional(OrchestrationTurnTerminalSource),
   sourceProposedPlan: Schema.optional(SourceProposedPlanReference),
 });
 export type OrchestrationLatestTurn = typeof OrchestrationLatestTurn.Type;
@@ -914,6 +929,7 @@ const ThreadSessionSetCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   session: OrchestrationSession,
+  settledTurn: Schema.optional(OrchestrationSettledTurn),
   createdAt: IsoDateTime,
 });
 
@@ -1372,6 +1388,7 @@ export const ThreadSessionStopRequestedPayload = Schema.Struct({
 export const ThreadSessionSetPayload = Schema.Struct({
   threadId: ThreadId,
   session: OrchestrationSession,
+  settledTurn: Schema.optional(OrchestrationSettledTurn),
 });
 
 export const ThreadProposedPlanUpsertedPayload = Schema.Struct({

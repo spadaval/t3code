@@ -208,3 +208,33 @@ export function resolveAppModelSelectionState(
     ...(modelOptionsForDispatch ? { options: modelOptionsForDispatch } : {}),
   };
 }
+
+export function resolvePlanLaunchModelSelection(input: {
+  preset: "current" | "smaller";
+  modelSelection: ModelSelection;
+  settings: UnifiedSettings;
+  providers: ReadonlyArray<ServerProvider>;
+}): ModelSelection {
+  const provider = resolveSelectableProvider(input.providers, input.modelSelection.provider);
+  const requestedModel =
+    input.preset === "smaller"
+      ? DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[provider]
+      : input.modelSelection.model;
+  const model = resolveAppModelSelection(provider, input.settings, input.providers, requestedModel);
+  const { modelOptionsForDispatch } = getComposerProviderState({
+    provider,
+    model,
+    models: getProviderModels(input.providers, provider),
+    prompt: "",
+    modelOptions: {
+      [provider]:
+        provider === input.modelSelection.provider ? input.modelSelection.options : undefined,
+    },
+  });
+
+  return {
+    provider,
+    model,
+    ...(modelOptionsForDispatch ? { options: modelOptionsForDispatch } : {}),
+  };
+}

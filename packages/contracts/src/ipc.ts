@@ -2,15 +2,14 @@ import type {
   BeadsContext,
   BeadsCommentIssueInput,
   BeadsCreateIssueInput,
-  BeadsEpicCoordinatorSnapshot,
-  BeadsEpicCoordinatorSnapshotInput,
+  BeadsEpicIssueSummaries,
+  BeadsEpicIssueSummariesInput,
   BeadsEpicIssueInput,
-  BeadsEpicRunSupport,
-  BeadsEpicRunValidation,
-  BeadsEpicTrackerStatus,
-  BeadsEpicTrackerSummary,
+  BeadsEpicCoordinationDetail,
+  BeadsEpicCoordinationDetailInput,
+  BeadsEpicCoordinationValidation,
+  BeadsEpicCoordinationStatus,
   BeadsGetContextInput,
-  BeadsGetEpicRunSupportInput,
   BeadsGetIssueInput,
   BeadsGetIssuesInput,
   BeadsGetIssuesResult,
@@ -19,10 +18,8 @@ import type {
   BeadsIssueDetail,
   BeadsIssueGraph,
   BeadsIssueSummary,
-  BeadsListEpicTrackerSummariesInput,
-  BeadsListEpicTrackerSummariesResult,
-  BeadsProjectCoordinatorSnapshot,
-  BeadsProjectCoordinatorSnapshotInput,
+  BeadsProjectRunSummary,
+  BeadsProjectRunSummaryInput,
   BeadsQueryIssuesInput,
   BeadsQueryIssuesResult,
   BeadsStartBacklogGroomingInput,
@@ -363,20 +360,18 @@ export interface EnvironmentApi {
     updateIssue: (input: BeadsUpdateIssueInput) => Promise<BeadsIssueSummary>;
     commentIssue: (input: BeadsCommentIssueInput) => Promise<BeadsIssueDetail>;
     getContext: (input: BeadsGetContextInput) => Promise<BeadsContext>;
-    getEpicRunSupport: (input: BeadsGetEpicRunSupportInput) => Promise<BeadsEpicRunSupport>;
     getIssueGraph: (input: BeadsEpicIssueInput) => Promise<BeadsIssueGraph>;
-    getEpicTrackerSummary: (input: BeadsEpicIssueInput) => Promise<BeadsEpicTrackerSummary | null>;
-    validateEpicRun: (input: BeadsEpicIssueInput) => Promise<BeadsEpicRunValidation>;
-    getEpicTrackerStatus: (input: BeadsEpicIssueInput) => Promise<BeadsEpicTrackerStatus>;
-    listEpicTrackerSummaries: (
-      input: BeadsListEpicTrackerSummariesInput,
-    ) => Promise<BeadsListEpicTrackerSummariesResult>;
-    getProjectCoordinatorSnapshot: (
-      input: BeadsProjectCoordinatorSnapshotInput,
-    ) => Promise<BeadsProjectCoordinatorSnapshot>;
-    getEpicCoordinatorSnapshot: (
-      input: BeadsEpicCoordinatorSnapshotInput,
-    ) => Promise<BeadsEpicCoordinatorSnapshot>;
+    validateEpicCoordination: (
+      input: BeadsEpicIssueInput,
+    ) => Promise<BeadsEpicCoordinationValidation>;
+    getEpicCoordinationStatus: (input: BeadsEpicIssueInput) => Promise<BeadsEpicCoordinationStatus>;
+    getProjectRunSummary: (input: BeadsProjectRunSummaryInput) => Promise<BeadsProjectRunSummary>;
+    getEpicIssueSummaries: (
+      input: BeadsEpicIssueSummariesInput,
+    ) => Promise<BeadsEpicIssueSummaries>;
+    getEpicCoordinationDetail: (
+      input: BeadsEpicCoordinationDetailInput,
+    ) => Promise<BeadsEpicCoordinationDetail>;
     getSessionActivity: (
       input: BeadsGetSessionActivityInput,
     ) => Promise<BeadsGetSessionActivityResult>;

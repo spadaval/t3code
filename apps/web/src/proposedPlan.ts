@@ -74,6 +74,14 @@ export function buildPlanImplementationPrompt(planMarkdown: string): string {
   return `PLEASE IMPLEMENT THIS PLAN:\n${planMarkdown.trim()}`;
 }
 
+export function buildPlanToBeadsPrompt(planMarkdown: string): string {
+  return [
+    "PLEASE CONVERT THIS PLAN INTO BEADS ISSUES.",
+    "Generate the necessary beads issues with `bd` for this plan instead of implementing it.",
+    planMarkdown.trim(),
+  ].join("\n\n");
+}
+
 export function resolvePlanFollowUpSubmission(input: { draftText: string; planMarkdown: string }): {
   text: string;
   interactionMode: "default" | "plan";
@@ -98,6 +106,14 @@ export function buildPlanImplementationThreadTitle(planMarkdown: string): string
     return "Implement plan";
   }
   return `Implement ${title}`;
+}
+
+export function buildPlanToBeadsThreadTitle(planMarkdown: string): string {
+  const title = proposedPlanTitle(planMarkdown);
+  if (!title) {
+    return "Convert plan to beads";
+  }
+  return `Convert ${title} to beads`;
 }
 
 export function buildProposedPlanMarkdownFilename(planMarkdown: string): string {

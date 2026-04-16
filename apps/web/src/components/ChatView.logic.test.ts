@@ -338,6 +338,12 @@ function setStoreThreads(threads: ReadonlyArray<ReturnType<typeof makeThread>>) 
       ]),
     ),
     sidebarThreadSummaryById: {},
+    epicRunIds: [],
+    epicRunIdsByProjectId: {},
+    epicRunById: {},
+    epicIssueExecutionIds: [],
+    epicIssueExecutionIdsByRunId: {},
+    epicIssueExecutionById: {},
     bootstrapComplete: true,
   };
   useStore.setState({

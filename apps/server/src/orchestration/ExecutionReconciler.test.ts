@@ -173,6 +173,35 @@ describe("ExecutionReconciler", () => {
     ).toEqual({ type: "noop" });
   });
 
+  it("does not complete requested executions from non-authoritative completed turn state", () => {
+    expect(
+      decideReconcileRequestedExecution({
+        execution: execution(),
+        thread: thread({
+          latestTurn: {
+            turnId: "turn-1" as never,
+            state: "completed",
+            requestedAt: "2026-04-06T00:00:01.000Z",
+            startedAt: "2026-04-06T00:00:02.000Z",
+            completedAt: "2026-04-06T00:00:03.000Z",
+            assistantMessageId: "assistant-1" as never,
+          },
+          session: {
+            threadId: "thread-1" as never,
+            status: "ready",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: "2026-04-06T00:00:03.000Z",
+          },
+        }),
+        nowMs: Date.parse("2026-04-06T00:00:30.000Z"),
+        launchTimeoutMs: 60_000,
+      }),
+    ).toEqual({ type: "noop" });
+  });
+
   it("delegates launching current executions back to requested reconciliation", () => {
     expect(
       decideReconcileCurrentExecution({
@@ -195,6 +224,7 @@ describe("ExecutionReconciler", () => {
           startedAt: "2026-04-06T00:00:02.000Z",
           completedAt: null,
           assistantMessageId: null,
+          terminalSource: "turn_completed",
         },
         session: {
           threadId: "thread-1" as never,
@@ -250,6 +280,36 @@ describe("ExecutionReconciler", () => {
             runtimeMode: "full-access",
             activeTurnId: null,
             lastError: "provider reported runtime noise",
+            updatedAt: "2026-04-06T00:00:03.000Z",
+          },
+        }),
+      }),
+    ).toEqual({ type: "noop" });
+  });
+
+  it("keeps current executions alive when turn state looks terminal without authoritative evidence", () => {
+    expect(
+      decideReconcileCurrentExecution({
+        execution: execution({
+          status: "running",
+        }),
+        thread: thread({
+          latestTurn: {
+            turnId: "turn-1" as never,
+            state: "error",
+            requestedAt: "2026-04-06T00:00:01.000Z",
+            startedAt: "2026-04-06T00:00:02.000Z",
+            completedAt: "2026-04-06T00:00:03.000Z",
+            assistantMessageId: "assistant-1" as never,
+            terminalSource: "checkpoint_fallback",
+          },
+          session: {
+            threadId: "thread-1" as never,
+            status: "error",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: "provider noise after checkpoint fallback",
             updatedAt: "2026-04-06T00:00:03.000Z",
           },
         }),

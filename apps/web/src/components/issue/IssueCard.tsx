@@ -123,6 +123,11 @@ export function IssueCard({
       {/* Row 1: Icon + Title + Timestamp */}
       <div className="flex items-center gap-2">
         <IssueTypeIcon issueType={issue.issueType} />
+        {issue.status === "blocked" && (
+          <span className="inline-flex shrink-0 items-center rounded-full border border-destructive/30 bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-destructive">
+            Blocked
+          </span>
+        )}
         <p
           className={cn(
             "min-w-0 flex-1 truncate text-sm font-medium text-foreground",

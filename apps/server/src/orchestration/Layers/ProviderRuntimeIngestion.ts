@@ -130,6 +130,20 @@ function normalizeRuntimeTurnState(
   }
 }
 
+function orchestrationTurnStateFromRuntimeCompletion(
+  state: "completed" | "failed" | "interrupted" | "cancelled",
+): "completed" | "error" | "interrupted" {
+  switch (state) {
+    case "completed":
+      return "completed";
+    case "failed":
+      return "error";
+    case "interrupted":
+    case "cancelled":
+      return "interrupted";
+  }
+}
+
 function orchestrationSessionStatusFromRuntimeState(
   state: "starting" | "running" | "waiting" | "ready" | "interrupted" | "stopped" | "error",
 ): "starting" | "running" | "ready" | "interrupted" | "stopped" | "error" {
@@ -180,11 +194,21 @@ function projectThreadSessionLifecycle(input: {
   }
 
   if (event.type === "turn.completed") {
-    const failed = normalizeRuntimeTurnState(event.payload.state) === "failed";
+    const normalizedState = normalizeRuntimeTurnState(event.payload.state);
     return {
-      status: failed ? "error" : "ready",
+      status:
+        normalizedState === "completed"
+          ? "ready"
+          : normalizedState === "failed"
+            ? "error"
+            : "interrupted",
       activeTurnId: null,
-      lastError: failed ? (event.payload.errorMessage ?? previousLastError ?? "Turn failed") : null,
+      lastError:
+        normalizedState === "completed"
+          ? null
+          : normalizedState === "failed"
+            ? (event.payload.errorMessage ?? previousLastError ?? "Turn failed")
+            : (event.payload.errorMessage ?? previousLastError ?? null),
     };
   }
 
@@ -1126,6 +1150,17 @@ const make = Effect.fn("make")(function* () {
             lastError: sessionProjection.lastError,
             updatedAt: now,
           },
+          ...(event.type === "turn.completed" && eventTurnId !== undefined
+            ? {
+                settledTurn: {
+                  turnId: eventTurnId,
+                  state: orchestrationTurnStateFromRuntimeCompletion(
+                    normalizeRuntimeTurnState(event.payload.state),
+                  ),
+                  completedAt: now,
+                },
+              }
+            : {}),
           createdAt: now,
         });
       }

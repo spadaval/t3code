@@ -120,6 +120,9 @@ function stalePendingRequestDetail(
   return `Stale pending ${requestKind} request: ${requestId}. Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.`;
 }
 
+function isMissingPersistedProviderBindingError(cause: Cause.Cause<ProviderServiceError>): boolean {
+  return Cause.pretty(cause).toLowerCase().includes("no persisted provider binding exists");
+}
 function buildGeneratedWorktreeBranchName(raw: string): string {
   const normalized = raw
     .trim()
@@ -712,7 +715,27 @@ const make = Effect.gen(function* () {
 
     const now = event.payload.createdAt;
     if (thread.session && thread.session.status !== "stopped") {
-      yield* providerService.stopSession({ threadId: thread.id });
+      const stopFailed = yield* providerService.stopSession({ threadId: thread.id }).pipe(
+        Effect.matchCauseEffect({
+          onSuccess: () => Effect.succeed(false),
+          onFailure: (cause) => {
+            if (isMissingPersistedProviderBindingError(cause)) {
+              return Effect.succeed(false);
+            }
+            return appendProviderFailureActivity({
+              threadId: thread.id,
+              kind: "provider.session.stop.failed",
+              summary: "Provider session stop failed",
+              detail: Cause.pretty(cause),
+              turnId: thread.session?.activeTurnId ?? null,
+              createdAt: now,
+            }).pipe(Effect.as(true));
+          },
+        }),
+      );
+      if (stopFailed) {
+        return;
+      }
     }
 
     yield* setThreadSession({

@@ -350,6 +350,106 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session?.lastError).toBe("turn failed");
   });
 
+  it("maps interrupted and cancelled turn completion states to interrupted session state instead of ready", async () => {
+    const interruptedHarness = await createHarness();
+    const now = new Date().toISOString();
+
+    interruptedHarness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-interrupted"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: now,
+      turnId: asTurnId("turn-interrupted"),
+    });
+
+    await waitForThread(
+      interruptedHarness.engine,
+      (thread) =>
+        thread.session?.status === "running" && thread.session?.activeTurnId === "turn-interrupted",
+    );
+
+    interruptedHarness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-interrupted"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      turnId: asTurnId("turn-interrupted"),
+      payload: {
+        state: "interrupted",
+        errorMessage: "operator interrupted worker",
+      },
+    });
+
+    const interruptedThread = await waitForThread(
+      interruptedHarness.engine,
+      (thread) =>
+        thread.session?.status === "interrupted" &&
+        thread.session?.activeTurnId === null &&
+        thread.session?.lastError === "operator interrupted worker",
+    );
+    expect(interruptedThread.session?.status).toBe("interrupted");
+    expect(interruptedThread.session?.lastError).toBe("operator interrupted worker");
+
+    const interruptedEvents = await Effect.runPromise(
+      Stream.runCollect(interruptedHarness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    const interruptedSessionEvent = interruptedEvents.findLast(
+      (event) =>
+        event.type === "thread.session-set" &&
+        event.payload.session.updatedAt === interruptedThread.session?.updatedAt,
+    );
+    expect(interruptedSessionEvent?.type).toBe("thread.session-set");
+    if (interruptedSessionEvent?.type === "thread.session-set") {
+      expect(interruptedSessionEvent.payload.settledTurn).toEqual({
+        turnId: "turn-interrupted",
+        state: "interrupted",
+        completedAt: interruptedThread.session?.updatedAt,
+      });
+    }
+
+    const cancelledHarness = await createHarness();
+    cancelledHarness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-cancelled"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: now,
+      turnId: asTurnId("turn-cancelled"),
+    });
+
+    await waitForThread(
+      cancelledHarness.engine,
+      (thread) =>
+        thread.session?.status === "running" && thread.session?.activeTurnId === "turn-cancelled",
+    );
+
+    cancelledHarness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-cancelled"),
+      provider: "codex",
+      threadId: asThreadId("thread-1"),
+      createdAt: new Date().toISOString(),
+      turnId: asTurnId("turn-cancelled"),
+      payload: {
+        state: "cancelled",
+      },
+    });
+
+    const cancelledThread = await waitForThread(
+      cancelledHarness.engine,
+      (thread) =>
+        thread.session?.status === "interrupted" &&
+        thread.session?.activeTurnId === null &&
+        thread.session?.lastError === null,
+    );
+    expect(cancelledThread.session?.status).toBe("interrupted");
+    expect(cancelledThread.session?.lastError).toBeNull();
+  });
+
   it("applies provider session.state.changed transitions directly", async () => {
     const harness = await createHarness();
     const waitingAt = new Date().toISOString();

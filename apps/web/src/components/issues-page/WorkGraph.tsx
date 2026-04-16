@@ -2,7 +2,6 @@ import type {
   BeadsCoordinatorEpicSnapshot,
   BeadsIssueDetail,
   OrchestrationEpicRun,
-  OrchestrationEpicIssueExecution,
   ThreadId,
 } from "@t3tools/contracts";
 import { useQuery } from "@tanstack/react-query";
@@ -23,6 +22,12 @@ import {
 } from "lucide-react";
 
 import { beadsIssuesBatchOptions } from "~/lib/beadsReactQuery";
+import {
+  executionStatusBadgeVariant,
+  formatExecutionStatus,
+  formatRunStatus,
+  runStatusBadgeVariant,
+} from "~/lib/epicRunPresentation";
 import { getDependencyTypeDef, isIssueDoneStatus } from "~/lib/issueConstants";
 import {
   buildWorkGraphData,
@@ -39,79 +44,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import { ExecutionDiffSummary } from "./ExecutionDiffSummary";
 import { CoordinatorEventLogCompact } from "./CoordinatorEventLog";
 import { WorkerActivityFeed } from "./WorkerActivityFeed";
-
-// ---------------------------------------------------------------------------
-// Format helpers
-// ---------------------------------------------------------------------------
-
-function formatRunStatus(status: OrchestrationEpicRun["status"]): string {
-  switch (status) {
-    case "pending":
-      return "Pending";
-    case "running":
-      return "Running";
-    case "stopping":
-      return "Stopping";
-    case "stopped":
-      return "Stopped";
-    case "failed":
-      return "Failed";
-    case "completed":
-      return "Completed";
-  }
-}
-
-function formatExecutionStatus(status: OrchestrationEpicIssueExecution["status"]): string {
-  switch (status) {
-    case "launching":
-      return "Launching";
-    case "running":
-      return "Running";
-    case "stopping":
-      return "Stopping";
-    case "stopped":
-      return "Stopped";
-    case "completed":
-      return "Completed";
-    case "failed":
-      return "Failed";
-  }
-}
-
-function runStatusBadgeVariant(
-  status: OrchestrationEpicRun["status"],
-): "success" | "error" | "warning" | "info" | "secondary" {
-  switch (status) {
-    case "completed":
-      return "success";
-    case "failed":
-      return "error";
-    case "stopped":
-      return "warning";
-    case "stopping":
-    case "running":
-      return "info";
-    default:
-      return "secondary";
-  }
-}
-
-function executionStatusBadgeVariant(
-  status: OrchestrationEpicIssueExecution["status"],
-): "success" | "error" | "warning" | "info" | "secondary" {
-  switch (status) {
-    case "completed":
-      return "success";
-    case "failed":
-      return "error";
-    case "stopped":
-      return "warning";
-    case "running":
-      return "info";
-    default:
-      return "secondary";
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Status icon helper

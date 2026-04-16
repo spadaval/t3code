@@ -4,25 +4,27 @@ import { Effect, Schema } from "effect";
 
 import {
   BeadsContext,
-  BeadsEpicCoordinatorSnapshot,
+  BeadsEpicIssueSummaries,
+  BeadsEpicCoordinationDetail,
   BeadsIssueGraph,
+  BeadsIssueSummary,
   BeadsQueryIssuesInput,
-  BeadsProjectCoordinatorSnapshot,
+  BeadsProjectRunSummary,
   BeadsSessionActivityEntry,
   BeadsStartBacklogGroomingInput,
   BeadsStartEpicCoordinationPrepInput,
   BeadsStartWorkflowInput,
-  BeadsEpicTrackerStatus,
-  BeadsEpicRunValidation,
+  BeadsEpicCoordinationStatus,
+  BeadsEpicCoordinationValidation,
 } from "./beads";
 
 const decodeBeadsContext = Schema.decodeUnknownEffect(BeadsContext);
-const decodeBeadsEpicCoordinatorSnapshot = Schema.decodeUnknownEffect(BeadsEpicCoordinatorSnapshot);
+const decodeBeadsEpicIssueSummaries = Schema.decodeUnknownEffect(BeadsEpicIssueSummaries);
+const decodeBeadsEpicCoordinationDetail = Schema.decodeUnknownEffect(BeadsEpicCoordinationDetail);
 const decodeBeadsIssueGraph = Schema.decodeUnknownEffect(BeadsIssueGraph);
+const decodeBeadsIssueSummary = Schema.decodeUnknownEffect(BeadsIssueSummary);
 const decodeBeadsQueryIssuesInput = Schema.decodeUnknownEffect(BeadsQueryIssuesInput);
-const decodeBeadsProjectCoordinatorSnapshot = Schema.decodeUnknownEffect(
-  BeadsProjectCoordinatorSnapshot,
-);
+const decodeBeadsProjectRunSummary = Schema.decodeUnknownEffect(BeadsProjectRunSummary);
 const decodeBeadsSessionActivityEntry = Schema.decodeUnknownEffect(BeadsSessionActivityEntry);
 const decodeBeadsStartBacklogGroomingInput = Schema.decodeUnknownEffect(
   BeadsStartBacklogGroomingInput,
@@ -31,8 +33,10 @@ const decodeBeadsStartEpicCoordinationPrepInput = Schema.decodeUnknownEffect(
   BeadsStartEpicCoordinationPrepInput,
 );
 const decodeBeadsStartWorkflowInput = Schema.decodeUnknownEffect(BeadsStartWorkflowInput);
-const decodeBeadsEpicTrackerStatus = Schema.decodeUnknownEffect(BeadsEpicTrackerStatus);
-const decodeBeadsEpicRunValidation = Schema.decodeUnknownEffect(BeadsEpicRunValidation);
+const decodeBeadsEpicCoordinationStatus = Schema.decodeUnknownEffect(BeadsEpicCoordinationStatus);
+const decodeBeadsEpicCoordinationValidation = Schema.decodeUnknownEffect(
+  BeadsEpicCoordinationValidation,
+);
 
 it.effect("decodes beads context with backend metadata", () =>
   Effect.gen(function* () {
@@ -86,6 +90,29 @@ it.effect("defaults missing issue graph relations for historical payloads", () =
   }),
 );
 
+it.effect("defaults missing issue summary dependency refs for historical payloads", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeBeadsIssueSummary({
+      id: "TASK-1",
+      title: "Task",
+      description: null,
+      notes: null,
+      status: "open",
+      priority: 2,
+      issueType: "task",
+      assignee: null,
+      owner: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      createdBy: null,
+      updatedAt: "2026-01-02T00:00:00.000Z",
+      labels: [],
+      parent: null,
+    });
+
+    assert.deepStrictEqual(parsed.dependencyRefs, []);
+  }),
+);
+
 it.effect("accepts created/title issue sorting inputs", () =>
   Effect.gen(function* () {
     const parsedCreated = yield* decodeBeadsQueryIssuesInput({
@@ -102,15 +129,15 @@ it.effect("accepts created/title issue sorting inputs", () =>
   }),
 );
 
-it.effect("defaults optional swarm validation metadata", () =>
+it.effect("defaults optional coordination validation metadata", () =>
   Effect.gen(function* () {
-    const parsed = yield* decodeBeadsEpicRunValidation({
+    const parsed = yield* decodeBeadsEpicCoordinationValidation({
       epicId: "epic-1",
       epicTitle: "Epic",
       valid: true,
     });
 
-    assert.strictEqual(parsed.trackerSummary, null);
+    assert.strictEqual(parsed.summary, null);
     assert.deepStrictEqual(parsed.errors, []);
     assert.deepStrictEqual(parsed.warnings, []);
     assert.deepStrictEqual(parsed.readyFronts, []);
@@ -119,9 +146,9 @@ it.effect("defaults optional swarm validation metadata", () =>
   }),
 );
 
-it.effect("defaults swarm status blocked breakdown for historical payloads", () =>
+it.effect("defaults coordination status blocked breakdown for historical payloads", () =>
   Effect.gen(function* () {
-    const parsed = yield* decodeBeadsEpicTrackerStatus({
+    const parsed = yield* decodeBeadsEpicCoordinationStatus({
       epicId: "epic-1",
       epicTitle: "Epic",
       completed: [],
@@ -218,58 +245,46 @@ it.effect("accepts epic coordination prep launches", () =>
   }),
 );
 
-it.effect("defaults coordinator snapshot collections", () =>
+it.effect("defaults focused coordinator collections", () =>
   Effect.gen(function* () {
-    const project = yield* decodeBeadsProjectCoordinatorSnapshot({
+    const project = yield* decodeBeadsProjectRunSummary({
       projectId: "project-1",
-      support: {
-        supported: true,
-        backend: {
-          kind: "dolt",
-        },
+    });
+    const summaries = yield* decodeBeadsEpicIssueSummaries({
+      epicId: "epic-1",
+      epicTitle: "Epic",
+      progress: {
+        totalIssueCount: 0,
+        completedIssueCount: 0,
+        readyIssueCount: 0,
+        activeIssueCount: 0,
+        blockedIssueCount: 0,
+        internalBlockedIssueCount: 0,
+        externalBlockedIssueCount: 0,
+        unknownBlockedIssueCount: 0,
+        activeWorkerCount: 0,
+        isComplete: false,
       },
     });
-    const epic = yield* decodeBeadsEpicCoordinatorSnapshot({
-      projectId: "project-1",
-      support: {
-        supported: true,
-        backend: {
-          kind: "dolt",
-        },
-      },
-      epic: {
-        epicId: "epic-1",
-        epicTitle: "Epic",
-        trackerLoadState: "ready",
-        coordinationSupported: true,
-        validationState: "valid",
-        trackerState: "not_started",
-        progress: {
-          totalIssueCount: 0,
-          completedIssueCount: 0,
-          readyIssueCount: 0,
-          activeIssueCount: 0,
-          blockedIssueCount: 0,
-          internalBlockedIssueCount: 0,
-          externalBlockedIssueCount: 0,
-          unknownBlockedIssueCount: 0,
-          activeWorkerCount: 0,
-          isComplete: false,
-        },
-        primaryAction: {
-          kind: "start_epic_run",
-          label: "Start run",
-          busyLabel: "Starting...",
-          disabled: false,
-        },
+    const detail = yield* decodeBeadsEpicCoordinationDetail({
+      epicId: "epic-1",
+      coordinationLoadState: "ready",
+      validationState: "valid",
+      coordinationState: "not_started",
+      primaryAction: {
+        kind: "start_epic_run",
+        label: "Start run",
+        busyLabel: "Starting...",
+        disabled: false,
       },
     });
 
     assert.deepStrictEqual(project.epics, []);
-    assert.strictEqual(epic.epic.issue, null);
-    assert.deepStrictEqual(epic.epic.runs, []);
-    assert.deepStrictEqual(epic.epic.executions, []);
-    assert.strictEqual(epic.epic.activeRunId, null);
-    assert.strictEqual(epic.epic.activeExecutionId, null);
+    assert.deepStrictEqual(summaries.issues, []);
+    assert.strictEqual(detail.coordinationLoadDetail, null);
+    assert.deepStrictEqual(detail.validationErrors, []);
+    assert.strictEqual(detail.summary, null);
+    assert.strictEqual(detail.validation, null);
+    assert.strictEqual(detail.status, null);
   }),
 );

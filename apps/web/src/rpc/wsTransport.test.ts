@@ -116,6 +116,9 @@ function createTransport(...args: ConstructorParameters<typeof WsTransport>): Ws
 
 beforeEach(() => {
   vi.useRealTimers();
+  vi.stubEnv("VITE_HTTP_URL", "");
+  vi.stubEnv("VITE_WS_URL", "");
+  vi.stubEnv("VITE_DEV_SERVER_URL", "");
   sockets.length = 0;
   transports.length = 0;
   resetRequestLatencyStateForTests();
@@ -124,12 +127,7 @@ beforeEach(() => {
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
-      location: {
-        origin: "http://localhost:3020",
-        hostname: "localhost",
-        port: "3020",
-        protocol: "http:",
-      },
+      location: new URL("http://localhost:3020/"),
       desktopBridge: undefined,
     },
   });
@@ -149,6 +147,7 @@ afterEach(async () => {
   resetRequestLatencyStateForTests();
   resetWsConnectionStateForTests();
   await __resetClientTracingForTests();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 

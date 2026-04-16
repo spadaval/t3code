@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   CheckpointRef,
   CommandId,
+  MessageId,
   ProjectId,
   EpicIssueExecutionId,
   ThreadId,
@@ -280,17 +281,17 @@ describe("EpicRunScheduler", () => {
     );
   });
 
-  it("auto-creates a missing swarm before starting a run", async () => {
+  it("starts a run without requiring any persisted coordination artifact", async () => {
     const baseline = makeTrackerState();
     const harness = await createHarness(
       makeTrackerState({
         validation: {
           ...baseline.validation,
-          trackerSummary: null,
+          summary: null,
         },
         status: {
           ...baseline.status,
-          trackerSummary: null,
+          summary: null,
         },
       }),
     );
@@ -304,14 +305,13 @@ describe("EpicRunScheduler", () => {
     );
 
     expect(started.status).toBe("running");
-    expect(harness.getInitializeEpicTrackerCallCount()).toBe(1);
 
     const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
     expect(snapshot.epicRuns).toHaveLength(1);
     expect(snapshot.epicRuns[0]?.epicIssueId).toBe("EPIC-1");
   });
 
-  it("rejects starting a run when swarm validation fails", async () => {
+  it("rejects starting a run when coordination validation fails", async () => {
     const baseline = makeTrackerState();
     const harness = await createHarness(
       makeTrackerState({
@@ -332,55 +332,6 @@ describe("EpicRunScheduler", () => {
         }),
       ),
     ).rejects.toThrow("Cannot start epic run for EPIC-1: Swarm graph is invalid.");
-    expect(harness.getInitializeEpicTrackerCallCount()).toBe(0);
-  });
-
-  it("does not auto-create an epic tracker when one already exists", async () => {
-    const harness = await createHarness();
-
-    await runtime!.runPromise(
-      harness.workflow.startEpicRun({
-        projectId: harness.projectId,
-        epicIssueId: "EPIC-1",
-        runtimeMode: "full-access",
-      }),
-    );
-
-    expect(harness.getInitializeEpicTrackerCallCount()).toBe(0);
-  });
-
-  it("preserves explicit epic tracker creation failures when auto-create cannot recover", async () => {
-    const baseline = makeTrackerState();
-    const harness = await createHarness(
-      makeTrackerState({
-        validation: {
-          ...baseline.validation,
-          trackerSummary: null,
-        },
-        status: {
-          ...baseline.status,
-          trackerSummary: null,
-        },
-      }),
-      {
-        initializeEpicTrackerMode: "fail",
-        initializeEpicTrackerErrorMessage:
-          "Failed to initialize epic-run tracker state for EPIC-1: epic tracker was still missing after initialization completed.",
-      },
-    );
-
-    await expect(
-      runtime!.runPromise(
-        harness.workflow.startEpicRun({
-          projectId: harness.projectId,
-          epicIssueId: "EPIC-1",
-          runtimeMode: "full-access",
-        }),
-      ),
-    ).rejects.toThrow(
-      "Failed to initialize epic-run tracker state for EPIC-1: epic tracker was still missing after initialization completed.",
-    );
-    expect(harness.getInitializeEpicTrackerCallCount()).toBe(1);
   });
 
   it("keeps a running epic run active when no ready issue remains and blocked work exists", async () => {
@@ -964,8 +915,8 @@ describe("EpicRunScheduler", () => {
       makeTrackerState({
         validation: {
           ...baseline.validation,
-          trackerSummary: {
-            ...baseline.validation.trackerSummary!,
+          summary: {
+            ...baseline.validation.summary!,
             totalIssueCount: 1,
             completedIssueCount: 1,
             readyIssueCount: 0,
@@ -976,8 +927,8 @@ describe("EpicRunScheduler", () => {
         },
         status: {
           ...baseline.status,
-          trackerSummary: {
-            ...baseline.status.trackerSummary!,
+          summary: {
+            ...baseline.status.summary!,
             totalIssueCount: 1,
             completedIssueCount: 1,
             readyIssueCount: 0,
@@ -1055,7 +1006,7 @@ describe("EpicRunScheduler", () => {
     expect(issue?.comments.at(-1)?.text).toContain("Worker crashed");
   });
 
-  it("keeps active swarm executions running when the worker turn is still active", async () => {
+  it("keeps active coordination executions running when the worker turn is still active", async () => {
     const harness = await createHarness();
 
     const started = await runtime!.runPromise(
@@ -1081,6 +1032,51 @@ describe("EpicRunScheduler", () => {
         "Transient runtime error while retrying worker stream",
         "turn-worker-running",
       ),
+    });
+
+    await runtime!.runPromise(Effect.scoped(harness.workflow.start));
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const run = snapshot.epicRuns.find((entry) => entry.runId === started.runId);
+    const activeExecution = snapshot.epicIssueExecutions.find(
+      (entry) => entry.executionId === execution.executionId,
+    );
+    const issue = harness.getIssue("TASK-1");
+
+    expect(run?.status).toBe("running");
+    expect(run?.failureContext).toBeNull();
+    expect(failureMessage(run)).toBeNull();
+    expect(activeExecution?.status).toBe("running");
+    expect(failureMessage(activeExecution)).toBeNull();
+    expect(issue?.comments).toHaveLength(0);
+  });
+
+  it("does not fail an active execution from graceful session exit without authoritative turn settlement", async () => {
+    const harness = await createHarness();
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startEpicRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const initialSnapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const execution = initialSnapshot.epicIssueExecutions[0];
+    expect(execution?.workerThreadId).toBeTruthy();
+    if (!execution?.workerThreadId) {
+      return;
+    }
+
+    harness.patchThread(execution.workerThreadId, {
+      latestTurn: makeRunningLatestTurn("turn-worker-running"),
+      session: {
+        ...makeStoppedSession(execution.workerThreadId),
+        status: "interrupted",
+        lastError: null,
+      },
     });
 
     await runtime!.runPromise(Effect.scoped(harness.workflow.start));
@@ -1227,6 +1223,56 @@ describe("EpicRunScheduler", () => {
     expect(execution?.startedAt).toBeNull();
     expect(issue?.status).toBe("open");
     expect(issue?.assignee).toBe("issue-owner");
+    expect(issue?.comments).toHaveLength(0);
+  });
+
+  it("does not settle the run from a non-authoritative completed worker turn", async () => {
+    const harness = await createHarness(makeTrackerState());
+    harness.patchIssue("TASK-1", {
+      status: "open",
+      assignee: "issue-owner",
+    });
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startEpicRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const initialSnapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const initialExecution = initialSnapshot.epicIssueExecutions[0];
+    if (!initialExecution?.workerThreadId) {
+      return;
+    }
+
+    harness.patchThread(initialExecution.workerThreadId, {
+      latestTurn: {
+        turnId: TurnId.makeUnsafe("turn-worker-message-only"),
+        state: "completed",
+        requestedAt: now,
+        startedAt: now,
+        completedAt: now,
+        assistantMessageId: MessageId.makeUnsafe("assistant-message-only"),
+      },
+      session: makeReadySession(initialExecution.workerThreadId),
+    });
+
+    await runtime!.runPromise(Effect.scoped(harness.workflow.start));
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const run = snapshot.epicRuns.find((entry) => entry.runId === started.runId);
+    const execution = snapshot.epicIssueExecutions[0];
+    const issue = harness.getIssue("TASK-1");
+
+    expect(run?.status).toBe("running");
+    expect(run?.failureContext).toBeNull();
+    expect(failureMessage(run)).toBeNull();
+    expect(execution?.status).toBe("launching");
+    expect(execution?.startedAt).toBeNull();
+    expect(issue?.status).toBe("open");
     expect(issue?.comments).toHaveLength(0);
   });
 

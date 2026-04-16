@@ -530,6 +530,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           session: command.session,
+          ...(command.settledTurn !== undefined ? { settledTurn: command.settledTurn } : {}),
         },
       };
     }

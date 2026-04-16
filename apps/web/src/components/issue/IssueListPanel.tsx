@@ -1,6 +1,7 @@
 import type { BeadsIssueSortBy, BeadsIssueSummary, ThreadId } from "@t3tools/contracts";
-import { type ReactNode, useCallback } from "react";
+import { type ReactNode, useCallback, useMemo } from "react";
 
+import { matchesIssueListVisibility } from "~/lib/issuePanelLogic";
 import { cn } from "~/lib/utils";
 import { IssueList } from "./IssueList";
 import type { IssueContextAction } from "./issueContextMenu";
@@ -91,6 +92,10 @@ export function IssueListPanel({
     },
     [onTabChange],
   );
+  const visibleIssueCount = useMemo(
+    () => issues.filter((issue) => matchesIssueListVisibility(issue, showClosed)).length,
+    [issues, showClosed],
+  );
 
   if (error) {
     return (
@@ -146,11 +151,11 @@ export function IssueListPanel({
             active={activeTab === "issues"}
             onClick={() => handleTabChange("issues")}
             loading={tabsLoading.issues}
-            aria-label={`Issues tab - ${issues.length} issues`}
+            aria-label={`Issues tab - ${visibleIssueCount} issues`}
           >
             Issues
-            {issues.length > 0 && !loading && (
-              <span className="ml-1 text-xs text-muted-foreground">({issues.length})</span>
+            {visibleIssueCount > 0 && !loading && (
+              <span className="ml-1 text-xs text-muted-foreground">({visibleIssueCount})</span>
             )}
           </NavigationTab>
           <NavigationTab

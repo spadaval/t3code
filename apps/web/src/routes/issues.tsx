@@ -1,6 +1,10 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { parseIssuesRouteSearch } from "~/issuesRouteSearch";
+import {
+  issuesRouteSearchNeedsRedirect,
+  parseIssuesRouteSearch,
+  resolveCanonicalIssuesRouteSearch,
+} from "~/issuesRouteSearch";
 import {
   selectProjectsAcrossEnvironments,
   selectThreadsAcrossEnvironments,
@@ -43,6 +47,14 @@ function LegacyIssuesRedirectFallback() {
 export const Route = createFileRoute("/issues")({
   validateSearch: (search) => parseIssuesRouteSearch(search),
   beforeLoad: ({ search }) => {
+    if (issuesRouteSearchNeedsRedirect(search)) {
+      throw redirect({
+        to: "/issues",
+        search: resolveCanonicalIssuesRouteSearch(search) as never,
+        replace: true,
+      });
+    }
+
     const projectId = resolveLegacyIssuesProjectId();
     if (!projectId) {
       return;
@@ -51,11 +63,7 @@ export const Route = createFileRoute("/issues")({
     throw redirect({
       to: "/projects/$projectId/issues" as never,
       params: { projectId } as never,
-      search: {
-        tab: search.tab ?? "coordinator",
-        ...(search.epicId ? { epicId: search.epicId } : {}),
-        ...(search.issueId ? { issueId: search.issueId } : {}),
-      } as never,
+      search: resolveCanonicalIssuesRouteSearch(search) as never,
       replace: true,
     });
   },
