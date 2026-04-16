@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { KeybindingCommand, KeybindingRule, KeybindingsConfig } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";

@@ -1,5 +1,10 @@
-import { Effect, Option, Schema, SchemaIssue, Struct } from "effect";
-import { ClaudeModelOptions, CodexModelOptions } from "./model.ts";
+import { Effect, Option, Schema, SchemaGetter, SchemaIssue, Struct } from "effect";
+import {
+  ClaudeModelOptions,
+  CodexModelOptions,
+  ProviderModelOptions,
+  ProviderStartOptions,
+} from "./model.ts";
 import { RepositoryIdentity } from "./environment.ts";
 import {
   ApprovalRequestId,
@@ -9,8 +14,11 @@ import {
   IsoDateTime,
   MessageId,
   NonNegativeInt,
+  PlanImplementationLaunchId,
   ProjectId,
   ProviderItemId,
+  EpicRunId,
+  EpicIssueExecutionId,
   ThreadId,
   TrimmedNonEmptyString,
   TurnId,
@@ -23,6 +31,11 @@ export const ORCHESTRATION_WS_METHODS = {
   replayEvents: "orchestration.replayEvents",
   subscribeShell: "orchestration.subscribeShell",
   subscribeThread: "orchestration.subscribeThread",
+  launchPlanImplementation: "orchestration.launchPlanImplementation",
+  cancelPlanImplementationLaunch: "orchestration.cancelPlanImplementationLaunch",
+  retryPlanImplementationLaunch: "orchestration.retryPlanImplementationLaunch",
+  startEpicRun: "orchestration.startEpicRun",
+  stopEpicRun: "orchestration.stopEpicRun",
 } as const;
 
 export const ProviderKind = Schema.Literals(["codex", "claudeAgent"]);
@@ -174,17 +187,89 @@ export type OrchestrationMessage = typeof OrchestrationMessage.Type;
 export const OrchestrationProposedPlanId = TrimmedNonEmptyString;
 export type OrchestrationProposedPlanId = typeof OrchestrationProposedPlanId.Type;
 
-export const OrchestrationProposedPlan = Schema.Struct({
+export const OrchestrationProposedPlanIntent = Schema.Literals([
+  "code-implementation",
+  "tracker-refinement",
+]);
+export type OrchestrationProposedPlanIntent = typeof OrchestrationProposedPlanIntent.Type;
+export const DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT: OrchestrationProposedPlanIntent =
+  "code-implementation";
+
+export const OrchestrationProposedPlanFollowUpOutcomeKind = Schema.Literals([
+  "implement-code",
+  "convert-to-tracker",
+]);
+export type OrchestrationProposedPlanFollowUpOutcomeKind =
+  typeof OrchestrationProposedPlanFollowUpOutcomeKind.Type;
+
+export const OrchestrationProposedPlanFollowUpOutcome = Schema.Struct({
+  kind: OrchestrationProposedPlanFollowUpOutcomeKind,
+  completedAt: IsoDateTime,
+  targetThreadId: Schema.NullOr(ThreadId),
+});
+export type OrchestrationProposedPlanFollowUpOutcome =
+  typeof OrchestrationProposedPlanFollowUpOutcome.Type;
+
+export const OrchestrationPlanImplementationLaunchMode = Schema.Literals([
+  "worktree",
+  "tracker-only",
+]);
+export type OrchestrationPlanImplementationLaunchMode =
+  typeof OrchestrationPlanImplementationLaunchMode.Type;
+export const DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE: OrchestrationPlanImplementationLaunchMode =
+  "worktree";
+
+const OrchestrationProposedPlanShape = Schema.Struct({
   id: OrchestrationProposedPlanId,
   turnId: Schema.NullOr(TurnId),
   planMarkdown: TrimmedNonEmptyString,
-  implementedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
-  implementationThreadId: Schema.NullOr(ThreadId).pipe(
+  planIntent: OrchestrationProposedPlanIntent.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_ORCHESTRATION_PROPOSED_PLAN_INTENT)),
+  ),
+  followUpOutcome: Schema.NullOr(OrchestrationProposedPlanFollowUpOutcome).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
+
+const OrchestrationProposedPlanLegacyShape = Schema.Struct({
+  ...OrchestrationProposedPlanShape.fields,
+  implementedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  implementationThreadId: Schema.NullOr(ThreadId).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+});
+
+type OrchestrationProposedPlanLegacyCompatible =
+  | typeof OrchestrationProposedPlanShape.Type
+  | typeof OrchestrationProposedPlanLegacyShape.Type;
+
+export const OrchestrationProposedPlan = Schema.Union([
+  OrchestrationProposedPlanLegacyShape,
+  OrchestrationProposedPlanShape,
+]).pipe(
+  Schema.decode({
+    decode: SchemaGetter.transform((input: OrchestrationProposedPlanLegacyCompatible) => ({
+      id: input.id,
+      turnId: input.turnId,
+      planMarkdown: input.planMarkdown,
+      planIntent: input.planIntent,
+      followUpOutcome:
+        input.followUpOutcome ??
+        ("implementedAt" in input && input.implementedAt
+          ? {
+              kind: "implement-code" as const,
+              completedAt: input.implementedAt,
+              targetThreadId: input.implementationThreadId,
+            }
+          : null),
+      createdAt: input.createdAt,
+      updatedAt: input.updatedAt,
+    })),
+    encode: SchemaGetter.transform((input: OrchestrationProposedPlanLegacyCompatible) => input),
+  }),
+) as unknown as typeof OrchestrationProposedPlanShape;
 export type OrchestrationProposedPlan = typeof OrchestrationProposedPlan.Type;
 
 const SourceProposedPlanReference = Schema.Struct({
@@ -192,6 +277,45 @@ const SourceProposedPlanReference = Schema.Struct({
   planId: OrchestrationProposedPlanId,
 });
 
+export const OrchestrationThreadIssueLink = Schema.Struct({
+  issueId: TrimmedNonEmptyString,
+  title: TrimmedNonEmptyString,
+  status: TrimmedNonEmptyString,
+  priority: Schema.NullOr(NonNegativeInt).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  repoRoot: TrimmedNonEmptyString,
+  linkedAt: IsoDateTime,
+});
+export type OrchestrationThreadIssueLink = typeof OrchestrationThreadIssueLink.Type;
+
+export const OrchestrationPlanImplementationLaunchStatus = Schema.Literals([
+  "requested",
+  "prepared",
+  "started",
+  "failed",
+  "cancelled",
+]);
+export type OrchestrationPlanImplementationLaunchStatus =
+  typeof OrchestrationPlanImplementationLaunchStatus.Type;
+
+export const OrchestrationPlanImplementationLaunchCleanupStatus = Schema.Literals([
+  "not-required",
+  "pending",
+  "succeeded",
+  "failed",
+]);
+export type OrchestrationPlanImplementationLaunchCleanupStatus =
+  typeof OrchestrationPlanImplementationLaunchCleanupStatus.Type;
+
+// Browser-facing orchestration session status. This is a projected UX state
+// used by coordinator/chat read models, so it intentionally includes derived
+// states such as `idle` and `interrupted` that do not exist in the raw runtime
+// protocol. It stays distinct from:
+// - ProviderSessionStatus in provider.ts, which models the client/provider API
+//   handle lifecycle
+// - RuntimeSessionState in providerRuntime.ts, which preserves raw provider
+//   protocol states like `waiting`
+// - ProviderSessionRuntimeStatus below, which only tracks the persisted server
+//   process lifecycle for runtime supervision
 export const OrchestrationSessionStatus = Schema.Literals([
   "idle",
   "starting",
@@ -236,6 +360,15 @@ export const OrchestrationCheckpointSummary = Schema.Struct({
 });
 export type OrchestrationCheckpointSummary = typeof OrchestrationCheckpointSummary.Type;
 
+export const OrchestrationCheckpointCaptureRequest = Schema.Struct({
+  turnId: TurnId,
+  checkpointTurnCount: NonNegativeInt,
+  assistantMessageId: Schema.NullOr(MessageId),
+  requestedAt: IsoDateTime,
+});
+export type OrchestrationCheckpointCaptureRequest =
+  typeof OrchestrationCheckpointCaptureRequest.Type;
+
 export const OrchestrationThreadActivityTone = Schema.Literals([
   "info",
   "tool",
@@ -256,17 +389,17 @@ export const OrchestrationThreadActivity = Schema.Struct({
 });
 export type OrchestrationThreadActivity = typeof OrchestrationThreadActivity.Type;
 
-const OrchestrationLatestTurnState = Schema.Literals([
+export const OrchestrationTurnStatus = Schema.Literals([
   "running",
   "interrupted",
   "completed",
   "error",
 ]);
-export type OrchestrationLatestTurnState = typeof OrchestrationLatestTurnState.Type;
+export type OrchestrationTurnStatus = typeof OrchestrationTurnStatus.Type;
 
 export const OrchestrationLatestTurn = Schema.Struct({
   turnId: TurnId,
-  state: OrchestrationLatestTurnState,
+  state: OrchestrationTurnStatus,
   requestedAt: IsoDateTime,
   startedAt: Schema.NullOr(IsoDateTime),
   completedAt: Schema.NullOr(IsoDateTime),
@@ -286,6 +419,9 @@ export const OrchestrationThread = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  issueLink: Schema.NullOr(OrchestrationThreadIssueLink).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -297,14 +433,155 @@ export const OrchestrationThread = Schema.Struct({
   ),
   activities: Schema.Array(OrchestrationThreadActivity),
   checkpoints: Schema.Array(OrchestrationCheckpointSummary),
+  pendingCheckpointCaptures: Schema.Array(OrchestrationCheckpointCaptureRequest).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   session: Schema.NullOr(OrchestrationSession),
 });
 export type OrchestrationThread = typeof OrchestrationThread.Type;
+
+export const OrchestrationPlanImplementationLaunch = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  sourceThreadId: ThreadId,
+  sourcePlanId: OrchestrationProposedPlanId,
+  projectId: ProjectId,
+  targetThreadId: ThreadId,
+  retryOfLaunchId: Schema.NullOr(PlanImplementationLaunchId),
+  status: OrchestrationPlanImplementationLaunchStatus,
+  launchMode: OrchestrationPlanImplementationLaunchMode.pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed(DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE),
+    ),
+  ),
+  branch: Schema.NullOr(TrimmedNonEmptyString),
+  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  failureReason: Schema.NullOr(TrimmedNonEmptyString),
+  cleanupStatus: OrchestrationPlanImplementationLaunchCleanupStatus,
+  cleanupError: Schema.NullOr(TrimmedNonEmptyString),
+  title: TrimmedNonEmptyString,
+  setupEnabled: Schema.Boolean,
+  requestedAt: IsoDateTime,
+  preparedAt: Schema.NullOr(IsoDateTime),
+  startedAt: Schema.NullOr(IsoDateTime),
+  failedAt: Schema.NullOr(IsoDateTime),
+  cancelledAt: Schema.NullOr(IsoDateTime),
+  updatedAt: IsoDateTime,
+});
+export type OrchestrationPlanImplementationLaunch =
+  typeof OrchestrationPlanImplementationLaunch.Type;
+
+export const OrchestrationEpicRunStatus = Schema.Literals([
+  "pending",
+  "running",
+  "stopping",
+  "stopped",
+  "failed",
+  "completed",
+]);
+export type OrchestrationEpicRunStatus = typeof OrchestrationEpicRunStatus.Type;
+
+export const OrchestrationEpicIssueExecutionStatus = Schema.Literals([
+  "launching",
+  "running",
+  "stopping",
+  "stopped",
+  "completed",
+  "failed",
+]);
+export type OrchestrationEpicIssueExecutionStatus =
+  typeof OrchestrationEpicIssueExecutionStatus.Type;
+
+export const OrchestrationEpicRunFailureKind = Schema.Literals([
+  "launch_failure",
+  "worker_failure",
+  "issue_incomplete",
+  "environment_failure",
+  "invariant_violation",
+]);
+export type OrchestrationEpicRunFailureKind = typeof OrchestrationEpicRunFailureKind.Type;
+
+export const OrchestrationEpicRunFailureContext = Schema.Struct({
+  kind: OrchestrationEpicRunFailureKind,
+  message: TrimmedNonEmptyString,
+  issueId: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  executionId: Schema.NullOr(EpicIssueExecutionId).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  workerThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+});
+export type OrchestrationEpicRunFailureContext = typeof OrchestrationEpicRunFailureContext.Type;
+
+export const OrchestrationEpicWorkspaceKey = TrimmedNonEmptyString;
+export type OrchestrationEpicWorkspaceKey = typeof OrchestrationEpicWorkspaceKey.Type;
+export const DEFAULT_ORCHESTRATION_EPIC_WORKSPACE_KEY: OrchestrationEpicWorkspaceKey = "shared";
+
+export const OrchestrationEpicRun = Schema.Struct({
+  runId: EpicRunId,
+  projectId: ProjectId,
+  epicIssueId: TrimmedNonEmptyString,
+  status: OrchestrationEpicRunStatus,
+  provider: Schema.NullOr(ProviderKind),
+  model: Schema.NullOr(TrimmedNonEmptyString),
+  modelOptions: Schema.NullOr(ProviderModelOptions),
+  providerOptions: Schema.NullOr(ProviderStartOptions),
+  assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
+  failureContext: Schema.NullOr(OrchestrationEpicRunFailureContext).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  requestedAt: IsoDateTime,
+  startedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  stopRequestedAt: Schema.NullOr(IsoDateTime).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  stoppedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  failedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  completedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  updatedAt: IsoDateTime,
+});
+export type OrchestrationEpicRun = typeof OrchestrationEpicRun.Type;
+
+export const OrchestrationEpicIssueExecution = Schema.Struct({
+  executionId: EpicIssueExecutionId,
+  runId: EpicRunId,
+  issueId: TrimmedNonEmptyString,
+  workerThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  sequenceNumber: NonNegativeInt,
+  status: OrchestrationEpicIssueExecutionStatus,
+  workspaceKey: OrchestrationEpicWorkspaceKey.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_ORCHESTRATION_EPIC_WORKSPACE_KEY)),
+  ),
+  workspacePath: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  failureContext: Schema.NullOr(OrchestrationEpicRunFailureContext).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  requestedAt: IsoDateTime,
+  startedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  stopRequestedAt: Schema.NullOr(IsoDateTime).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  stoppedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  completedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  failedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  updatedAt: IsoDateTime,
+});
+export type OrchestrationEpicIssueExecution = typeof OrchestrationEpicIssueExecution.Type;
 
 export const OrchestrationReadModel = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   projects: Schema.Array(OrchestrationProject),
   threads: Schema.Array(OrchestrationThread),
+  planImplementationLaunches: Schema.Array(OrchestrationPlanImplementationLaunch).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  epicRuns: Schema.Array(OrchestrationEpicRun).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  epicIssueExecutions: Schema.Array(OrchestrationEpicIssueExecution).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   updatedAt: IsoDateTime,
 });
 export type OrchestrationReadModel = typeof OrchestrationReadModel.Type;
@@ -436,6 +713,7 @@ const ThreadCreateCommand = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  issueLink: Schema.optional(Schema.NullOr(OrchestrationThreadIssueLink)),
   createdAt: IsoDateTime,
 });
 
@@ -465,6 +743,7 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  issueLink: Schema.optional(Schema.NullOr(OrchestrationThreadIssueLink)),
 });
 
 const ThreadRuntimeModeSetCommand = Schema.Struct({
@@ -665,6 +944,19 @@ const ThreadProposedPlanUpsertCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const ThreadCheckpointCaptureRequestCommand = Schema.Struct({
+  type: Schema.Literal("thread.checkpoint.capture.request"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  turnId: TurnId,
+  checkpointTurnCount: NonNegativeInt,
+  assistantMessageId: Schema.optional(MessageId),
+  requestedAt: IsoDateTime,
+  createdAt: IsoDateTime,
+});
+export type ThreadCheckpointCaptureRequestCommand =
+  typeof ThreadCheckpointCaptureRequestCommand.Type;
+
 const ThreadTurnDiffCompleteCommand = Schema.Struct({
   type: Schema.Literal("thread.turn.diff.complete"),
   commandId: CommandId,
@@ -695,14 +987,182 @@ const ThreadRevertCompleteCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const PlanImplementationLaunchRequestCommand = Schema.Struct({
+  type: Schema.Literal("plan-implementation-launch.request"),
+  commandId: CommandId,
+  launchId: PlanImplementationLaunchId,
+  sourceThreadId: ThreadId,
+  sourcePlanId: OrchestrationProposedPlanId,
+  projectId: ProjectId,
+  targetThreadId: ThreadId,
+  retryOfLaunchId: Schema.optional(PlanImplementationLaunchId),
+  title: TrimmedNonEmptyString,
+  setupEnabled: Schema.Boolean,
+  launchMode: OrchestrationPlanImplementationLaunchMode.pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed(DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE),
+    ),
+  ),
+  promptText: Schema.String,
+  provider: Schema.optional(ProviderKind),
+  model: Schema.optional(TrimmedNonEmptyString),
+  modelOptions: Schema.optional(ProviderModelOptions),
+  providerOptions: Schema.optional(ProviderStartOptions),
+  assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
+  createdAt: IsoDateTime,
+});
+
+const PlanImplementationLaunchMarkWorktreePreparedCommand = Schema.Struct({
+  type: Schema.Literal("plan-implementation-launch.mark-worktree-prepared"),
+  commandId: CommandId,
+  launchId: PlanImplementationLaunchId,
+  branch: TrimmedNonEmptyString,
+  worktreePath: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+});
+
+const PlanImplementationLaunchMarkStartedCommand = Schema.Struct({
+  type: Schema.Literal("plan-implementation-launch.mark-started"),
+  commandId: CommandId,
+  launchId: PlanImplementationLaunchId,
+  createdAt: IsoDateTime,
+});
+
+const PlanImplementationLaunchFailCommand = Schema.Struct({
+  type: Schema.Literal("plan-implementation-launch.fail"),
+  commandId: CommandId,
+  launchId: PlanImplementationLaunchId,
+  failureReason: TrimmedNonEmptyString,
+  cleanupStatus: OrchestrationPlanImplementationLaunchCleanupStatus,
+  cleanupError: Schema.optional(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+});
+
+const PlanImplementationLaunchCancelCommand = Schema.Struct({
+  type: Schema.Literal("plan-implementation-launch.cancel"),
+  commandId: CommandId,
+  launchId: PlanImplementationLaunchId,
+  cleanupStatus: OrchestrationPlanImplementationLaunchCleanupStatus,
+  cleanupError: Schema.optional(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+});
+
+const EpicRunRequestCommand = Schema.Struct({
+  type: Schema.Literal("epic-run.request"),
+  commandId: CommandId,
+  runId: EpicRunId,
+  projectId: ProjectId,
+  epicIssueId: TrimmedNonEmptyString,
+  provider: Schema.optional(ProviderKind),
+  model: Schema.optional(TrimmedNonEmptyString),
+  modelOptions: Schema.optional(ProviderModelOptions),
+  providerOptions: Schema.optional(ProviderStartOptions),
+  assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
+  createdAt: IsoDateTime,
+});
+
+const EpicRunMarkStartedCommand = Schema.Struct({
+  type: Schema.Literal("epic-run.mark-started"),
+  commandId: CommandId,
+  runId: EpicRunId,
+  createdAt: IsoDateTime,
+});
+
+const EpicRunFailCommand = Schema.Struct({
+  type: Schema.Literal("epic-run.fail"),
+  commandId: CommandId,
+  runId: EpicRunId,
+  reason: TrimmedNonEmptyString,
+  issueId: Schema.optional(TrimmedNonEmptyString),
+  executionId: Schema.optional(EpicIssueExecutionId),
+  workerThreadId: Schema.optional(ThreadId),
+  createdAt: IsoDateTime,
+});
+
+const EpicRunStopCommand = Schema.Struct({
+  type: Schema.Literal("epic-run.stop"),
+  commandId: CommandId,
+  runId: EpicRunId,
+  createdAt: IsoDateTime,
+});
+
+const EpicRunCompleteCommand = Schema.Struct({
+  type: Schema.Literal("epic-run.complete"),
+  commandId: CommandId,
+  runId: EpicRunId,
+  createdAt: IsoDateTime,
+});
+
+const EpicIssueExecutionRequestCommand = Schema.Struct({
+  type: Schema.Literal("epic-issue-execution.request"),
+  commandId: CommandId,
+  executionId: EpicIssueExecutionId,
+  runId: EpicRunId,
+  issueId: TrimmedNonEmptyString,
+  workerThreadId: ThreadId,
+  sequenceNumber: NonNegativeInt,
+  createdAt: IsoDateTime,
+});
+
+const EpicIssueExecutionStartCommand = Schema.Struct({
+  type: Schema.Literal("epic-issue-execution.start"),
+  commandId: CommandId,
+  executionId: EpicIssueExecutionId,
+  runId: EpicRunId,
+  createdAt: IsoDateTime,
+});
+
+const EpicIssueExecutionCompleteCommand = Schema.Struct({
+  type: Schema.Literal("epic-issue-execution.complete"),
+  commandId: CommandId,
+  executionId: EpicIssueExecutionId,
+  runId: EpicRunId,
+  createdAt: IsoDateTime,
+});
+
+const EpicIssueExecutionFailCommand = Schema.Struct({
+  type: Schema.Literal("epic-issue-execution.fail"),
+  commandId: CommandId,
+  executionId: EpicIssueExecutionId,
+  runId: EpicRunId,
+  reason: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+});
+
+const EpicIssueExecutionStopCommand = Schema.Struct({
+  type: Schema.Literal("epic-issue-execution.stop"),
+  commandId: CommandId,
+  executionId: EpicIssueExecutionId,
+  runId: EpicRunId,
+  createdAt: IsoDateTime,
+});
+
 const InternalOrchestrationCommand = Schema.Union([
   ThreadSessionSetCommand,
   ThreadMessageAssistantDeltaCommand,
   ThreadMessageAssistantCompleteCommand,
   ThreadProposedPlanUpsertCommand,
+  ThreadCheckpointCaptureRequestCommand,
   ThreadTurnDiffCompleteCommand,
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
+  PlanImplementationLaunchRequestCommand,
+  PlanImplementationLaunchMarkWorktreePreparedCommand,
+  PlanImplementationLaunchMarkStartedCommand,
+  PlanImplementationLaunchFailCommand,
+  PlanImplementationLaunchCancelCommand,
+  EpicRunRequestCommand,
+  EpicRunMarkStartedCommand,
+  EpicRunFailCommand,
+  EpicRunStopCommand,
+  EpicRunCompleteCommand,
+  EpicIssueExecutionRequestCommand,
+  EpicIssueExecutionStartCommand,
+  EpicIssueExecutionCompleteCommand,
+  EpicIssueExecutionFailCommand,
+  EpicIssueExecutionStopCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -733,12 +1193,34 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.session-stop-requested",
   "thread.session-set",
   "thread.proposed-plan-upserted",
+  "thread.checkpoint-capture-requested",
   "thread.turn-diff-completed",
   "thread.activity-appended",
+  "plan-implementation-launch.requested",
+  "plan-implementation-launch.worktree-prepared",
+  "plan-implementation-launch.started",
+  "plan-implementation-launch.failed",
+  "plan-implementation-launch.cancelled",
+  "epic-run.requested",
+  "epic-run.started",
+  "epic-run.failed",
+  "epic-run.stopped",
+  "epic-run.completed",
+  "epic-issue-execution.requested",
+  "epic-issue-execution.started",
+  "epic-issue-execution.completed",
+  "epic-issue-execution.failed",
+  "epic-issue-execution.stopped",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
-export const OrchestrationAggregateKind = Schema.Literals(["project", "thread"]);
+export const OrchestrationAggregateKind = Schema.Literals([
+  "project",
+  "thread",
+  "planImplementationLaunch",
+  "epicRun",
+  "epicIssueExecution",
+]);
 export type OrchestrationAggregateKind = typeof OrchestrationAggregateKind.Type;
 export const OrchestrationActorKind = Schema.Literals(["client", "server", "provider"]);
 
@@ -779,6 +1261,9 @@ export const ThreadCreatedPayload = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  issueLink: Schema.NullOr(OrchestrationThreadIssueLink).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -805,6 +1290,7 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  issueLink: Schema.optional(Schema.NullOr(OrchestrationThreadIssueLink)),
   updatedAt: IsoDateTime,
 });
 
@@ -893,6 +1379,13 @@ export const ThreadProposedPlanUpsertedPayload = Schema.Struct({
   proposedPlan: OrchestrationProposedPlan,
 });
 
+export const ThreadCheckpointCaptureRequestedPayload = Schema.Struct({
+  threadId: ThreadId,
+  request: OrchestrationCheckpointCaptureRequest,
+});
+export type ThreadCheckpointCaptureRequestedPayload =
+  typeof ThreadCheckpointCaptureRequestedPayload.Type;
+
 export const ThreadTurnDiffCompletedPayload = Schema.Struct({
   threadId: ThreadId,
   turnId: TurnId,
@@ -909,6 +1402,147 @@ export const ThreadActivityAppendedPayload = Schema.Struct({
   activity: OrchestrationThreadActivity,
 });
 
+export const PlanImplementationLaunchRequestedPayload = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  sourceThreadId: ThreadId,
+  sourcePlanId: OrchestrationProposedPlanId,
+  projectId: ProjectId,
+  targetThreadId: ThreadId,
+  retryOfLaunchId: Schema.NullOr(PlanImplementationLaunchId),
+  title: TrimmedNonEmptyString,
+  setupEnabled: Schema.Boolean,
+  launchMode: OrchestrationPlanImplementationLaunchMode.pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed(DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE),
+    ),
+  ),
+  promptText: Schema.String,
+  provider: Schema.NullOr(ProviderKind),
+  model: Schema.NullOr(TrimmedNonEmptyString),
+  modelOptions: Schema.NullOr(ProviderModelOptions),
+  providerOptions: Schema.NullOr(ProviderStartOptions),
+  assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
+  runtimeMode: RuntimeMode,
+  requestedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const PlanImplementationLaunchWorktreePreparedPayload = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  branch: TrimmedNonEmptyString,
+  worktreePath: TrimmedNonEmptyString,
+  preparedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const PlanImplementationLaunchStartedPayload = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  startedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const PlanImplementationLaunchFailedPayload = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  failureReason: TrimmedNonEmptyString,
+  cleanupStatus: OrchestrationPlanImplementationLaunchCleanupStatus,
+  cleanupError: Schema.NullOr(TrimmedNonEmptyString),
+  failedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const PlanImplementationLaunchCancelledPayload = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  cleanupStatus: OrchestrationPlanImplementationLaunchCleanupStatus,
+  cleanupError: Schema.NullOr(TrimmedNonEmptyString),
+  cancelledAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const EpicRunRequestedPayload = Schema.Struct({
+  runId: EpicRunId,
+  projectId: ProjectId,
+  epicIssueId: TrimmedNonEmptyString,
+  provider: Schema.NullOr(ProviderKind),
+  model: Schema.NullOr(TrimmedNonEmptyString),
+  modelOptions: Schema.NullOr(ProviderModelOptions),
+  providerOptions: Schema.NullOr(ProviderStartOptions),
+  assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
+  runtimeMode: RuntimeMode,
+  requestedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const EpicRunStartedPayload = Schema.Struct({
+  runId: EpicRunId,
+  startedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const EpicRunFailedPayload = Schema.Struct({
+  runId: EpicRunId,
+  reason: TrimmedNonEmptyString,
+  issueId: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  executionId: Schema.NullOr(EpicIssueExecutionId).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  workerThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  failedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const EpicRunStoppedPayload = Schema.Struct({
+  runId: EpicRunId,
+  stoppedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const EpicRunCompletedPayload = Schema.Struct({
+  runId: EpicRunId,
+  completedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const EpicIssueExecutionStartedPayload = Schema.Struct({
+  executionId: EpicIssueExecutionId,
+  runId: EpicRunId,
+  startedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const EpicIssueExecutionRequestedPayload = Schema.Struct({
+  executionId: EpicIssueExecutionId,
+  runId: EpicRunId,
+  issueId: TrimmedNonEmptyString,
+  workerThreadId: ThreadId,
+  sequenceNumber: NonNegativeInt,
+  requestedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const EpicIssueExecutionCompletedPayload = Schema.Struct({
+  executionId: EpicIssueExecutionId,
+  runId: EpicRunId,
+  completedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const EpicIssueExecutionFailedPayload = Schema.Struct({
+  executionId: EpicIssueExecutionId,
+  runId: EpicRunId,
+  reason: TrimmedNonEmptyString,
+  failedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const EpicIssueExecutionStoppedPayload = Schema.Struct({
+  executionId: EpicIssueExecutionId,
+  runId: EpicRunId,
+  stoppedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
 export const OrchestrationEventMetadata = Schema.Struct({
   providerTurnId: Schema.optional(TrimmedNonEmptyString),
   providerItemId: Schema.optional(ProviderItemId),
@@ -922,7 +1556,13 @@ const EventBaseFields = {
   sequence: NonNegativeInt,
   eventId: EventId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([ProjectId, ThreadId]),
+  aggregateId: Schema.Union([
+    ProjectId,
+    ThreadId,
+    PlanImplementationLaunchId,
+    EpicRunId,
+    EpicIssueExecutionId,
+  ]),
   occurredAt: IsoDateTime,
   commandId: Schema.NullOr(CommandId),
   causationEventId: Schema.NullOr(EventId),
@@ -1033,6 +1673,11 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
+    type: Schema.Literal("thread.checkpoint-capture-requested"),
+    payload: ThreadCheckpointCaptureRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
     type: Schema.Literal("thread.turn-diff-completed"),
     payload: ThreadTurnDiffCompletedPayload,
   }),
@@ -1040,6 +1685,81 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("plan-implementation-launch.requested"),
+    payload: PlanImplementationLaunchRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("plan-implementation-launch.worktree-prepared"),
+    payload: PlanImplementationLaunchWorktreePreparedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("plan-implementation-launch.started"),
+    payload: PlanImplementationLaunchStartedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("plan-implementation-launch.failed"),
+    payload: PlanImplementationLaunchFailedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("plan-implementation-launch.cancelled"),
+    payload: PlanImplementationLaunchCancelledPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-run.requested"),
+    payload: EpicRunRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-run.started"),
+    payload: EpicRunStartedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-run.failed"),
+    payload: EpicRunFailedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-run.stopped"),
+    payload: EpicRunStoppedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-run.completed"),
+    payload: EpicRunCompletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-issue-execution.requested"),
+    payload: EpicIssueExecutionRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-issue-execution.started"),
+    payload: EpicIssueExecutionStartedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-issue-execution.completed"),
+    payload: EpicIssueExecutionCompletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-issue-execution.failed"),
+    payload: EpicIssueExecutionFailedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-issue-execution.stopped"),
+    payload: EpicIssueExecutionStoppedPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;
@@ -1081,6 +1801,11 @@ export const ThreadTurnDiff = TurnCountRange.mapFields(
   { unsafePreserveChecks: true },
 );
 
+// Persisted provider-session runtime process status. This tracks only the
+// server's runtime-process lifecycle for supervision and restart handling, so
+// it intentionally excludes browser projection states (`idle`, `interrupted`),
+// raw provider protocol states (`waiting`, `ready`), and client handle states
+// such as `connecting` or `closed`.
 export const ProviderSessionRuntimeStatus = Schema.Literals([
   "starting",
   "running",
@@ -1088,14 +1813,6 @@ export const ProviderSessionRuntimeStatus = Schema.Literals([
   "error",
 ]);
 export type ProviderSessionRuntimeStatus = typeof ProviderSessionRuntimeStatus.Type;
-
-const ProjectionThreadTurnStatus = Schema.Literals([
-  "running",
-  "completed",
-  "interrupted",
-  "error",
-]);
-export type ProjectionThreadTurnStatus = typeof ProjectionThreadTurnStatus.Type;
 
 const ProjectionCheckpointRow = Schema.Struct({
   threadId: ThreadId,
@@ -1146,6 +1863,79 @@ export type OrchestrationReplayEventsInput = typeof OrchestrationReplayEventsInp
 const OrchestrationReplayEventsResult = Schema.Array(OrchestrationEvent);
 export type OrchestrationReplayEventsResult = typeof OrchestrationReplayEventsResult.Type;
 
+export const OrchestrationLaunchPlanImplementationInput = Schema.Struct({
+  sourceThreadId: ThreadId,
+  planId: OrchestrationProposedPlanId,
+  titleOverride: Schema.optional(TrimmedNonEmptyString),
+  provider: Schema.optional(ProviderKind),
+  model: Schema.optional(TrimmedNonEmptyString),
+  modelOptions: Schema.optional(ProviderModelOptions),
+  providerOptions: Schema.optional(ProviderStartOptions),
+  assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
+  launchMode: OrchestrationPlanImplementationLaunchMode.pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed(DEFAULT_ORCHESTRATION_PLAN_IMPLEMENTATION_LAUNCH_MODE),
+    ),
+  ),
+  runSetup: Schema.Boolean,
+});
+export type OrchestrationLaunchPlanImplementationInput =
+  typeof OrchestrationLaunchPlanImplementationInput.Type;
+
+export const OrchestrationLaunchPlanImplementationResult = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  targetThreadId: ThreadId,
+  status: OrchestrationPlanImplementationLaunchStatus,
+});
+export type OrchestrationLaunchPlanImplementationResult =
+  typeof OrchestrationLaunchPlanImplementationResult.Type;
+
+export const OrchestrationCancelPlanImplementationLaunchInput = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+});
+export type OrchestrationCancelPlanImplementationLaunchInput =
+  typeof OrchestrationCancelPlanImplementationLaunchInput.Type;
+
+export const OrchestrationCancelPlanImplementationLaunchResult = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+  status: OrchestrationPlanImplementationLaunchStatus,
+});
+export type OrchestrationCancelPlanImplementationLaunchResult =
+  typeof OrchestrationCancelPlanImplementationLaunchResult.Type;
+
+export const OrchestrationRetryPlanImplementationLaunchInput = Schema.Struct({
+  launchId: PlanImplementationLaunchId,
+});
+export type OrchestrationRetryPlanImplementationLaunchInput =
+  typeof OrchestrationRetryPlanImplementationLaunchInput.Type;
+
+export const OrchestrationStartEpicRunInput = Schema.Struct({
+  projectId: ProjectId,
+  epicIssueId: TrimmedNonEmptyString,
+  provider: Schema.optional(ProviderKind),
+  model: Schema.optional(TrimmedNonEmptyString),
+  modelOptions: Schema.optional(ProviderModelOptions),
+  providerOptions: Schema.optional(ProviderStartOptions),
+  assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
+});
+export type OrchestrationStartEpicRunInput = typeof OrchestrationStartEpicRunInput.Type;
+
+const OrchestrationEpicRunControlInput = Schema.Struct({
+  runId: EpicRunId,
+});
+export type OrchestrationEpicRunControlInput = typeof OrchestrationEpicRunControlInput.Type;
+
+export const OrchestrationStopEpicRunInput = OrchestrationEpicRunControlInput;
+export type OrchestrationStopEpicRunInput = typeof OrchestrationStopEpicRunInput.Type;
+
+export const OrchestrationEpicRunControlResult = Schema.Struct({
+  runId: EpicRunId,
+  status: OrchestrationEpicRunStatus,
+});
+export type OrchestrationEpicRunControlResult = typeof OrchestrationEpicRunControlResult.Type;
+
 export const OrchestrationRpcSchemas = {
   dispatchCommand: {
     input: ClientOrchestrationCommand,
@@ -1170,6 +1960,26 @@ export const OrchestrationRpcSchemas = {
   subscribeShell: {
     input: Schema.Struct({}),
     output: OrchestrationShellStreamItem,
+  },
+  launchPlanImplementation: {
+    input: OrchestrationLaunchPlanImplementationInput,
+    output: OrchestrationLaunchPlanImplementationResult,
+  },
+  cancelPlanImplementationLaunch: {
+    input: OrchestrationCancelPlanImplementationLaunchInput,
+    output: OrchestrationCancelPlanImplementationLaunchResult,
+  },
+  retryPlanImplementationLaunch: {
+    input: OrchestrationRetryPlanImplementationLaunchInput,
+    output: OrchestrationLaunchPlanImplementationResult,
+  },
+  startEpicRun: {
+    input: OrchestrationStartEpicRunInput,
+    output: OrchestrationEpicRunControlResult,
+  },
+  stopEpicRun: {
+    input: OrchestrationStopEpicRunInput,
+    output: OrchestrationEpicRunControlResult,
   },
 } as const;
 

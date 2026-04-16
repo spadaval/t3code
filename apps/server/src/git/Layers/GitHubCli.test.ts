@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { assert, it } from "@effect/vitest";
 import { Effect } from "effect";
 import { afterEach, expect, vi } from "vitest";

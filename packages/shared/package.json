@@ -12,6 +12,26 @@
       "types": "./src/git.ts",
       "import": "./src/git.ts"
     },
+    "./plan": {
+      "types": "./src/plan.ts",
+      "import": "./src/plan.ts"
+    },
+    "./epicRun": {
+      "types": "./src/epicRun.ts",
+      "import": "./src/epicRun.ts"
+    },
+    "./projectScripts": {
+      "types": "./src/projectScripts.ts",
+      "import": "./src/projectScripts.ts"
+    },
+    "./searchRanking": {
+      "types": "./src/searchRanking.ts",
+      "import": "./src/searchRanking.ts"
+    },
+    "./qrCode": {
+      "types": "./src/qrCode.ts",
+      "import": "./src/qrCode.ts"
+    },
     "./logging": {
       "types": "./src/logging.ts",
       "import": "./src/logging.ts"
@@ -47,18 +67,6 @@
     "./String": {
       "types": "./src/String.ts",
       "import": "./src/String.ts"
-    },
-    "./projectScripts": {
-      "types": "./src/projectScripts.ts",
-      "import": "./src/projectScripts.ts"
-    },
-    "./searchRanking": {
-      "types": "./src/searchRanking.ts",
-      "import": "./src/searchRanking.ts"
-    },
-    "./qrCode": {
-      "types": "./src/qrCode.ts",
-      "import": "./src/qrCode.ts"
     },
     "./cliArgs": {
       "types": "./src/cliArgs.ts",

@@ -35,6 +35,9 @@ export const ProviderModelOptions = Schema.Struct({
 });
 export type ProviderModelOptions = typeof ProviderModelOptions.Type;
 
+export const ProviderStartOptions = Schema.Unknown;
+export type ProviderStartOptions = typeof ProviderStartOptions.Type;
+
 export const EffortOption = Schema.Struct({
   value: TrimmedNonEmptyString,
   label: TrimmedNonEmptyString,

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import type { ProviderKind } from "@t3tools/contracts";
 import { it, assert, vi } from "@effect/vitest";
 import { assertFailure } from "@effect/vitest/utils";

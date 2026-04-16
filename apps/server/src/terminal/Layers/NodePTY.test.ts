@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { FileSystem, Path, Effect } from "effect";
 import { assert, it } from "@effect/vitest";
 

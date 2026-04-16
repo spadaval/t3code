@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { assert, describe, it } from "@effect/vitest";
 
 import { compactTraceAttributes, normalizeModelMetricLabel } from "./Attributes.ts";

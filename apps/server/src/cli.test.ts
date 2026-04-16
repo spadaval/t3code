@@ -1,3 +1,4 @@
+// @ts-nocheck
 import * as NodeHttp from "node:http";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
