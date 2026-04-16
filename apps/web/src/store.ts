@@ -184,8 +184,8 @@ function mapProposedPlan(proposedPlan: OrchestrationProposedPlan): ProposedPlan 
     id: proposedPlan.id,
     turnId: proposedPlan.turnId,
     planMarkdown: proposedPlan.planMarkdown,
-    implementedAt: proposedPlan.implementedAt,
-    implementationThreadId: proposedPlan.implementationThreadId,
+    implementedAt: proposedPlan.followUpOutcome?.completedAt ?? null,
+    implementationThreadId: proposedPlan.followUpOutcome?.targetThreadId ?? null,
     createdAt: proposedPlan.createdAt,
     updatedAt: proposedPlan.updatedAt,
   };
@@ -245,6 +245,7 @@ function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): T
     pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    ...(thread.issueLink !== undefined ? { issueLink: thread.issueLink } : {}),
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
   };
@@ -322,6 +323,7 @@ function toThreadShell(thread: Thread): ThreadShell {
     updatedAt: thread.updatedAt,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    ...(thread.issueLink !== undefined ? { issueLink: thread.issueLink } : {}),
   };
 }
 
@@ -417,7 +419,8 @@ function threadShellsEqual(left: ThreadShell | undefined, right: ThreadShell): b
     left.archivedAt === right.archivedAt &&
     left.updatedAt === right.updatedAt &&
     left.branch === right.branch &&
-    left.worktreePath === right.worktreePath
+    left.worktreePath === right.worktreePath &&
+    left.issueLink === right.issueLink
   );
 }
 
@@ -1069,6 +1072,28 @@ function commitEnvironmentState(
   };
 }
 
+function syncEnvironmentReadModel(
+  state: EnvironmentState,
+  readModel: OrchestrationReadModel,
+  environmentId: EnvironmentId,
+): EnvironmentState {
+  const projects = readModel.projects
+    .filter((project) => project.deletedAt === null)
+    .map((project) => mapProject(project, environmentId));
+  const threads = readModel.threads
+    .filter((thread) => thread.deletedAt === null)
+    .map((thread) => mapThread(thread, environmentId));
+
+  return {
+    ...state,
+    ...buildProjectState(projects),
+    ...buildThreadState(threads),
+    ...buildEpicRunState(readModel.epicRuns),
+    ...buildEpicIssueExecutionState(readModel.epicIssueExecutions),
+    bootstrapComplete: true,
+  };
+}
+
 function syncEnvironmentShellSnapshot(
   state: EnvironmentState,
   snapshot: OrchestrationShellSnapshot,
@@ -1120,6 +1145,22 @@ export function syncServerShellSnapshot(
     syncEnvironmentShellSnapshot(
       getStoredEnvironmentState(state, environmentId),
       snapshot,
+      environmentId,
+    ),
+  );
+}
+
+export function syncServerReadModel(
+  state: AppState,
+  readModel: OrchestrationReadModel,
+  environmentId: EnvironmentId,
+): AppState {
+  return commitEnvironmentState(
+    state,
+    environmentId,
+    syncEnvironmentReadModel(
+      getStoredEnvironmentState(state, environmentId),
+      readModel,
       environmentId,
     ),
   );
@@ -1253,6 +1294,7 @@ function applyEnvironmentOrchestrationEvent(
           interactionMode: event.payload.interactionMode,
           branch: event.payload.branch,
           worktreePath: event.payload.worktreePath,
+          issueLink: event.payload.issueLink ?? null,
           latestTurn: null,
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
@@ -1262,6 +1304,7 @@ function applyEnvironmentOrchestrationEvent(
           proposedPlans: [],
           activities: [],
           checkpoints: [],
+          pendingCheckpointCaptures: [],
           session: null,
         },
         environmentId,
@@ -1297,6 +1340,7 @@ function applyEnvironmentOrchestrationEvent(
         ...(event.payload.worktreePath !== undefined
           ? { worktreePath: event.payload.worktreePath }
           : {}),
+        ...(event.payload.issueLink !== undefined ? { issueLink: event.payload.issueLink } : {}),
         updatedAt: event.payload.updatedAt,
       }));
 

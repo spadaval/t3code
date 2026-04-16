@@ -755,7 +755,13 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 Stream.mapEffect((event) =>
                   Ref.modify(state, ({ nextSequence, pendingBySequence }) => {
                     if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
-                      return [[], { nextSequence, pendingBySequence }] as const;
+                      return [
+                        [] as Array<OrchestrationEvent>,
+                        {
+                          nextSequence,
+                          pendingBySequence,
+                        },
+                      ] as const;
                     }
 
                     const updatedPending = new Map(pendingBySequence);
@@ -773,7 +779,10 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                       expected += 1;
                     }
 
-                    return [emit, { nextSequence: expected, pendingBySequence: updatedPending }] as const;
+                    return [
+                      emit,
+                      { nextSequence: expected, pendingBySequence: updatedPending },
+                    ] as const;
                   }),
                 ),
                 Stream.flatMap((events) => Stream.fromIterable(events)),

@@ -9,7 +9,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
-import { DiffIcon, TerminalSquareIcon } from "lucide-react";
+import { DiffIcon, ListTodoIcon, TerminalSquareIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
@@ -35,11 +35,13 @@ interface ChatHeaderProps {
   diffToggleShortcutLabel: string | null;
   gitCwd: string | null;
   diffOpen: boolean;
+  issuesOpen: boolean;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
   onToggleTerminal: () => void;
+  onToggleIssues: () => void;
   onToggleDiff: () => void;
 }
 
@@ -61,11 +63,13 @@ export const ChatHeader = memo(function ChatHeader({
   diffToggleShortcutLabel,
   gitCwd,
   diffOpen,
+  issuesOpen,
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
   onToggleTerminal,
+  onToggleIssues,
   onToggleDiff,
 }: ChatHeaderProps) {
   return (
@@ -114,6 +118,26 @@ export const ChatHeader = memo(function ChatHeader({
             activeThreadRef={scopeThreadRef(activeThreadEnvironmentId, activeThreadId)}
             {...(draftId ? { draftId } : {})}
           />
+        )}
+        {activeProjectName && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Toggle
+                  className="shrink-0"
+                  pressed={issuesOpen}
+                  onPressedChange={onToggleIssues}
+                  aria-label={issuesOpen ? "Hide issues" : "Show issues"}
+                  title={issuesOpen ? "Hide issues" : "Show issues"}
+                  variant="outline"
+                  size="xs"
+                >
+                  <ListTodoIcon className="size-3" />
+                </Toggle>
+              }
+            />
+            <TooltipPopup side="bottom">{issuesOpen ? "Hide issues" : "Show issues"}</TooltipPopup>
+          </Tooltip>
         )}
         <Tooltip>
           <TooltipTrigger
