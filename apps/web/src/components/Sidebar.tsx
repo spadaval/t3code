@@ -1639,10 +1639,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   );
 
   // All threads from the representative + other member environments are
-  // already fetched into allSidebarThreads, so we can use them directly.
+  // already fetched into sidebarThreads, so we can use them directly.
   const projectThreads = useMemo(
-    () => allSidebarThreads.filter((thread) => !runWorkerThreadIds.has(thread.id)),
-    [allSidebarThreads, runWorkerThreadIds],
+    () => sidebarThreads.filter((thread) => !runWorkerThreadIds.has(thread.id)),
+    [sidebarThreads, runWorkerThreadIds],
   );
   const threadLastVisitedAts = useUiStateStore(
     useShallow((state) =>
@@ -1713,11 +1713,11 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   const activeRouteThreadId = activeRouteThreadKey ? (activeRouteThread?.id ?? null) : null;
   const projectRunThreadById = useMemo(
     () =>
-      new Map(allSidebarThreads.map((thread) => [thread.id, thread] as const)) as ReadonlyMap<
+      new Map(sidebarThreads.map((thread) => [thread.id, thread] as const)) as ReadonlyMap<
         ThreadId,
         SidebarThreadSummary
       >,
-    [allSidebarThreads],
+    [sidebarThreads],
   );
   const projectRunGroups = useMemo(
     () =>
@@ -2195,7 +2195,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         if (!clicked) {
           return;
         }
-        if (allSidebarThreads.length > 0) {
+        if (sidebarThreads.length > 0) {
           toastManager.add({
             type: "warning",
             title: "Project is not empty",
@@ -2220,7 +2220,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       project.environmentId,
       project.id,
       project.name,
-      allSidebarThreads.length,
+      sidebarThreads.length,
       suppressProjectClickForContextMenuRef,
     ],
   );
@@ -4265,51 +4265,51 @@ export default function Sidebar() {
       <>
         <SidebarChromeHeader isElectron={isElectron} />
 
-      {isOnSettings ? (
-        <SettingsSidebarNav pathname={pathname} />
-      ) : (
-        <>
-          <SidebarProjectsContent
-            showArm64IntelBuildWarning={showArm64IntelBuildWarning}
-            arm64IntelBuildWarningDescription={arm64IntelBuildWarningDescription}
-            desktopUpdateButtonAction={desktopUpdateButtonAction}
-            desktopUpdateButtonDisabled={desktopUpdateButtonDisabled}
-            handleDesktopUpdateButtonClick={handleDesktopUpdateButtonClick}
-            projectSortOrder={sidebarProjectSortOrder}
-            threadSortOrder={sidebarThreadSortOrder}
-            projectGroupingMode={sidebarProjectGroupingMode}
-            updateSettings={updateSettings}
-            openAddProject={openAddProjectCommandPalette}
-            isManualProjectSorting={isManualProjectSorting}
-            projectDnDSensors={projectDnDSensors}
-            projectCollisionDetection={projectCollisionDetection}
-            handleProjectDragStart={handleProjectDragStart}
-            handleProjectDragEnd={handleProjectDragEnd}
-            handleProjectDragCancel={handleProjectDragCancel}
-            handleNewThread={handleNewThread}
-            archiveThread={archiveThread}
-            deleteThread={deleteThread}
-            sortedProjects={sortedProjects}
-            epicRunsByProjectKey={epicRunsByProjectKey}
-            epicIssueExecutionsByProjectKey={epicIssueExecutionsByProjectKey}
-            expandedThreadListsByProject={expandedThreadListsByProject}
-            expandedPreviousRowsByEpic={expandedPreviousRowsByEpic}
-            activeRouteProjectKey={activeRouteProjectKey}
-            routeThreadKey={routeThreadKey}
-            newThreadShortcutLabel={newThreadShortcutLabel}
-            commandPaletteShortcutLabel={commandPaletteShortcutLabel}
-            threadJumpLabelByKey={visibleThreadJumpLabelByKey}
-            attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
-            expandThreadListForProject={expandThreadListForProject}
-            collapseThreadListForProject={collapseThreadListForProject}
-            expandPreviousRowsForEpic={expandPreviousRowsForEpic}
-            collapsePreviousRowsForEpic={collapsePreviousRowsForEpic}
-            dragInProgressRef={dragInProgressRef}
-            suppressProjectClickAfterDragRef={suppressProjectClickAfterDragRef}
-            suppressProjectClickForContextMenuRef={suppressProjectClickForContextMenuRef}
-            attachProjectListAutoAnimateRef={attachProjectListAutoAnimateRef}
-            projectsLength={projects.length}
-          />
+        {isOnSettings ? (
+          <SettingsSidebarNav pathname={pathname} />
+        ) : (
+          <>
+            <SidebarProjectsContent
+              showArm64IntelBuildWarning={showArm64IntelBuildWarning}
+              arm64IntelBuildWarningDescription={arm64IntelBuildWarningDescription}
+              desktopUpdateButtonAction={desktopUpdateButtonAction}
+              desktopUpdateButtonDisabled={desktopUpdateButtonDisabled}
+              handleDesktopUpdateButtonClick={handleDesktopUpdateButtonClick}
+              projectSortOrder={sidebarProjectSortOrder}
+              threadSortOrder={sidebarThreadSortOrder}
+              projectGroupingMode={sidebarProjectGroupingMode}
+              updateSettings={updateSettings}
+              openAddProject={openAddProjectCommandPalette}
+              isManualProjectSorting={isManualProjectSorting}
+              projectDnDSensors={projectDnDSensors}
+              projectCollisionDetection={projectCollisionDetection}
+              handleProjectDragStart={handleProjectDragStart}
+              handleProjectDragEnd={handleProjectDragEnd}
+              handleProjectDragCancel={handleProjectDragCancel}
+              handleNewThread={handleNewThread}
+              archiveThread={archiveThread}
+              deleteThread={deleteThread}
+              sortedProjects={sortedProjects}
+              epicRunsByProjectKey={epicRunsByProjectKey}
+              epicIssueExecutionsByProjectKey={epicIssueExecutionsByProjectKey}
+              expandedThreadListsByProject={expandedThreadListsByProject}
+              expandedPreviousRowsByEpic={expandedPreviousRowsByEpic}
+              activeRouteProjectKey={activeRouteProjectKey}
+              routeThreadKey={routeThreadKey}
+              newThreadShortcutLabel={newThreadShortcutLabel}
+              commandPaletteShortcutLabel={commandPaletteShortcutLabel}
+              threadJumpLabelByKey={visibleThreadJumpLabelByKey}
+              attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
+              expandThreadListForProject={expandThreadListForProject}
+              collapseThreadListForProject={collapseThreadListForProject}
+              expandPreviousRowsForEpic={expandPreviousRowsForEpic}
+              collapsePreviousRowsForEpic={collapsePreviousRowsForEpic}
+              dragInProgressRef={dragInProgressRef}
+              suppressProjectClickAfterDragRef={suppressProjectClickAfterDragRef}
+              suppressProjectClickForContextMenuRef={suppressProjectClickForContextMenuRef}
+              attachProjectListAutoAnimateRef={attachProjectListAutoAnimateRef}
+              projectsLength={projects.length}
+            />
 
             <SidebarSeparator />
             <SidebarChromeFooter />

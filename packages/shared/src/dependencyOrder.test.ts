@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { compareItemsByCreatedAt, topologicallySortByDependencies } from "./dependencyOrder";
+import { compareItemsByCreatedAt, topologicallySortByDependencies } from "./dependencyOrder.ts";
 
 interface TestItem {
   readonly id: string;
@@ -58,11 +58,11 @@ describe("topologicallySortByDependencies", () => {
     expect(
       topologicallySortByDependencies({
         items,
-        getId: (item) => item.id,
-        getCreatedAt: (item) => item.createdAt,
-        getTitle: (item) => item.title,
-        getPredecessorIds: (item) => item.predecessors,
-      }).map((item) => item.id),
+        getId: (item: TestItem) => item.id,
+        getCreatedAt: (item: TestItem) => item.createdAt,
+        getTitle: (item: TestItem) => item.title,
+        getPredecessorIds: (item: TestItem) => item.predecessors,
+      }).map((item: TestItem) => item.id),
     ).toEqual(["pr-1", "pr-2", "pr-3", "pr-4"]);
   });
 
@@ -85,11 +85,11 @@ describe("topologicallySortByDependencies", () => {
     expect(
       topologicallySortByDependencies({
         items,
-        getId: (item) => item.id,
-        getCreatedAt: (item) => item.createdAt,
-        getTitle: (item) => item.title,
-        getPredecessorIds: (item) => item.predecessors,
-      }).map((item) => item.id),
+        getId: (item: TestItem) => item.id,
+        getCreatedAt: (item: TestItem) => item.createdAt,
+        getTitle: (item: TestItem) => item.title,
+        getPredecessorIds: (item: TestItem) => item.predecessors,
+      }).map((item: TestItem) => item.id),
     ).toEqual(["a", "b"]);
   });
 });

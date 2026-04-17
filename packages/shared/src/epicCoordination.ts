@@ -11,7 +11,7 @@ import type {
 import {
   describeEpicRunCoordinatorFetchFailure,
   isEpicRunCoordinatorFetchTimeoutMessage,
-} from "./epicRun";
+} from "./epicRun.ts";
 
 export interface EpicCoordinationGraphNode {
   readonly issue: BeadsIssueRelationSummary;

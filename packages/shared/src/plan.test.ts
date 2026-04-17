@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { describeProposedPlanFollowUpOutcome } from "./plan";
+import { describeProposedPlanFollowUpOutcome } from "./plan.ts";
 
 describe("describeProposedPlanFollowUpOutcome", () => {
   it("returns code follow-up copy for code follow-up", () => {

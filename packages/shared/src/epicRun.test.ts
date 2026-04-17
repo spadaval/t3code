@@ -29,7 +29,7 @@ import {
   selectDeterministicReadyIssue,
   selectDeterministicReadyIssueFromList,
   selectLatestEpicRun,
-} from "./epicRun";
+} from "./epicRun.ts";
 
 function makeIssue(id: string, priority: number | null = null): BeadsIssueRelationSummary {
   return {
@@ -318,7 +318,9 @@ describe("coordination", () => {
           makeExecution("execution-2", runId, 2, "launching"),
           makeExecution("execution-1", runId, 1, "running"),
         ],
-      }).nonTerminalExecutions.map((execution) => execution.executionId),
+      }).nonTerminalExecutions.map(
+        (execution: OrchestrationEpicIssueExecution) => execution.executionId,
+      ),
     ).toEqual(["execution-1", "execution-2"]);
   });
 

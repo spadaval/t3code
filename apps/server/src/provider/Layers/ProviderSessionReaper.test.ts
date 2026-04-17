@@ -62,6 +62,9 @@ function makeReadModel(
   return {
     snapshotSequence: 0,
     updatedAt: now,
+    planImplementationLaunches: [],
+    epicRuns: [],
+    epicIssueExecutions: [],
     projects: [
       {
         id: projectId,
@@ -92,6 +95,8 @@ function makeReadModel(
       activities: [],
       proposedPlans: [],
       checkpoints: [],
+      issueLink: null,
+      pendingCheckpointCaptures: [],
       deletedAt: null,
     })),
   };

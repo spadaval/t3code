@@ -8,13 +8,13 @@ import {
   EpicIssueExecutionId,
   ThreadId,
   TrimmedNonEmptyString,
-} from "./baseSchemas";
+} from "./baseSchemas.ts";
 import {
   ModelSelection,
   OrchestrationEpicRun,
   OrchestrationEpicIssueExecution,
   RuntimeMode,
-} from "./orchestration";
+} from "./orchestration.ts";
 
 export const BEADS_WS_METHODS = {
   queryIssues: "beads.queryIssues",

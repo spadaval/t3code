@@ -16,7 +16,7 @@ import {
   BeadsStartWorkflowInput,
   BeadsEpicCoordinationStatus,
   BeadsEpicCoordinationValidation,
-} from "./beads";
+} from "./beads.ts";
 
 const decodeBeadsContext = Schema.decodeUnknownEffect(BeadsContext);
 const decodeBeadsEpicIssueSummaries = Schema.decodeUnknownEffect(BeadsEpicIssueSummaries);

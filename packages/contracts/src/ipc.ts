@@ -85,7 +85,7 @@ import type {
   ServerUpsertKeybindingInput,
   ServerUpsertKeybindingResult,
 } from "./server.ts";
-import { ClientSettings, ServerSettings, ServerSettingsPatch } from "./settings.ts";
+import { ServerSettings, type ClientSettings, type ServerSettingsPatch } from "./settings.ts";
 import type {
   TerminalClearInput,
   TerminalCloseInput,
@@ -102,6 +102,7 @@ export interface ContextMenuItem<T extends string = string> {
   label: string;
   destructive?: boolean;
   disabled?: boolean;
+  children?: readonly ContextMenuItem<T>[];
 }
 
 export type DesktopUpdateStatus =
