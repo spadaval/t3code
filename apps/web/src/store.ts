@@ -4,6 +4,8 @@ import type {
   OrchestrationCheckpointSummary,
   OrchestrationEvent,
   OrchestrationLatestTurn,
+  OrchestrationEpicIssueExecution,
+  OrchestrationEpicRun,
   OrchestrationMessage,
   OrchestrationProposedPlan,
   OrchestrationReadModel,
@@ -21,8 +23,23 @@ import type {
 import { ProviderKind } from "@t3tools/contracts";
 import type { ThreadId, TurnId } from "@t3tools/contracts";
 import { Schema } from "effect";
+import {
+  applyEpicIssueExecutionLifecycleEvent,
+  applyEpicRunLifecycleEvent,
+  compareEpicIssueExecutions,
+  compareEpicRunsByRequestedAtDesc,
+  createRequestedEpicIssueExecution,
+  createRequestedEpicRun,
+  materializeStartedEpicIssueExecution,
+} from "@t3tools/shared/epicRun";
 import { resolveModelSlugForProvider } from "@t3tools/shared/model";
 import { create } from "zustand";
+import {
+  derivePendingApprovals,
+  derivePendingUserInputs,
+  findLatestProposedPlan,
+  hasActionableProposedPlan,
+} from "./session-logic";
 import {
   type ChatMessage,
   type Project,
@@ -85,7 +102,18 @@ export interface EnvironmentState {
   // truth for sidebar data.
   // ---------------------------------------------------------------------------
   sidebarThreadSummaryById: Record<ThreadId, SidebarThreadSummary>;
-
+  epicRunIds: OrchestrationEpicRun["runId"][];
+  epicRunIdsByProjectId: Record<ProjectId, OrchestrationEpicRun["runId"][]>;
+  epicRunById: Record<OrchestrationEpicRun["runId"], OrchestrationEpicRun>;
+  epicIssueExecutionIds: OrchestrationEpicIssueExecution["executionId"][];
+  epicIssueExecutionIdsByRunId: Record<
+    OrchestrationEpicRun["runId"],
+    OrchestrationEpicIssueExecution["executionId"][]
+  >;
+  epicIssueExecutionById: Record<
+    OrchestrationEpicIssueExecution["executionId"],
+    OrchestrationEpicIssueExecution
+  >;
   bootstrapComplete: boolean;
 }
 
@@ -111,6 +139,12 @@ const initialEnvironmentState: EnvironmentState = {
   turnDiffIdsByThreadId: {},
   turnDiffSummaryByThreadId: {},
   sidebarThreadSummaryById: {},
+  epicRunIds: [],
+  epicRunIdsByProjectId: {},
+  epicRunById: {},
+  epicIssueExecutionIds: [],
+  epicIssueExecutionIdsByRunId: {},
+  epicIssueExecutionById: {},
   bootstrapComplete: false,
 };
 
@@ -124,6 +158,8 @@ const MAX_THREAD_CHECKPOINTS = 500;
 const MAX_THREAD_PROPOSED_PLANS = 200;
 const MAX_THREAD_ACTIVITIES = 500;
 const EMPTY_THREAD_IDS: ThreadId[] = [];
+const EMPTY_EPIC_RUN_IDS: OrchestrationEpicRun["runId"][] = [];
+const EMPTY_EPIC_ISSUE_EXECUTION_IDS: OrchestrationEpicIssueExecution["executionId"][] = [];
 
 function arraysEqual<T>(left: readonly T[], right: readonly T[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
@@ -184,8 +220,8 @@ function mapProposedPlan(proposedPlan: OrchestrationProposedPlan): ProposedPlan 
     id: proposedPlan.id,
     turnId: proposedPlan.turnId,
     planMarkdown: proposedPlan.planMarkdown,
-    implementedAt: proposedPlan.implementedAt,
-    implementationThreadId: proposedPlan.implementationThreadId,
+    implementedAt: proposedPlan.followUpOutcome?.completedAt ?? null,
+    implementationThreadId: proposedPlan.followUpOutcome?.targetThreadId ?? null,
     createdAt: proposedPlan.createdAt,
     updatedAt: proposedPlan.updatedAt,
   };
@@ -245,6 +281,7 @@ function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): T
     pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    ...(thread.issueLink !== undefined ? { issueLink: thread.issueLink } : {}),
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
   };
@@ -322,6 +359,7 @@ function toThreadShell(thread: Thread): ThreadShell {
     updatedAt: thread.updatedAt,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    ...(thread.issueLink !== undefined ? { issueLink: thread.issueLink } : {}),
   };
 }
 
@@ -332,6 +370,19 @@ function toThreadTurnState(thread: Thread): ThreadTurnState {
       ? { pendingSourceProposedPlan: thread.pendingSourceProposedPlan }
       : {}),
   };
+}
+
+function getLatestUserMessageAt(messages: ReadonlyArray<ChatMessage>): string | null {
+  let latestUserMessageAt: string | null = null;
+  for (const message of messages) {
+    if (message.role !== "user") {
+      continue;
+    }
+    if (latestUserMessageAt === null || message.createdAt > latestUserMessageAt) {
+      latestUserMessageAt = message.createdAt;
+    }
+  }
+  return latestUserMessageAt;
 }
 
 function sourceProposedPlansEqual(
@@ -377,6 +428,30 @@ function threadSessionsEqual(
   );
 }
 
+function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
+  return {
+    id: thread.id,
+    environmentId: thread.environmentId,
+    projectId: thread.projectId,
+    title: thread.title,
+    interactionMode: thread.interactionMode,
+    session: thread.session,
+    createdAt: thread.createdAt,
+    archivedAt: thread.archivedAt,
+    updatedAt: thread.updatedAt,
+    latestTurn: thread.latestTurn,
+    branch: thread.branch,
+    worktreePath: thread.worktreePath,
+    latestUserMessageAt: getLatestUserMessageAt(thread.messages),
+    hasPendingApprovals: derivePendingApprovals(thread.activities).length > 0,
+    hasPendingUserInput: derivePendingUserInputs(thread.activities).length > 0,
+    hasActionableProposedPlan: hasActionableProposedPlan(
+      findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null),
+    ),
+    issueLink: thread.issueLink ?? null,
+  };
+}
+
 function sidebarThreadSummariesEqual(
   left: SidebarThreadSummary | undefined,
   right: SidebarThreadSummary,
@@ -397,7 +472,8 @@ function sidebarThreadSummariesEqual(
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
-    left.hasActionableProposedPlan === right.hasActionableProposedPlan
+    left.hasActionableProposedPlan === right.hasActionableProposedPlan &&
+    left.issueLink === right.issueLink
   );
 }
 
@@ -417,7 +493,8 @@ function threadShellsEqual(left: ThreadShell | undefined, right: ThreadShell): b
     left.archivedAt === right.archivedAt &&
     left.updatedAt === right.updatedAt &&
     left.branch === right.branch &&
-    left.worktreePath === right.worktreePath
+    left.worktreePath === right.worktreePath &&
+    left.issueLink === right.issueLink
   );
 }
 
@@ -499,11 +576,240 @@ function getThreads(state: EnvironmentState): Thread[] {
   });
 }
 
+function getEpicRuns(state: EnvironmentState): OrchestrationEpicRun[] {
+  return state.epicRunIds.flatMap((runId) => {
+    const run = state.epicRunById[runId];
+    return run ? [run] : [];
+  });
+}
+
+function getEpicIssueExecutions(state: EnvironmentState): OrchestrationEpicIssueExecution[] {
+  return state.epicIssueExecutionIds.flatMap((executionId) => {
+    const execution = state.epicIssueExecutionById[executionId];
+    return execution ? [execution] : [];
+  });
+}
+
+function sortEpicRunIds(
+  ids: ReadonlyArray<OrchestrationEpicRun["runId"]>,
+  epicRunById: Readonly<Record<OrchestrationEpicRun["runId"], OrchestrationEpicRun>>,
+): OrchestrationEpicRun["runId"][] {
+  return [...ids].toSorted((leftId, rightId) =>
+    compareEpicRunsByRequestedAtDesc(epicRunById[leftId]!, epicRunById[rightId]!),
+  );
+}
+
+function sortEpicIssueExecutionIds(
+  ids: ReadonlyArray<OrchestrationEpicIssueExecution["executionId"]>,
+  epicIssueExecutionById: Readonly<
+    Record<OrchestrationEpicIssueExecution["executionId"], OrchestrationEpicIssueExecution>
+  >,
+): OrchestrationEpicIssueExecution["executionId"][] {
+  return [...ids].toSorted((leftId, rightId) =>
+    compareEpicIssueExecutions(epicIssueExecutionById[leftId]!, epicIssueExecutionById[rightId]!),
+  );
+}
+
+function writeEpicRunState(
+  state: EnvironmentState,
+  nextRun: OrchestrationEpicRun,
+): EnvironmentState {
+  const previousRun = state.epicRunById[nextRun.runId];
+  if (previousRun === nextRun) {
+    return state;
+  }
+
+  const epicRunById = {
+    ...state.epicRunById,
+    [nextRun.runId]: nextRun,
+  };
+
+  let epicRunIds = state.epicRunIds;
+  let epicRunIdsByProjectId = state.epicRunIdsByProjectId;
+
+  if (!previousRun) {
+    epicRunIds = sortEpicRunIds([...state.epicRunIds, nextRun.runId], epicRunById);
+    const currentProjectRunIds =
+      state.epicRunIdsByProjectId[nextRun.projectId] ?? EMPTY_EPIC_RUN_IDS;
+    epicRunIdsByProjectId = {
+      ...state.epicRunIdsByProjectId,
+      [nextRun.projectId]: sortEpicRunIds([...currentProjectRunIds, nextRun.runId], epicRunById),
+    };
+  } else if (previousRun.projectId !== nextRun.projectId) {
+    const previousProjectRunIds =
+      state.epicRunIdsByProjectId[previousRun.projectId] ?? EMPTY_EPIC_RUN_IDS;
+    const nextPreviousProjectRunIds = removeId(previousProjectRunIds, nextRun.runId);
+    const nextProjectRunIds = state.epicRunIdsByProjectId[nextRun.projectId] ?? EMPTY_EPIC_RUN_IDS;
+
+    epicRunIdsByProjectId = {
+      ...state.epicRunIdsByProjectId,
+      ...(nextPreviousProjectRunIds.length === 0
+        ? (() => {
+            const { [previousRun.projectId]: _removedProjectRunIds, ...rest } =
+              state.epicRunIdsByProjectId;
+            return rest;
+          })()
+        : { [previousRun.projectId]: nextPreviousProjectRunIds }),
+      [nextRun.projectId]: sortEpicRunIds([...nextProjectRunIds, nextRun.runId], epicRunById),
+    };
+  }
+
+  return {
+    ...state,
+    epicRunIds,
+    epicRunIdsByProjectId,
+    epicRunById,
+  };
+}
+
+function updateEpicRunState(
+  state: EnvironmentState,
+  runId: OrchestrationEpicRun["runId"],
+  updater: (run: OrchestrationEpicRun) => OrchestrationEpicRun,
+): EnvironmentState {
+  const currentRun = state.epicRunById[runId];
+  if (!currentRun) {
+    return state;
+  }
+  const nextRun = updater(currentRun);
+  return nextRun === currentRun ? state : writeEpicRunState(state, nextRun);
+}
+
+function touchEpicRunUpdatedAt(
+  state: EnvironmentState,
+  runId: OrchestrationEpicRun["runId"],
+  updatedAt: string,
+): EnvironmentState {
+  return updateEpicRunState(state, runId, (run) =>
+    run.updatedAt === updatedAt
+      ? run
+      : {
+          ...run,
+          updatedAt,
+        },
+  );
+}
+
+function writeEpicIssueExecutionState(
+  state: EnvironmentState,
+  nextExecution: OrchestrationEpicIssueExecution,
+): EnvironmentState {
+  const previousExecution = state.epicIssueExecutionById[nextExecution.executionId];
+  if (previousExecution === nextExecution) {
+    return state;
+  }
+
+  const epicIssueExecutionById = {
+    ...state.epicIssueExecutionById,
+    [nextExecution.executionId]: nextExecution,
+  };
+
+  let epicIssueExecutionIds = state.epicIssueExecutionIds;
+  let epicIssueExecutionIdsByRunId = state.epicIssueExecutionIdsByRunId;
+
+  const orderingChanged =
+    !previousExecution ||
+    previousExecution.runId !== nextExecution.runId ||
+    previousExecution.sequenceNumber !== nextExecution.sequenceNumber;
+
+  if (!previousExecution) {
+    epicIssueExecutionIds = sortEpicIssueExecutionIds(
+      [...state.epicIssueExecutionIds, nextExecution.executionId],
+      epicIssueExecutionById,
+    );
+    const currentRunExecutionIds =
+      state.epicIssueExecutionIdsByRunId[nextExecution.runId] ?? EMPTY_EPIC_ISSUE_EXECUTION_IDS;
+    epicIssueExecutionIdsByRunId = {
+      ...state.epicIssueExecutionIdsByRunId,
+      [nextExecution.runId]: sortEpicIssueExecutionIds(
+        [...currentRunExecutionIds, nextExecution.executionId],
+        epicIssueExecutionById,
+      ),
+    };
+  } else if (orderingChanged) {
+    epicIssueExecutionIds = sortEpicIssueExecutionIds(
+      state.epicIssueExecutionIds,
+      epicIssueExecutionById,
+    );
+
+    const previousRunExecutionIds =
+      state.epicIssueExecutionIdsByRunId[previousExecution.runId] ?? EMPTY_EPIC_ISSUE_EXECUTION_IDS;
+    const nextPreviousRunExecutionIds = removeId(
+      previousRunExecutionIds,
+      nextExecution.executionId,
+    );
+    const nextRunExecutionIds =
+      previousExecution.runId === nextExecution.runId
+        ? nextPreviousRunExecutionIds
+        : (state.epicIssueExecutionIdsByRunId[nextExecution.runId] ??
+          EMPTY_EPIC_ISSUE_EXECUTION_IDS);
+
+    epicIssueExecutionIdsByRunId = {
+      ...state.epicIssueExecutionIdsByRunId,
+      ...(nextPreviousRunExecutionIds.length === 0
+        ? (() => {
+            const { [previousExecution.runId]: _removedRunExecutionIds, ...rest } =
+              state.epicIssueExecutionIdsByRunId;
+            return rest;
+          })()
+        : {
+            [previousExecution.runId]:
+              previousExecution.runId === nextExecution.runId
+                ? sortEpicIssueExecutionIds(
+                    [...nextPreviousRunExecutionIds, nextExecution.executionId],
+                    epicIssueExecutionById,
+                  )
+                : nextPreviousRunExecutionIds,
+          }),
+      ...(previousExecution.runId === nextExecution.runId
+        ? {}
+        : {
+            [nextExecution.runId]: sortEpicIssueExecutionIds(
+              [...nextRunExecutionIds, nextExecution.executionId],
+              epicIssueExecutionById,
+            ),
+          }),
+    };
+  }
+
+  return {
+    ...state,
+    epicIssueExecutionIds,
+    epicIssueExecutionIdsByRunId,
+    epicIssueExecutionById,
+  };
+}
+
+function findLatestFailedEpicIssueExecutionForRun(
+  state: EnvironmentState,
+  runId: OrchestrationEpicRun["runId"],
+): OrchestrationEpicIssueExecution | null {
+  const executionIds = state.epicIssueExecutionIdsByRunId[runId] ?? EMPTY_EPIC_ISSUE_EXECUTION_IDS;
+  let latestFailedExecution: OrchestrationEpicIssueExecution | null = null;
+
+  for (const executionId of executionIds) {
+    const execution = state.epicIssueExecutionById[executionId];
+    if (!execution || execution.status !== "failed") {
+      continue;
+    }
+
+    if (
+      latestFailedExecution === null ||
+      execution.sequenceNumber > latestFailedExecution.sequenceNumber ||
+      (execution.sequenceNumber === latestFailedExecution.sequenceNumber &&
+        execution.updatedAt > latestFailedExecution.updatedAt)
+    ) {
+      latestFailedExecution = execution;
+    }
+  }
+
+  return latestFailedExecution;
+}
+
 /**
  * Ensure a thread is registered in the bookkeeping indices (threadIds,
- * threadIdsByProjectId).  Shared by both the shell stream and detail stream
- * write paths — the bookkeeping is additive (append-only IDs) so concurrent
- * writes from both streams are safe.
+ * threadIdsByProjectId). Shared by both the shell stream and detail stream
+ * write paths, so concurrent writes remain append-only and safe.
  */
 function ensureThreadRegistered(
   state: EnvironmentState,
@@ -873,6 +1179,80 @@ function buildLatestTurn(params: {
   };
 }
 
+function settleLatestTurnFromSession(input: {
+  thread: Thread;
+  session: OrchestrationSession;
+  settledTurn?: {
+    turnId: NonNullable<Thread["latestTurn"]>["turnId"];
+    state: NonNullable<Thread["latestTurn"]>["state"];
+    completedAt: string;
+  };
+}): Thread["latestTurn"] {
+  if (input.session.status === "running" && input.session.activeTurnId !== null) {
+    return buildLatestTurn({
+      previous: input.thread.latestTurn,
+      turnId: input.session.activeTurnId,
+      state: "running",
+      requestedAt:
+        input.thread.latestTurn?.turnId === input.session.activeTurnId
+          ? input.thread.latestTurn.requestedAt
+          : input.session.updatedAt,
+      startedAt:
+        input.thread.latestTurn?.turnId === input.session.activeTurnId
+          ? (input.thread.latestTurn.startedAt ?? input.session.updatedAt)
+          : input.session.updatedAt,
+      completedAt: null,
+      assistantMessageId:
+        input.thread.latestTurn?.turnId === input.session.activeTurnId
+          ? input.thread.latestTurn.assistantMessageId
+          : null,
+      sourceProposedPlan: input.thread.pendingSourceProposedPlan,
+    });
+  }
+
+  if (input.settledTurn) {
+    return buildLatestTurn({
+      previous: input.thread.latestTurn,
+      turnId: input.settledTurn.turnId,
+      state: input.settledTurn.state,
+      requestedAt:
+        input.thread.latestTurn?.turnId === input.settledTurn.turnId
+          ? input.thread.latestTurn.requestedAt
+          : input.settledTurn.completedAt,
+      startedAt:
+        input.thread.latestTurn?.turnId === input.settledTurn.turnId
+          ? (input.thread.latestTurn.startedAt ?? input.settledTurn.completedAt)
+          : input.settledTurn.completedAt,
+      completedAt: input.settledTurn.completedAt,
+      assistantMessageId:
+        input.thread.latestTurn?.turnId === input.settledTurn.turnId
+          ? input.thread.latestTurn.assistantMessageId
+          : null,
+      sourceProposedPlan: input.thread.pendingSourceProposedPlan,
+    });
+  }
+
+  if (
+    input.thread.latestTurn &&
+    input.thread.latestTurn.completedAt === null &&
+    (input.session.status === "error" ||
+      input.session.status === "interrupted" ||
+      input.session.status === "stopped")
+  ) {
+    return buildLatestTurn({
+      previous: input.thread.latestTurn,
+      turnId: input.thread.latestTurn.turnId,
+      state: input.session.status === "error" ? "error" : "interrupted",
+      requestedAt: input.thread.latestTurn.requestedAt,
+      startedAt: input.thread.latestTurn.startedAt,
+      completedAt: input.session.updatedAt,
+      assistantMessageId: input.thread.latestTurn.assistantMessageId,
+    });
+  }
+
+  return input.thread.latestTurn;
+}
+
 function rebindTurnDiffSummariesForAssistantMessage(
   turnDiffSummaries: ReadonlyArray<TurnDiffSummary>,
   turnId: TurnId,
@@ -1038,6 +1418,147 @@ function buildProjectState(
   };
 }
 
+function buildThreadState(
+  threads: ReadonlyArray<Thread>,
+): Pick<
+  EnvironmentState,
+  | "threadIds"
+  | "threadIdsByProjectId"
+  | "threadShellById"
+  | "threadSessionById"
+  | "threadTurnStateById"
+  | "messageIdsByThreadId"
+  | "messageByThreadId"
+  | "activityIdsByThreadId"
+  | "activityByThreadId"
+  | "proposedPlanIdsByThreadId"
+  | "proposedPlanByThreadId"
+  | "turnDiffIdsByThreadId"
+  | "turnDiffSummaryByThreadId"
+  | "sidebarThreadSummaryById"
+> {
+  const threadIds: ThreadId[] = [];
+  const threadIdsByProjectId: Record<ProjectId, ThreadId[]> = {};
+  const threadShellById: Record<ThreadId, ThreadShell> = {};
+  const threadSessionById: Record<ThreadId, ThreadSession | null> = {};
+  const threadTurnStateById: Record<ThreadId, ThreadTurnState> = {};
+  const messageIdsByThreadId: Record<ThreadId, MessageId[]> = {};
+  const messageByThreadId: Record<ThreadId, Record<MessageId, ChatMessage>> = {};
+  const activityIdsByThreadId: Record<ThreadId, string[]> = {};
+  const activityByThreadId: Record<ThreadId, Record<string, OrchestrationThreadActivity>> = {};
+  const proposedPlanIdsByThreadId: Record<ThreadId, string[]> = {};
+  const proposedPlanByThreadId: Record<ThreadId, Record<string, ProposedPlan>> = {};
+  const turnDiffIdsByThreadId: Record<ThreadId, TurnId[]> = {};
+  const turnDiffSummaryByThreadId: Record<ThreadId, Record<TurnId, TurnDiffSummary>> = {};
+  const sidebarThreadSummaryById: Record<ThreadId, SidebarThreadSummary> = {};
+
+  for (const thread of threads) {
+    threadIds.push(thread.id);
+    threadIdsByProjectId[thread.projectId] = [
+      ...(threadIdsByProjectId[thread.projectId] ?? EMPTY_THREAD_IDS),
+      thread.id,
+    ];
+    threadShellById[thread.id] = toThreadShell(thread);
+    threadSessionById[thread.id] = thread.session;
+    threadTurnStateById[thread.id] = toThreadTurnState(thread);
+    const messageSlice = buildMessageSlice(thread);
+    messageIdsByThreadId[thread.id] = messageSlice.ids;
+    messageByThreadId[thread.id] = messageSlice.byId;
+    const activitySlice = buildActivitySlice(thread);
+    activityIdsByThreadId[thread.id] = activitySlice.ids;
+    activityByThreadId[thread.id] = activitySlice.byId;
+    const proposedPlanSlice = buildProposedPlanSlice(thread);
+    proposedPlanIdsByThreadId[thread.id] = proposedPlanSlice.ids;
+    proposedPlanByThreadId[thread.id] = proposedPlanSlice.byId;
+    const turnDiffSlice = buildTurnDiffSlice(thread);
+    turnDiffIdsByThreadId[thread.id] = turnDiffSlice.ids;
+    turnDiffSummaryByThreadId[thread.id] = turnDiffSlice.byId;
+    sidebarThreadSummaryById[thread.id] = buildSidebarThreadSummary(thread);
+  }
+
+  return {
+    threadIds,
+    threadIdsByProjectId,
+    threadShellById,
+    threadSessionById,
+    threadTurnStateById,
+    messageIdsByThreadId,
+    messageByThreadId,
+    activityIdsByThreadId,
+    activityByThreadId,
+    proposedPlanIdsByThreadId,
+    proposedPlanByThreadId,
+    turnDiffIdsByThreadId,
+    turnDiffSummaryByThreadId,
+    sidebarThreadSummaryById,
+  };
+}
+
+function buildEpicRunState(
+  epicRuns: ReadonlyArray<OrchestrationEpicRun>,
+): Pick<EnvironmentState, "epicRunIds" | "epicRunIdsByProjectId" | "epicRunById"> {
+  const epicRunIdsByProjectId: Record<ProjectId, OrchestrationEpicRun["runId"][]> = {};
+  const epicRunById = Object.fromEntries(
+    epicRuns.map((run) => [run.runId, run] as const),
+  ) as Record<OrchestrationEpicRun["runId"], OrchestrationEpicRun>;
+  const epicRunIds = sortEpicRunIds(
+    epicRuns.map((run) => run.runId),
+    epicRunById,
+  );
+
+  for (const runId of epicRunIds) {
+    const run = epicRunById[runId];
+    if (!run) {
+      continue;
+    }
+    epicRunIdsByProjectId[run.projectId] = [
+      ...(epicRunIdsByProjectId[run.projectId] ?? EMPTY_EPIC_RUN_IDS),
+      runId,
+    ];
+  }
+
+  return {
+    epicRunIds,
+    epicRunIdsByProjectId,
+    epicRunById,
+  };
+}
+
+function buildEpicIssueExecutionState(
+  epicIssueExecutions: ReadonlyArray<OrchestrationEpicIssueExecution>,
+): Pick<
+  EnvironmentState,
+  "epicIssueExecutionIds" | "epicIssueExecutionIdsByRunId" | "epicIssueExecutionById"
+> {
+  const epicIssueExecutionIdsByRunId: Record<
+    OrchestrationEpicRun["runId"],
+    OrchestrationEpicIssueExecution["executionId"][]
+  > = {};
+  const epicIssueExecutionById = Object.fromEntries(
+    epicIssueExecutions.map((execution) => [execution.executionId, execution] as const),
+  ) as Record<OrchestrationEpicIssueExecution["executionId"], OrchestrationEpicIssueExecution>;
+  const epicIssueExecutionIds = sortEpicIssueExecutionIds(
+    epicIssueExecutions.map((execution) => execution.executionId),
+    epicIssueExecutionById,
+  );
+
+  for (const executionId of epicIssueExecutionIds) {
+    const execution = epicIssueExecutionById[executionId];
+    if (!execution) {
+      continue;
+    }
+    epicIssueExecutionIdsByRunId[execution.runId] = [
+      ...(epicIssueExecutionIdsByRunId[execution.runId] ?? EMPTY_EPIC_ISSUE_EXECUTION_IDS),
+      executionId,
+    ];
+  }
+
+  return {
+    epicIssueExecutionIds,
+    epicIssueExecutionIdsByRunId,
+    epicIssueExecutionById,
+  };
+}
 function getStoredEnvironmentState(
   state: AppState,
   environmentId: EnvironmentId,
@@ -1066,6 +1587,28 @@ function commitEnvironmentState(
   return {
     ...state,
     environmentStateById,
+  };
+}
+
+function syncEnvironmentReadModel(
+  state: EnvironmentState,
+  readModel: OrchestrationReadModel,
+  environmentId: EnvironmentId,
+): EnvironmentState {
+  const projects = readModel.projects
+    .filter((project) => project.deletedAt === null)
+    .map((project) => mapProject(project, environmentId));
+  const threads = readModel.threads
+    .filter((thread) => thread.deletedAt === null)
+    .map((thread) => mapThread(thread, environmentId));
+
+  return {
+    ...state,
+    ...buildProjectState(projects),
+    ...buildThreadState(threads),
+    ...buildEpicRunState(readModel.epicRuns),
+    ...buildEpicIssueExecutionState(readModel.epicIssueExecutions),
+    bootstrapComplete: true,
   };
 }
 
@@ -1120,6 +1663,22 @@ export function syncServerShellSnapshot(
     syncEnvironmentShellSnapshot(
       getStoredEnvironmentState(state, environmentId),
       snapshot,
+      environmentId,
+    ),
+  );
+}
+
+export function syncServerReadModel(
+  state: AppState,
+  readModel: OrchestrationReadModel,
+  environmentId: EnvironmentId,
+): AppState {
+  return commitEnvironmentState(
+    state,
+    environmentId,
+    syncEnvironmentReadModel(
+      getStoredEnvironmentState(state, environmentId),
+      readModel,
       environmentId,
     ),
   );
@@ -1253,6 +1812,7 @@ function applyEnvironmentOrchestrationEvent(
           interactionMode: event.payload.interactionMode,
           branch: event.payload.branch,
           worktreePath: event.payload.worktreePath,
+          issueLink: event.payload.issueLink ?? null,
           latestTurn: null,
           createdAt: event.payload.createdAt,
           updatedAt: event.payload.updatedAt,
@@ -1262,6 +1822,7 @@ function applyEnvironmentOrchestrationEvent(
           proposedPlans: [],
           activities: [],
           checkpoints: [],
+          pendingCheckpointCaptures: [],
           session: null,
         },
         environmentId,
@@ -1297,6 +1858,7 @@ function applyEnvironmentOrchestrationEvent(
         ...(event.payload.worktreePath !== undefined
           ? { worktreePath: event.payload.worktreePath }
           : {}),
+        ...(event.payload.issueLink !== undefined ? { issueLink: event.payload.issueLink } : {}),
         updatedAt: event.payload.updatedAt,
       }));
 
@@ -1446,28 +2008,19 @@ function applyEnvironmentOrchestrationEvent(
         ...thread,
         session: mapSession(event.payload.session),
         error: sanitizeThreadErrorMessage(event.payload.session.lastError),
-        latestTurn:
-          event.payload.session.status === "running" && event.payload.session.activeTurnId !== null
-            ? buildLatestTurn({
-                previous: thread.latestTurn,
-                turnId: event.payload.session.activeTurnId,
-                state: "running",
-                requestedAt:
-                  thread.latestTurn?.turnId === event.payload.session.activeTurnId
-                    ? thread.latestTurn.requestedAt
-                    : event.payload.session.updatedAt,
-                startedAt:
-                  thread.latestTurn?.turnId === event.payload.session.activeTurnId
-                    ? (thread.latestTurn.startedAt ?? event.payload.session.updatedAt)
-                    : event.payload.session.updatedAt,
-                completedAt: null,
-                assistantMessageId:
-                  thread.latestTurn?.turnId === event.payload.session.activeTurnId
-                    ? thread.latestTurn.assistantMessageId
-                    : null,
-                sourceProposedPlan: thread.pendingSourceProposedPlan,
-              })
-            : thread.latestTurn,
+        latestTurn: settleLatestTurnFromSession({
+          thread,
+          session: event.payload.session,
+          ...(event.payload.settledTurn
+            ? {
+                settledTurn: {
+                  turnId: event.payload.settledTurn.turnId,
+                  state: event.payload.settledTurn.state,
+                  completedAt: event.payload.settledTurn.completedAt,
+                },
+              }
+            : {}),
+        }),
         updatedAt: event.occurredAt,
       }));
 
@@ -1484,6 +2037,18 @@ function applyEnvironmentOrchestrationEvent(
                 activeTurnId: undefined,
                 updatedAt: event.payload.createdAt,
               },
+              latestTurn:
+                thread.latestTurn && thread.latestTurn.completedAt === null
+                  ? buildLatestTurn({
+                      previous: thread.latestTurn,
+                      turnId: thread.latestTurn.turnId,
+                      state: "interrupted",
+                      requestedAt: thread.latestTurn.requestedAt,
+                      startedAt: thread.latestTurn.startedAt,
+                      completedAt: event.payload.createdAt,
+                      assistantMessageId: thread.latestTurn.assistantMessageId,
+                    })
+                  : thread.latestTurn,
               updatedAt: event.occurredAt,
             },
       );
@@ -1624,6 +2189,66 @@ function applyEnvironmentOrchestrationEvent(
     case "thread.approval-response-requested":
     case "thread.user-input-response-requested":
       return state;
+
+    case "epic-run.requested":
+      return writeEpicRunState(state, createRequestedEpicRun(event.payload));
+
+    case "epic-run.started":
+      return updateEpicRunState(state, event.payload.runId, (run) =>
+        applyEpicRunLifecycleEvent(run, event),
+      );
+
+    case "epic-run.failed":
+      return updateEpicRunState(state, event.payload.runId, (run) => {
+        const fallbackExecution = findLatestFailedEpicIssueExecutionForRun(
+          state,
+          event.payload.runId,
+        );
+        return applyEpicRunLifecycleEvent(run, {
+          ...event,
+          payload: {
+            ...event.payload,
+            issueId: event.payload.issueId ?? fallbackExecution?.issueId ?? null,
+            executionId: event.payload.executionId ?? fallbackExecution?.executionId ?? null,
+            workerThreadId:
+              event.payload.workerThreadId ?? fallbackExecution?.workerThreadId ?? null,
+          },
+        });
+      });
+
+    case "epic-run.stopped":
+    case "epic-run.completed":
+      return updateEpicRunState(state, event.payload.runId, (run) =>
+        applyEpicRunLifecycleEvent(run, event),
+      );
+
+    case "epic-issue-execution.requested":
+      return writeEpicIssueExecutionState(
+        touchEpicRunUpdatedAt(state, event.payload.runId, event.payload.updatedAt),
+        createRequestedEpicIssueExecution(event.payload),
+      );
+
+    case "epic-issue-execution.started":
+      return writeEpicIssueExecutionState(
+        touchEpicRunUpdatedAt(state, event.payload.runId, event.payload.updatedAt),
+        materializeStartedEpicIssueExecution({
+          event,
+          existingExecution: state.epicIssueExecutionById[event.payload.executionId] ?? null,
+        }),
+      );
+
+    case "epic-issue-execution.completed":
+    case "epic-issue-execution.failed":
+    case "epic-issue-execution.stopped": {
+      const nextState = touchEpicRunUpdatedAt(state, event.payload.runId, event.payload.updatedAt);
+      const execution = nextState.epicIssueExecutionById[event.payload.executionId];
+      return execution
+        ? writeEpicIssueExecutionState(
+            nextState,
+            applyEpicIssueExecutionLifecycleEvent(execution, event),
+          )
+        : nextState;
+    }
   }
 
   return state;
@@ -1745,6 +2370,59 @@ export function selectThreadsAcrossEnvironments(state: AppState): Thread[] {
   return getEnvironmentEntries(state).flatMap(([, environmentState]) =>
     getThreads(environmentState),
   );
+}
+
+export function selectEpicRunsAcrossEnvironments(state: AppState): OrchestrationEpicRun[] {
+  return getEnvironmentEntries(state)
+    .flatMap(([, environmentState]) => getEpicRuns(environmentState))
+    .toSorted(compareEpicRunsByRequestedAtDesc);
+}
+
+export function selectEpicIssueExecutionsAcrossEnvironments(
+  state: AppState,
+): OrchestrationEpicIssueExecution[] {
+  return getEnvironmentEntries(state)
+    .flatMap(([, environmentState]) => getEpicIssueExecutions(environmentState))
+    .toSorted(compareEpicIssueExecutions);
+}
+
+export function selectEpicRunsForProject(
+  state: AppState,
+  projectId: ProjectId | null | undefined,
+): OrchestrationEpicRun[] {
+  if (!projectId) {
+    return [];
+  }
+
+  return getEnvironmentEntries(state)
+    .flatMap(([, environmentState]) => {
+      const runIds = environmentState.epicRunIdsByProjectId[projectId] ?? EMPTY_EPIC_RUN_IDS;
+      return runIds.flatMap((runId) => {
+        const run = environmentState.epicRunById[runId];
+        return run ? [run] : [];
+      });
+    })
+    .toSorted(compareEpicRunsByRequestedAtDesc);
+}
+
+export function selectEpicIssueExecutionsForRun(
+  state: AppState,
+  runId: OrchestrationEpicRun["runId"] | null | undefined,
+): OrchestrationEpicIssueExecution[] {
+  if (!runId) {
+    return [];
+  }
+
+  return getEnvironmentEntries(state)
+    .flatMap(([, environmentState]) => {
+      const executionIds =
+        environmentState.epicIssueExecutionIdsByRunId[runId] ?? EMPTY_EPIC_ISSUE_EXECUTION_IDS;
+      return executionIds.flatMap((executionId) => {
+        const execution = environmentState.epicIssueExecutionById[executionId];
+        return execution ? [execution] : [];
+      });
+    })
+    .toSorted(compareEpicIssueExecutions);
 }
 
 /** Like `selectThreadsAcrossEnvironments` but returns stable `ThreadShell` references from the store (no derived data). */

@@ -3,12 +3,17 @@ import {
   CheckpointRef,
   DEFAULT_MODEL_BY_PROVIDER,
   EnvironmentId,
+  EpicIssueExecutionId,
+  EpicRunId,
   EventId,
   MessageId,
   ProjectId,
   ThreadId,
   TurnId,
   type OrchestrationEvent,
+  type OrchestrationEpicIssueExecution,
+  type OrchestrationEpicRun,
+  type OrchestrationReadModel,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -16,7 +21,10 @@ import {
   applyOrchestrationEvent,
   applyOrchestrationEvents,
   selectEnvironmentState,
+  selectEpicIssueExecutionsForRun,
+  selectEpicRunsForProject,
   selectProjectsAcrossEnvironments,
+  syncServerReadModel,
   selectThreadByRef,
   selectThreadExistsByRef,
   setThreadBranch,
@@ -172,6 +180,12 @@ function makeState(thread: Thread): AppState {
       ) as EnvironmentState["turnDiffSummaryByThreadId"][ThreadId],
     },
     sidebarThreadSummaryById: {},
+    epicRunIds: [],
+    epicRunIdsByProjectId: {},
+    epicRunById: {},
+    epicIssueExecutionIds: [],
+    epicIssueExecutionIdsByRunId: {},
+    epicIssueExecutionById: {},
     bootstrapComplete: true,
   };
   return withActiveEnvironmentState(environmentState, {
@@ -197,6 +211,12 @@ function makeEmptyState(overrides: Partial<AppState & EnvironmentState> = {}): A
     turnDiffIdsByThreadId: {},
     turnDiffSummaryByThreadId: {},
     sidebarThreadSummaryById: {},
+    epicRunIds: [],
+    epicRunIdsByProjectId: {},
+    epicRunById: {},
+    epicIssueExecutionIds: [],
+    epicIssueExecutionIdsByRunId: {},
+    epicIssueExecutionById: {},
     bootstrapComplete: true,
   };
   return withActiveEnvironmentState(environmentState, overrides);
@@ -218,6 +238,14 @@ function threadsOf(state: AppState) {
   return selectThreadsAcrossEnvironments(state);
 }
 
+function epicRunsOf(state: AppState, projectId: ProjectId) {
+  return selectEpicRunsForProject(state, projectId);
+}
+
+function epicIssueExecutionsOf(state: AppState, runId: OrchestrationEpicRun["runId"]) {
+  return selectEpicIssueExecutionsForRun(state, runId);
+}
+
 function makeEvent<T extends OrchestrationEvent["type"]>(
   type: T,
   payload: Extract<OrchestrationEvent, { type: T }>["payload"],
@@ -227,13 +255,26 @@ function makeEvent<T extends OrchestrationEvent["type"]>(
   return {
     sequence,
     eventId: EventId.make(`event-${sequence}`),
-    aggregateKind: "thread",
+    aggregateKind:
+      "executionId" in payload
+        ? "epic-issue-execution"
+        : "runId" in payload
+          ? "epic-run"
+          : "threadId" in payload
+            ? "thread"
+            : "projectId" in payload
+              ? "project"
+              : "thread",
     aggregateId:
-      "threadId" in payload
-        ? payload.threadId
-        : "projectId" in payload
-          ? payload.projectId
-          : ProjectId.make("project-1"),
+      "executionId" in payload
+        ? payload.executionId
+        : "runId" in payload
+          ? payload.runId
+          : "threadId" in payload
+            ? payload.threadId
+            : "projectId" in payload
+              ? payload.projectId
+              : ProjectId.make("project-1"),
     occurredAt: "2026-02-27T00:00:00.000Z",
     commandId: null,
     causationEventId: null,
@@ -243,6 +284,54 @@ function makeEvent<T extends OrchestrationEvent["type"]>(
     payload,
     ...overrides,
   } as Extract<OrchestrationEvent, { type: T }>;
+}
+
+function makeEpicRun(overrides: Partial<OrchestrationEpicRun> = {}): OrchestrationEpicRun {
+  return {
+    runId: EpicRunId.make("run-1"),
+    projectId: ProjectId.make("project-1"),
+    epicIssueId: "EPIC-1",
+    status: "pending",
+    provider: "codex",
+    model: DEFAULT_MODEL_BY_PROVIDER.codex,
+    modelOptions: null,
+    providerOptions: null,
+    assistantDeliveryMode: null,
+    runtimeMode: DEFAULT_RUNTIME_MODE,
+    failureContext: null,
+    requestedAt: "2026-02-27T00:00:00.000Z",
+    startedAt: null,
+    stopRequestedAt: null,
+    stoppedAt: null,
+    failedAt: null,
+    completedAt: null,
+    updatedAt: "2026-02-27T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function makeEpicIssueExecution(
+  overrides: Partial<OrchestrationEpicIssueExecution> = {},
+): OrchestrationEpicIssueExecution {
+  return {
+    executionId: EpicIssueExecutionId.make("execution-1"),
+    runId: EpicRunId.make("run-1"),
+    issueId: "ISSUE-1",
+    workerThreadId: ThreadId.make("thread-worker-1"),
+    sequenceNumber: 1,
+    status: "launching",
+    workspaceKey: "shared",
+    workspacePath: null,
+    failureContext: null,
+    requestedAt: "2026-02-27T00:00:01.000Z",
+    startedAt: null,
+    stopRequestedAt: null,
+    stoppedAt: null,
+    completedAt: null,
+    failedAt: null,
+    updatedAt: "2026-02-27T00:00:01.000Z",
+    ...overrides,
+  };
 }
 
 describe("thread selection memoization", () => {
@@ -367,6 +456,79 @@ describe("thread selection memoization", () => {
   });
 });
 
+function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"][number]>) {
+  return {
+    id: ThreadId.make("thread-1"),
+    projectId: ProjectId.make("project-1"),
+    title: "Thread",
+    modelSelection: {
+      provider: "codex",
+      model: "gpt-5.3-codex",
+    },
+    runtimeMode: DEFAULT_RUNTIME_MODE,
+    interactionMode: DEFAULT_INTERACTION_MODE,
+    branch: null,
+    worktreePath: null,
+    issueLink: null,
+    latestTurn: null,
+    createdAt: "2026-02-27T00:00:00.000Z",
+    updatedAt: "2026-02-27T00:00:00.000Z",
+    archivedAt: null,
+    deletedAt: null,
+    messages: [],
+    activities: [],
+    proposedPlans: [],
+    checkpoints: [],
+    pendingCheckpointCaptures: [],
+    session: null,
+    ...overrides,
+  } satisfies OrchestrationReadModel["threads"][number];
+}
+
+function makeReadModel(thread: OrchestrationReadModel["threads"][number]): OrchestrationReadModel {
+  return {
+    snapshotSequence: 1,
+    updatedAt: "2026-02-27T00:00:00.000Z",
+    projects: [
+      {
+        id: ProjectId.make("project-1"),
+        title: "Project",
+        workspaceRoot: "/tmp/project",
+        defaultModelSelection: {
+          provider: "codex",
+          model: "gpt-5.3-codex",
+        },
+        createdAt: "2026-02-27T00:00:00.000Z",
+        updatedAt: "2026-02-27T00:00:00.000Z",
+        deletedAt: null,
+        scripts: [],
+      },
+    ],
+    threads: [thread],
+    planImplementationLaunches: [],
+    epicRuns: [],
+    epicIssueExecutions: [],
+  };
+}
+
+function makeReadModelProject(
+  overrides: Partial<OrchestrationReadModel["projects"][number]>,
+): OrchestrationReadModel["projects"][number] {
+  return {
+    id: ProjectId.make("project-1"),
+    title: "Project",
+    workspaceRoot: "/tmp/project",
+    defaultModelSelection: {
+      provider: "codex",
+      model: "gpt-5.3-codex",
+    },
+    createdAt: "2026-02-27T00:00:00.000Z",
+    updatedAt: "2026-02-27T00:00:00.000Z",
+    deletedAt: null,
+    scripts: [],
+    ...overrides,
+  };
+}
 describe("setThreadBranch", () => {
   it("updates only the scoped thread environment", () => {
     const sharedThreadId = ThreadId.make("thread-shared");
@@ -407,6 +569,208 @@ describe("setThreadBranch", () => {
   });
 });
 
+describe("store read model sync", () => {
+  it("marks bootstrap complete after snapshot sync", () => {
+    const initialState = withActiveEnvironmentState(
+      localEnvironmentStateOf(makeState(makeThread())),
+      {
+        bootstrapComplete: false,
+      },
+    );
+
+    const next = syncServerReadModel(
+      initialState,
+      makeReadModel(makeReadModelThread({})),
+      localEnvironmentId,
+    );
+
+    expect(localEnvironmentStateOf(next).bootstrapComplete).toBe(true);
+  });
+
+  it("preserves claude model slugs without an active session", () => {
+    const initialState = makeState(makeThread());
+    const readModel = makeReadModel(
+      makeReadModelThread({
+        modelSelection: {
+          provider: "claudeAgent",
+          model: "claude-opus-4-6",
+        },
+      }),
+    );
+
+    const next = syncServerReadModel(initialState, readModel, localEnvironmentId);
+
+    expect(threadsOf(next)[0]?.modelSelection.model).toBe("claude-opus-4-6");
+  });
+
+  it("resolves claude aliases when session provider is claudeAgent", () => {
+    const initialState = makeState(makeThread());
+    const readModel = makeReadModel(
+      makeReadModelThread({
+        modelSelection: {
+          provider: "claudeAgent",
+          model: "sonnet",
+        },
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "ready",
+          providerName: "claudeAgent",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: "2026-02-27T00:00:00.000Z",
+        },
+      }),
+    );
+
+    const next = syncServerReadModel(initialState, readModel, localEnvironmentId);
+
+    expect(threadsOf(next)[0]?.modelSelection.model).toBe("claude-sonnet-4-6");
+  });
+
+  it("preserves project and thread updatedAt timestamps from the read model", () => {
+    const initialState = makeState(makeThread());
+    const readModel = makeReadModel(
+      makeReadModelThread({
+        updatedAt: "2026-02-27T00:05:00.000Z",
+      }),
+    );
+
+    const next = syncServerReadModel(initialState, readModel, localEnvironmentId);
+
+    expect(projectsOf(next)[0]?.updatedAt).toBe("2026-02-27T00:00:00.000Z");
+    expect(threadsOf(next)[0]?.updatedAt).toBe("2026-02-27T00:05:00.000Z");
+  });
+
+  it("maps archivedAt from the read model", () => {
+    const initialState = makeState(makeThread());
+    const archivedAt = "2026-02-28T00:00:00.000Z";
+    const next = syncServerReadModel(
+      initialState,
+      makeReadModel(
+        makeReadModelThread({
+          archivedAt,
+        }),
+      ),
+      localEnvironmentId,
+    );
+
+    expect(threadsOf(next)[0]?.archivedAt).toBe(archivedAt);
+  });
+
+  it("replaces projects using snapshot order during recovery", () => {
+    const project1 = ProjectId.make("project-1");
+    const project2 = ProjectId.make("project-2");
+    const project3 = ProjectId.make("project-3");
+    const initialState: AppState = makeEmptyState({
+      projectIds: [project2, project1],
+      projectById: {
+        [project2]: {
+          id: project2,
+          environmentId: localEnvironmentId,
+          name: "Project 2",
+          cwd: "/tmp/project-2",
+          defaultModelSelection: {
+            provider: "codex",
+            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          },
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:00.000Z",
+          scripts: [],
+        },
+        [project1]: {
+          id: project1,
+          environmentId: localEnvironmentId,
+          name: "Project 1",
+          cwd: "/tmp/project-1",
+          defaultModelSelection: {
+            provider: "codex",
+            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          },
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:00.000Z",
+          scripts: [],
+        },
+      },
+    });
+    const readModel: OrchestrationReadModel = {
+      snapshotSequence: 2,
+      updatedAt: "2026-02-27T00:00:00.000Z",
+      projects: [
+        makeReadModelProject({
+          id: project1,
+          title: "Project 1",
+          workspaceRoot: "/tmp/project-1",
+        }),
+        makeReadModelProject({
+          id: project2,
+          title: "Project 2",
+          workspaceRoot: "/tmp/project-2",
+        }),
+        makeReadModelProject({
+          id: project3,
+          title: "Project 3",
+          workspaceRoot: "/tmp/project-3",
+        }),
+      ],
+      threads: [],
+      planImplementationLaunches: [],
+      epicRuns: [],
+      epicIssueExecutions: [],
+    };
+
+    const next = syncServerReadModel(initialState, readModel, localEnvironmentId);
+
+    expect(projectsOf(next).map((project) => project.id)).toEqual([project1, project2, project3]);
+  });
+
+  it("bootstraps epic runs and issue executions from the read model", () => {
+    const initialState = makeEmptyState();
+    const runningRun = makeEpicRun({
+      runId: EpicRunId.make("run-2"),
+      epicIssueId: "EPIC-2",
+      status: "running",
+      requestedAt: "2026-02-27T00:10:00.000Z",
+      startedAt: "2026-02-27T00:10:05.000Z",
+      updatedAt: "2026-02-27T00:10:05.000Z",
+    });
+    const olderRun = makeEpicRun({
+      runId: EpicRunId.make("run-1"),
+      requestedAt: "2026-02-27T00:00:00.000Z",
+      updatedAt: "2026-02-27T00:00:00.000Z",
+    });
+    const execution2 = makeEpicIssueExecution({
+      executionId: EpicIssueExecutionId.make("execution-2"),
+      runId: olderRun.runId,
+      sequenceNumber: 2,
+      issueId: "ISSUE-2",
+    });
+    const execution1 = makeEpicIssueExecution({
+      executionId: EpicIssueExecutionId.make("execution-1"),
+      runId: olderRun.runId,
+      sequenceNumber: 1,
+      issueId: "ISSUE-1",
+    });
+
+    const next = syncServerReadModel(
+      initialState,
+      {
+        ...makeReadModel(makeReadModelThread({})),
+        epicRuns: [olderRun, runningRun],
+        epicIssueExecutions: [execution2, execution1],
+      },
+      localEnvironmentId,
+    );
+
+    expect(epicRunsOf(next, ProjectId.make("project-1")).map((run) => run.runId)).toEqual([
+      runningRun.runId,
+      olderRun.runId,
+    ]);
+    expect(
+      epicIssueExecutionsOf(next, olderRun.runId).map((execution) => execution.executionId),
+    ).toEqual([execution1.executionId, execution2.executionId]);
+  });
+});
 describe("incremental orchestration updates", () => {
   it("does not mark bootstrap complete for incremental events", () => {
     const state = withActiveEnvironmentState(localEnvironmentStateOf(makeState(makeThread())), {
@@ -449,6 +813,142 @@ describe("incremental orchestration updates", () => {
 
     expect(nextAfterProjectDelete).toBe(state);
     expect(nextAfterThreadDelete).toBe(state);
+  });
+
+  it("projects epic run and execution lifecycle events into store state", () => {
+    const projectId = ProjectId.make("project-1");
+    const requestedRun = makeEvent("epic-run.requested", {
+      runId: EpicRunId.make("run-1"),
+      projectId,
+      epicIssueId: "EPIC-1",
+      provider: "codex",
+      model: DEFAULT_MODEL_BY_PROVIDER.codex,
+      modelOptions: null,
+      providerOptions: null,
+      assistantDeliveryMode: null,
+      runtimeMode: DEFAULT_RUNTIME_MODE,
+      requestedAt: "2026-02-27T00:00:00.000Z",
+      updatedAt: "2026-02-27T00:00:00.000Z",
+    });
+    const requestedExecution = makeEvent("epic-issue-execution.requested", {
+      executionId: EpicIssueExecutionId.make("execution-1"),
+      runId: EpicRunId.make("run-1"),
+      issueId: "ISSUE-1",
+      workerThreadId: ThreadId.make("worker-thread-1"),
+      sequenceNumber: 1,
+      requestedAt: "2026-02-27T00:00:01.000Z",
+      updatedAt: "2026-02-27T00:00:01.000Z",
+    });
+    const startedRun = makeEvent("epic-run.started", {
+      runId: EpicRunId.make("run-1"),
+      startedAt: "2026-02-27T00:00:02.000Z",
+      updatedAt: "2026-02-27T00:00:02.000Z",
+    });
+    const startedExecution = makeEvent("epic-issue-execution.started", {
+      executionId: EpicIssueExecutionId.make("execution-1"),
+      runId: EpicRunId.make("run-1"),
+      startedAt: "2026-02-27T00:00:03.000Z",
+      updatedAt: "2026-02-27T00:00:03.000Z",
+    });
+    const completedExecution = makeEvent("epic-issue-execution.completed", {
+      executionId: EpicIssueExecutionId.make("execution-1"),
+      runId: EpicRunId.make("run-1"),
+      completedAt: "2026-02-27T00:00:04.000Z",
+      updatedAt: "2026-02-27T00:00:04.000Z",
+    });
+    const completedRun = makeEvent("epic-run.completed", {
+      runId: EpicRunId.make("run-1"),
+      completedAt: "2026-02-27T00:00:05.000Z",
+      updatedAt: "2026-02-27T00:00:05.000Z",
+    });
+
+    const next = applyOrchestrationEvents(
+      makeEmptyState(),
+      [
+        requestedRun,
+        requestedExecution,
+        startedRun,
+        startedExecution,
+        completedExecution,
+        completedRun,
+      ],
+      localEnvironmentId,
+    );
+
+    expect(epicRunsOf(next, projectId)[0]).toMatchObject({
+      runId: "run-1",
+      status: "completed",
+      startedAt: "2026-02-27T00:00:02.000Z",
+      completedAt: "2026-02-27T00:00:05.000Z",
+      updatedAt: "2026-02-27T00:00:05.000Z",
+    });
+    expect(epicIssueExecutionsOf(next, EpicRunId.make("run-1"))[0]).toMatchObject({
+      executionId: EpicIssueExecutionId.make("execution-1"),
+      status: "completed",
+      startedAt: "2026-02-27T00:00:03.000Z",
+      completedAt: "2026-02-27T00:00:04.000Z",
+      updatedAt: "2026-02-27T00:00:04.000Z",
+    });
+  });
+
+  it("hydrates epic run failures from the latest failed execution when the run event omits details", () => {
+    const state = syncServerReadModel(
+      makeEmptyState(),
+      {
+        ...makeReadModel(makeReadModelThread({})),
+        epicRuns: [
+          makeEpicRun({
+            runId: EpicRunId.make("run-1"),
+            status: "running",
+            startedAt: "2026-02-27T00:00:02.000Z",
+            updatedAt: "2026-02-27T00:00:02.000Z",
+          }),
+        ],
+        epicIssueExecutions: [
+          makeEpicIssueExecution({
+            executionId: EpicIssueExecutionId.make("execution-1"),
+            runId: EpicRunId.make("run-1"),
+            issueId: "ISSUE-1",
+            status: "failed",
+            sequenceNumber: 1,
+            failedAt: "2026-02-27T00:00:03.000Z",
+            updatedAt: "2026-02-27T00:00:03.000Z",
+          }),
+          makeEpicIssueExecution({
+            executionId: EpicIssueExecutionId.make("execution-2"),
+            runId: EpicRunId.make("run-1"),
+            issueId: "ISSUE-2",
+            workerThreadId: ThreadId.make("worker-thread-2"),
+            status: "failed",
+            sequenceNumber: 2,
+            failedAt: "2026-02-27T00:00:04.000Z",
+            updatedAt: "2026-02-27T00:00:04.000Z",
+          }),
+        ],
+      },
+      localEnvironmentId,
+    );
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("epic-run.failed", {
+        runId: EpicRunId.make("run-1"),
+        reason: "Worker failed while applying changes",
+        issueId: null,
+        executionId: null,
+        workerThreadId: null,
+        failedAt: "2026-02-27T00:00:05.000Z",
+        updatedAt: "2026-02-27T00:00:05.000Z",
+      }),
+      localEnvironmentId,
+    );
+
+    expect(epicRunsOf(next, ProjectId.make("project-1"))[0]?.failureContext).toMatchObject({
+      message: "Worker failed while applying changes",
+      issueId: "ISSUE-2",
+      executionId: EpicIssueExecutionId.make("execution-2"),
+      workerThreadId: ThreadId.make("worker-thread-2"),
+    });
   });
 
   it("reuses an existing project row when project.created arrives with a new id for the same cwd", () => {
@@ -555,6 +1055,7 @@ describe("incremental orchestration updates", () => {
         interactionMode: DEFAULT_INTERACTION_MODE,
         branch: null,
         worktreePath: null,
+        issueLink: null,
         createdAt: "2026-02-27T00:00:01.000Z",
         updatedAt: "2026-02-27T00:00:01.000Z",
       }),
@@ -744,6 +1245,43 @@ describe("incremental orchestration updates", () => {
     expect(threadsOf(next)[0]?.session?.status).toBe("running");
     expect(threadsOf(next)[0]?.latestTurn?.state).toBe("completed");
     expect(threadsOf(next)[0]?.messages).toHaveLength(1);
+  });
+
+  it("settles an active latestTurn when thread.session-set reports an interrupted session", () => {
+    const thread = makeThread({
+      latestTurn: {
+        turnId: TurnId.make("turn-1"),
+        state: "running",
+        requestedAt: "2026-02-27T00:00:00.000Z",
+        startedAt: "2026-02-27T00:00:00.000Z",
+        completedAt: null,
+        assistantMessageId: null,
+      },
+    });
+
+    const next = applyOrchestrationEvent(
+      makeState(thread),
+      makeEvent("thread.session-set", {
+        threadId: thread.id,
+        session: {
+          threadId: thread.id,
+          status: "interrupted",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: "provider stopped during an active turn",
+          updatedAt: "2026-02-27T00:00:05.000Z",
+        },
+      }),
+      localEnvironmentId,
+    );
+
+    expect(threadsOf(next)[0]?.session?.orchestrationStatus).toBe("interrupted");
+    expect(threadsOf(next)[0]?.latestTurn).toMatchObject({
+      turnId: TurnId.make("turn-1"),
+      state: "interrupted",
+      completedAt: "2026-02-27T00:00:05.000Z",
+    });
   });
 
   it("does not regress latestTurn when an older turn diff completes late", () => {
@@ -1013,5 +1551,42 @@ describe("incremental orchestration updates", () => {
       state: "running",
     });
     expect(threadsOf(next)[0]?.latestTurn?.sourceProposedPlan).toBeUndefined();
+  });
+
+  it("settles an active latestTurn immediately when thread.session-stop-requested arrives", () => {
+    const thread = makeThread({
+      session: {
+        provider: "codex",
+        status: "running",
+        orchestrationStatus: "running",
+        activeTurnId: TurnId.make("turn-9"),
+        createdAt: "2026-02-27T00:00:00.000Z",
+        updatedAt: "2026-02-27T00:00:00.000Z",
+      },
+      latestTurn: {
+        turnId: TurnId.make("turn-9"),
+        state: "running",
+        requestedAt: "2026-02-27T00:00:00.000Z",
+        startedAt: "2026-02-27T00:00:00.000Z",
+        completedAt: null,
+        assistantMessageId: null,
+      },
+    });
+
+    const next = applyOrchestrationEvent(
+      makeState(thread),
+      makeEvent("thread.session-stop-requested", {
+        threadId: thread.id,
+        createdAt: "2026-02-27T00:00:04.000Z",
+      }),
+      localEnvironmentId,
+    );
+
+    expect(threadsOf(next)[0]?.session?.status).toBe("closed");
+    expect(threadsOf(next)[0]?.latestTurn).toMatchObject({
+      turnId: TurnId.make("turn-9"),
+      state: "interrupted",
+      completedAt: "2026-02-27T00:00:04.000Z",
+    });
   });
 });

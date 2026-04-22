@@ -21,6 +21,16 @@ import { ModelEsque } from "./components/chat/providerIconUtils";
 const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
 
+export function resolveDefaultModelSelection(
+  modelSelection: ModelSelection | null | undefined,
+): ModelSelection {
+  if (modelSelection) {
+    return modelSelection;
+  }
+
+  return { provider: "codex", model: "codex-mini-latest" };
+}
+
 export type ProviderCustomModelConfig = {
   provider: ProviderKind;
   title: string;
@@ -224,6 +234,32 @@ export function resolveAppModelSelectionState(
     prompt: "",
     modelOptions: {
       [provider]: provider === selection.provider ? selection.options : undefined,
+    },
+  });
+
+  return createModelSelection(provider, model, modelOptionsForDispatch);
+}
+
+export function resolvePlanLaunchModelSelection(input: {
+  preset: "current" | "smaller";
+  modelSelection: ModelSelection;
+  settings: UnifiedSettings;
+  providers: ReadonlyArray<ServerProvider>;
+}): ModelSelection {
+  const provider = resolveSelectableProvider(input.providers, input.modelSelection.provider);
+  const requestedModel =
+    input.preset === "smaller"
+      ? DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[provider]
+      : input.modelSelection.model;
+  const model = resolveAppModelSelection(provider, input.settings, input.providers, requestedModel);
+  const { modelOptionsForDispatch } = getComposerProviderState({
+    provider,
+    model,
+    models: getProviderModels(input.providers, provider),
+    prompt: "",
+    modelOptions: {
+      [provider]:
+        provider === input.modelSelection.provider ? input.modelSelection.options : undefined,
     },
   });
 

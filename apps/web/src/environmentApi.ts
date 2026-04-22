@@ -44,6 +44,38 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
         rpcClient.orchestration.subscribeShell(callback, options),
       subscribeThread: (input, callback, options) =>
         rpcClient.orchestration.subscribeThread(input, callback, options),
+      replayEvents: (fromSequenceExclusive) =>
+        rpcClient.orchestration
+          .replayEvents({ fromSequenceExclusive })
+          .then((events) => [...events]),
+      launchPlanImplementation: rpcClient.orchestration.launchPlanImplementation,
+      cancelPlanImplementationLaunch: rpcClient.orchestration.cancelPlanImplementationLaunch,
+      retryPlanImplementationLaunch: rpcClient.orchestration.retryPlanImplementationLaunch,
+      startEpicRun: rpcClient.orchestration.startEpicRun,
+      stopEpicRun: rpcClient.orchestration.stopEpicRun,
+      onDomainEvent: (callback, options) =>
+        rpcClient.orchestration.onDomainEvent(callback, options),
+    },
+    beads: {
+      queryIssues: rpcClient.beads.queryIssues,
+      getIssue: rpcClient.beads.getIssue,
+      getIssues: rpcClient.beads.getIssues,
+      createIssue: rpcClient.beads.createIssue,
+      updateIssue: rpcClient.beads.updateIssue,
+      commentIssue: rpcClient.beads.commentIssue,
+      getContext: rpcClient.beads.getContext,
+      getIssueGraph: rpcClient.beads.getIssueGraph,
+      validateEpicCoordination: rpcClient.beads.validateEpicCoordination,
+      getEpicCoordinationStatus: rpcClient.beads.getEpicCoordinationStatus,
+      getProjectRunSummary: rpcClient.beads.getProjectRunSummary,
+      getEpicIssueSummaries: rpcClient.beads.getEpicIssueSummaries,
+      getEpicCoordinationDetail: rpcClient.beads.getEpicCoordinationDetail,
+      getSessionActivity: rpcClient.beads.getSessionActivity,
+      startWorkflow: rpcClient.beads.startWorkflow,
+      startBacklogGrooming: rpcClient.beads.startBacklogGrooming,
+      startEpicQuickRefine: rpcClient.beads.startEpicQuickRefine,
+      startEpicPlannedRefine: rpcClient.beads.startEpicPlannedRefine,
+      startEpicCoordinationPrep: rpcClient.beads.startEpicCoordinationPrep,
     },
   };
 }
