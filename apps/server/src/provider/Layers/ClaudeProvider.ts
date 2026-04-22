@@ -19,7 +19,6 @@ import {
 
 import {
   buildServerProvider,
-  AUTH_PROBE_TIMEOUT_MS,
   DEFAULT_TIMEOUT_MS,
   detailFromResult,
   extractAuthBoolean,
@@ -675,7 +674,7 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
   // ── Auth check + subscription detection ────────────────────────────
 
   const authProbe = yield* runClaudeCommand(["auth", "status"]).pipe(
-    Effect.timeoutOption(AUTH_PROBE_TIMEOUT_MS),
+    Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
     Effect.result,
   );
 

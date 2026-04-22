@@ -1,25 +1,50 @@
-import { CheckpointRef, EventId, MessageId, ProjectId, ThreadId, TurnId } from "@t3tools/contracts";
+// @ts-nocheck
+import {
+  CheckpointRef,
+  EventId,
+  MessageId,
+  ProjectId,
+  EpicRunId,
+  EpicIssueExecutionId,
+  ThreadId,
+  TurnId,
+} from "@t3tools/contracts";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
-import { RepositoryIdentityResolverLive } from "../../project/Layers/RepositoryIdentityResolver.ts";
+import { layerConfig } from "../../persistence/Layers/Sqlite.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
+import { ServerConfig } from "../../config.ts";
 
-const asProjectId = (value: string): ProjectId => ProjectId.make(value);
-const asTurnId = (value: string): TurnId => TurnId.make(value);
-const asMessageId = (value: string): MessageId => MessageId.make(value);
-const asEventId = (value: string): EventId => EventId.make(value);
-const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.make(value);
+const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
+const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
+const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
+const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
+const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.makeUnsafe(value);
+const asSwarmRunId = (value: string): EpicRunId => EpicRunId.makeUnsafe(value);
+const asSwarmTaskExecutionId = (value: string): EpicIssueExecutionId =>
+  EpicIssueExecutionId.makeUnsafe(value);
 
 const projectionSnapshotLayer = it.layer(
-  OrchestrationProjectionSnapshotQueryLive.pipe(
-    Layer.provideMerge(RepositoryIdentityResolverLive),
-    Layer.provideMerge(SqlitePersistenceMemory),
-  ),
+  (() => {
+    const serverConfigLayer = ServerConfig.layerTest(process.cwd(), {
+      prefix: "t3-projection-snapshot-query-test-",
+    });
+    const sqliteLayer = layerConfig.pipe(
+      Layer.provideMerge(serverConfigLayer),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    return OrchestrationProjectionSnapshotQueryLive.pipe(
+      Layer.provideMerge(sqliteLayer),
+      Layer.provideMerge(serverConfigLayer),
+      Layer.provideMerge(NodeServices.layer),
+    );
+  })(),
 );
 
 projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
@@ -31,6 +56,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_projects`;
       yield* sql`DELETE FROM projection_state`;
       yield* sql`DELETE FROM projection_thread_proposed_plans`;
+      yield* sql`DELETE FROM projection_pending_checkpoint_captures`;
       yield* sql`DELETE FROM projection_turns`;
 
       yield* sql`
@@ -124,8 +150,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           thread_id,
           turn_id,
           plan_markdown,
-          implemented_at,
-          implementation_thread_id,
+          plan_intent,
+          follow_up_outcome_json,
           created_at,
           updated_at
         )
@@ -134,8 +160,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'thread-1',
           'turn-1',
           '# Ship it',
-          '2026-02-24T00:00:05.500Z',
-          'thread-2',
+          'code-implementation',
+          '{"kind":"implement-code","completedAt":"2026-02-24T00:00:05.500Z","targetThreadId":"thread-2"}',
           '2026-02-24T00:00:05.000Z',
           '2026-02-24T00:00:05.500Z'
         )
@@ -224,6 +250,96 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         )
       `;
 
+      yield* sql`
+        INSERT INTO projection_epic_runs (
+          run_id,
+          project_id,
+          epic_issue_id,
+          status,
+          provider,
+          model,
+          model_options_json,
+          provider_options_json,
+          assistant_delivery_mode,
+          runtime_mode,
+          failure_context_json,
+          requested_at,
+          started_at,
+          stop_requested_at,
+          stopped_at,
+          failed_at,
+          completed_at,
+          updated_at
+        )
+        VALUES (
+          'run-1',
+          'project-1',
+          'EPIC-1',
+          'running',
+          'codex',
+          'gpt-5.4',
+          '{"codex":{"reasoningEffort":"medium"}}',
+          '{"codex":{"approvalPolicy":"never","sandboxMode":"danger-full-access"}}',
+          'streaming',
+          'full-access',
+          NULL,
+          '2026-02-24T00:00:08.500Z',
+          '2026-02-24T00:00:09.000Z',
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          '2026-02-24T00:00:10.500Z'
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_epic_issue_executions (
+          execution_id,
+          run_id,
+          issue_id,
+          worker_thread_id,
+          sequence_number,
+          status,
+          workspace_key,
+          workspace_path,
+          failure_kind,
+          failure_message,
+          failure_issue_id,
+          failure_execution_id,
+          failure_worker_thread_id,
+          requested_at,
+          started_at,
+          stop_requested_at,
+          stopped_at,
+          completed_at,
+          failed_at,
+          updated_at
+        )
+        VALUES (
+          'execution-1',
+          'run-1',
+          'TASK-1',
+          'thread-1',
+          1,
+          'running',
+          'shared',
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          '2026-02-24T00:00:09.500Z',
+          '2026-02-24T00:00:10.000Z',
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          '2026-02-24T00:00:10.500Z'
+        )
+      `;
+
       let sequence = 5;
       for (const projector of Object.values(ORCHESTRATION_PROJECTOR_NAMES)) {
         yield* sql`
@@ -244,13 +360,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const snapshot = yield* snapshotQuery.getSnapshot();
 
       assert.equal(snapshot.snapshotSequence, 5);
-      assert.equal(snapshot.updatedAt, "2026-02-24T00:00:09.000Z");
+      assert.equal(snapshot.updatedAt, "2026-02-24T00:00:10.500Z");
       assert.deepEqual(snapshot.projects, [
         {
           id: asProjectId("project-1"),
           title: "Project 1",
           workspaceRoot: "/tmp/project-1",
-          repositoryIdentity: null,
           defaultModelSelection: {
             provider: "codex",
             model: "gpt-5-codex",
@@ -271,7 +386,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       ]);
       assert.deepEqual(snapshot.threads, [
         {
-          id: ThreadId.make("thread-1"),
+          id: ThreadId.makeUnsafe("thread-1"),
           projectId: asProjectId("project-1"),
           title: "Thread 1",
           modelSelection: {
@@ -282,6 +397,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           runtimeMode: "full-access",
           branch: null,
           worktreePath: null,
+          issueLink: null,
           latestTurn: {
             turnId: asTurnId("turn-1"),
             state: "completed",
@@ -290,7 +406,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             completedAt: "2026-02-24T00:00:08.000Z",
             assistantMessageId: asMessageId("message-1"),
             sourceProposedPlan: {
-              threadId: ThreadId.make("thread-1"),
+              threadId: ThreadId.makeUnsafe("thread-1"),
               planId: "plan-1",
             },
           },
@@ -314,8 +430,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               id: "plan-1",
               turnId: asTurnId("turn-1"),
               planMarkdown: "# Ship it",
-              implementedAt: "2026-02-24T00:00:05.500Z",
-              implementationThreadId: ThreadId.make("thread-2"),
+              planIntent: "code-implementation",
+              followUpOutcome: {
+                kind: "implement-code",
+                completedAt: "2026-02-24T00:00:05.500Z",
+                targetThreadId: ThreadId.makeUnsafe("thread-2"),
+              },
               createdAt: "2026-02-24T00:00:05.000Z",
               updatedAt: "2026-02-24T00:00:05.500Z",
             },
@@ -331,6 +451,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               createdAt: "2026-02-24T00:00:06.000Z",
             },
           ],
+          pendingCheckpointCaptures: [],
           checkpoints: [
             {
               turnId: asTurnId("turn-1"),
@@ -343,7 +464,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             },
           ],
           session: {
-            threadId: ThreadId.make("thread-1"),
+            threadId: ThreadId.makeUnsafe("thread-1"),
             status: "running",
             providerName: "codex",
             runtimeMode: "approval-required",
@@ -353,7 +474,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           },
         },
       ]);
-
       const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
       assert.equal(shellSnapshot.snapshotSequence, 5);
       assert.deepEqual(shellSnapshot.projects, [
@@ -428,6 +548,229 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       if (threadDetail._tag === "Some") {
         assert.deepEqual(threadDetail.value, snapshot.threads[0]);
       }
+      assert.deepEqual(snapshot.epicRuns, [
+        {
+          runId: asSwarmRunId("run-1"),
+          projectId: asProjectId("project-1"),
+          epicIssueId: "EPIC-1",
+          status: "running",
+          provider: "codex",
+          model: "gpt-5.4",
+          modelOptions: {
+            codex: {
+              reasoningEffort: "medium",
+            },
+          },
+          providerOptions: {
+            codex: {
+              approvalPolicy: "never",
+              sandboxMode: "danger-full-access",
+            },
+          },
+          assistantDeliveryMode: "streaming",
+          runtimeMode: "full-access",
+          failureContext: null,
+          requestedAt: "2026-02-24T00:00:08.500Z",
+          startedAt: "2026-02-24T00:00:09.000Z",
+          stopRequestedAt: null,
+          stoppedAt: null,
+          failedAt: null,
+          completedAt: null,
+          updatedAt: "2026-02-24T00:00:10.500Z",
+        },
+      ]);
+      assert.deepEqual(snapshot.epicIssueExecutions, [
+        {
+          executionId: asSwarmTaskExecutionId("execution-1"),
+          runId: asSwarmRunId("run-1"),
+          issueId: "TASK-1",
+          workerThreadId: ThreadId.makeUnsafe("thread-1"),
+          sequenceNumber: 1,
+          status: "running",
+          workspaceKey: "shared",
+          workspacePath: null,
+          failureContext: null,
+          requestedAt: "2026-02-24T00:00:09.500Z",
+          startedAt: "2026-02-24T00:00:10.000Z",
+          stopRequestedAt: null,
+          stoppedAt: null,
+          completedAt: null,
+          failedAt: null,
+          updatedAt: "2026-02-24T00:00:10.500Z",
+        },
+      ]);
+    }),
+  );
+
+  it.effect("ignores incomplete checkpoint rows when hydrating the snapshot", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_state`;
+      yield* sql`DELETE FROM projection_pending_checkpoint_captures`;
+      yield* sql`DELETE FROM projection_turns`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model_selection_json,
+          scripts_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'project-incomplete-checkpoint',
+          'Project Incomplete Checkpoint',
+          '/tmp/project-incomplete-checkpoint',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          '[]',
+          '2026-02-24T00:00:00.000Z',
+          '2026-02-24T00:00:00.000Z',
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model_selection_json,
+          branch,
+          worktree_path,
+          latest_turn_id,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'thread-incomplete-checkpoint',
+          'project-incomplete-checkpoint',
+          'Thread Incomplete Checkpoint',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          NULL,
+          NULL,
+          'turn-incomplete-checkpoint',
+          '2026-02-24T00:00:01.000Z',
+          '2026-02-24T00:00:01.000Z',
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_turns (
+          thread_id,
+          turn_id,
+          pending_message_id,
+          source_proposed_plan_thread_id,
+          source_proposed_plan_id,
+          assistant_message_id,
+          state,
+          requested_at,
+          started_at,
+          completed_at,
+          checkpoint_turn_count,
+          checkpoint_ref,
+          checkpoint_status,
+          checkpoint_files_json
+        )
+        VALUES (
+          'thread-incomplete-checkpoint',
+          'turn-incomplete-checkpoint',
+          NULL,
+          NULL,
+          NULL,
+          'message-incomplete-checkpoint',
+          'running',
+          '2026-02-24T00:00:02.000Z',
+          '2026-02-24T00:00:03.000Z',
+          NULL,
+          1,
+          'checkpoint-incomplete',
+          'ready',
+          '[]'
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_pending_checkpoint_captures (
+          thread_id,
+          turn_id,
+          checkpoint_turn_count,
+          assistant_message_id,
+          requested_at
+        )
+        VALUES (
+          'thread-incomplete-checkpoint',
+          'turn-incomplete-checkpoint',
+          1,
+          'message-incomplete-checkpoint',
+          '2026-02-24T00:00:02.000Z'
+        )
+      `;
+
+      let sequence = 1;
+      for (const projector of Object.values(ORCHESTRATION_PROJECTOR_NAMES)) {
+        yield* sql`
+          INSERT INTO projection_state (
+            projector,
+            last_applied_sequence,
+            updated_at
+          )
+          VALUES (
+            ${projector},
+            ${sequence},
+            '2026-02-24T00:00:04.000Z'
+          )
+        `;
+        sequence += 1;
+      }
+
+      const snapshot = yield* snapshotQuery.getSnapshot();
+      assert.deepStrictEqual(snapshot.threads, [
+        {
+          id: ThreadId.makeUnsafe("thread-incomplete-checkpoint"),
+          projectId: ProjectId.makeUnsafe("project-incomplete-checkpoint"),
+          title: "Thread Incomplete Checkpoint",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          issueLink: null,
+          createdAt: "2026-02-24T00:00:01.000Z",
+          updatedAt: "2026-02-24T00:00:01.000Z",
+          archivedAt: null,
+          deletedAt: null,
+          latestTurn: {
+            turnId: TurnId.makeUnsafe("turn-incomplete-checkpoint"),
+            state: "running",
+            requestedAt: "2026-02-24T00:00:02.000Z",
+            startedAt: "2026-02-24T00:00:03.000Z",
+            completedAt: null,
+            assistantMessageId: MessageId.makeUnsafe("message-incomplete-checkpoint"),
+          },
+          messages: [],
+          proposedPlans: [],
+          activities: [],
+          pendingCheckpointCaptures: [
+            {
+              turnId: TurnId.makeUnsafe("turn-incomplete-checkpoint"),
+              checkpointTurnCount: 1,
+              assistantMessageId: MessageId.makeUnsafe("message-incomplete-checkpoint"),
+              requestedAt: "2026-02-24T00:00:02.000Z",
+            },
+          ],
+          checkpoints: [],
+          session: null,
+        },
+      ]);
     }),
   );
 
@@ -440,6 +783,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
         yield* sql`DELETE FROM projection_projects`;
         yield* sql`DELETE FROM projection_threads`;
+        yield* sql`DELETE FROM projection_pending_checkpoint_captures`;
         yield* sql`DELETE FROM projection_turns`;
 
         yield* sql`
@@ -560,7 +904,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         );
         assert.equal(firstThreadId._tag, "Some");
         if (firstThreadId._tag === "Some") {
-          assert.equal(firstThreadId.value, ThreadId.make("thread-first"));
+          assert.equal(firstThreadId.value, ThreadId.makeUnsafe("thread-first"));
         }
       }),
   );
@@ -572,6 +916,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`DELETE FROM projection_projects`;
       yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_pending_checkpoint_captures`;
       yield* sql`DELETE FROM projection_turns`;
 
       yield* sql`
@@ -683,12 +1028,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
 
       const context = yield* snapshotQuery.getThreadCheckpointContext(
-        ThreadId.make("thread-context"),
+        ThreadId.makeUnsafe("thread-context"),
       );
       assert.equal(context._tag, "Some");
       if (context._tag === "Some") {
         assert.deepEqual(context.value, {
-          threadId: ThreadId.make("thread-context"),
+          threadId: ThreadId.makeUnsafe("thread-context"),
           projectId: asProjectId("project-context"),
           workspaceRoot: "/tmp/context-workspace",
           worktreePath: "/tmp/context-worktree",

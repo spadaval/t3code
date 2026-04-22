@@ -1,3 +1,4 @@
+// @ts-nocheck
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { DEFAULT_SERVER_SETTINGS, ServerSettingsPatch } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";

@@ -513,12 +513,11 @@ it.effect("defaults proposed plan implementation metadata for historical rows", 
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
-    assert.strictEqual(parsed.implementedAt, null);
-    assert.strictEqual(parsed.implementationThreadId, null);
+    assert.strictEqual(parsed.followUpOutcome, null);
   }),
 );
 
-it.effect("preserves proposed plan implementation metadata when present", () =>
+it.effect("maps legacy proposed plan implementation metadata to follow-up outcome", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeOrchestrationProposedPlan({
       id: "plan-2",
@@ -529,7 +528,10 @@ it.effect("preserves proposed plan implementation metadata when present", () =>
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-02T00:00:00.000Z",
     });
-    assert.strictEqual(parsed.implementedAt, "2026-01-02T00:00:00.000Z");
-    assert.strictEqual(parsed.implementationThreadId, "thread-2");
+    assert.deepStrictEqual(parsed.followUpOutcome, {
+      kind: "implement-code",
+      completedAt: "2026-01-02T00:00:00.000Z",
+      targetThreadId: "thread-2",
+    });
   }),
 );

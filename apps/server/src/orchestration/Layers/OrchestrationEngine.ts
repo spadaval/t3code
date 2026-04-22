@@ -1,9 +1,4 @@
-import type {
-  OrchestrationEvent,
-  OrchestrationReadModel,
-  ProjectId,
-  ThreadId,
-} from "@t3tools/contracts";
+import type { OrchestrationEvent, OrchestrationReadModel } from "@t3tools/contracts";
 import { OrchestrationCommand } from "@t3tools/contracts";
 import {
   Cause,
@@ -51,8 +46,8 @@ interface CommandEnvelope {
 }
 
 function commandToAggregateRef(command: OrchestrationCommand): {
-  readonly aggregateKind: "project" | "thread";
-  readonly aggregateId: ProjectId | ThreadId;
+  readonly aggregateKind: OrchestrationEvent["aggregateKind"];
+  readonly aggregateId: OrchestrationEvent["aggregateId"];
 } {
   switch (command.type) {
     case "project.create":
@@ -61,6 +56,33 @@ function commandToAggregateRef(command: OrchestrationCommand): {
       return {
         aggregateKind: "project",
         aggregateId: command.projectId,
+      };
+    case "plan-implementation-launch.request":
+    case "plan-implementation-launch.mark-worktree-prepared":
+    case "plan-implementation-launch.mark-started":
+    case "plan-implementation-launch.fail":
+    case "plan-implementation-launch.cancel":
+      return {
+        aggregateKind: "planImplementationLaunch",
+        aggregateId: command.launchId,
+      };
+    case "epic-run.request":
+    case "epic-run.mark-started":
+    case "epic-run.fail":
+    case "epic-run.stop":
+    case "epic-run.complete":
+      return {
+        aggregateKind: "epicRun",
+        aggregateId: command.runId,
+      };
+    case "epic-issue-execution.request":
+    case "epic-issue-execution.start":
+    case "epic-issue-execution.complete":
+    case "epic-issue-execution.fail":
+    case "epic-issue-execution.stop":
+      return {
+        aggregateKind: "epicIssueExecution",
+        aggregateId: command.executionId,
       };
     default:
       return {

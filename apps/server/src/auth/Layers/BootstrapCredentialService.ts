@@ -290,7 +290,6 @@ export const makeBootstrapCredentialService = Effect.gen(function* () {
   } satisfies BootstrapCredentialServiceShape;
 });
 
-export const BootstrapCredentialServiceLive = Layer.effect(
-  BootstrapCredentialService,
+export const BootstrapCredentialServiceLive = Layer.effect(BootstrapCredentialService)(
   makeBootstrapCredentialService,
 ).pipe(Layer.provideMerge(AuthPairingLinkRepositoryLive));

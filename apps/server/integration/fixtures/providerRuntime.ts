@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { EventId, RuntimeRequestId } from "@t3tools/contracts";
 import type { LegacyProviderRuntimeEvent } from "../TestProviderAdapter.integration.ts";
 

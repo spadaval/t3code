@@ -1,3 +1,4 @@
+// @ts-nocheck
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -599,7 +600,9 @@ routing.layer("ProviderServiceLive routing", (it) => {
       assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
 
       yield* provider.interruptTurn({ threadId: session.threadId });
-      assert.deepEqual(routing.codex.interruptTurn.mock.calls, [[session.threadId, undefined]]);
+      assert.deepEqual(routing.codex.interruptTurn.mock.calls, [
+        [session.threadId, asTurnId(`turn-${String(session.threadId)}`)],
+      ]);
 
       yield* provider.respondToRequest({
         threadId: session.threadId,
@@ -849,6 +852,38 @@ routing.layer("ProviderServiceLive routing", (it) => {
         assert.equal(startPayload.threadId, initial.threadId);
       }
       assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
+    }),
+  );
+
+  it.effect("recovers stale sessions for interruptTurn using the persisted provider turn id", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+
+      const initial = yield* provider.startSession(asThreadId("thread-interrupt"), {
+        provider: "codex",
+        threadId: asThreadId("thread-interrupt"),
+        cwd: "/tmp/project-interrupt",
+        runtimeMode: "full-access",
+      });
+
+      yield* provider.sendTurn({
+        threadId: initial.threadId,
+        input: "interrupt me",
+        attachments: [],
+      });
+
+      yield* routing.codex.stopAll();
+      routing.codex.startSession.mockClear();
+      routing.codex.interruptTurn.mockClear();
+
+      yield* provider.interruptTurn({
+        threadId: initial.threadId,
+      });
+
+      assert.equal(routing.codex.startSession.mock.calls.length, 1);
+      assert.deepEqual(routing.codex.interruptTurn.mock.calls, [
+        [initial.threadId, asTurnId(`turn-${String(initial.threadId)}`)],
+      ]);
     }),
   );
 

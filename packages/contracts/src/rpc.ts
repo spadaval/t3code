@@ -10,6 +10,40 @@ import {
   FilesystemBrowseError,
 } from "./filesystem.ts";
 import {
+  BeadsContext,
+  BeadsCommentIssueInput,
+  BeadsError,
+  BeadsEpicIssueSummaries,
+  BeadsEpicIssueSummariesInput,
+  BeadsEpicIssueInput,
+  BeadsEpicCoordinationDetail,
+  BeadsEpicCoordinationDetailInput,
+  BeadsGetIssueInput,
+  BeadsGetIssuesInput,
+  BeadsGetIssuesResult,
+  BeadsGetContextInput,
+  BeadsGetSessionActivityInput,
+  BeadsGetSessionActivityResult,
+  BeadsIssueDetail,
+  BeadsIssueGraph,
+  BeadsIssueSummary,
+  BeadsProjectRunSummary,
+  BeadsProjectRunSummaryInput,
+  BeadsQueryIssuesInput,
+  BeadsQueryIssuesResult,
+  BeadsStartBacklogGroomingInput,
+  BeadsStartWorkflowInput,
+  BeadsStartWorkflowResult,
+  BeadsStartEpicPlannedRefineInput,
+  BeadsStartEpicQuickRefineInput,
+  BeadsStartEpicCoordinationPrepInput,
+  BeadsEpicCoordinationStatus,
+  BeadsEpicCoordinationValidation,
+  BeadsUpdateIssueInput,
+  BeadsCreateIssueInput,
+  BEADS_WS_METHODS,
+} from "./beads.ts";
+import {
   GitActionProgressEvent,
   GitCheckoutInput,
   GitCheckoutResult,
@@ -36,7 +70,11 @@ import {
 } from "./git.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
 import {
+  OrchestrationStopEpicRunInput,
   ClientOrchestrationCommand,
+  OrchestrationCancelPlanImplementationLaunchInput,
+  OrchestrationCancelPlanImplementationLaunchResult,
+  OrchestrationEvent,
   ORCHESTRATION_WS_METHODS,
   OrchestrationDispatchCommandError,
   OrchestrationGetFullThreadDiffError,
@@ -44,9 +82,14 @@ import {
   OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
   OrchestrationGetTurnDiffInput,
+  OrchestrationLaunchPlanImplementationInput,
+  OrchestrationLaunchPlanImplementationResult,
   OrchestrationReplayEventsError,
   OrchestrationReplayEventsInput,
   OrchestrationRpcSchemas,
+  OrchestrationRetryPlanImplementationLaunchInput,
+  OrchestrationStartEpicRunInput,
+  OrchestrationEpicRunControlResult,
 } from "./orchestration.ts";
 import {
   ProjectSearchEntriesError,
@@ -125,6 +168,7 @@ export const WS_METHODS = {
   subscribeServerConfig: "subscribeServerConfig",
   subscribeServerLifecycle: "subscribeServerLifecycle",
   subscribeAuthAccess: "subscribeAuthAccess",
+  subscribeOrchestrationDomainEvents: "subscribeOrchestrationDomainEvents",
 } as const;
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
@@ -283,6 +327,132 @@ export const WsTerminalCloseRpc = Rpc.make(WS_METHODS.terminalClose, {
   error: TerminalError,
 });
 
+export const WsBeadsQueryIssuesRpc = Rpc.make(BEADS_WS_METHODS.queryIssues, {
+  payload: BeadsQueryIssuesInput,
+  success: BeadsQueryIssuesResult,
+  error: BeadsError,
+});
+
+export const WsBeadsGetIssueRpc = Rpc.make(BEADS_WS_METHODS.getIssue, {
+  payload: BeadsGetIssueInput,
+  success: BeadsIssueDetail,
+  error: BeadsError,
+});
+
+export const WsBeadsGetIssuesRpc = Rpc.make(BEADS_WS_METHODS.getIssues, {
+  payload: BeadsGetIssuesInput,
+  success: BeadsGetIssuesResult,
+  error: BeadsError,
+});
+
+export const WsBeadsUpdateIssueRpc = Rpc.make(BEADS_WS_METHODS.updateIssue, {
+  payload: BeadsUpdateIssueInput,
+  success: BeadsIssueSummary,
+  error: BeadsError,
+});
+
+export const WsBeadsCreateIssueRpc = Rpc.make(BEADS_WS_METHODS.createIssue, {
+  payload: BeadsCreateIssueInput,
+  success: BeadsIssueSummary,
+  error: BeadsError,
+});
+
+export const WsBeadsCommentIssueRpc = Rpc.make(BEADS_WS_METHODS.commentIssue, {
+  payload: BeadsCommentIssueInput,
+  success: BeadsIssueDetail,
+  error: BeadsError,
+});
+
+export const WsBeadsGetSessionActivityRpc = Rpc.make(BEADS_WS_METHODS.getSessionActivity, {
+  payload: BeadsGetSessionActivityInput,
+  success: BeadsGetSessionActivityResult,
+  error: BeadsError,
+});
+
+export const WsBeadsStartWorkflowRpc = Rpc.make(BEADS_WS_METHODS.startWorkflow, {
+  payload: BeadsStartWorkflowInput,
+  success: BeadsStartWorkflowResult,
+  error: BeadsError,
+});
+
+export const WsBeadsStartBacklogGroomingRpc = Rpc.make(BEADS_WS_METHODS.startBacklogGrooming, {
+  payload: BeadsStartBacklogGroomingInput,
+  success: BeadsStartWorkflowResult,
+  error: BeadsError,
+});
+
+export const WsBeadsGetContextRpc = Rpc.make(BEADS_WS_METHODS.getContext, {
+  payload: BeadsGetContextInput,
+  success: BeadsContext,
+  error: BeadsError,
+});
+
+export const WsBeadsGetIssueGraphRpc = Rpc.make(BEADS_WS_METHODS.getIssueGraph, {
+  payload: BeadsEpicIssueInput,
+  success: BeadsIssueGraph,
+  error: BeadsError,
+});
+
+export const WsBeadsValidateEpicCoordinationRpc = Rpc.make(
+  BEADS_WS_METHODS.validateEpicCoordination,
+  {
+    payload: BeadsEpicIssueInput,
+    success: BeadsEpicCoordinationValidation,
+    error: BeadsError,
+  },
+);
+
+export const WsBeadsGetEpicCoordinationStatusRpc = Rpc.make(
+  BEADS_WS_METHODS.getEpicCoordinationStatus,
+  {
+    payload: BeadsEpicIssueInput,
+    success: BeadsEpicCoordinationStatus,
+    error: BeadsError,
+  },
+);
+
+export const WsBeadsGetProjectRunSummaryRpc = Rpc.make(BEADS_WS_METHODS.getProjectRunSummary, {
+  payload: BeadsProjectRunSummaryInput,
+  success: BeadsProjectRunSummary,
+  error: BeadsError,
+});
+
+export const WsBeadsGetEpicIssueSummariesRpc = Rpc.make(BEADS_WS_METHODS.getEpicIssueSummaries, {
+  payload: BeadsEpicIssueSummariesInput,
+  success: BeadsEpicIssueSummaries,
+  error: BeadsError,
+});
+
+export const WsBeadsGetEpicCoordinationDetailRpc = Rpc.make(
+  BEADS_WS_METHODS.getEpicCoordinationDetail,
+  {
+    payload: BeadsEpicCoordinationDetailInput,
+    success: BeadsEpicCoordinationDetail,
+    error: BeadsError,
+  },
+);
+
+export const WsBeadsStartEpicQuickRefineRpc = Rpc.make(BEADS_WS_METHODS.startEpicQuickRefine, {
+  payload: BeadsStartEpicQuickRefineInput,
+  success: BeadsStartWorkflowResult,
+  error: BeadsError,
+});
+
+export const WsBeadsStartEpicPlannedRefineRpc = Rpc.make(BEADS_WS_METHODS.startEpicPlannedRefine, {
+  payload: BeadsStartEpicPlannedRefineInput,
+  success: BeadsStartWorkflowResult,
+  error: BeadsError,
+});
+
+export const WsBeadsStartEpicCoordinationPrepRpc = Rpc.make(
+  BEADS_WS_METHODS.startEpicCoordinationPrep,
+  {
+    payload: BeadsStartEpicCoordinationPrepInput,
+    success: BeadsStartWorkflowResult,
+    error: BeadsError,
+  },
+);
+
 export const WsOrchestrationDispatchCommandRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.dispatchCommand,
   {
@@ -326,6 +496,53 @@ export const WsOrchestrationSubscribeThreadRpc = Rpc.make(
     payload: OrchestrationRpcSchemas.subscribeThread.input,
     success: OrchestrationRpcSchemas.subscribeThread.output,
     error: OrchestrationGetSnapshotError,
+    stream: true,
+  },
+);
+
+export const WsOrchestrationLaunchPlanImplementationRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.launchPlanImplementation,
+  {
+    payload: OrchestrationLaunchPlanImplementationInput,
+    success: OrchestrationLaunchPlanImplementationResult,
+    error: OrchestrationDispatchCommandError,
+  },
+);
+
+export const WsOrchestrationCancelPlanImplementationLaunchRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.cancelPlanImplementationLaunch,
+  {
+    payload: OrchestrationCancelPlanImplementationLaunchInput,
+    success: OrchestrationCancelPlanImplementationLaunchResult,
+    error: OrchestrationDispatchCommandError,
+  },
+);
+
+export const WsOrchestrationRetryPlanImplementationLaunchRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.retryPlanImplementationLaunch,
+  {
+    payload: OrchestrationRetryPlanImplementationLaunchInput,
+    success: OrchestrationLaunchPlanImplementationResult,
+    error: OrchestrationDispatchCommandError,
+  },
+);
+
+export const WsOrchestrationStartEpicRunRpc = Rpc.make(ORCHESTRATION_WS_METHODS.startEpicRun, {
+  payload: OrchestrationStartEpicRunInput,
+  success: OrchestrationEpicRunControlResult,
+  error: OrchestrationDispatchCommandError,
+});
+export const WsOrchestrationStopEpicRunRpc = Rpc.make(ORCHESTRATION_WS_METHODS.stopEpicRun, {
+  payload: OrchestrationStopEpicRunInput,
+  success: OrchestrationEpicRunControlResult,
+  error: OrchestrationDispatchCommandError,
+});
+
+export const WsSubscribeOrchestrationDomainEventsRpc = Rpc.make(
+  WS_METHODS.subscribeOrchestrationDomainEvents,
+  {
+    payload: Schema.Struct({}),
+    success: OrchestrationEvent,
     stream: true,
   },
 );
@@ -383,6 +600,26 @@ export const WsRpcGroup = RpcGroup.make(
   WsTerminalClearRpc,
   WsTerminalRestartRpc,
   WsTerminalCloseRpc,
+  WsBeadsQueryIssuesRpc,
+  WsBeadsGetIssueRpc,
+  WsBeadsGetIssuesRpc,
+  WsBeadsUpdateIssueRpc,
+  WsBeadsCreateIssueRpc,
+  WsBeadsCommentIssueRpc,
+  WsBeadsGetSessionActivityRpc,
+  WsBeadsStartWorkflowRpc,
+  WsBeadsStartBacklogGroomingRpc,
+  WsBeadsGetContextRpc,
+  WsBeadsGetIssueGraphRpc,
+  WsBeadsValidateEpicCoordinationRpc,
+  WsBeadsGetEpicCoordinationStatusRpc,
+  WsBeadsGetProjectRunSummaryRpc,
+  WsBeadsGetEpicIssueSummariesRpc,
+  WsBeadsGetEpicCoordinationDetailRpc,
+  WsBeadsStartEpicQuickRefineRpc,
+  WsBeadsStartEpicPlannedRefineRpc,
+  WsBeadsStartEpicCoordinationPrepRpc,
+  WsSubscribeOrchestrationDomainEventsRpc,
   WsSubscribeTerminalEventsRpc,
   WsSubscribeServerConfigRpc,
   WsSubscribeServerLifecycleRpc,
@@ -393,4 +630,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationReplayEventsRpc,
   WsOrchestrationSubscribeShellRpc,
   WsOrchestrationSubscribeThreadRpc,
+  WsOrchestrationLaunchPlanImplementationRpc,
+  WsOrchestrationCancelPlanImplementationLaunchRpc,
+  WsOrchestrationRetryPlanImplementationLaunchRpc,
+  WsOrchestrationStartEpicRunRpc,
+  WsOrchestrationStopEpicRunRpc,
 );

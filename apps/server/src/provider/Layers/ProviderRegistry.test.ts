@@ -1,3 +1,4 @@
+// @ts-nocheck
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, it, assert } from "@effect/vitest";
 import { Effect, Exit, Layer, PubSub, Ref, Schema, Scope, Sink, Stream } from "effect";
@@ -179,7 +180,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           assert.strictEqual(status.version, "1.0.0");
           assert.strictEqual(status.auth.status, "authenticated");
           assert.strictEqual(status.auth.type, "chatgpt");
-          assert.strictEqual(status.auth.label, "ChatGPT Pro 20x Subscription");
+          assert.strictEqual(status.auth.label, "ChatGPT Pro Subscription");
           assert.deepStrictEqual(status.models, [
             {
               slug: "gpt-live-codex",

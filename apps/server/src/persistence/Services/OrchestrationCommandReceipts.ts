@@ -12,7 +12,10 @@ import {
   NonNegativeInt,
   OrchestrationAggregateKind,
   OrchestrationCommandReceiptStatus,
+  PlanImplementationLaunchId,
   ProjectId,
+  EpicRunId,
+  EpicIssueExecutionId,
   ThreadId,
 } from "@t3tools/contracts";
 import { Option, Schema, Context } from "effect";
@@ -23,7 +26,13 @@ import type { OrchestrationCommandReceiptRepositoryError } from "../Errors.ts";
 export const OrchestrationCommandReceipt = Schema.Struct({
   commandId: CommandId,
   aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([ProjectId, ThreadId]),
+  aggregateId: Schema.Union([
+    ProjectId,
+    ThreadId,
+    PlanImplementationLaunchId,
+    EpicRunId,
+    EpicIssueExecutionId,
+  ]),
   acceptedAt: IsoDateTime,
   resultSequence: NonNegativeInt,
   status: OrchestrationCommandReceiptStatus,

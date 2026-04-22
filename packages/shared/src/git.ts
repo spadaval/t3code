@@ -6,8 +6,6 @@ import type {
   GitStatusResult,
   GitStatusStreamEvent,
 } from "@t3tools/contracts";
-import * as Effect from "effect/Effect";
-import * as Random from "effect/Random";
 
 export const WORKTREE_BRANCH_PREFIX = "t3code";
 const TEMP_WORKTREE_BRANCH_PATTERN = new RegExp(`^${WORKTREE_BRANCH_PREFIX}\\/[0-9a-f]{8}$`);
@@ -74,6 +72,30 @@ export function resolveAutoFeatureBranchName(
   return `${resolvedBase}-${suffix}`;
 }
 
+export function buildTemporaryWorktreeBranchName(): string {
+  const token = globalThis.crypto?.randomUUID?.().slice(0, 8).toLowerCase();
+  if (token && token.length === 8) {
+    return `${WORKTREE_BRANCH_PREFIX}/${token}`;
+  }
+  const fallbackToken = Math.random().toString(16).slice(2, 10).padEnd(8, "0");
+  return `${WORKTREE_BRANCH_PREFIX}/${fallbackToken}`;
+}
+
+export function isTemporaryWorktreeBranchName(branch: string): boolean {
+  return TEMP_WORKTREE_BRANCH_PATTERN.test(branch.trim().toLowerCase());
+}
+
+export function resolveDefaultLocalBranchName(
+  branches: ReadonlyArray<{
+    readonly name: string;
+    readonly isDefault: boolean;
+    readonly isRemote?: boolean | undefined;
+  }>,
+): string | null {
+  const branch = branches.find((entry) => entry.isDefault && entry.isRemote !== true);
+  return branch?.name ?? null;
+}
+
 /**
  * Strip the remote prefix from a remote ref such as `origin/feature/demo`.
  */
@@ -83,11 +105,6 @@ export function deriveLocalBranchNameFromRemoteRef(branchName: string): string {
     return branchName;
   }
   return branchName.slice(firstSeparatorIndex + 1);
-}
-
-export function buildTemporaryWorktreeBranchName(): string {
-  const token = Effect.runSync(Random.nextUUIDv4).replace(/-/g, "").slice(0, 8).toLowerCase();
-  return `${WORKTREE_BRANCH_PREFIX}/${token}`;
 }
 
 export function isTemporaryWorktreeBranch(branch: string): boolean {

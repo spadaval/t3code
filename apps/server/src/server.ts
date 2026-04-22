@@ -52,6 +52,9 @@ import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
 import { ProjectSetupScriptRunnerLive } from "./project/Layers/ProjectSetupScriptRunner.ts";
 import { ObservabilityLive } from "./observability/Layers/Observability.ts";
 import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment.ts";
+import { PlanImplementationWorkflowLive } from "./orchestration/Layers/PlanImplementationWorkflow.ts";
+import { EpicRunSchedulerLive } from "./orchestration/Layers/EpicRunScheduler.ts";
+import { BeadsServiceLive, BeadsTrackerServiceLive } from "./beads/Layers/BeadsService.ts";
 import {
   authBearerBootstrapRouteLayer,
   authBootstrapRouteLayer,
@@ -132,6 +135,8 @@ const ReactorLayerLive = Layer.empty.pipe(
   Layer.provideMerge(ProviderCommandReactorLive),
   Layer.provideMerge(CheckpointReactorLive),
   Layer.provideMerge(ThreadDeletionReactorLive),
+  Layer.provideMerge(PlanImplementationWorkflowLive),
+  Layer.provideMerge(EpicRunSchedulerLive),
   Layer.provideMerge(RuntimeReceiptBusLive),
 );
 
@@ -224,6 +229,16 @@ const ProviderRuntimeLayerLive = ProviderSessionReaperLive.pipe(
   Layer.provideMerge(OrchestrationLayerLive),
 );
 
+const BeadsTrackerLayerLive = BeadsTrackerServiceLive;
+
+const BeadsLayerLive = Layer.mergeAll(
+  BeadsTrackerLayerLive,
+  BeadsServiceLive.pipe(
+    Layer.provide(BeadsTrackerLayerLive),
+    Layer.provide(OrchestrationLayerLive),
+  ),
+).pipe(Layer.provide(PersistenceLayerLive));
+
 const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   // Core Services
   Layer.provideMerge(CheckpointingLayerLive),
@@ -239,6 +254,7 @@ const RuntimeDependenciesLive = ReactorLayerLive.pipe(
   Layer.provideMerge(RepositoryIdentityResolverLive),
   Layer.provideMerge(ServerEnvironmentLive),
   Layer.provideMerge(AuthLayerLive),
+  Layer.provideMerge(BeadsLayerLive),
 
   // Misc.
   Layer.provideMerge(AnalyticsServiceLayerLive),

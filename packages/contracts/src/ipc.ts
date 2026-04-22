@@ -1,24 +1,77 @@
 import type {
+  BeadsContext,
+  BeadsCommentIssueInput,
+  BeadsCreateIssueInput,
+  BeadsEpicIssueSummaries,
+  BeadsEpicIssueSummariesInput,
+  BeadsEpicIssueInput,
+  BeadsEpicCoordinationDetail,
+  BeadsEpicCoordinationDetailInput,
+  BeadsEpicCoordinationValidation,
+  BeadsEpicCoordinationStatus,
+  BeadsGetContextInput,
+  BeadsGetIssueInput,
+  BeadsGetIssuesInput,
+  BeadsGetIssuesResult,
+  BeadsGetSessionActivityInput,
+  BeadsGetSessionActivityResult,
+  BeadsIssueDetail,
+  BeadsIssueGraph,
+  BeadsIssueSummary,
+  BeadsProjectRunSummary,
+  BeadsProjectRunSummaryInput,
+  BeadsQueryIssuesInput,
+  BeadsQueryIssuesResult,
+  BeadsStartBacklogGroomingInput,
+  BeadsStartEpicCoordinationPrepInput,
+  BeadsStartEpicPlannedRefineInput,
+  BeadsStartEpicQuickRefineInput,
+  BeadsStartWorkflowInput,
+  BeadsStartWorkflowResult,
+  BeadsUpdateIssueInput,
+} from "./beads.ts";
+import type { EnvironmentId } from "./baseSchemas.ts";
+import { EditorId } from "./editor.ts";
+import type {
   GitCheckoutInput,
   GitCheckoutResult,
   GitCreateBranchInput,
-  GitPreparePullRequestThreadInput,
-  GitPreparePullRequestThreadResult,
-  GitPullRequestRefInput,
+  GitCreateBranchResult,
   GitCreateWorktreeInput,
   GitCreateWorktreeResult,
   GitInitInput,
   GitListBranchesInput,
   GitListBranchesResult,
+  GitPreparePullRequestThreadInput,
+  GitPreparePullRequestThreadResult,
   GitPullInput,
+  GitPullRequestRefInput,
   GitPullResult,
   GitRemoveWorktreeInput,
   GitResolvePullRequestResult,
   GitStatusInput,
   GitStatusResult,
-  GitCreateBranchResult,
 } from "./git.ts";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem.ts";
+import type {
+  ClientOrchestrationCommand,
+  OrchestrationCancelPlanImplementationLaunchInput,
+  OrchestrationCancelPlanImplementationLaunchResult,
+  OrchestrationEpicRunControlResult,
+  OrchestrationEvent,
+  OrchestrationGetFullThreadDiffInput,
+  OrchestrationGetFullThreadDiffResult,
+  OrchestrationGetTurnDiffInput,
+  OrchestrationGetTurnDiffResult,
+  OrchestrationLaunchPlanImplementationInput,
+  OrchestrationLaunchPlanImplementationResult,
+  OrchestrationRetryPlanImplementationLaunchInput,
+  OrchestrationStartEpicRunInput,
+  OrchestrationStopEpicRunInput,
+  OrchestrationShellStreamItem,
+  OrchestrationSubscribeThreadInput,
+  OrchestrationThreadStreamItem,
+} from "./orchestration.ts";
 import type {
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
@@ -28,6 +81,7 @@ import type {
 import type {
   ServerConfig,
   ServerProviderUpdatedPayload,
+  ServerUpsertKeybindingInput,
   ServerUpsertKeybindingResult,
 } from "./server.ts";
 import type {
@@ -40,19 +94,6 @@ import type {
   TerminalSessionSnapshot,
   TerminalWriteInput,
 } from "./terminal.ts";
-import type { ServerUpsertKeybindingInput } from "./server.ts";
-import type {
-  ClientOrchestrationCommand,
-  OrchestrationGetFullThreadDiffInput,
-  OrchestrationGetFullThreadDiffResult,
-  OrchestrationGetTurnDiffInput,
-  OrchestrationGetTurnDiffResult,
-  OrchestrationShellStreamItem,
-  OrchestrationSubscribeThreadInput,
-  OrchestrationThreadStreamItem,
-} from "./orchestration.ts";
-import type { EnvironmentId } from "./baseSchemas.ts";
-import { EditorId } from "./editor.ts";
 import { ServerSettings, type ClientSettings, type ServerSettingsPatch } from "./settings.ts";
 
 export interface ContextMenuItem<T extends string = string> {
@@ -227,9 +268,9 @@ export interface LocalApi {
  *
  * These operations must always be routed with explicit environment context.
  * They represent remote stateful capabilities such as orchestration, terminal,
- * project, and git operations. In multi-environment mode, each environment gets
- * its own instance of this surface, and callers should resolve it by
- * `environmentId` rather than reaching through the local desktop bridge.
+ * project, git, and beads operations. In multi-environment mode, each
+ * environment gets its own instance of this surface, and callers should resolve
+ * it by `environmentId` rather than reaching through the local desktop bridge.
  */
 export interface EnvironmentApi {
   terminal: {
@@ -288,5 +329,64 @@ export interface EnvironmentApi {
         onResubscribe?: () => void;
       },
     ) => () => void;
+    replayEvents: (fromSequenceExclusive: number) => Promise<OrchestrationEvent[]>;
+    launchPlanImplementation: (
+      input: OrchestrationLaunchPlanImplementationInput,
+    ) => Promise<OrchestrationLaunchPlanImplementationResult>;
+    cancelPlanImplementationLaunch: (
+      input: OrchestrationCancelPlanImplementationLaunchInput,
+    ) => Promise<OrchestrationCancelPlanImplementationLaunchResult>;
+    retryPlanImplementationLaunch: (
+      input: OrchestrationRetryPlanImplementationLaunchInput,
+    ) => Promise<OrchestrationLaunchPlanImplementationResult>;
+    startEpicRun: (
+      input: OrchestrationStartEpicRunInput,
+    ) => Promise<OrchestrationEpicRunControlResult>;
+    stopEpicRun: (
+      input: OrchestrationStopEpicRunInput,
+    ) => Promise<OrchestrationEpicRunControlResult>;
+    onDomainEvent: (
+      callback: (event: OrchestrationEvent) => void,
+      options?: {
+        onResubscribe?: () => void;
+      },
+    ) => () => void;
+  };
+  beads: {
+    queryIssues: (input: BeadsQueryIssuesInput) => Promise<BeadsQueryIssuesResult>;
+    getIssue: (input: BeadsGetIssueInput) => Promise<BeadsIssueDetail>;
+    getIssues: (input: BeadsGetIssuesInput) => Promise<BeadsGetIssuesResult>;
+    createIssue: (input: BeadsCreateIssueInput) => Promise<BeadsIssueSummary>;
+    updateIssue: (input: BeadsUpdateIssueInput) => Promise<BeadsIssueSummary>;
+    commentIssue: (input: BeadsCommentIssueInput) => Promise<BeadsIssueDetail>;
+    getContext: (input: BeadsGetContextInput) => Promise<BeadsContext>;
+    getIssueGraph: (input: BeadsEpicIssueInput) => Promise<BeadsIssueGraph>;
+    validateEpicCoordination: (
+      input: BeadsEpicIssueInput,
+    ) => Promise<BeadsEpicCoordinationValidation>;
+    getEpicCoordinationStatus: (input: BeadsEpicIssueInput) => Promise<BeadsEpicCoordinationStatus>;
+    getProjectRunSummary: (input: BeadsProjectRunSummaryInput) => Promise<BeadsProjectRunSummary>;
+    getEpicIssueSummaries: (
+      input: BeadsEpicIssueSummariesInput,
+    ) => Promise<BeadsEpicIssueSummaries>;
+    getEpicCoordinationDetail: (
+      input: BeadsEpicCoordinationDetailInput,
+    ) => Promise<BeadsEpicCoordinationDetail>;
+    getSessionActivity: (
+      input: BeadsGetSessionActivityInput,
+    ) => Promise<BeadsGetSessionActivityResult>;
+    startWorkflow: (input: BeadsStartWorkflowInput) => Promise<BeadsStartWorkflowResult>;
+    startBacklogGrooming: (
+      input: BeadsStartBacklogGroomingInput,
+    ) => Promise<BeadsStartWorkflowResult>;
+    startEpicQuickRefine: (
+      input: BeadsStartEpicQuickRefineInput,
+    ) => Promise<BeadsStartWorkflowResult>;
+    startEpicPlannedRefine: (
+      input: BeadsStartEpicPlannedRefineInput,
+    ) => Promise<BeadsStartWorkflowResult>;
+    startEpicCoordinationPrep: (
+      input: BeadsStartEpicCoordinationPrepInput,
+    ) => Promise<BeadsStartWorkflowResult>;
   };
 }

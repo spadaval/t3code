@@ -468,7 +468,6 @@ function readNotificationThreadId(notification: CodexServerNotification): string
     case "item/commandExecution/outputDelta":
     case "item/commandExecution/terminalInteraction":
     case "item/fileChange/outputDelta":
-    case "item/fileChange/patchUpdated":
     case "serverRequest/resolved":
     case "item/mcpToolCall/progress":
     case "item/reasoning/summaryTextDelta":
@@ -477,8 +476,7 @@ function readNotificationThreadId(notification: CodexServerNotification): string
     case "thread/compacted":
     case "thread/realtime/started":
     case "thread/realtime/itemAdded":
-    case "thread/realtime/transcript/delta":
-    case "thread/realtime/transcript/done":
+    case "thread/realtime/transcriptUpdated":
     case "thread/realtime/outputAudio/delta":
     case "thread/realtime/sdp":
     case "thread/realtime/error":
@@ -532,7 +530,6 @@ function readRouteFields(notification: CodexServerNotification): {
     case "item/commandExecution/outputDelta":
     case "item/commandExecution/terminalInteraction":
     case "item/fileChange/outputDelta":
-    case "item/fileChange/patchUpdated":
     case "item/reasoning/summaryTextDelta":
     case "item/reasoning/summaryPartAdded":
     case "item/reasoning/textDelta":

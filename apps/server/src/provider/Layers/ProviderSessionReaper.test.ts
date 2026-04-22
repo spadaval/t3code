@@ -83,6 +83,7 @@ function makeReadModel(
       runtimeMode: "full-access" as const,
       branch: null,
       worktreePath: null,
+      issueLink: null,
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
@@ -92,8 +93,12 @@ function makeReadModel(
       activities: [],
       proposedPlans: [],
       checkpoints: [],
+      pendingCheckpointCaptures: [],
       deletedAt: null,
     })),
+    planImplementationLaunches: [],
+    epicRuns: [],
+    epicIssueExecutions: [],
   };
 }
 

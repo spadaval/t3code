@@ -19,8 +19,7 @@ import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { GitStatusBroadcaster } from "../../git/Services/GitStatusBroadcaster.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
-import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
-import type { ProviderServiceError } from "../../provider/Errors.ts";
+import { ProviderAdapterRequestError, type ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -70,12 +69,22 @@ const turnStartKeyForEvent = (event: ProviderIntentEvent): string =>
   event.commandId !== null ? `command:${event.commandId}` : `event:${event.eventId}`;
 
 const serverCommandId = (tag: string): CommandId =>
-  CommandId.make(`server:${tag}:${crypto.randomUUID()}`);
+  CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
 
 const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 const DEFAULT_THREAD_TITLE = "New thread";
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
 
 function canReplaceThreadTitle(currentTitle: string, titleSeed?: string): boolean {
   const trimmedCurrentTitle = currentTitle.trim();
@@ -105,7 +114,7 @@ function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderService
       detail.includes("unknown pending permission request")
     );
   }
-  const message = Cause.pretty(cause);
+  const message = toErrorMessage(error).toLowerCase();
   return (
     message.includes("unknown pending approval request") ||
     message.includes("unknown pending permission request")
@@ -127,6 +136,9 @@ function stalePendingRequestDetail(
   return `Stale pending ${requestKind} request: ${requestId}. Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.`;
 }
 
+function isMissingPersistedProviderBindingError(cause: Cause.Cause<ProviderServiceError>): boolean {
+  return Cause.pretty(cause).toLowerCase().includes("no persisted provider binding exists");
+}
 function buildGeneratedWorktreeBranchName(raw: string): string {
   const normalized = raw
     .trim()
@@ -191,7 +203,7 @@ const make = Effect.gen(function* () {
       commandId: serverCommandId("provider-failure-activity"),
       threadId: input.threadId,
       activity: {
-        id: EventId.make(crypto.randomUUID()),
+        id: EventId.makeUnsafe(crypto.randomUUID()),
         tone: "error",
         kind: input.kind,
         summary: input.summary,
@@ -785,7 +797,27 @@ const make = Effect.gen(function* () {
 
     const now = event.payload.createdAt;
     if (thread.session && thread.session.status !== "stopped") {
-      yield* providerService.stopSession({ threadId: thread.id });
+      const stopFailed = yield* providerService.stopSession({ threadId: thread.id }).pipe(
+        Effect.matchCauseEffect({
+          onSuccess: () => Effect.succeed(false),
+          onFailure: (cause) => {
+            if (isMissingPersistedProviderBindingError(cause)) {
+              return Effect.succeed(false);
+            }
+            return appendProviderFailureActivity({
+              threadId: thread.id,
+              kind: "provider.session.stop.failed",
+              summary: "Provider session stop failed",
+              detail: Cause.pretty(cause),
+              turnId: thread.session?.activeTurnId ?? null,
+              createdAt: now,
+            }).pipe(Effect.as(true));
+          },
+        }),
+      );
+      if (stopFailed) {
+        return;
+      }
     }
 
     yield* setThreadSession({
