@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  buildSidebarProjectFeed,
+  buildSidebarRunSummaryEpics,
   createThreadJumpHintVisibilityController,
   getSidebarThreadIdsToPrewarm,
+  deriveIssueFirstSidebarRunGroups,
+  getVisibleRowsForEpicGroup,
+  getVisibleSidebarProjectFeed,
   getVisibleSidebarThreadIds,
   resolveAdjacentThreadId,
   getFallbackThreadIdAfterDelete,
@@ -20,11 +25,19 @@ import {
   sortProjectsForSidebar,
   THREAD_JUMP_HINT_SHOW_DELAY_MS,
 } from "./Sidebar.logic";
-import { EnvironmentId, OrchestrationLatestTurn, ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  OrchestrationEpicIssueExecution,
+  OrchestrationEpicRun,
+  OrchestrationLatestTurn,
+  ProjectId,
+  ThreadId,
+} from "@t3tools/contracts";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   type Project,
+  type SidebarThreadSummary,
   type Thread,
 } from "../types";
 
@@ -41,6 +54,62 @@ function makeLatestTurn(overrides?: {
     requestedAt: "2026-03-09T10:00:00.000Z",
     startedAt: overrides?.startedAt ?? "2026-03-09T10:00:00.000Z",
     completedAt: overrides?.completedAt ?? "2026-03-09T10:05:00.000Z",
+  };
+}
+
+function makeRun(
+  runId: string,
+  status: OrchestrationEpicRun["status"],
+  overrides: Partial<OrchestrationEpicRun> = {},
+): OrchestrationEpicRun {
+  return {
+    runId: runId as never,
+    projectId: "project-1" as never,
+    epicIssueId: "EPIC-1",
+    status,
+    provider: "codex",
+    model: "gpt-5.4",
+    modelOptions: null,
+    providerOptions: null,
+    assistantDeliveryMode: null,
+    runtimeMode: "full-access",
+    failureContext: null,
+    requestedAt: "2026-04-08T00:00:00.000Z",
+    startedAt: "2026-04-08T00:00:01.000Z",
+    stopRequestedAt: null,
+    stoppedAt: null,
+    failedAt: null,
+    completedAt: null,
+    updatedAt: "2026-04-08T00:00:03.000Z",
+    ...overrides,
+  };
+}
+
+function makeExecution(
+  executionId: string,
+  runId: string,
+  issueId: string,
+  status: OrchestrationEpicIssueExecution["status"],
+  overrides: Partial<OrchestrationEpicIssueExecution> = {},
+): OrchestrationEpicIssueExecution {
+  return {
+    executionId: executionId as never,
+    runId: runId as never,
+    issueId,
+    workerThreadId: "thread-1" as never,
+    sequenceNumber: 1,
+    status,
+    workspaceKey: "shared",
+    workspacePath: null,
+    failureContext: null,
+    requestedAt: "2026-04-08T00:00:00.000Z",
+    startedAt: "2026-04-08T00:00:01.000Z",
+    stopRequestedAt: null,
+    stoppedAt: null,
+    completedAt: null,
+    failedAt: null,
+    updatedAt: "2026-04-08T00:00:02.000Z",
+    ...overrides,
   };
 }
 
@@ -347,6 +416,561 @@ describe("orderItemsByPreferredIds", () => {
   });
 });
 
+describe("deriveIssueFirstSidebarRunGroups", () => {
+  it("groups visible epics, keeps active run rows as currentRows and previous run rows as previousRows", () => {
+    const groups = deriveIssueFirstSidebarRunGroups({
+      epics: [
+        {
+          epicIssueId: "EPIC-1",
+          epicTitle: "Epic 1",
+          epicIssueStatus: "open",
+          runs: [makeRun("run-z", "completed"), makeRun("run-a", "running")],
+          executions: [
+            makeExecution("exec-1", "run-a", "TASK-1", "running"),
+            makeExecution("exec-2", "run-a", "TASK-2", "launching", {
+              workerThreadId: null,
+            }),
+            makeExecution("exec-3", "run-z", "TASK-3", "completed", {
+              completedAt: "2026-04-08T00:00:05.000Z",
+            }),
+          ],
+        },
+      ],
+    });
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      epicIssueId: "EPIC-1",
+      epicTitle: "Epic 1",
+    });
+    // Current rows come from the active run (run-a)
+    expect(
+      groups[0]?.currentRows.map((row) => ({
+        issueId: row.issueId,
+        isGhost: row.isGhost,
+        isCurrentAttempt: row.isCurrentAttempt,
+      })),
+    ).toEqual(
+      expect.arrayContaining([
+        { issueId: "TASK-1", isGhost: false, isCurrentAttempt: true },
+        { issueId: "TASK-2", isGhost: true, isCurrentAttempt: true },
+      ]),
+    );
+    // Previous rows come from run-z
+    expect(
+      groups[0]?.previousRows.map((row) => ({
+        issueId: row.issueId,
+        isCurrentAttempt: row.isCurrentAttempt,
+      })),
+    ).toEqual([{ issueId: "TASK-3", isCurrentAttempt: false }]);
+  });
+
+  it("shows previous run rows deduplicated by issueId (latest execution wins)", () => {
+    const groups = deriveIssueFirstSidebarRunGroups({
+      epics: [
+        {
+          epicIssueId: "EPIC-1",
+          epicTitle: "Epic 1",
+          epicIssueStatus: "open",
+          runs: [
+            makeRun("run-active", "running", {
+              updatedAt: "2026-04-08T00:00:09.000Z",
+            }),
+            makeRun("run-completed-latest", "completed", {
+              updatedAt: "2026-04-08T00:00:08.000Z",
+              completedAt: "2026-04-08T00:00:08.000Z",
+            }),
+            makeRun("run-completed-older", "completed", {
+              updatedAt: "2026-04-08T00:00:07.000Z",
+              completedAt: "2026-04-08T00:00:07.000Z",
+            }),
+          ],
+          executions: [
+            makeExecution("exec-latest", "run-completed-latest", "TASK-1", "completed", {
+              updatedAt: "2026-04-08T00:00:08.000Z",
+            }),
+            makeExecution("exec-older", "run-completed-older", "TASK-1", "completed", {
+              updatedAt: "2026-04-08T00:00:07.000Z",
+            }),
+          ],
+        },
+      ],
+    });
+
+    // Both runs are in previousRows, but TASK-1 should only appear once (latest wins)
+    expect(groups[0]?.previousRows.map((row) => row.issueId)).toEqual(["TASK-1"]);
+    // The deduped row should come from the later run
+    expect(groups[0]?.previousRows[0]?.updatedAt).toBe("2026-04-08T00:00:08.000Z");
+  });
+
+  it("splits overflow previous rows after the preview limit", () => {
+    const groups = deriveIssueFirstSidebarRunGroups({
+      previewLimit: 1,
+      epics: [
+        {
+          epicIssueId: "EPIC-1",
+          epicTitle: "Epic 1",
+          epicIssueStatus: "open",
+          runs: [
+            makeRun("run-active", "running", { updatedAt: "2026-04-08T00:00:09.000Z" }),
+            makeRun("run-old", "completed", { updatedAt: "2026-04-08T00:00:05.000Z" }),
+          ],
+          executions: [
+            makeExecution("exec-1", "run-old", "TASK-1", "completed", {
+              updatedAt: "2026-04-08T00:00:05.000Z",
+            }),
+            makeExecution("exec-2", "run-old", "TASK-2", "completed", {
+              updatedAt: "2026-04-08T00:00:04.000Z",
+            }),
+          ],
+        },
+      ],
+    });
+
+    expect(groups[0]?.previousRows.map((row) => row.issueId)).toHaveLength(1);
+    expect(groups[0]?.overflowRows.map((row) => row.issueId)).toHaveLength(1);
+  });
+
+  it("populates issueTitle on rows when issueTitleByIssueId is provided", () => {
+    const groups = deriveIssueFirstSidebarRunGroups({
+      epics: [
+        {
+          epicIssueId: "EPIC-1",
+          epicTitle: "Epic 1",
+          epicIssueStatus: "open",
+          runs: [makeRun("run-a", "running")],
+          executions: [
+            makeExecution("exec-1", "run-a", "TASK-1", "running"),
+            makeExecution("exec-2", "run-a", "TASK-2", "running"),
+          ],
+          issueTitleByIssueId: new Map([
+            ["TASK-1", "Implement dark mode toggle"],
+            // TASK-2 intentionally omitted to verify null fallback
+          ]),
+        },
+      ],
+    });
+
+    const rows = groups[0]?.currentRows ?? [];
+    expect(rows.find((r) => r.issueId === "TASK-1")?.issueTitle).toBe("Implement dark mode toggle");
+    expect(rows.find((r) => r.issueId === "TASK-2")?.issueTitle).toBeNull();
+  });
+
+  it("marks closed epics from canonical issue status even when their latest run is terminal", () => {
+    const groups = deriveIssueFirstSidebarRunGroups({
+      epics: [
+        {
+          epicIssueId: "EPIC-1",
+          epicTitle: "Epic 1",
+          epicIssueStatus: "closed",
+          runs: [makeRun("run-a", "completed")],
+          executions: [makeExecution("exec-1", "run-a", "TASK-1", "completed")],
+        },
+      ],
+    });
+
+    expect(groups[0]?.epicIssueStatus).toBe("closed");
+    expect(groups[0]?.isClosedByIssueStatus).toBe(true);
+  });
+});
+
+describe("buildSidebarRunSummaryEpics", () => {
+  it("passes through issueTitleByIssueId to each returned epic", () => {
+    const issueTitleByIssueId = new Map([["TASK-1", "Add new feature"]]);
+    const epics = buildSidebarRunSummaryEpics({
+      runs: [makeRun("run-a", "running")],
+      executions: [makeExecution("exec-1", "run-a", "TASK-1", "running")],
+      epicTitleByIssueId: new Map([["EPIC-1", "My Epic"]]),
+      issueTitleByIssueId,
+    });
+
+    expect(epics).toHaveLength(1);
+    expect(epics[0]?.issueTitleByIssueId.get("TASK-1")).toBe("Add new feature");
+  });
+
+  it("passes through canonical epic issue status when provided", () => {
+    const epics = buildSidebarRunSummaryEpics({
+      runs: [makeRun("run-a", "running")],
+      executions: [makeExecution("exec-1", "run-a", "TASK-1", "running")],
+      epicIssueStatusById: new Map([["EPIC-1", "closed"]]),
+    });
+
+    expect(epics[0]?.epicIssueStatus).toBe("closed");
+  });
+
+  it("falls back to an empty map when issueTitleByIssueId is not provided", () => {
+    const epics = buildSidebarRunSummaryEpics({
+      runs: [makeRun("run-a", "running")],
+      executions: [makeExecution("exec-1", "run-a", "TASK-1", "running")],
+    });
+
+    expect(epics[0]?.issueTitleByIssueId.size).toBe(0);
+  });
+});
+
+describe("getVisibleRowsForEpicGroup", () => {
+  it("always shows all currentRows regardless of expand state", () => {
+    const groups = deriveIssueFirstSidebarRunGroups({
+      previewLimit: 6,
+      epics: [
+        {
+          epicIssueId: "EPIC-1",
+          epicTitle: "Epic 1",
+          epicIssueStatus: "open",
+          runs: [makeRun("run-a", "running")],
+          executions: [
+            makeExecution("exec-1", "run-a", "TASK-1", "running", {
+              workerThreadId: "thread-1" as never,
+            }),
+            makeExecution("exec-2", "run-a", "TASK-2", "running", {
+              workerThreadId: "thread-2" as never,
+            }),
+          ],
+        },
+      ],
+    });
+
+    const group = groups[0]!;
+    const visible = getVisibleRowsForEpicGroup({
+      group,
+      isPreviousRowsExpanded: false,
+    });
+
+    expect(visible.currentRows.map((row) => row.issueId)).toEqual(["TASK-1", "TASK-2"]);
+  });
+
+  it("pins the active thread's previous row even when overflow is collapsed", () => {
+    const groups = deriveIssueFirstSidebarRunGroups({
+      previewLimit: 1,
+      epics: [
+        {
+          epicIssueId: "EPIC-1",
+          epicTitle: "Epic 1",
+          epicIssueStatus: "open",
+          runs: [
+            makeRun("run-active", "running", { updatedAt: "2026-04-08T00:00:09.000Z" }),
+            makeRun("run-old", "completed", { updatedAt: "2026-04-08T00:00:05.000Z" }),
+          ],
+          executions: [
+            makeExecution("exec-1", "run-old", "TASK-1", "completed", {
+              workerThreadId: "thread-1" as never,
+              updatedAt: "2026-04-08T00:00:05.000Z",
+            }),
+            makeExecution("exec-2", "run-old", "TASK-2", "completed", {
+              workerThreadId: "thread-2" as never,
+              updatedAt: "2026-04-08T00:00:04.000Z",
+            }),
+          ],
+        },
+      ],
+    });
+
+    const group = groups[0]!;
+    // TASK-2 is in overflow but its thread is active — it should be pinned into previousRows
+    const visible = getVisibleRowsForEpicGroup({
+      group,
+      activeThreadId: ThreadId.make("thread-2"),
+      isPreviousRowsExpanded: false,
+    });
+
+    expect(visible.previousRows.map((row) => row.issueId)).toContain("TASK-2");
+    expect(visible.overflowRows.map((row) => row.issueId)).not.toContain("TASK-2");
+  });
+
+  it("shows all previous rows when isPreviousRowsExpanded is true", () => {
+    const groups = deriveIssueFirstSidebarRunGroups({
+      previewLimit: 1,
+      epics: [
+        {
+          epicIssueId: "EPIC-1",
+          epicTitle: "Epic 1",
+          epicIssueStatus: "open",
+          runs: [
+            makeRun("run-active", "running", { updatedAt: "2026-04-08T00:00:09.000Z" }),
+            makeRun("run-old", "completed", { updatedAt: "2026-04-08T00:00:05.000Z" }),
+          ],
+          executions: [
+            makeExecution("exec-1", "run-old", "TASK-1", "completed", {
+              updatedAt: "2026-04-08T00:00:05.000Z",
+            }),
+            makeExecution("exec-2", "run-old", "TASK-2", "completed", {
+              updatedAt: "2026-04-08T00:00:04.000Z",
+            }),
+          ],
+        },
+      ],
+    });
+
+    const group = groups[0]!;
+    const visible = getVisibleRowsForEpicGroup({
+      group,
+      isPreviousRowsExpanded: true,
+    });
+
+    expect(visible.previousRows.map((row) => row.issueId)).toEqual(["TASK-1", "TASK-2"]);
+    expect(visible.overflowRows).toHaveLength(0);
+  });
+});
+
+describe("buildSidebarProjectFeed", () => {
+  it("sorts ad-hoc threads and epic groups together by updated_at", () => {
+    const epicThread = makeSidebarThreadSummary({
+      id: ThreadId.make("thread-epic"),
+      updatedAt: "2026-04-08T00:00:03.000Z",
+    });
+    const adHocThread = makeSidebarThreadSummary({
+      id: ThreadId.make("thread-adhoc"),
+      title: "Ad hoc",
+      updatedAt: "2026-04-08T00:00:10.000Z",
+      issueLink: { issueId: "TASK-99", title: "Ad hoc" } as never,
+    });
+    const groups = deriveIssueFirstSidebarRunGroups({
+      epics: [
+        {
+          epicIssueId: "EPIC-1",
+          epicTitle: "Epic 1",
+          epicIssueStatus: "open",
+          runs: [makeRun("run-a", "running")],
+          executions: [
+            makeExecution("exec-1", "run-a", "TASK-1", "running", {
+              workerThreadId: epicThread.id,
+              updatedAt: "2026-04-08T00:00:03.000Z",
+            }),
+          ],
+        },
+      ],
+    });
+    const threadById = new Map([[epicThread.id, epicThread]]);
+
+    const feed = buildSidebarProjectFeed({
+      groups,
+      threads: [adHocThread],
+      threadSortOrder: "updated_at",
+      threadById,
+    });
+
+    expect(
+      feed.map((item) => (item.kind === "thread" ? item.thread.id : item.group.epicIssueId)),
+    ).toEqual([ThreadId.make("thread-adhoc"), "EPIC-1"]);
+  });
+
+  it("sorts ad-hoc threads and epic groups together by created_at", () => {
+    const epicThread = makeSidebarThreadSummary({
+      id: ThreadId.make("thread-epic"),
+      createdAt: "2026-04-08T00:00:03.000Z",
+      updatedAt: "2026-04-08T00:00:03.000Z",
+    });
+    const adHocThread = makeSidebarThreadSummary({
+      id: ThreadId.make("thread-adhoc"),
+      title: "Ad hoc",
+      createdAt: "2026-04-08T00:00:10.000Z",
+      updatedAt: "2026-04-08T00:00:10.000Z",
+      issueLink: { issueId: "TASK-99", title: "Ad hoc" } as never,
+    });
+    const groups = deriveIssueFirstSidebarRunGroups({
+      epics: [
+        {
+          epicIssueId: "EPIC-1",
+          epicTitle: "Epic 1",
+          epicIssueStatus: "open",
+          runs: [makeRun("run-a", "running", { requestedAt: "2026-04-08T00:00:03.000Z" })],
+          executions: [
+            makeExecution("exec-1", "run-a", "TASK-1", "running", {
+              workerThreadId: epicThread.id,
+            }),
+          ],
+        },
+      ],
+    });
+    const threadById = new Map([[epicThread.id, epicThread]]);
+
+    const feed = buildSidebarProjectFeed({
+      groups,
+      threads: [adHocThread],
+      threadSortOrder: "created_at",
+      threadById,
+    });
+
+    expect(
+      feed.map((item) => (item.kind === "thread" ? item.thread.id : item.group.epicIssueId)),
+    ).toEqual([ThreadId.make("thread-adhoc"), "EPIC-1"]);
+  });
+
+  it("places a top-level thread before an epic group on equal timestamps", () => {
+    const sharedTimestamp = "2026-04-08T00:00:10.000Z";
+    const epicThread = makeSidebarThreadSummary({
+      id: ThreadId.make("thread-epic"),
+      updatedAt: sharedTimestamp,
+    });
+    const adHocThread = makeSidebarThreadSummary({
+      id: ThreadId.make("thread-adhoc"),
+      updatedAt: sharedTimestamp,
+      issueLink: { issueId: "TASK-99", title: "Ad hoc" } as never,
+    });
+    const groups = deriveIssueFirstSidebarRunGroups({
+      epics: [
+        {
+          epicIssueId: "EPIC-1",
+          epicTitle: "Epic 1",
+          epicIssueStatus: "open",
+          runs: [makeRun("run-a", "running")],
+          executions: [
+            makeExecution("exec-1", "run-a", "TASK-1", "running", {
+              workerThreadId: epicThread.id,
+              updatedAt: sharedTimestamp,
+            }),
+          ],
+        },
+      ],
+    });
+    const threadById = new Map([[epicThread.id, epicThread]]);
+
+    const feed = buildSidebarProjectFeed({
+      groups,
+      threads: [adHocThread],
+      threadSortOrder: "updated_at",
+      threadById,
+    });
+
+    expect(feed[0]?.kind).toBe("thread");
+    expect(feed[1]?.kind).toBe("epic");
+  });
+
+  it("uses the latest concrete child thread as the epic group timestamp", () => {
+    const olderEpicThread = makeSidebarThreadSummary({
+      id: ThreadId.make("thread-older"),
+      updatedAt: "2026-04-08T00:00:05.000Z",
+    });
+    const newerEpicThread = makeSidebarThreadSummary({
+      id: ThreadId.make("thread-newer"),
+      updatedAt: "2026-04-08T00:00:09.000Z",
+    });
+    const adHocThread = makeSidebarThreadSummary({
+      id: ThreadId.make("thread-adhoc"),
+      updatedAt: "2026-04-08T00:00:07.000Z",
+    });
+    const groups = deriveIssueFirstSidebarRunGroups({
+      epics: [
+        {
+          epicIssueId: "EPIC-1",
+          epicTitle: "Epic 1",
+          epicIssueStatus: "open",
+          runs: [
+            makeRun("run-active", "running", { updatedAt: "2026-04-08T00:00:09.000Z" }),
+            makeRun("run-old", "completed", { updatedAt: "2026-04-08T00:00:05.000Z" }),
+          ],
+          executions: [
+            makeExecution("exec-1", "run-active", "TASK-1", "running", {
+              workerThreadId: newerEpicThread.id,
+              updatedAt: "2026-04-08T00:00:09.000Z",
+            }),
+            makeExecution("exec-2", "run-old", "TASK-2", "completed", {
+              workerThreadId: olderEpicThread.id,
+              updatedAt: "2026-04-08T00:00:05.000Z",
+            }),
+          ],
+        },
+      ],
+    });
+    const threadById = new Map([
+      [olderEpicThread.id, olderEpicThread],
+      [newerEpicThread.id, newerEpicThread],
+    ]);
+
+    const feed = buildSidebarProjectFeed({
+      groups,
+      threads: [adHocThread],
+      threadSortOrder: "updated_at",
+      threadById,
+    });
+
+    expect(feed[0]?.kind).toBe("epic");
+  });
+
+  it("falls back to execution and run timestamps for ghost-only epic groups", () => {
+    const adHocThread = makeSidebarThreadSummary({
+      id: ThreadId.make("thread-adhoc"),
+      updatedAt: "2026-04-08T00:00:07.000Z",
+      createdAt: "2026-04-08T00:00:07.000Z",
+    });
+    const groups = deriveIssueFirstSidebarRunGroups({
+      epics: [
+        {
+          epicIssueId: "EPIC-1",
+          epicTitle: "Epic 1",
+          epicIssueStatus: "open",
+          runs: [
+            makeRun("run-a", "completed", {
+              requestedAt: "2026-04-08T00:00:09.000Z",
+              updatedAt: "2026-04-08T00:00:08.000Z",
+            }),
+          ],
+          executions: [
+            makeExecution("exec-1", "run-a", "TASK-1", "completed", {
+              workerThreadId: null,
+              updatedAt: "2026-04-08T00:00:08.000Z",
+            }),
+          ],
+        },
+      ],
+    });
+
+    const updatedFeed = buildSidebarProjectFeed({
+      groups,
+      threads: [adHocThread],
+      threadSortOrder: "updated_at",
+      threadById: new Map(),
+    });
+    const createdFeed = buildSidebarProjectFeed({
+      groups,
+      threads: [adHocThread],
+      threadSortOrder: "created_at",
+      threadById: new Map(),
+    });
+
+    expect(updatedFeed[0]?.kind).toBe("epic");
+    expect(createdFeed[0]?.kind).toBe("epic");
+  });
+});
+
+describe("getVisibleSidebarProjectFeed", () => {
+  it("pins the active epic item into the preview when it would otherwise be hidden", () => {
+    const items = [
+      { kind: "thread", thread: makeSidebarThreadSummary({ id: ThreadId.make("thread-1") }) },
+      { kind: "thread", thread: makeSidebarThreadSummary({ id: ThreadId.make("thread-2") }) },
+      {
+        kind: "epic",
+        group: deriveIssueFirstSidebarRunGroups({
+          epics: [
+            {
+              epicIssueId: "EPIC-1",
+              epicTitle: "Epic 1",
+              epicIssueStatus: "open",
+              runs: [makeRun("run-a", "running")],
+              executions: [
+                makeExecution("exec-1", "run-a", "TASK-1", "running", {
+                  workerThreadId: ThreadId.make("thread-epic"),
+                }),
+              ],
+            },
+          ],
+        })[0]!,
+      },
+    ] as const;
+
+    const visible = getVisibleSidebarProjectFeed({
+      items,
+      activeThreadId: ThreadId.make("thread-epic"),
+      projectExpanded: true,
+      isFeedExpanded: false,
+      previewLimit: 2,
+    });
+
+    expect(visible.renderedItems).toHaveLength(3);
+    expect(visible.renderedItems[2]?.kind).toBe("epic");
+  });
+});
+
 describe("resolveAdjacentThreadId", () => {
   it("resolves adjacent thread ids in ordered sidebar traversal", () => {
     const threads = [
@@ -509,8 +1133,18 @@ describe("resolveThreadStatusPill", () => {
     expect(
       resolveThreadStatusPill({
         thread: baseThread,
+        now: "2026-03-09T10:04:00.000Z",
       }),
     ).toMatchObject({ label: "Working", pulse: true });
+  });
+
+  it("shows stalled when a running thread has gone silent for too long", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: baseThread,
+        now: "2026-03-09T10:06:30.000Z",
+      }),
+    ).toMatchObject({ label: "Stalled", pulse: false });
   });
 
   it("shows plan ready when a settled plan turn has a proposed plan ready for follow-up", () => {
@@ -735,6 +1369,31 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     worktreePath: null,
     turnDiffSummaries: [],
     activities: [],
+    ...overrides,
+  };
+}
+
+function makeSidebarThreadSummary(
+  overrides: Partial<SidebarThreadSummary> = {},
+): SidebarThreadSummary {
+  return {
+    id: ThreadId.make("thread-1"),
+    environmentId: localEnvironmentId,
+    projectId: ProjectId.make("project-1"),
+    title: "Thread",
+    interactionMode: DEFAULT_INTERACTION_MODE,
+    session: null,
+    createdAt: "2026-03-09T10:00:00.000Z",
+    archivedAt: null,
+    updatedAt: "2026-03-09T10:00:00.000Z",
+    latestTurn: null,
+    branch: null,
+    worktreePath: null,
+    latestUserMessageAt: null,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    hasActionableProposedPlan: false,
+    issueLink: null,
     ...overrides,
   };
 }

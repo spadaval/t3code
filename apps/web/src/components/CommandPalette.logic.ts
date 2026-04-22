@@ -153,24 +153,22 @@ export function buildThreadActionItems<TThread extends BuildThreadActionItemsThr
 
     return Object.assign(
       {
-        kind: "action" as const,
+        kind: "action",
         value: `thread:${thread.id}`,
-        searchTerms: [thread.title, projectTitle ?? ``, thread.branch ?? ``],
+        searchTerms: [thread.title, projectTitle ?? "", thread.branch ?? ""],
         title: thread.title,
-        description: descriptionParts.join(` · `),
+        description: descriptionParts.join(" · "),
         timestamp: formatRelativeTimeLabel(
           thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt,
         ),
         icon: input.icon,
-      },
-      leadingContent ? { titleLeadingContent: leadingContent } : {},
-      trailingContent ? { titleTrailingContent: trailingContent } : {},
-      {
         run: async () => {
           await input.runThread(thread);
         },
       },
-    );
+      leadingContent ? { titleLeadingContent: leadingContent } : {},
+      trailingContent ? { titleTrailingContent: trailingContent } : {},
+    ) as CommandPaletteActionItem;
   });
 }
 

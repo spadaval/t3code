@@ -181,7 +181,8 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
     strict: false,
     select: (params) => resolveThreadRouteRef(params),
   });
-  const diffSearch = useSearch({ strict: false, select: (search) => parseDiffRouteSearch(search) });
+  const rawRouteSearch = useSearch({ strict: false });
+  const diffSearch = useMemo(() => parseDiffRouteSearch(rawRouteSearch), [rawRouteSearch]);
   const diffOpen = diffSearch.diff === "1";
   const activeThreadId = routeThreadRef?.threadId ?? null;
   const activeThread = useStore(

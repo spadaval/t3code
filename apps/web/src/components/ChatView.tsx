@@ -38,7 +38,7 @@ import { usePrimaryEnvironmentId } from "../environments/primary";
 import { readEnvironmentApi } from "../environmentApi";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
-import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
+import { parseChatRouteSearch, stripRightPaneSearchParams } from "../chatRouteSearch";
 import {
   collapseExpandedComposerCursor,
   parseStandaloneComposerSlashCommand,
@@ -51,13 +51,17 @@ import {
   deriveTimelineEntries,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
+  deriveLatestProviderActionFailure,
+  deriveRunningSessionStallState,
   findSidebarProposedPlan,
   findLatestProposedPlan,
+  formatRunningSessionStallError,
   deriveWorkLogEntries,
   hasActionableProposedPlan,
   hasToolActivityForTurn,
   isLatestTurnSettled,
   formatElapsed,
+  resolveRunningSessionStopCommand,
 } from "../session-logic";
 import { type LegendListRef } from "@legendapp/list/react";
 import {
@@ -77,6 +81,8 @@ import { useUiStateStore } from "../uiStateStore";
 import {
   buildPlanImplementationThreadTitle,
   buildPlanImplementationPrompt,
+  buildPlanToBeadsPrompt,
+  buildPlanToBeadsThreadTitle,
   resolvePlanFollowUpSubmission,
 } from "../proposedPlan";
 import {
@@ -110,9 +116,13 @@ import {
   projectScriptIdFromCommand,
 } from "~/projectScripts";
 import { newCommandId, newDraftId, newMessageId, newThreadId } from "~/lib/utils";
-import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
+import {
+  getProviderModelCapabilities,
+  getProviderModels,
+  resolveSelectableProvider,
+} from "../providerModels";
 import { useSettings } from "../hooks/useSettings";
-import { resolveAppModelSelection } from "../modelSelection";
+import { resolveAppModelSelection, resolvePlanLaunchModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { deriveLogicalProjectKeyFromSettings } from "../logicalProject";
 import {
@@ -123,6 +133,7 @@ import { buildDraftThreadRouteParams } from "../threadRoutes";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
+  useEffectiveComposerModelState,
   useComposerDraftStore,
   type DraftId,
 } from "../composerDraftStore";
@@ -134,11 +145,13 @@ import {
 } from "../lib/terminalContext";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
+import { getComposerProviderState } from "./chat/composerProviderRegistry";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
+import { DraftQuickLaunchPanel } from "./DraftQuickLaunchPanel";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import { resolveEffectiveEnvMode, resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
@@ -313,6 +326,7 @@ function formatOutgoingPrompt(params: {
 }
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
+type PlanLaunchModelPreset = "current" | "smaller";
 
 type ChatViewProps =
   | {
@@ -616,10 +630,8 @@ export default function ChatView(props: ChatViewProps) {
   );
   const timestampFormat = settings.timestampFormat;
   const navigate = useNavigate();
-  const rawSearch = useSearch({
-    strict: false,
-    select: (params) => parseDiffRouteSearch(params),
-  });
+  const rawRouteSearch = useSearch({ strict: false });
+  const rawSearch = useMemo(() => parseChatRouteSearch(rawRouteSearch), [rawRouteSearch]);
   const { resolvedTheme } = useTheme();
   // Granular store selectors — avoid subscribing to prompt changes.
   const composerRuntimeMode = useComposerDraftStore(
@@ -676,6 +688,9 @@ export default function ChatView(props: ChatViewProps) {
   const [respondingUserInputRequestIds, setRespondingUserInputRequestIds] = useState<
     ApprovalRequestId[]
   >([]);
+  const [dismissedProviderFailureActivityId, setDismissedProviderFailureActivityId] = useState<
+    string | null
+  >(null);
   const [pendingUserInputAnswersByRequestId, setPendingUserInputAnswersByRequestId] = useState<
     Record<string, Record<string, PendingUserInputDraftAnswer>>
   >({});
@@ -785,12 +800,16 @@ export default function ChatView(props: ChatViewProps) {
   );
   const isServerThread = routeKind === "server" && serverThread !== undefined;
   const activeThread = isServerThread ? serverThread : localDraftThread;
+  useEffect(() => {
+    setDismissedProviderFailureActivityId(null);
+  }, [activeThread?.id]);
   const runtimeMode = composerRuntimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
     composerInteractionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
-  const diffOpen = rawSearch.diff === "1";
+  const diffOpen = rawSearch.rightPane === "diff";
+  const issuesOpen = rawSearch.rightPane === "issues";
   const activeThreadId = activeThread?.id ?? null;
   const activeThreadRef = useMemo(
     () => (activeThread ? scopeThreadRef(activeThread.environmentId, activeThread.id) : null),
@@ -1052,6 +1071,35 @@ export default function ChatView(props: ChatViewProps) {
     selectedProviderByThreadId ?? threadProvider ?? "codex",
   );
   const selectedProvider: ProviderKind = lockedProvider ?? unlockedSelectedProvider;
+  const { modelOptions: quickLaunchModelOptions, selectedModel: quickLaunchSelectedModel } =
+    useEffectiveComposerModelState({
+      threadRef: composerDraftTarget,
+      providers: providerStatuses,
+      selectedProvider,
+      threadModelSelection: activeThread?.modelSelection,
+      projectModelSelection: activeProject?.defaultModelSelection,
+      settings,
+    });
+  const quickLaunchProviderState = useMemo(
+    () =>
+      getComposerProviderState({
+        provider: selectedProvider,
+        model: quickLaunchSelectedModel,
+        models: getProviderModels(providerStatuses, selectedProvider),
+        prompt: "",
+        modelOptions: quickLaunchModelOptions,
+      }),
+    [providerStatuses, quickLaunchModelOptions, quickLaunchSelectedModel, selectedProvider],
+  );
+  const draftQuickLaunchModelSelection = useMemo<ModelSelection>(
+    () =>
+      createModelSelection(
+        selectedProvider,
+        quickLaunchSelectedModel,
+        quickLaunchProviderState.modelOptionsForDispatch,
+      ),
+    [quickLaunchProviderState.modelOptionsForDispatch, quickLaunchSelectedModel, selectedProvider],
+  );
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(
@@ -1070,6 +1118,14 @@ export default function ChatView(props: ChatViewProps) {
     () => derivePendingUserInputs(threadActivities),
     [threadActivities],
   );
+  const latestProviderActionFailure = useMemo(
+    () => deriveLatestProviderActionFailure(threadActivities),
+    [threadActivities],
+  );
+  const visibleProviderActionFailure =
+    latestProviderActionFailure?.id === dismissedProviderFailureActivityId
+      ? null
+      : latestProviderActionFailure;
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const activePendingDraftAnswers = useMemo(
     () =>
@@ -1147,7 +1203,26 @@ export default function ChatView(props: ChatViewProps) {
     activePendingUserInput: activePendingUserInput?.requestId ?? null,
     threadError: activeThread?.error,
   });
-  const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
+  const nowTick = Date.now();
+  const stalledRunningSession = useMemo(
+    () =>
+      deriveRunningSessionStallState({
+        session: activeThread?.session ?? null,
+        latestTurn: activeLatestTurn,
+        activities: threadActivities,
+        now: nowTick,
+      }),
+    [activeLatestTurn, activeThread?.session, nowTick, threadActivities],
+  );
+  const threadBannerError =
+    activeThread?.error ??
+    visibleProviderActionFailure?.detail ??
+    (stalledRunningSession ? formatRunningSessionStallError(stalledRunningSession) : null);
+  const isWorking =
+    (!stalledRunningSession && phase === "running") ||
+    isSendBusy ||
+    isConnecting ||
+    isRevertingCheckpoint;
   const activeWorkStartedAt = deriveActiveWorkStartedAt(
     activeLatestTurn,
     activeThread?.session ?? null,
@@ -1488,12 +1563,44 @@ export default function ChatView(props: ChatViewProps) {
         threadId,
       },
       replace: true,
-      search: (previous) => {
-        const rest = stripDiffSearchParams(previous);
-        return diffOpen ? { ...rest, diff: undefined } : { ...rest, diff: "1" };
-      },
+      search: ((previous: any) => {
+        const rest = stripRightPaneSearchParams(previous);
+        return diffOpen ? rest : { ...rest, rightPane: "diff" as const };
+      }) as never,
     });
   }, [diffOpen, environmentId, isServerThread, navigate, onDiffPanelOpen, threadId]);
+  const onToggleIssues = useCallback(() => {
+    if (!isServerThread) {
+      return;
+    }
+    const selectedIssueId = rawSearch.issueId ?? activeThread?.issueLink?.issueId;
+    void navigate({
+      to: "/$environmentId/$threadId",
+      params: {
+        environmentId,
+        threadId,
+      },
+      replace: true,
+      search: ((previous: any) => {
+        const rest = stripRightPaneSearchParams(previous);
+        return issuesOpen
+          ? rest
+          : {
+              ...rest,
+              rightPane: "issues" as const,
+              ...(selectedIssueId ? { issueId: selectedIssueId } : {}),
+            };
+      }) as never,
+    });
+  }, [
+    activeThread?.issueLink?.issueId,
+    environmentId,
+    isServerThread,
+    issuesOpen,
+    navigate,
+    rawSearch.issueId,
+    threadId,
+  ]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -2667,12 +2774,25 @@ export default function ChatView(props: ChatViewProps) {
   const onInterrupt = async () => {
     const api = readEnvironmentApi(environmentId);
     if (!api || !activeThread) return;
-    await api.orchestration.dispatchCommand({
-      type: "thread.turn.interrupt",
-      commandId: newCommandId(),
-      threadId: activeThread.id,
-      createdAt: new Date().toISOString(),
+    const commandType = resolveRunningSessionStopCommand({
+      stalledSession: stalledRunningSession,
     });
+    await api.orchestration
+      .dispatchCommand({
+        type: commandType,
+        commandId: newCommandId(),
+        threadId: activeThread.id,
+        createdAt: new Date().toISOString(),
+      })
+      .catch((err: unknown) => {
+        const detail = err instanceof Error ? err.message : "Unknown error";
+        setThreadError(
+          activeThread.id,
+          commandType === "thread.session.stop"
+            ? `Failed to stop stalled session: ${detail}`
+            : `Failed to interrupt turn: ${detail}`,
+        );
+      });
   };
 
   const onRespondToApproval = useCallback(
@@ -2982,138 +3102,195 @@ export default function ChatView(props: ChatViewProps) {
     ],
   );
 
-  const onImplementPlanInNewThread = useCallback(async () => {
-    const api = readEnvironmentApi(environmentId);
-    if (
-      !api ||
-      !activeThread ||
-      !activeProject ||
-      !activeProposedPlan ||
-      !isServerThread ||
-      isSendBusy ||
-      isConnecting ||
-      sendInFlightRef.current
-    ) {
-      return;
-    }
+  const launchPlanPromptInNewThread = useCallback(
+    async (input: {
+      prompt: string;
+      title: string;
+      errorTitle: string;
+      modelPreset?: PlanLaunchModelPreset;
+    }) => {
+      const api = readEnvironmentApi(environmentId);
+      if (
+        !api ||
+        !activeThread ||
+        !activeProject ||
+        !activeProposedPlan ||
+        !isServerThread ||
+        isSendBusy ||
+        isConnecting ||
+        sendInFlightRef.current
+      ) {
+        return;
+      }
 
-    const sendCtx = composerRef.current?.getSendContext();
-    if (!sendCtx) {
-      return;
-    }
-    const {
-      selectedProvider: ctxSelectedProvider,
-      selectedModel: ctxSelectedModel,
-      selectedProviderModels: ctxSelectedProviderModels,
-      selectedPromptEffort: ctxSelectedPromptEffort,
-      selectedModelSelection: ctxSelectedModelSelection,
-    } = sendCtx;
+      const sendCtx = composerRef.current?.getSendContext();
+      if (!sendCtx) {
+        return;
+      }
+      const {
+        selectedPromptEffort: ctxSelectedPromptEffort,
+        selectedModelSelection: ctxSelectedModelSelection,
+      } = sendCtx;
+      const nextThreadModelSelection = resolvePlanLaunchModelSelection({
+        preset: input.modelPreset ?? "current",
+        modelSelection: ctxSelectedModelSelection,
+        settings,
+        providers: providerStatuses,
+      });
+      const nextThreadProviderModels = getProviderModels(
+        providerStatuses,
+        nextThreadModelSelection.provider,
+      );
 
-    const createdAt = new Date().toISOString();
-    const nextThreadId = newThreadId();
-    const planMarkdown = activeProposedPlan.planMarkdown;
-    const implementationPrompt = buildPlanImplementationPrompt(planMarkdown);
-    const outgoingImplementationPrompt = formatOutgoingPrompt({
-      provider: ctxSelectedProvider,
-      model: ctxSelectedModel,
-      models: ctxSelectedProviderModels,
-      effort: ctxSelectedPromptEffort,
-      text: implementationPrompt,
-    });
-    const nextThreadTitle = truncate(buildPlanImplementationThreadTitle(planMarkdown));
-    const nextThreadModelSelection: ModelSelection = ctxSelectedModelSelection;
+      const createdAt = new Date().toISOString();
+      const nextThreadId = newThreadId();
+      const outgoingPrompt = formatOutgoingPrompt({
+        provider: nextThreadModelSelection.provider,
+        model: nextThreadModelSelection.model,
+        models: nextThreadProviderModels,
+        effort: ctxSelectedPromptEffort,
+        text: input.prompt,
+      });
+      const nextThreadTitle = input.title;
 
-    sendInFlightRef.current = true;
-    beginLocalDispatch({ preparingWorktree: false });
-    const finish = () => {
-      sendInFlightRef.current = false;
-      resetLocalDispatch();
-    };
+      sendInFlightRef.current = true;
+      beginLocalDispatch({ preparingWorktree: false });
+      const finish = () => {
+        sendInFlightRef.current = false;
+        resetLocalDispatch();
+      };
 
-    await api.orchestration
-      .dispatchCommand({
-        type: "thread.create",
-        commandId: newCommandId(),
-        threadId: nextThreadId,
-        projectId: activeProject.id,
-        title: nextThreadTitle,
-        modelSelection: nextThreadModelSelection,
-        runtimeMode,
-        interactionMode: "default",
-        branch: activeThreadBranch,
-        worktreePath: activeThread.worktreePath,
-        createdAt,
-      })
-      .then(() => {
-        return api.orchestration.dispatchCommand({
-          type: "thread.turn.start",
+      await api.orchestration
+        .dispatchCommand({
+          type: "thread.create",
           commandId: newCommandId(),
           threadId: nextThreadId,
-          message: {
-            messageId: newMessageId(),
-            role: "user",
-            text: outgoingImplementationPrompt,
-            attachments: [],
-          },
-          modelSelection: ctxSelectedModelSelection,
-          titleSeed: nextThreadTitle,
+          projectId: activeProject.id,
+          title: nextThreadTitle,
+          modelSelection: nextThreadModelSelection,
           runtimeMode,
           interactionMode: "default",
-          sourceProposedPlan: {
-            threadId: activeThread.id,
-            planId: activeProposedPlan.id,
-          },
+          branch: activeThread.branch,
+          worktreePath: activeThread.worktreePath,
           createdAt,
-        });
-      })
-      .then(() => {
-        return waitForStartedServerThread(scopeThreadRef(activeThread.environmentId, nextThreadId));
-      })
-      .then(() => {
-        // Signal that the plan sidebar should open on the new thread.
-        planSidebarOpenOnNextThreadRef.current = true;
-        return navigate({
-          to: "/$environmentId/$threadId",
-          params: {
-            environmentId: activeThread.environmentId,
-            threadId: nextThreadId,
-          },
-        });
-      })
-      .catch(async (err: unknown) => {
-        await api.orchestration
-          .dispatchCommand({
-            type: "thread.delete",
+        })
+        .then(() => {
+          return api.orchestration.dispatchCommand({
+            type: "thread.turn.start",
             commandId: newCommandId(),
             threadId: nextThreadId,
-          })
-          .catch(() => undefined);
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Could not start implementation thread",
-            description:
-              err instanceof Error
-                ? err.message
-                : "An error occurred while creating the new thread.",
+            message: {
+              messageId: newMessageId(),
+              role: "user",
+              text: outgoingPrompt,
+              attachments: [],
+            },
+            modelSelection: nextThreadModelSelection,
+            titleSeed: nextThreadTitle,
+            runtimeMode,
+            interactionMode: "default",
+            sourceProposedPlan: {
+              threadId: activeThread.id,
+              planId: activeProposedPlan.id,
+            },
+            createdAt,
+          });
+        })
+        .then(() => {
+          return waitForStartedServerThread(
+            scopeThreadRef(activeThread.environmentId, nextThreadId),
+          );
+        })
+        .then(() => {
+          // Signal that the plan sidebar should open on the new thread.
+          planSidebarOpenOnNextThreadRef.current = true;
+          return navigate({
+            to: "/$environmentId/$threadId",
+            params: {
+              environmentId: activeThread.environmentId,
+              threadId: nextThreadId,
+            },
+          });
+        })
+        .catch(async (err: unknown) => {
+          await api.orchestration
+            .dispatchCommand({
+              type: "thread.delete",
+              commandId: newCommandId(),
+              threadId: nextThreadId,
+            })
+            .catch(() => undefined);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: input.errorTitle,
+              description:
+                err instanceof Error
+                  ? err.message
+                  : "An error occurred while creating the new thread.",
+            }),
+          );
+        })
+        .then(finish, finish);
+    },
+    [
+      activeProject,
+      activeProposedPlan,
+      activeThread,
+      beginLocalDispatch,
+      isConnecting,
+      isSendBusy,
+      isServerThread,
+      navigate,
+      providerStatuses,
+      resetLocalDispatch,
+      runtimeMode,
+      settings,
+      environmentId,
+    ],
+  );
+
+  const planFollowUpMenuActions = useMemo(() => {
+    if (!activeProposedPlan) {
+      return [];
+    }
+
+    const planMarkdown = activeProposedPlan.planMarkdown;
+
+    return [
+      {
+        id: "implement-new-thread",
+        label: "Implement in a new thread",
+        onSelect: () =>
+          void launchPlanPromptInNewThread({
+            prompt: buildPlanImplementationPrompt(planMarkdown),
+            title: truncate(buildPlanImplementationThreadTitle(planMarkdown)),
+            errorTitle: "Could not start implementation thread",
           }),
-        );
-      })
-      .then(finish, finish);
-  }, [
-    activeProject,
-    activeProposedPlan,
-    activeThreadBranch,
-    activeThread,
-    beginLocalDispatch,
-    isConnecting,
-    isSendBusy,
-    isServerThread,
-    navigate,
-    resetLocalDispatch,
-    runtimeMode,
-    environmentId,
-  ]);
+      },
+      {
+        id: "implement-new-thread-smaller-model",
+        label: "Implement in a new thread with smaller model",
+        onSelect: () =>
+          void launchPlanPromptInNewThread({
+            prompt: buildPlanImplementationPrompt(planMarkdown),
+            title: truncate(buildPlanImplementationThreadTitle(planMarkdown)),
+            errorTitle: "Could not start implementation thread",
+            modelPreset: "smaller",
+          }),
+      },
+      {
+        id: "convert-to-beads",
+        label: "Convert to beads",
+        onSelect: () =>
+          void launchPlanPromptInNewThread({
+            prompt: buildPlanToBeadsPrompt(planMarkdown),
+            title: truncate(buildPlanToBeadsThreadTitle(planMarkdown)),
+            errorTitle: "Could not start beads conversion thread",
+          }),
+      },
+    ];
+  }, [activeProposedPlan, launchPlanPromptInNewThread]);
 
   const onProviderModelSelect = useCallback(
     (provider: ProviderKind, model: string) => {
@@ -3192,10 +3369,15 @@ export default function ChatView(props: ChatViewProps) {
           threadId,
         },
         search: (previous) => {
-          const rest = stripDiffSearchParams(previous);
+          const rest = stripRightPaneSearchParams(previous);
           return filePath
-            ? { ...rest, diff: "1", diffTurnId: turnId, diffFilePath: filePath }
-            : { ...rest, diff: "1", diffTurnId: turnId };
+            ? {
+                ...rest,
+                rightPane: "diff" as const,
+                diffTurnId: turnId,
+                diffFilePath: filePath,
+              }
+            : { ...rest, rightPane: "diff" as const, diffTurnId: turnId };
         },
       });
     },
@@ -3219,6 +3401,13 @@ export default function ChatView(props: ChatViewProps) {
   if (!activeThread) {
     return <NoActiveThreadState />;
   }
+
+  const showDraftQuickLaunchPanel =
+    routeKind === "draft" &&
+    draftId !== null &&
+    activeProject !== undefined &&
+    timelineEntries.length === 0 &&
+    draftThread?.promotedTo == null;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
@@ -3255,11 +3444,14 @@ export default function ChatView(props: ChatViewProps) {
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
+          issuesOpen={issuesOpen}
+          showIssuesToggle={!showDraftQuickLaunchPanel}
           onRunProjectScript={runProjectScript}
           onAddProjectScript={saveProjectScript}
           onUpdateProjectScript={updateProjectScript}
           onDeleteProjectScript={deleteProjectScript}
           onToggleTerminal={toggleTerminalVisibility}
+          onToggleIssues={onToggleIssues}
           onToggleDiff={onToggleDiff}
         />
       </header>
@@ -3267,8 +3459,17 @@ export default function ChatView(props: ChatViewProps) {
       {/* Error banner */}
       <ProviderStatusBanner status={activeProviderStatus} />
       <ThreadErrorBanner
-        error={activeThread.error}
-        onDismiss={() => setThreadError(activeThread.id, null)}
+        error={threadBannerError}
+        {...(activeThread.error
+          ? {
+              onDismiss: () => setThreadError(activeThread.id, null),
+            }
+          : visibleProviderActionFailure
+            ? {
+                onDismiss: () =>
+                  setDismissedProviderFailureActivityId(visibleProviderActionFailure.id),
+              }
+            : {})}
       />
       {/* Main content area with optional plan sidebar */}
       <div className="flex min-h-0 min-w-0 flex-1">
@@ -3276,31 +3477,42 @@ export default function ChatView(props: ChatViewProps) {
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* Messages Wrapper */}
           <div className="relative flex min-h-0 flex-1 flex-col">
-            {/* Messages — LegendList handles virtualization and scrolling internally */}
-            <MessagesTimeline
-              key={activeThread.id}
-              isWorking={isWorking}
-              activeTurnInProgress={isWorking || !latestTurnSettled}
-              activeTurnId={activeLatestTurn?.turnId ?? null}
-              activeTurnStartedAt={activeWorkStartedAt}
-              listRef={legendListRef}
-              timelineEntries={timelineEntries}
-              completionDividerBeforeEntryId={completionDividerBeforeEntryId}
-              completionSummary={completionSummary}
-              turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
-              activeThreadEnvironmentId={activeThread.environmentId}
-              routeThreadKey={routeThreadKey}
-              onOpenTurnDiff={onOpenTurnDiff}
-              revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
-              onRevertUserMessage={onRevertUserMessage}
-              isRevertingCheckpoint={isRevertingCheckpoint}
-              onImageExpand={onExpandTimelineImage}
-              markdownCwd={gitCwd ?? undefined}
-              resolvedTheme={resolvedTheme}
-              timestampFormat={timestampFormat}
-              workspaceRoot={activeWorkspaceRoot}
-              onIsAtEndChange={onIsAtEndChange}
-            />
+            {showDraftQuickLaunchPanel && draftId && activeProject ? (
+              <DraftQuickLaunchPanel
+                environmentId={environmentId}
+                threadId={threadId}
+                projectId={activeProject.id}
+                draftId={draftId}
+                cwd={activeProject.cwd}
+                modelSelection={draftQuickLaunchModelSelection}
+                runtimeMode={runtimeMode}
+              />
+            ) : (
+              <MessagesTimeline
+                key={activeThread.id}
+                isWorking={isWorking}
+                activeTurnInProgress={isWorking || !latestTurnSettled}
+                activeTurnId={activeLatestTurn?.turnId ?? null}
+                activeTurnStartedAt={activeWorkStartedAt}
+                listRef={legendListRef}
+                timelineEntries={timelineEntries}
+                completionDividerBeforeEntryId={completionDividerBeforeEntryId}
+                completionSummary={completionSummary}
+                turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
+                activeThreadEnvironmentId={activeThread.environmentId}
+                routeThreadKey={routeThreadKey}
+                onOpenTurnDiff={onOpenTurnDiff}
+                revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
+                onRevertUserMessage={onRevertUserMessage}
+                isRevertingCheckpoint={isRevertingCheckpoint}
+                onImageExpand={onExpandTimelineImage}
+                markdownCwd={gitCwd ?? undefined}
+                resolvedTheme={resolvedTheme}
+                timestampFormat={timestampFormat}
+                workspaceRoot={activeWorkspaceRoot}
+                onIsAtEndChange={onIsAtEndChange}
+              />
+            )}
 
             {/* scroll to bottom pill — shown when user has scrolled away from the bottom */}
             {showScrollToBottom && (
@@ -3369,7 +3581,7 @@ export default function ChatView(props: ChatViewProps) {
               scheduleStickToBottom={scrollToEnd}
               onSend={onSend}
               onInterrupt={onInterrupt}
-              onImplementPlanInNewThread={onImplementPlanInNewThread}
+              planFollowUpMenuActions={planFollowUpMenuActions}
               onRespondToApproval={onRespondToApproval}
               onSelectActivePendingUserInputOption={onSelectActivePendingUserInputOption}
               onAdvanceActivePendingUserInput={onAdvanceActivePendingUserInput}

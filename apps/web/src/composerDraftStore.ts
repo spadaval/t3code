@@ -51,7 +51,12 @@ const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
 const isRuntimeMode = Schema.is(RuntimeMode);
 export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
 
-export const DraftId = Schema.String.pipe(Schema.brand("DraftId"));
+const DraftIdSchema = Schema.String.pipe(Schema.brand("DraftId"));
+export const DraftId = Object.assign(DraftIdSchema, {
+  make(value: string): typeof DraftIdSchema.Type {
+    return value as typeof DraftIdSchema.Type;
+  },
+});
 export type DraftId = typeof DraftId.Type;
 
 const COMPOSER_PERSIST_DEBOUNCE_MS = 300;
