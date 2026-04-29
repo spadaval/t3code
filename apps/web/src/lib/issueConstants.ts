@@ -72,6 +72,10 @@ export const ISSUE_TYPES: readonly IssueTypeDef[] = [
 /** Issue types suitable for creation (excludes milestone which is structural). */
 export const CREATABLE_ISSUE_TYPES = ISSUE_TYPES.filter((t) => t.value !== "milestone");
 
+const ISSUE_TYPE_LABEL_MAP = new Map<string, string>(
+  ISSUE_TYPES.map((type) => [type.value, type.label] as const),
+);
+
 // ---------------------------------------------------------------------------
 // Priority definitions
 // ---------------------------------------------------------------------------
@@ -140,6 +144,16 @@ export function isIssueDoneStatus(status: string | null | undefined): boolean {
 export function formatPriorityDisplay(priority: number | null): string | null {
   if (priority === null) return null;
   return `P${priority}`;
+}
+
+/**
+ * Format an issue type string for display using the tracker label when known.
+ */
+export function formatIssueTypeDisplay(issueType: string): string {
+  const normalized = issueType.trim().toLowerCase();
+  const known = ISSUE_TYPE_LABEL_MAP.get(normalized);
+  if (known) return known;
+  return issueType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 // ---------------------------------------------------------------------------

@@ -84,10 +84,21 @@ export function deriveReadyEpicRows(input: {
   readonly issuesById: ReadonlyMap<string, BeadsIssueSummary>;
   readonly epicCoordinationDetailById: ReadonlyMap<string, BeadsEpicCoordinationDetail>;
 }): DraftQuickLaunchEpicRow[] {
-  return (input.projectRunSummary?.epics ?? [])
-    .flatMap((epic) => {
-      const issue = input.issuesById.get(epic.epicIssueId);
-      const coordinationDetail = input.epicCoordinationDetailById.get(epic.epicIssueId);
+  const projectRunSummaryEpicById = new Map(
+    (input.projectRunSummary?.epics ?? []).map((epic) => [epic.epicIssueId, epic] as const),
+  );
+  const candidateEpicIds = new Set<string>([
+    ...projectRunSummaryEpicById.keys(),
+    ...[...input.issuesById.values()]
+      .filter((issue) => issue.issueType.toLowerCase() === "epic")
+      .map((issue) => issue.id),
+  ]);
+
+  return [...candidateEpicIds]
+    .flatMap((epicIssueId) => {
+      const projectSummaryEpic = projectRunSummaryEpicById.get(epicIssueId);
+      const issue = input.issuesById.get(epicIssueId);
+      const coordinationDetail = input.epicCoordinationDetailById.get(epicIssueId);
       if (!coordinationDetail) {
         return [];
       }
@@ -103,12 +114,15 @@ export function deriveReadyEpicRows(input: {
       return [
         {
           kind: "epic" as const,
-          id: epic.epicIssueId,
-          title: issue?.title ?? epic.epicTitle,
+          id: epicIssueId,
+          title: issue?.title ?? projectSummaryEpic?.epicTitle ?? coordinationDetail.epicId,
           issueType: issue?.issueType ?? "epic",
           priority: issue?.priority ?? null,
           updatedAt:
-            issue?.updatedAt ?? epic.runs[0]?.updatedAt ?? epic.executions[0]?.updatedAt ?? "",
+            issue?.updatedAt ??
+            projectSummaryEpic?.runs[0]?.updatedAt ??
+            projectSummaryEpic?.executions[0]?.updatedAt ??
+            "",
           status: issue?.status ?? "open",
           readyIssueCount: progress.readyIssueCount,
           totalIssueCount: progress.totalIssueCount,

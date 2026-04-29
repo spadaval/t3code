@@ -159,6 +159,7 @@ export class WsTransport {
           if (!isTransportConnectionErrorMessage(formattedError)) {
             console.warn("WebSocket RPC subscription failed", {
               error: formattedError,
+              hasReceivedValue,
             });
             return;
           }
@@ -166,6 +167,8 @@ export class WsTransport {
           if (!this.hasReportedTransportDisconnect) {
             console.warn("WebSocket RPC subscription disconnected", {
               error: formattedError,
+              hasReceivedValue,
+              retryDelayMs,
             });
           }
           this.hasReportedTransportDisconnect = true;

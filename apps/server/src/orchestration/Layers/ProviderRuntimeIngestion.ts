@@ -1268,6 +1268,20 @@ const make = Effect.gen(function* () {
       const thread = readModel.threads.find((entry) => entry.id === event.threadId);
       if (!thread) return;
 
+      if (event.type === "runtime.error") {
+        yield* Effect.logWarning("provider runtime error received", {
+          provider: event.provider,
+          threadId: event.threadId,
+          turnId: event.turnId,
+          itemId: event.itemId,
+          requestId: event.requestId,
+          message: event.payload.message,
+          sessionStatus: thread.session?.status ?? null,
+          activeTurnId: thread.session?.activeTurnId ?? null,
+          rawMethod: event.raw?.method,
+        });
+      }
+
       const now = event.createdAt;
       const eventTurnId = toTurnId(event.turnId);
       const activeTurnId = thread.session?.activeTurnId ?? null;
