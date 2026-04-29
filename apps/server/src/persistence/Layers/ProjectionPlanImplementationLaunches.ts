@@ -1,7 +1,7 @@
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { Effect, Layer, Option, Schema, Struct } from "effect";
-import { ProviderModelOptions, ProviderStartOptions } from "@t3tools/contracts";
+import { ProviderOptionSelections, ProviderStartOptions } from "@t3tools/contracts";
 
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
@@ -15,7 +15,7 @@ import {
 const ProjectionPlanImplementationLaunchDbRowSchema = ProjectionPlanImplementationLaunch.mapFields(
   Struct.assign({
     setupEnabled: Schema.Number,
-    modelOptions: Schema.NullOr(Schema.fromJsonString(ProviderModelOptions)),
+    modelOptions: Schema.NullOr(Schema.fromJsonString(ProviderOptionSelections)),
     providerOptions: Schema.NullOr(Schema.fromJsonString(ProviderStartOptions)),
   }),
 );

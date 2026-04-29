@@ -1,12 +1,5 @@
 import { Effect, Option, Schema, SchemaGetter, SchemaIssue, Struct } from "effect";
-import {
-  ClaudeModelOptions,
-  CodexModelOptions,
-  CursorModelOptions,
-  OpenCodeModelOptions,
-  ProviderModelOptions,
-  ProviderStartOptions,
-} from "./model.ts";
+import { ProviderOptionSelections } from "./model.ts";
 import { RepositoryIdentity } from "./environment.ts";
 import {
   ApprovalRequestId,
@@ -57,31 +50,33 @@ export const ProviderSandboxMode = Schema.Literals([
 export type ProviderSandboxMode = typeof ProviderSandboxMode.Type;
 
 export const DEFAULT_PROVIDER_KIND: ProviderKind = "codex";
+export const ProviderStartOptions = Schema.Unknown;
+export type ProviderStartOptions = typeof ProviderStartOptions.Type;
 
 export const CodexModelSelection = Schema.Struct({
   provider: Schema.Literal("codex"),
   model: TrimmedNonEmptyString,
-  options: Schema.optionalKey(CodexModelOptions),
+  options: Schema.optionalKey(ProviderOptionSelections),
 });
 export type CodexModelSelection = typeof CodexModelSelection.Type;
 
 export const ClaudeModelSelection = Schema.Struct({
   provider: Schema.Literal("claudeAgent"),
   model: TrimmedNonEmptyString,
-  options: Schema.optionalKey(ClaudeModelOptions),
+  options: Schema.optionalKey(ProviderOptionSelections),
 });
 export type ClaudeModelSelection = typeof ClaudeModelSelection.Type;
 
 export const CursorModelSelection = Schema.Struct({
   provider: Schema.Literal("cursor"),
   model: TrimmedNonEmptyString,
-  options: Schema.optionalKey(CursorModelOptions),
+  options: Schema.optionalKey(ProviderOptionSelections),
 });
 export type CursorModelSelection = typeof CursorModelSelection.Type;
 export const OpenCodeModelSelection = Schema.Struct({
   provider: Schema.Literal("opencode"),
   model: TrimmedNonEmptyString,
-  options: Schema.optionalKey(OpenCodeModelOptions),
+  options: Schema.optionalKey(ProviderOptionSelections),
 });
 export type OpenCodeModelSelection = typeof OpenCodeModelSelection.Type;
 
@@ -559,7 +554,7 @@ export const OrchestrationEpicRun = Schema.Struct({
   status: OrchestrationEpicRunStatus,
   provider: Schema.NullOr(ProviderKind),
   model: Schema.NullOr(TrimmedNonEmptyString),
-  modelOptions: Schema.NullOr(ProviderModelOptions),
+  modelOptions: Schema.NullOr(ProviderOptionSelections),
   providerOptions: Schema.NullOr(ProviderStartOptions),
   assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
@@ -1043,7 +1038,7 @@ const PlanImplementationLaunchRequestCommand = Schema.Struct({
   promptText: Schema.String,
   provider: Schema.optional(ProviderKind),
   model: Schema.optional(TrimmedNonEmptyString),
-  modelOptions: Schema.optional(ProviderModelOptions),
+  modelOptions: Schema.optional(ProviderOptionSelections),
   providerOptions: Schema.optional(ProviderStartOptions),
   assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
@@ -1093,7 +1088,7 @@ const EpicRunRequestCommand = Schema.Struct({
   epicIssueId: TrimmedNonEmptyString,
   provider: Schema.optional(ProviderKind),
   model: Schema.optional(TrimmedNonEmptyString),
-  modelOptions: Schema.optional(ProviderModelOptions),
+  modelOptions: Schema.optional(ProviderOptionSelections),
   providerOptions: Schema.optional(ProviderStartOptions),
   assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
@@ -1457,7 +1452,7 @@ export const PlanImplementationLaunchRequestedPayload = Schema.Struct({
   promptText: Schema.String,
   provider: Schema.NullOr(ProviderKind),
   model: Schema.NullOr(TrimmedNonEmptyString),
-  modelOptions: Schema.NullOr(ProviderModelOptions),
+  modelOptions: Schema.NullOr(ProviderOptionSelections),
   providerOptions: Schema.NullOr(ProviderStartOptions),
   assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
   runtimeMode: RuntimeMode,
@@ -1502,7 +1497,7 @@ export const EpicRunRequestedPayload = Schema.Struct({
   epicIssueId: TrimmedNonEmptyString,
   provider: Schema.NullOr(ProviderKind),
   model: Schema.NullOr(TrimmedNonEmptyString),
-  modelOptions: Schema.NullOr(ProviderModelOptions),
+  modelOptions: Schema.NullOr(ProviderOptionSelections),
   providerOptions: Schema.NullOr(ProviderStartOptions),
   assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
   runtimeMode: RuntimeMode,
@@ -1907,7 +1902,7 @@ export const OrchestrationLaunchPlanImplementationInput = Schema.Struct({
   titleOverride: Schema.optional(TrimmedNonEmptyString),
   provider: Schema.optional(ProviderKind),
   model: Schema.optional(TrimmedNonEmptyString),
-  modelOptions: Schema.optional(ProviderModelOptions),
+  modelOptions: Schema.optional(ProviderOptionSelections),
   providerOptions: Schema.optional(ProviderStartOptions),
   assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),
@@ -1953,7 +1948,7 @@ export const OrchestrationStartEpicRunInput = Schema.Struct({
   epicIssueId: TrimmedNonEmptyString,
   provider: Schema.optional(ProviderKind),
   model: Schema.optional(TrimmedNonEmptyString),
-  modelOptions: Schema.optional(ProviderModelOptions),
+  modelOptions: Schema.optional(ProviderOptionSelections),
   providerOptions: Schema.optional(ProviderStartOptions),
   assistantDeliveryMode: Schema.optional(AssistantDeliveryMode),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE))),

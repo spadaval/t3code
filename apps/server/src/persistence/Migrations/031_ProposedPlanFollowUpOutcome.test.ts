@@ -8,7 +8,7 @@ import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
-layer("029_ProposedPlanFollowUpOutcome", (it) => {
+layer("031_ProposedPlanFollowUpOutcome", (it) => {
   it.effect("adds and backfills follow-up outcome JSON from legacy implementation columns", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;

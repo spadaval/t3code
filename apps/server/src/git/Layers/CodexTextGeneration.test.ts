@@ -2,6 +2,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Path, Result } from "effect";
+import { createModelSelection } from "@t3tools/shared/model";
 import { expect } from "vitest";
 
 import { ServerConfig } from "../../config.ts";
@@ -245,14 +246,10 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
             branch: "feature/codex-effect",
             stagedSummary: "M README.md",
             stagedPatch: "diff --git a/README.md b/README.md",
-            modelSelection: {
-              provider: "codex",
-              model: "gpt-5.4",
-              options: {
-                reasoningEffort: "xhigh",
-                fastMode: true,
-              },
-            },
+            modelSelection: createModelSelection("codex", "gpt-5.4", [
+              { id: "reasoningEffort", value: "xhigh" },
+              { id: "fastMode", value: true },
+            ]),
           });
         }),
       ),

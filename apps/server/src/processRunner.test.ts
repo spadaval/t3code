@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { describe, expect, it } from "vitest";
 
-import { runProcess } from "./processRunner.ts";
+import { isWindowsCommandNotFound, runProcess } from "./processRunner.ts";
 
 describe("runProcess", () => {
   it("fails when output exceeds max buffer in default mode", async () => {
@@ -20,5 +20,23 @@ describe("runProcess", () => {
     expect(result.stdout.length).toBeLessThanOrEqual(128);
     expect(result.stdoutTruncated).toBe(true);
     expect(result.stderrTruncated).toBe(false);
+  });
+});
+
+describe("isWindowsCommandNotFound", () => {
+  it("matches the localized German cmd.exe error text", () => {
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+
+    try {
+      expect(
+        isWindowsCommandNotFound(
+          1,
+          "wird nicht als interner oder externer Befehl, betriebsfahiges Programm oder Batch-Datei erkannt",
+        ),
+      ).toBe(true);
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform, configurable: true });
+    }
   });
 });

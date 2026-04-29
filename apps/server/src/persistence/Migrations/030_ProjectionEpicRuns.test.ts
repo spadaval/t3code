@@ -8,7 +8,7 @@ import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
-layer("028_ProjectionEpicRuns", (it) => {
+layer("030_ProjectionEpicRuns", (it) => {
   it.effect("creates the canonical epic run projection tables and indexes", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;

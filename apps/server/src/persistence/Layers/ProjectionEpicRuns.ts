@@ -1,7 +1,7 @@
 import {
   AssistantDeliveryMode,
   OrchestrationEpicRunFailureContext,
-  ProviderModelOptions,
+  ProviderOptionSelections,
   ProviderStartOptions,
 } from "@t3tools/contracts";
 import { Effect, Layer, Option, Schema } from "effect";
@@ -23,7 +23,7 @@ const ProjectionEpicRunDbRowSchema = Schema.Struct({
   status: ProjectionEpicRun.fields.status,
   provider: ProjectionEpicRun.fields.provider,
   model: ProjectionEpicRun.fields.model,
-  modelOptions: Schema.NullOr(Schema.fromJsonString(ProviderModelOptions)),
+  modelOptions: Schema.NullOr(Schema.fromJsonString(ProviderOptionSelections)),
   providerOptions: Schema.NullOr(Schema.fromJsonString(ProviderStartOptions)),
   assistantDeliveryMode: Schema.NullOr(AssistantDeliveryMode),
   runtimeMode: ProjectionEpicRun.fields.runtimeMode,
