@@ -1426,6 +1426,68 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("records visible activity when provider interrupt fails", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    harness.interruptTurn.mockReturnValueOnce(
+      Effect.fail(
+        new ProviderAdapterRequestError({
+          provider: "codex",
+          method: "turn/interrupt",
+          detail: "Codex app-server did not accept turn/interrupt.",
+        }),
+      ),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-set-interrupt-failure"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-1"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.interrupt",
+        commandId: CommandId.makeUnsafe("cmd-turn-interrupt-failure"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        turnId: asTurnId("turn-1"),
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      return Boolean(
+        thread?.activities.some((activity) => activity.kind === "provider.turn.interrupt.failed"),
+      );
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    const failureActivity = thread?.activities.find(
+      (activity) => activity.kind === "provider.turn.interrupt.failed",
+    );
+    expect(failureActivity?.payload).toMatchObject({
+      detail: "Codex app-server did not accept turn/interrupt.",
+    });
+    expect(failureActivity?.turnId).toBe("turn-1");
+  });
+
   it("starts a fresh session when only projected session state exists", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -1813,5 +1875,68 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.status).toBe("stopped");
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.activeTurnId).toBeNull();
+  });
+
+  it("marks the thread stopped and records detail when provider session stop fails", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    harness.stopSession.mockReturnValueOnce(
+      Effect.fail(
+        new ProviderAdapterRequestError({
+          provider: "codex",
+          method: "session/stop",
+          detail: "Codex app-server cleanup failed.",
+        }),
+      ),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-set-stop-failure"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-1"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.stop",
+        commandId: CommandId.makeUnsafe("cmd-session-stop-failure"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      return (
+        thread?.session?.status === "stopped" &&
+        thread.activities.some((activity) => activity.kind === "provider.session.stop.failed")
+      );
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    const failureActivity = thread?.activities.find(
+      (activity) => activity.kind === "provider.session.stop.failed",
+    );
+    expect(thread?.session?.status).toBe("stopped");
+    expect(thread?.session?.lastError).toContain("Codex app-server cleanup failed.");
+    expect(failureActivity?.payload).toMatchObject({
+      detail: expect.stringContaining("Codex app-server cleanup failed."),
+    });
   });
 });

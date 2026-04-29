@@ -659,10 +659,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           "provider.kind": routed.adapter.provider,
           "provider.thread_id": input.threadId,
         });
-        if (routed.isActive) {
-          yield* routed.adapter.stopSession(routed.threadId);
-        }
-        yield* directory.upsert({
+        const markStopped = directory.upsert({
           threadId: input.threadId,
           provider: routed.adapter.provider,
           status: "stopped",
@@ -670,6 +667,13 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
             activeTurnId: null,
           },
         });
+        if (routed.isActive) {
+          yield* routed.adapter
+            .stopSession(routed.threadId)
+            .pipe(Effect.ensuring(markStopped.pipe(Effect.ignoreCause({ log: true }))));
+        } else {
+          yield* markStopped;
+        }
         yield* analytics.record("provider.session.stopped", {
           provider: routed.adapter.provider,
         });

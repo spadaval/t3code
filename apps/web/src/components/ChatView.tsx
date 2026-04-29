@@ -2787,22 +2787,30 @@ export default function ChatView(props: ChatViewProps) {
     const commandType = resolveRunningSessionStopCommand({
       stalledSession: stalledRunningSession,
     });
-    await api.orchestration
-      .dispatchCommand({
-        type: commandType,
-        commandId: newCommandId(),
-        threadId: activeThread.id,
-        createdAt: new Date().toISOString(),
-      })
-      .catch((err: unknown) => {
-        const detail = err instanceof Error ? err.message : "Unknown error";
-        setThreadError(
-          activeThread.id,
-          commandType === "thread.session.stop"
-            ? `Failed to stop stalled session: ${detail}`
-            : `Failed to interrupt turn: ${detail}`,
-        );
-      });
+    const command =
+      commandType === "thread.turn.interrupt"
+        ? {
+            type: commandType,
+            commandId: newCommandId(),
+            threadId: activeThread.id,
+            ...(activeLatestTurn?.turnId ? { turnId: activeLatestTurn.turnId } : {}),
+            createdAt: new Date().toISOString(),
+          }
+        : {
+            type: commandType,
+            commandId: newCommandId(),
+            threadId: activeThread.id,
+            createdAt: new Date().toISOString(),
+          };
+    await api.orchestration.dispatchCommand(command).catch((err: unknown) => {
+      const detail = err instanceof Error ? err.message : "Unknown error";
+      setThreadError(
+        activeThread.id,
+        commandType === "thread.session.stop"
+          ? `Failed to stop stalled session: ${detail}`
+          : `Failed to interrupt turn: ${detail}`,
+      );
+    });
   };
 
   const onRespondToApproval = useCallback(

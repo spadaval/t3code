@@ -1,7 +1,20 @@
 // @ts-nocheck
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, it, assert } from "@effect/vitest";
-import { Effect, Exit, Layer, PubSub, Ref, Schema, Scope, Sink, Stream } from "effect";
+import {
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  PubSub,
+  Ref,
+  Schema,
+  Scope,
+  Sink,
+  Stream,
+} from "effect";
+import { TestClock } from "effect/testing";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import {
   DEFAULT_SERVER_SETTINGS,
@@ -301,11 +314,26 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           assert.strictEqual(status.status, "error");
           assert.strictEqual(status.installed, false);
           assert.strictEqual(status.auth.status, "unknown");
-          assert.strictEqual(
-            status.message,
-            "Codex CLI (`codex`) is not installed or not on PATH.",
-          );
+          assert.match(status.message ?? "", /Codex CLI \(`codex`\) is not installed/);
+          assert.match(status.message ?? "", /spawn codex ENOENT/);
         }),
+      );
+
+      it.effect("returns actionable status details when the app-server probe times out", () =>
+        Effect.gen(function* () {
+          const fiber = yield* checkCodexProviderStatus(() => Effect.never).pipe(Effect.forkScoped);
+
+          yield* Effect.yieldNow;
+          yield* TestClock.adjust(Duration.seconds(8));
+
+          const status = yield* Fiber.join(fiber);
+          assert.strictEqual(status.provider, "codex");
+          assert.strictEqual(status.status, "error");
+          assert.strictEqual(status.installed, true);
+          assert.match(status.message ?? "", /Timed out after 8s/);
+          assert.match(status.message ?? "", /initialize, account, model, and skill responses/);
+          assert.match(status.message ?? "", /codex login/);
+        }).pipe(Effect.provide(TestClock.layer())),
       );
     });
 

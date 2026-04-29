@@ -36,6 +36,7 @@ import packageJson from "../../../package.json" with { type: "json" };
 
 const PROVIDER = "codex" as const;
 const PROVIDER_PROBE_TIMEOUT_MS = 8_000;
+const PROVIDER_PROBE_TIMEOUT_SECONDS = PROVIDER_PROBE_TIMEOUT_MS / 1_000;
 const CODEX_PRESENTATION = {
   displayName: "Codex",
   showInteractionModeToggle: true,
@@ -174,6 +175,43 @@ function appendCustomCodexModels(
     });
   }
   return customEntries.length === 0 ? models : [...models, ...customEntries];
+}
+
+function formatUnknownCause(cause: unknown): string {
+  if (cause instanceof Error && cause.message.trim().length > 0) {
+    return cause.message;
+  }
+  if (typeof cause === "string" && cause.trim().length > 0) {
+    return cause;
+  }
+  try {
+    return JSON.stringify(cause);
+  } catch {
+    return String(cause);
+  }
+}
+
+function formatCodexAppServerError(error: CodexErrors.CodexAppServerError): string {
+  if (Schema.is(CodexErrors.CodexAppServerSpawnError)(error)) {
+    const cause = formatUnknownCause(error.cause);
+    return cause && !error.message.includes(cause) ? `${error.message}: ${cause}` : error.message;
+  }
+  return error.message;
+}
+
+function buildCodexProviderProbeTimeoutMessage(input: {
+  readonly binaryPath: string;
+  readonly homePath?: string;
+  readonly cwd: string;
+}): string {
+  const command = `${input.binaryPath} app-server`;
+  const codexHome = input.homePath ? expandHomePath(input.homePath) : null;
+  return [
+    `Timed out after ${PROVIDER_PROBE_TIMEOUT_SECONDS}s while checking Codex app-server provider status.`,
+    `T3 Code started \`${command}\` from \`${input.cwd}\` and waited for initialize, account, model, and skill responses, but the app-server did not finish the check.`,
+    `Try running \`${command}\` from that directory, run \`${input.binaryPath} login\` if auth is stale, or restart T3 Code to clear a stuck provider process.`,
+    ...(codexHome ? [`CODEX_HOME was \`${codexHome}\`.`] : []),
+  ].join(" ");
 }
 
 function parseCodexSkillsListResponse(
@@ -433,6 +471,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
   if (Result.isFailure(probeResult)) {
     const error = probeResult.failure;
     const installed = !Schema.is(CodexErrors.CodexAppServerSpawnError)(error);
+    const detail = formatCodexAppServerError(error);
     return buildServerProvider({
       provider: PROVIDER,
       presentation: CODEX_PRESENTATION,
@@ -446,8 +485,8 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
         status: "error",
         auth: { status: "unknown" },
         message: installed
-          ? `Codex app-server provider probe failed: ${error.message}.`
-          : "Codex CLI (`codex`) is not installed or not on PATH.",
+          ? `Codex app-server provider probe failed: ${detail}.`
+          : `Codex CLI (\`${codexSettings.binaryPath}\`) is not installed or not on PATH: ${detail}.`,
       },
     });
   }
@@ -465,7 +504,11 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
         version: null,
         status: "error",
         auth: { status: "unknown" },
-        message: "Timed out while checking Codex app-server provider status.",
+        message: buildCodexProviderProbeTimeoutMessage({
+          binaryPath: codexSettings.binaryPath,
+          homePath: codexSettings.homePath,
+          cwd: process.cwd(),
+        }),
       },
     });
   }
