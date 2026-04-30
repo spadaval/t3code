@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId } from "@t3tools/contracts";
+import { ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
 import { resolveThreadProjectContext } from "./threadProjectContext";
@@ -28,7 +28,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     projectId: PROJECT_ID,
     title: "Thread",
     modelSelection: {
-      provider: "codex",
+      instanceId: ProviderInstanceId.make("codex"),
       model: "gpt-5-codex",
     },
     runtimeMode: "full-access",

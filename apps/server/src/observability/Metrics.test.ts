@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { assert, describe, it } from "@effect/vitest";
+import { ProviderDriverKind } from "@t3tools/contracts";
 import { Effect, Metric } from "effect";
 
 import { withMetrics } from "./Metrics.ts";
@@ -76,10 +77,11 @@ describe("withMetrics", () => {
     Effect.gen(function* () {
       const counter = Metric.counter("with_metrics_lazy_total");
       const timer = Metric.timer("with_metrics_lazy_duration");
-      let provider = "unknown";
+      let provider = ProviderDriverKind.make("unknown");
+      const lazyInittedProvider = ProviderDriverKind.make("codex");
 
       yield* Effect.sync(() => {
-        provider = "codex";
+        provider = lazyInittedProvider;
       }).pipe(
         withMetrics({
           counter,
@@ -94,7 +96,7 @@ describe("withMetrics", () => {
       const snapshots = yield* Metric.snapshot;
       assert.equal(
         hasMetricSnapshot(snapshots, "with_metrics_lazy_total", {
-          provider: "codex",
+          provider: lazyInittedProvider,
           operation: "lazy",
           outcome: "success",
         }),
@@ -102,7 +104,7 @@ describe("withMetrics", () => {
       );
       assert.equal(
         hasMetricSnapshot(snapshots, "with_metrics_lazy_duration", {
-          provider: "codex",
+          provider: lazyInittedProvider,
           operation: "lazy",
         }),
         true,

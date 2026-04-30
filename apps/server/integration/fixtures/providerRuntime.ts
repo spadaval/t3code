@@ -1,8 +1,7 @@
-// @ts-nocheck
-import { EventId, RuntimeRequestId } from "@t3tools/contracts";
+import { EventId, ProviderDriverKind, RuntimeRequestId } from "@t3tools/contracts";
 import type { LegacyProviderRuntimeEvent } from "../TestProviderAdapter.integration.ts";
 
-const PROVIDER = "codex" as const;
+const PROVIDER = ProviderDriverKind.make("codex");
 const SESSION_ID = "fixture-session";
 const THREAD_ID = "fixture-thread";
 const TURN_ID = "fixture-turn";

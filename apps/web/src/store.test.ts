@@ -1,13 +1,15 @@
 import { scopeThreadRef } from "@t3tools/client-runtime";
 import {
   CheckpointRef,
-  DEFAULT_MODEL_BY_PROVIDER,
+  DEFAULT_MODEL,
   EnvironmentId,
   EpicIssueExecutionId,
   EpicRunId,
   EventId,
   MessageId,
   ProjectId,
+  ProviderDriverKind,
+  ProviderInstanceId,
   ThreadId,
   TurnId,
   type OrchestrationEvent,
@@ -73,7 +75,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     projectId: ProjectId.make("project-1"),
     title: "Thread",
     modelSelection: {
-      provider: "codex",
+      instanceId: ProviderInstanceId.make("codex"),
       model: "gpt-5-codex",
     },
     runtimeMode: DEFAULT_RUNTIME_MODE,
@@ -101,7 +103,7 @@ function makeState(thread: Thread): AppState {
     name: "Project",
     cwd: "/tmp/project",
     defaultModelSelection: {
-      provider: "codex" as const,
+      instanceId: ProviderInstanceId.make("codex"),
       model: "gpt-5-codex",
     },
     createdAt: "2026-02-13T00:00:00.000Z",
@@ -292,8 +294,8 @@ function makeEpicRun(overrides: Partial<OrchestrationEpicRun> = {}): Orchestrati
     projectId: ProjectId.make("project-1"),
     epicIssueId: "EPIC-1",
     status: "pending",
-    provider: "codex",
-    model: DEFAULT_MODEL_BY_PROVIDER.codex,
+    provider: ProviderDriverKind.make("codex"),
+    model: DEFAULT_MODEL,
     modelOptions: null,
     providerOptions: null,
     assistantDeliveryMode: null,
@@ -462,7 +464,7 @@ function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"
     projectId: ProjectId.make("project-1"),
     title: "Thread",
     modelSelection: {
-      provider: "codex",
+      instanceId: ProviderInstanceId.make("codex"),
       model: "gpt-5.3-codex",
     },
     runtimeMode: DEFAULT_RUNTIME_MODE,
@@ -495,7 +497,7 @@ function makeReadModel(thread: OrchestrationReadModel["threads"][number]): Orche
         title: "Project",
         workspaceRoot: "/tmp/project",
         defaultModelSelection: {
-          provider: "codex",
+          instanceId: ProviderInstanceId.make("codex"),
           model: "gpt-5.3-codex",
         },
         createdAt: "2026-02-27T00:00:00.000Z",
@@ -519,7 +521,7 @@ function makeReadModelProject(
     title: "Project",
     workspaceRoot: "/tmp/project",
     defaultModelSelection: {
-      provider: "codex",
+      instanceId: ProviderInstanceId.make("codex"),
       model: "gpt-5.3-codex",
     },
     createdAt: "2026-02-27T00:00:00.000Z",
@@ -592,7 +594,7 @@ describe("store read model sync", () => {
     const readModel = makeReadModel(
       makeReadModelThread({
         modelSelection: {
-          provider: "claudeAgent",
+          instanceId: ProviderInstanceId.make("claudeAgent"),
           model: "claude-opus-4-6",
         },
       }),
@@ -608,7 +610,7 @@ describe("store read model sync", () => {
     const readModel = makeReadModel(
       makeReadModelThread({
         modelSelection: {
-          provider: "claudeAgent",
+          instanceId: ProviderInstanceId.make("claudeAgent"),
           model: "sonnet",
         },
         session: {
@@ -671,8 +673,8 @@ describe("store read model sync", () => {
           name: "Project 2",
           cwd: "/tmp/project-2",
           defaultModelSelection: {
-            provider: "codex",
-            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+            instanceId: ProviderInstanceId.make("codex"),
+            model: DEFAULT_MODEL,
           },
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
@@ -684,8 +686,8 @@ describe("store read model sync", () => {
           name: "Project 1",
           cwd: "/tmp/project-1",
           defaultModelSelection: {
-            provider: "codex",
-            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+            instanceId: ProviderInstanceId.make("codex"),
+            model: DEFAULT_MODEL,
           },
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
@@ -821,8 +823,8 @@ describe("incremental orchestration updates", () => {
       runId: EpicRunId.make("run-1"),
       projectId,
       epicIssueId: "EPIC-1",
-      provider: "codex",
-      model: DEFAULT_MODEL_BY_PROVIDER.codex,
+      provider: ProviderDriverKind.make("codex"),
+      model: DEFAULT_MODEL,
       modelOptions: null,
       providerOptions: null,
       assistantDeliveryMode: null,
@@ -963,8 +965,8 @@ describe("incremental orchestration updates", () => {
           name: "Project",
           cwd: "/tmp/project",
           defaultModelSelection: {
-            provider: "codex",
-            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+            instanceId: ProviderInstanceId.make("codex"),
+            model: DEFAULT_MODEL,
           },
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
@@ -980,8 +982,8 @@ describe("incremental orchestration updates", () => {
         title: "Project Recreated",
         workspaceRoot: "/tmp/project",
         defaultModelSelection: {
-          provider: "codex",
-          model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          instanceId: ProviderInstanceId.make("codex"),
+          model: DEFAULT_MODEL,
         },
         scripts: [],
         createdAt: "2026-02-27T00:00:01.000Z",
@@ -1018,8 +1020,8 @@ describe("incremental orchestration updates", () => {
           name: "Project 1",
           cwd: "/tmp/project-1",
           defaultModelSelection: {
-            provider: "codex",
-            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+            instanceId: ProviderInstanceId.make("codex"),
+            model: DEFAULT_MODEL,
           },
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
@@ -1031,8 +1033,8 @@ describe("incremental orchestration updates", () => {
           name: "Project 2",
           cwd: "/tmp/project-2",
           defaultModelSelection: {
-            provider: "codex",
-            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+            instanceId: ProviderInstanceId.make("codex"),
+            model: DEFAULT_MODEL,
           },
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
@@ -1048,8 +1050,8 @@ describe("incremental orchestration updates", () => {
         projectId: recreatedProjectId,
         title: "Recovered thread",
         modelSelection: {
-          provider: "codex",
-          model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          instanceId: ProviderInstanceId.make("codex"),
+          model: DEFAULT_MODEL,
         },
         runtimeMode: DEFAULT_RUNTIME_MODE,
         interactionMode: DEFAULT_INTERACTION_MODE,
@@ -1556,7 +1558,7 @@ describe("incremental orchestration updates", () => {
   it("settles an active latestTurn immediately when thread.session-stop-requested arrives", () => {
     const thread = makeThread({
       session: {
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         status: "running",
         orchestrationStatus: "running",
         activeTurnId: TurnId.make("turn-9"),

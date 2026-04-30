@@ -8,13 +8,12 @@ import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
-layer("029_ProjectionPlanMetadata", (it) => {
+layer("031_ProjectionPlanMetadata", (it) => {
   it.effect("adds plan intent and launch mode columns when upgrading from migration 024", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
-      yield* runMigrations({ toMigrationInclusive: 27 });
-      yield* runMigrations({ toMigrationInclusive: 28 });
+      yield* runMigrations({ toMigrationInclusive: 31 });
 
       const proposedPlanColumns = yield* sql<{
         readonly cid: number;

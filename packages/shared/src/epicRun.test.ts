@@ -1,3 +1,4 @@
+import { ProviderDriverKind } from "@t3tools/contracts";
 import type {
   BeadsEpicCoordinationStatus,
   BeadsEpicCoordinationValidation,
@@ -79,7 +80,7 @@ function makeRun(
     projectId: "project-1" as never,
     epicIssueId: "EPIC-1",
     status: "pending",
-    provider: "codex",
+    provider: ProviderDriverKind.make("codex"),
     model: "gpt-5.4",
     modelOptions: null,
     providerOptions: null,
@@ -358,7 +359,7 @@ describe("coordination", () => {
         runId: "run-1" as never,
         projectId: "project-1" as never,
         epicIssueId: "EPIC-1",
-        provider: "codex",
+        provider: ProviderDriverKind.make("codex"),
         model: "gpt-5.4",
         modelOptions: null,
         providerOptions: null,

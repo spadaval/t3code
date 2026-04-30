@@ -8,6 +8,7 @@ import {
   ThreadId,
   type OrchestrationCommand,
   type OrchestrationReadModel,
+  ProviderInstanceId,
 } from "@t3tools/contracts";
 import { Effect } from "effect";
 
@@ -37,7 +38,7 @@ const readModel: OrchestrationReadModel = {
       title: "Project A",
       workspaceRoot: "/tmp/project-a",
       defaultModelSelection: {
-        provider: "codex",
+        instanceId: ProviderInstanceId.make("codex"),
         model: "gpt-5-codex",
       },
       scripts: [],
@@ -50,7 +51,7 @@ const readModel: OrchestrationReadModel = {
       title: "Project B",
       workspaceRoot: "/tmp/project-b",
       defaultModelSelection: {
-        provider: "codex",
+        instanceId: ProviderInstanceId.make("codex"),
         model: "gpt-5-codex",
       },
       scripts: [],
@@ -65,7 +66,7 @@ const readModel: OrchestrationReadModel = {
       projectId: ProjectId.makeUnsafe("project-a"),
       title: "Thread A",
       modelSelection: {
-        provider: "codex",
+        instanceId: ProviderInstanceId.make("codex"),
         model: "gpt-5-codex",
       },
       interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -90,7 +91,7 @@ const readModel: OrchestrationReadModel = {
       projectId: ProjectId.makeUnsafe("project-b"),
       title: "Thread B",
       modelSelection: {
-        provider: "codex",
+        instanceId: ProviderInstanceId.make("codex"),
         model: "gpt-5-codex",
       },
       interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -258,7 +259,7 @@ describe("commandInvariants", () => {
           projectId: ProjectId.makeUnsafe("project-a"),
           title: "new",
           modelSelection: {
-            provider: "codex",
+            instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5-codex",
           },
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -282,7 +283,7 @@ describe("commandInvariants", () => {
             projectId: ProjectId.makeUnsafe("project-a"),
             title: "dup",
             modelSelection: {
-              provider: "codex",
+              instanceId: ProviderInstanceId.make("codex"),
               model: "gpt-5-codex",
             },
             interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,

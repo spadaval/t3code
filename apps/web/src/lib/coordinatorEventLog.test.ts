@@ -12,7 +12,7 @@ const BASE_RUN = {
   projectId: "project-1" as never,
   epicIssueId: "EPIC-1",
   status: "completed",
-  provider: "codex",
+  provider: "codex" as never,
   model: "gpt-5",
   modelOptions: null,
   providerOptions: null,

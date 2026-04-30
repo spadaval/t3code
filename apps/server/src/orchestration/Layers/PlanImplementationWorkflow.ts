@@ -1,11 +1,14 @@
 import {
   CommandId,
+  defaultInstanceIdForDriver,
+  DEFAULT_MODEL,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   EventId,
   MessageId,
   PlanImplementationLaunchId,
+  ProviderDriverKind,
   ThreadId,
   type OrchestrationCancelPlanImplementationLaunchResult,
   type OrchestrationLaunchPlanImplementationInput,
@@ -13,6 +16,7 @@ import {
 } from "@t3tools/contracts";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import { resolveDefaultLocalBranchName } from "@t3tools/shared/git";
+import { createModelSelection } from "@t3tools/shared/model";
 import {
   buildPlanImplementationPrompt,
   buildPlanImplementationThreadTitle,
@@ -364,10 +368,12 @@ const makePlanImplementationWorkflow = Effect.gen(function* () {
           threadId: launch.targetThreadId,
           projectId: launch.projectId,
           title: launch.title,
-          modelSelection: {
-            provider: launch.provider ?? "codex",
-            model: launch.model ?? DEFAULT_MODEL_BY_PROVIDER.codex,
-          },
+          modelSelection: createModelSelection(
+            defaultInstanceIdForDriver(launch.provider ?? ProviderDriverKind.make("codex")),
+            launch.model ??
+              DEFAULT_MODEL_BY_PROVIDER[ProviderDriverKind.make("codex")] ??
+              DEFAULT_MODEL,
+          ),
           runtimeMode: launch.runtimeMode,
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
           branch: worktree.branch,

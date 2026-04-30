@@ -8,12 +8,12 @@ import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
-layer("030_ProjectionEpicRuns", (it) => {
+layer("032_ProjectionEpicRuns", (it) => {
   it.effect("creates the canonical epic run projection tables and indexes", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
-      yield* runMigrations({ toMigrationInclusive: 29 });
+      yield* runMigrations({ toMigrationInclusive: 32 });
 
       const tables = yield* sql<{ readonly name: string }>`
         SELECT name

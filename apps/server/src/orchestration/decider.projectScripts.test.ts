@@ -6,6 +6,7 @@ import {
   MessageId,
   ProjectId,
   ThreadId,
+  ProviderInstanceId,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { describe, expect, it } from "vitest";
@@ -139,7 +140,7 @@ describe("decider project scripts", () => {
           projectId: asProjectId("project-1"),
           title: "Thread",
           modelSelection: {
-            provider: "codex",
+            instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5-codex",
           },
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -165,7 +166,7 @@ describe("decider project scripts", () => {
             text: "hello",
             attachments: [],
           },
-          modelSelection: createModelSelection("codex", "gpt-5.3-codex", [
+          modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.3-codex", [
             { id: "reasoningEffort", value: "high" },
             { id: "fastMode", value: true },
           ]),
@@ -190,7 +191,7 @@ describe("decider project scripts", () => {
     expect(turnStartEvent.payload).toMatchObject({
       threadId: ThreadId.makeUnsafe("thread-1"),
       messageId: asMessageId("message-user-1"),
-      modelSelection: createModelSelection("codex", "gpt-5.3-codex", [
+      modelSelection: createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.3-codex", [
         { id: "reasoningEffort", value: "high" },
         { id: "fastMode", value: true },
       ]),
@@ -385,7 +386,7 @@ describe("decider project scripts", () => {
           projectId: asProjectId("project-1"),
           title: "Thread",
           modelSelection: {
-            provider: "codex",
+            instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5-codex",
           },
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -468,7 +469,7 @@ describe("decider project scripts", () => {
           projectId: asProjectId("project-1"),
           title: "Thread",
           modelSelection: {
-            provider: "codex",
+            instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5-codex",
           },
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,

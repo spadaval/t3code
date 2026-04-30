@@ -2,6 +2,7 @@ import { Effect, Layer, ManagedRuntime, Stream } from "effect";
 
 import {
   BeadsError,
+  ProviderInstanceId,
   type BeadsIssueDetail,
   type BeadsEpicCoordinationStatus,
   type BeadsEpicCoordinationValidation,
@@ -958,7 +959,7 @@ export async function createEpicRunSchedulerHarness(
       projectId,
       title: "Project",
       workspaceRoot: "/repo/project",
-      defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
+      defaultModelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
       createdAt: now,
     }),
   );

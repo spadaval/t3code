@@ -1,4 +1,4 @@
-import { DEFAULT_MODEL_BY_PROVIDER, type ModelSelection } from "@t3tools/contracts";
+import { DEFAULT_MODEL, ProviderInstanceId, type ModelSelection } from "@t3tools/contracts";
 
 export function resolveFallbackModelSelection(
   modelSelection: ModelSelection | null | undefined,
@@ -8,7 +8,7 @@ export function resolveFallbackModelSelection(
   }
 
   return {
-    provider: "codex",
-    model: DEFAULT_MODEL_BY_PROVIDER.codex,
+    instanceId: ProviderInstanceId.make("codex"),
+    model: DEFAULT_MODEL,
   };
 }

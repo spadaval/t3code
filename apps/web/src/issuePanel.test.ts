@@ -56,7 +56,7 @@ function makeEpicRun(overrides: Record<string, unknown> = {}): OrchestrationEpic
     projectId: ProjectId.makeUnsafe("project-1"),
     epicIssueId: "EPIC-1",
     status: "running",
-    provider: "codex",
+    provider: "codex" as never,
     model: "gpt-5.4-mini",
     modelOptions: null,
     providerOptions: null,

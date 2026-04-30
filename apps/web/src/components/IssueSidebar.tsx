@@ -1,4 +1,4 @@
-import { type EnvironmentId, type ThreadId } from "@t3tools/contracts";
+import { ProviderInstanceId, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef } from "react";
@@ -163,7 +163,9 @@ export function IssueSidebar(props: {
   const resolvedModelSelection = useMemo(
     () =>
       resolveFallbackModelSelection(
-        composerDraft.modelSelectionByProvider[composerDraft.activeProvider ?? "codex"] ??
+        composerDraft.modelSelectionByProvider[
+          composerDraft.activeProvider ?? ProviderInstanceId.make("codex")
+        ] ??
           thread?.modelSelection ??
           project?.defaultModelSelection,
       ),

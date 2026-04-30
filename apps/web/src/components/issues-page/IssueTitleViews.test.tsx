@@ -198,7 +198,7 @@ describe("issue title views", () => {
           projectId: "project-1" as never,
           epicIssueId: "EPIC-1",
           status: "running",
-          provider: "codex",
+          provider: "codex" as never,
           model: "gpt-5.4",
           modelOptions: null,
           providerOptions: null,

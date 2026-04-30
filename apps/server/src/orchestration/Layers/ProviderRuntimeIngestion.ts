@@ -1382,6 +1382,9 @@ const make = Effect.gen(function* () {
               threadId: thread.id,
               status: sessionProjection.status,
               providerName: event.provider,
+              ...(event.providerInstanceId !== undefined
+                ? { providerInstanceId: event.providerInstanceId }
+                : {}),
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
               activeTurnId: sessionProjection.activeTurnId,
               lastError: sessionProjection.lastError,

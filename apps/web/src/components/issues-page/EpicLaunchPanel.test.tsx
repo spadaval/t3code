@@ -20,7 +20,7 @@ function makeRun(runId: string, status: OrchestrationEpicRun["status"]): Orchest
     projectId: PROJECT_ID,
     epicIssueId: "EPIC-1",
     status,
-    provider: "codex",
+    provider: "codex" as never,
     model: "gpt-5.4",
     modelOptions: null,
     providerOptions: null,
@@ -118,7 +118,7 @@ function EpicLaunchPanelContent() {
     cwd: "/repo",
     projectId: PROJECT_ID,
     modelSelection: {
-      provider: "codex",
+      instanceId: "codex" as never,
       model: "gpt-5.4",
     },
     runtimeMode: "full-access",
@@ -131,7 +131,7 @@ function EpicLaunchPanelContent() {
       projectId={PROJECT_ID}
       issueId="EPIC-1"
       modelSelection={{
-        provider: "codex",
+        instanceId: "codex" as never,
         model: "gpt-5.4",
       }}
       runtimeMode="full-access"
@@ -329,7 +329,9 @@ describe("EpicLaunchPanel", () => {
     );
 
     expect(markup).toContain("View active run");
-    expect(markup).toContain("Another epic already owns the shared workspace.");
+    expect(markup).toContain(
+      "This project already has an active epic run for EPIC-1 (running). Finish or stop that run before starting another epic in this project.",
+    );
     expect(markup).toContain("Now");
     expect(markup).toContain("Next likely");
   });

@@ -8,6 +8,7 @@ import {
   EpicIssueExecutionId,
   ThreadId,
   TurnId,
+  ProviderInstanceId,
 } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -278,7 +279,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'running',
           'codex',
           'gpt-5.4',
-          '{"codex":{"reasoningEffort":"medium"}}',
+          '[{"id":"reasoningEffort","value":"medium"}]',
           '{"codex":{"approvalPolicy":"never","sandboxMode":"danger-full-access"}}',
           'streaming',
           'full-access',
@@ -367,7 +368,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           title: "Project 1",
           workspaceRoot: "/tmp/project-1",
           defaultModelSelection: {
-            provider: "codex",
+            instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5-codex",
           },
           scripts: [
@@ -390,7 +391,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           projectId: asProjectId("project-1"),
           title: "Thread 1",
           modelSelection: {
-            provider: "codex",
+            instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5-codex",
           },
           interactionMode: "default",
@@ -483,7 +484,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           workspaceRoot: "/tmp/project-1",
           repositoryIdentity: null,
           defaultModelSelection: {
-            provider: "codex",
+            instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5-codex",
           },
           scripts: [
@@ -505,7 +506,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           projectId: asProjectId("project-1"),
           title: "Thread 1",
           modelSelection: {
-            provider: "codex",
+            instanceId: ProviderInstanceId.make("codex"),
             model: "gpt-5-codex",
           },
           interactionMode: "default",
@@ -556,11 +557,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           status: "running",
           provider: "codex",
           model: "gpt-5.4",
-          modelOptions: {
-            codex: {
-              reasoningEffort: "medium",
-            },
-          },
+          modelOptions: [{ id: "reasoningEffort", value: "medium" }],
           providerOptions: {
             codex: {
               approvalPolicy: "never",
@@ -738,7 +735,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           id: ThreadId.makeUnsafe("thread-incomplete-checkpoint"),
           projectId: ProjectId.makeUnsafe("project-incomplete-checkpoint"),
           title: "Thread Incomplete Checkpoint",
-          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
           runtimeMode: "full-access",
           interactionMode: "default",
           branch: null,

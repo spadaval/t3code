@@ -4,7 +4,7 @@ import {
   ChevronRightIcon,
   CloudIcon,
   GitPullRequestIcon,
-  PlusIcon,
+  FolderPlusIcon,
   SearchIcon,
   SettingsIcon,
   SquarePenIcon,
@@ -612,7 +612,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           {renamingThreadKey === threadKey ? (
             <input
               ref={handleRenameInputRef}
-              className="min-w-0 flex-1 truncate text-xs bg-transparent outline-none border border-ring rounded px-0.5"
+              className="min-w-0 flex-1 truncate text-base sm:text-xs bg-transparent outline-none border border-ring rounded px-0.5"
               value={renamingTitle}
               onChange={handleRenameInputChange}
               onKeyDown={handleRenameInputKeyDown}
@@ -3371,7 +3371,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                   />
                 }
               >
-                <PlusIcon className="size-3.5" />
+                <FolderPlusIcon className="size-3.5" />
               </TooltipTrigger>
               <TooltipPopup side="right">Add project</TooltipPopup>
             </Tooltip>

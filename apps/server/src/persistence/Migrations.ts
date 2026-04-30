@@ -39,13 +39,15 @@ import Migration0023 from "./Migrations/023_ProjectionThreadShellSummary.ts";
 import Migration0024 from "./Migrations/024_BackfillProjectionThreadShellSummary.ts";
 import Migration0025 from "./Migrations/025_CleanupInvalidProjectionPendingApprovals.ts";
 import Migration0026 from "./Migrations/026_CanonicalizeModelSelectionOptions.ts";
-import Migration0027 from "./Migrations/027_ProjectionPlanImplementationLaunches.ts";
-import Migration0028 from "./Migrations/028_ProjectionThreadsIssueLink.ts";
-import Migration0029 from "./Migrations/029_ProjectionPlanMetadata.ts";
-import Migration0030 from "./Migrations/030_ProjectionEpicRuns.ts";
-import Migration0031 from "./Migrations/031_ProposedPlanFollowUpOutcome.ts";
-import Migration0032 from "./Migrations/032_ProjectionPendingCheckpointCaptures.ts";
-import Migration0033 from "./Migrations/033_ProjectionTurnsTerminalSource.ts";
+import Migration0027 from "./Migrations/027_ProviderSessionRuntimeInstanceId.ts";
+import Migration0028 from "./Migrations/028_ProjectionThreadSessionInstanceId.ts";
+import Migration0029 from "./Migrations/029_ProjectionPlanImplementationLaunches.ts";
+import Migration0030 from "./Migrations/030_ProjectionThreadsIssueLink.ts";
+import Migration0031 from "./Migrations/031_ProjectionPlanMetadata.ts";
+import Migration0032 from "./Migrations/032_ProjectionEpicRuns.ts";
+import Migration0033 from "./Migrations/033_ProposedPlanFollowUpOutcome.ts";
+import Migration0034 from "./Migrations/034_ProjectionPendingCheckpointCaptures.ts";
+import Migration0035 from "./Migrations/035_ProjectionTurnsTerminalSource.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -84,13 +86,15 @@ export const migrationEntries = [
   [24, "BackfillProjectionThreadShellSummary", Migration0024],
   [25, "CleanupInvalidProjectionPendingApprovals", Migration0025],
   [26, "CanonicalizeModelSelectionOptions", Migration0026],
-  [27, "ProjectionPlanImplementationLaunches", Migration0027],
-  [28, "ProjectionThreadsIssueLink", Migration0028],
-  [29, "ProjectionPlanMetadata", Migration0029],
-  [30, "ProjectionEpicRuns", Migration0030],
-  [31, "ProposedPlanFollowUpOutcome", Migration0031],
-  [32, "ProjectionPendingCheckpointCaptures", Migration0032],
-  [33, "ProjectionTurnsTerminalSource", Migration0033],
+  [27, "ProviderSessionRuntimeInstanceId", Migration0027],
+  [28, "ProjectionThreadSessionInstanceId", Migration0028],
+  [29, "ProjectionPlanImplementationLaunches", Migration0029],
+  [30, "ProjectionThreadsIssueLink", Migration0030],
+  [31, "ProjectionPlanMetadata", Migration0031],
+  [32, "ProjectionEpicRuns", Migration0032],
+  [33, "ProposedPlanFollowUpOutcome", Migration0033],
+  [34, "ProjectionPendingCheckpointCaptures", Migration0034],
+  [35, "ProjectionTurnsTerminalSource", Migration0035],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

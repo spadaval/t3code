@@ -3,6 +3,8 @@ import {
   type BeadsEpicCoordinationStatus,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  defaultInstanceIdForDriver,
+  DEFAULT_MODEL,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_RUNTIME_MODE,
   MessageId,
@@ -15,9 +17,11 @@ import {
   type OrchestrationEpicRunStatus,
   type OrchestrationEpicIssueExecution,
   type OrchestrationEvent,
+  ProviderDriverKind,
 } from "@t3tools/contracts";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
 import { deriveEpicRunExecutionState } from "@t3tools/shared/epicRun";
+import { createModelSelection } from "@t3tools/shared/model";
 import { Cause, Deferred, Duration, Effect, Fiber, Layer, Stream } from "effect";
 import type { Scope } from "effect";
 
@@ -506,11 +510,18 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       ? I
       : never,
   ) => {
-    const provider = input.provider ?? project.defaultModelSelection?.provider ?? "codex";
+    const provider = input.provider ?? ProviderDriverKind.make("codex");
     const model =
-      input.model ?? project.defaultModelSelection?.model ?? DEFAULT_MODEL_BY_PROVIDER[provider];
+      input.model ??
+      project.defaultModelSelection?.model ??
+      DEFAULT_MODEL_BY_PROVIDER[provider] ??
+      DEFAULT_MODEL;
 
-    return { provider, model } as const;
+    return {
+      provider,
+      model,
+      modelSelection: createModelSelection(defaultInstanceIdForDriver(provider), model),
+    };
   };
 
   const getCoordinationState = (input: {
@@ -819,8 +830,8 @@ const makeEpicRunScheduler = Effect.gen(function* () {
     readonly issueLink: ReturnType<typeof buildEpicRunIssueLink>;
     readonly title: string;
   }) => {
-    const provider = input.run.provider ?? "codex";
-    const model = input.run.model ?? DEFAULT_MODEL_BY_PROVIDER[provider];
+    const provider = input.run.provider ?? ProviderDriverKind.make("codex");
+    const model = input.run.model ?? DEFAULT_MODEL_BY_PROVIDER[provider] ?? DEFAULT_MODEL;
 
     return dispatchOrFail("createWorkerThread", {
       type: "thread.create",
@@ -828,10 +839,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       threadId: input.threadId,
       projectId: input.project.id,
       title: input.title,
-      modelSelection: {
-        provider,
-        model,
-      },
+      modelSelection: createModelSelection(defaultInstanceIdForDriver(provider), model),
       runtimeMode: input.run.runtimeMode,
       interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
       branch: null,
@@ -870,8 +878,8 @@ const makeEpicRunScheduler = Effect.gen(function* () {
     readonly promptText: string;
     readonly title: string;
   }) => {
-    const provider = input.run.provider ?? "codex";
-    const model = input.run.model ?? DEFAULT_MODEL_BY_PROVIDER[provider];
+    const provider = input.run.provider ?? ProviderDriverKind.make("codex");
+    const model = input.run.model ?? DEFAULT_MODEL_BY_PROVIDER[provider] ?? DEFAULT_MODEL;
 
     return dispatchOrFail("startWorkerThreadTurn", {
       type: "thread.turn.start",
@@ -883,10 +891,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         text: input.promptText,
         attachments: [],
       },
-      modelSelection: {
-        provider,
-        model,
-      },
+      modelSelection: createModelSelection(defaultInstanceIdForDriver(provider), model),
       titleSeed: input.title,
       runtimeMode: input.run.runtimeMode,
       interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,

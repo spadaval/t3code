@@ -43,7 +43,7 @@ function IssueWorkflowActionsContent(props: {
     cwd: "/repo",
     projectId: PROJECT_ID,
     modelSelection: {
-      provider: "codex",
+      instanceId: "codex" as never,
       model: "gpt-5.4",
     },
     runtimeMode: "full-access",
@@ -56,7 +56,7 @@ function IssueWorkflowActionsContent(props: {
       cwd="/repo"
       projectId={PROJECT_ID}
       modelSelection={{
-        provider: "codex",
+        instanceId: "codex" as never,
         model: "gpt-5.4",
       }}
       runtimeMode="full-access"
