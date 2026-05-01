@@ -1,4 +1,9 @@
-import { ProviderInstanceId, type EnvironmentId, type ThreadId } from "@t3tools/contracts";
+import {
+  ProviderInstanceId,
+  type BeadsIssueRelationSummary,
+  type EnvironmentId,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef } from "react";
@@ -16,13 +21,16 @@ import {
 import { buildIssueListQueryInput } from "~/lib/issueListQueries";
 import { resolveFallbackModelSelection } from "~/lib/modelSelection";
 import { isIssueDoneStatus } from "~/lib/issueConstants";
+import { buildEpicChildExecutionRows } from "~/lib/epicExecutionView";
 import { cn } from "~/lib/utils";
+import { isEpicIssueType } from "~/issuePanel";
 import { listIssueLinkedThreads } from "~/issueThreads";
 import { getIssuePaneState, useIssuePaneStore } from "~/issuePaneStore";
 import { selectThreadsAcrossEnvironments, useStore } from "~/store";
 import { useThreadProjectContext } from "~/threadProjectContext";
 import { DEFAULT_RUNTIME_MODE } from "~/types";
 import { buildThreadRouteParams } from "~/threadRoutes";
+import { useEpicSnapshot } from "~/hooks/useEpicSnapshot";
 import { IssueDetail } from "./issue/IssueDetail";
 import { IssueWorkflowActions, useIssueWorkflowLaunchers } from "./issue/IssueWorkflowActions";
 import { IssueListPanel } from "./issue/IssueListPanel";
@@ -30,6 +38,8 @@ import type { IssueContextAction } from "./issue/issueContextMenu";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
 import { toastManager } from "./ui/toast";
+
+const EMPTY_RELATION_SUMMARIES: readonly BeadsIssueRelationSummary[] = [];
 
 export function IssueSidebar(props: {
   environmentId: EnvironmentId;
@@ -160,6 +170,16 @@ export function IssueSidebar(props: {
   }, [navigate, project, selectedIssueId]);
 
   const closeIssueMutation = useMutation(beadsUpdateIssueMutationOptions({ queryClient }));
+  const openThread = useCallback(
+    (nextThreadId: ThreadId) => {
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: { environmentId, threadId: nextThreadId },
+        search: () => ({}),
+      });
+    },
+    [environmentId, navigate],
+  );
   const resolvedModelSelection = useMemo(
     () =>
       resolveFallbackModelSelection(
@@ -185,13 +205,7 @@ export function IssueSidebar(props: {
           projectId: project.id,
           modelSelection: resolvedModelSelection,
           runtimeMode: resolvedRuntimeMode,
-          onOpenThread: (nextThreadId) => {
-            void navigate({
-              to: "/$environmentId/$threadId",
-              params: { environmentId, threadId: nextThreadId },
-              search: () => ({}),
-            });
-          },
+          onOpenThread: openThread,
         }
       : {
           cwd: "",
@@ -238,25 +252,26 @@ export function IssueSidebar(props: {
 
   const selectedIssue = selectedIssueDetailQuery.data?.epic ?? null;
   const selectedIssueParent = selectedIssueDetailQuery.data?.parent ?? null;
-  const selectedIssueSubIssues = selectedIssueDetailQuery.data?.children ?? [];
-  const selectedIssueDependents = selectedIssueDetailQuery.data?.dependents ?? [];
-  const openCoordinator = useCallback(
-    (input: { epicId: string; runId: string | null }) => {
-      if (!project) {
-        return;
-      }
-
-      void navigate({
-        to: "/projects/$projectId/issues" as never,
-        params: { projectId: project.id } as never,
-        search: {
-          tab: "coordinator",
-          epicId: input.epicId,
-          ...(input.runId ? { runId: input.runId } : {}),
-        } as never,
-      });
-    },
-    [navigate, project],
+  const selectedIssueSubIssues =
+    selectedIssueDetailQuery.data?.children ?? EMPTY_RELATION_SUMMARIES;
+  const selectedIssueDependents =
+    selectedIssueDetailQuery.data?.dependents ?? EMPTY_RELATION_SUMMARIES;
+  const selectedIssueIsEpic = selectedIssue ? isEpicIssueType(selectedIssue.issueType) : false;
+  const epicSnapshotQuery = useEpicSnapshot({
+    cwd: project?.cwd ?? "",
+    projectId: project?.id ?? ("" as never),
+    issueId: selectedIssueId ?? "",
+    enabled: project !== undefined && selectedIssueId !== null && selectedIssueIsEpic,
+  });
+  const selectedSubIssueExecutionRows = useMemo(
+    () =>
+      selectedIssueIsEpic && epicSnapshotQuery.epic
+        ? buildEpicChildExecutionRows({
+            epic: epicSnapshotQuery.epic,
+            children: selectedIssueSubIssues,
+          })
+        : undefined,
+    [epicSnapshotQuery.epic, selectedIssueIsEpic, selectedIssueSubIssues],
   );
   const handleIssueContextAction = useCallback(
     async (issueId: string, action: IssueContextAction) => {
@@ -389,14 +404,7 @@ export function IssueSidebar(props: {
                     launchers={workflowLaunchers}
                     onOpenLinkedThread={openLinkedThread}
                     onOpenInTracker={openIssueInTracker}
-                    onOpenThread={(nextThreadId) => {
-                      void navigate({
-                        to: "/$environmentId/$threadId",
-                        params: { environmentId, threadId: nextThreadId },
-                        search: () => ({}),
-                      });
-                    }}
-                    onOpenCoordinator={openCoordinator}
+                    onOpenThread={openThread}
                   />
                 </div>
               ) : null}
@@ -412,6 +420,12 @@ export function IssueSidebar(props: {
                   issue={selectedIssue}
                   parent={selectedIssueParent}
                   subIssues={selectedIssueSubIssues}
+                  subIssueExecutionRows={selectedSubIssueExecutionRows}
+                  subIssueExecutionError={
+                    selectedIssueIsEpic && !epicSnapshotQuery.isPending
+                      ? epicSnapshotQuery.error
+                      : null
+                  }
                   dependents={selectedIssueDependents}
                   showCompactSections
                   autoFocus
@@ -421,6 +435,7 @@ export function IssueSidebar(props: {
                   onSubIssueContextAction={(childIssueId, action) =>
                     void handleIssueContextAction(childIssueId, action)
                   }
+                  onOpenSubIssueThread={openThread}
                   className="pb-6"
                 />
               ) : (

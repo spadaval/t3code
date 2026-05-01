@@ -14,6 +14,7 @@ describe("buildIssueListQueryInput", () => {
 
     expect(queryInput).toEqual({
       cwd: "/repo",
+      mode: "all",
       sortBy: "updated",
       enabled: true,
       refetchIntervalMs: 15_000,

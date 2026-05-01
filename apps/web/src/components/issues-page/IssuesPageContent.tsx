@@ -2,12 +2,11 @@ import type { BeadsIssueSortBy, ProjectId, ThreadId } from "@t3tools/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
-import { GitBranchIcon, KanbanIcon, LayoutListIcon } from "lucide-react";
+import { KanbanIcon, LayoutListIcon } from "lucide-react";
 
 import {
   ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
   beadsContextOptions,
-  beadsProjectRunSummaryOptions,
   beadsQueryIssuesOptions,
 } from "~/lib/beadsReactQuery";
 import { buildIssueListQueryInput } from "~/lib/issueListQueries";
@@ -16,7 +15,6 @@ import { parseIssuesRouteSearch } from "~/issuesRouteSearch";
 import { cn } from "~/lib/utils";
 import { useProjectById } from "~/storeSelectors";
 import { Button } from "../ui/button";
-import { CoordinatorTab } from "./CoordinatorTab";
 import { IssuesTab } from "./IssuesTab";
 import { KanbanBoard } from "./KanbanBoard";
 
@@ -25,7 +23,6 @@ import { KanbanBoard } from "./KanbanBoard";
 // ---------------------------------------------------------------------------
 
 const TABS = [
-  { id: "coordinator" as const, label: "Coordinator", icon: GitBranchIcon },
   { id: "issues" as const, label: "Issues", icon: LayoutListIcon },
   { id: "board" as const, label: "Board", icon: KanbanIcon },
 ] as const;
@@ -49,18 +46,12 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
   // Core data queries
   useQuery(beadsContextOptions(cwd ? { cwd } : null));
 
-  const coordinatorQuery = useQuery(
-    beadsProjectRunSummaryOptions(
-      cwd && projectId ? { cwd, projectId, enabled: activeTab === "coordinator" } : null,
-    ),
-  );
-
   const issuesQuery = useQuery(
     beadsQueryIssuesOptions(
       buildIssueListQueryInput({
         cwd: cwd ?? "",
         sortBy,
-        enabled: cwd !== null && (activeTab === "issues" || activeTab === "board"),
+        enabled: cwd !== null,
         refetchIntervalMs: ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
         refetchOnWindowFocus: "always",
       }),
@@ -87,24 +78,6 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
     [navigate, projectId],
   );
 
-  const setSelectedEpicId = useCallback(
-    (epicId: string | null) => {
-      void navigate({
-        to: "/projects/$projectId/issues" as never,
-        params: { projectId } as never,
-        search: (prev) =>
-          ({
-            ...(prev.tab ? { tab: prev.tab } : {}),
-            ...(epicId ? { epicId } : {}),
-            ...(prev.issueId ? { issueId: prev.issueId } : {}),
-            ...(prev.showClosed !== undefined ? { showClosed: prev.showClosed } : {}),
-            ...(prev.sort ? { sort: prev.sort } : {}),
-          }) as never,
-      });
-    },
-    [navigate, projectId],
-  );
-
   const setSelectedIssueId = useCallback(
     (issueId: string | null) => {
       void navigate({
@@ -121,23 +94,6 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
       });
     },
     [navigate, projectId],
-  );
-
-  const openEpicIssue = useCallback(
-    (epicId: string) => {
-      void navigate({
-        to: "/projects/$projectId/issues" as never,
-        params: { projectId } as never,
-        search: {
-          tab: "issues",
-          epicId,
-          issueId: epicId,
-          ...(showClosed ? { showClosed } : {}),
-          ...(sortBy !== "updated" ? { sort: sortBy } : {}),
-        } as never,
-      });
-    },
-    [navigate, projectId, showClosed, sortBy],
   );
 
   const setShowClosed = useCallback(
@@ -191,29 +147,10 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
     [navigate, project],
   );
 
-  const setSelectedCoordinatorRun = useCallback(
-    (input: { epicId: string; runId: string | null }) => {
-      void navigate({
-        to: "/projects/$projectId/issues" as never,
-        params: { projectId } as never,
-        search: (prev) =>
-          ({
-            ...(prev.tab ? { tab: prev.tab } : {}),
-            epicId: input.epicId,
-            ...(prev.issueId ? { issueId: prev.issueId } : {}),
-            ...(prev.showClosed !== undefined ? { showClosed: prev.showClosed } : {}),
-            ...(prev.sort ? { sort: prev.sort } : {}),
-          }) as never,
-      });
-    },
-    [navigate, projectId],
-  );
-
   // Issue counts for tab badge
   const issueCount =
     issuesQuery.data?.issues.filter((issue) => matchesIssueListVisibility(issue, showClosed))
       .length ?? null;
-  const epicCount = coordinatorQuery.data?.epics.length ?? null;
 
   if (!project || !cwd) {
     return (
@@ -228,7 +165,7 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
       {/* Tab bar */}
       <div className="flex items-center gap-1 border-b border-border px-4 py-1.5">
         {TABS.map((tab) => {
-          const count = tab.id === "coordinator" ? epicCount : issueCount;
+          const count = issueCount;
           return (
             <Button
               key={tab.id}
@@ -260,21 +197,7 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
 
       {/* Tab content */}
       <div className="min-h-0 flex-1">
-        {activeTab === "coordinator" ? (
-          <CoordinatorTab
-            cwd={cwd}
-            projectId={projectId}
-            runSummary={coordinatorQuery.data ?? null}
-            runSummaryPending={coordinatorQuery.isPending}
-            runSummaryError={coordinatorQuery.error}
-            selectedEpicId={search.epicId ?? null}
-            selectedRunId={null}
-            onSelectEpic={setSelectedEpicId}
-            onSelectRun={setSelectedCoordinatorRun}
-            onOpenEpicIssue={openEpicIssue}
-            onOpenThread={openThread}
-          />
-        ) : activeTab === "board" ? (
+        {activeTab === "board" ? (
           <KanbanBoard
             cwd={cwd}
             projectId={projectId}

@@ -56,6 +56,7 @@ export const beadsQueryKeys = {
       "beads",
       "issues",
       input.cwd,
+      input.mode,
       input.search ?? "",
       input.sortBy,
       [...(input.statuses ?? [])].toSorted(),
@@ -100,6 +101,7 @@ export function beadsQueryIssuesOptions(
     queryKey: beadsQueryKeys.issues(queryInput),
     queryFn: async () => beadsApiForCwd(queryInput.cwd).queryIssues(queryInput),
     enabled: (enabled ?? true) && input.cwd.length > 0,
+    retry: false,
     staleTime: 10_000,
     ...(refetchIntervalMs !== undefined ? { refetchInterval: refetchIntervalMs } : {}),
     ...(refetchOnWindowFocus !== undefined ? { refetchOnWindowFocus } : {}),
@@ -133,6 +135,7 @@ export function beadsIssueDetailOptions(input: BeadsGetIssueInput | null) {
       return beadsApiForCwd(input.cwd).getIssue(input);
     },
     enabled: input !== null,
+    retry: false,
     staleTime: 5_000,
   });
 }
@@ -155,6 +158,7 @@ export function beadsIssueGraphOptions(
       return beadsApiForCwd(queryInput.cwd).getIssueGraph(queryInput);
     },
     enabled: input !== null,
+    retry: false,
     staleTime: 5_000,
     ...(input?.refetchIntervalMs !== undefined ? { refetchInterval: input.refetchIntervalMs } : {}),
     ...(input?.refetchOnWindowFocus !== undefined
@@ -173,6 +177,7 @@ export function beadsIssuesBatchOptions(input: BeadsGetIssuesInput | null) {
       return beadsApiForCwd(input.cwd).getIssues(input);
     },
     enabled: input !== null && input.issueIds.length > 0,
+    retry: false,
     staleTime: 10_000,
   });
 }
@@ -187,6 +192,7 @@ export function beadsContextOptions(input: (BeadsGetContextInput & { enabled?: b
       return beadsApiForCwd(input.cwd).getContext(input);
     },
     enabled: input !== null && (input.enabled ?? true),
+    retry: false,
     staleTime: 10_000,
   });
 }
@@ -206,6 +212,7 @@ export function beadsEpicCoordinationValidationOptions(
       return beadsApiForCwd(input.cwd).validateEpicCoordination(input);
     },
     enabled: input !== null && (input.enabled ?? true),
+    retry: false,
     staleTime: 5_000,
   });
 }
@@ -222,6 +229,7 @@ export function beadsEpicCoordinationStatusOptions(
       return beadsApiForCwd(input.cwd).getEpicCoordinationStatus(input);
     },
     enabled: input !== null && (input.enabled ?? true),
+    retry: false,
     staleTime: 5_000,
   });
 }
@@ -238,6 +246,7 @@ export function beadsProjectRunSummaryOptions(
       return beadsApiForCwd(input.cwd).getProjectRunSummary(input);
     },
     enabled: input !== null && (input.enabled ?? true),
+    retry: false,
     staleTime: 30_000,
   });
 }
@@ -272,6 +281,7 @@ export function beadsEpicIssueSummariesOptions(
       return beadsApiForCwd(input.cwd).getEpicIssueSummaries(input);
     },
     enabled: input !== null && (input.enabled ?? true),
+    retry: false,
     staleTime: 5_000,
   });
 }
@@ -288,6 +298,7 @@ export function beadsEpicCoordinationDetailOptions(
       return beadsApiForCwd(input.cwd).getEpicCoordinationDetail(input);
     },
     enabled: input !== null && (input.enabled ?? true),
+    retry: false,
     staleTime: 5_000,
   });
 }
@@ -299,6 +310,7 @@ export function beadsSessionActivityOptions(
     queryKey: beadsQueryKeys.sessionActivity(input),
     queryFn: async () => beadsApiForCwd(input.cwd).getSessionActivity(input),
     enabled: input.enabled ?? true,
+    retry: false,
     staleTime: 2_000,
   });
 }

@@ -1,5 +1,6 @@
 import type {
   BeadsEpicCoordinationDetail,
+  BeadsEpicIssueSummaries,
   BeadsProjectRunSummary,
   BeadsIssueSummary,
   ProjectId,
@@ -66,7 +67,6 @@ function IssueWorkflowActionsContent(props: {
       onOpenLinkedThread={() => {}}
       onOpenInTracker={() => {}}
       onOpenThread={() => {}}
-      onOpenCoordinator={() => {}}
       {...(props.showEpicLaunchActions !== undefined
         ? { showEpicLaunchActions: props.showEpicLaunchActions }
         : {})}
@@ -77,6 +77,7 @@ function IssueWorkflowActionsContent(props: {
 function renderIssueWorkflowActions(input: {
   issue: BeadsIssueSummary;
   epicCoordinationDetail?: BeadsEpicCoordinationDetail | undefined;
+  epicIssueSummaries?: BeadsEpicIssueSummaries | undefined;
   projectRunSummary?: BeadsProjectRunSummary | undefined;
   showEpicLaunchActions?: boolean;
 }) {
@@ -88,6 +89,15 @@ function renderIssueWorkflowActions(input: {
         projectId: PROJECT_ID,
       }),
       input.projectRunSummary,
+    );
+  }
+  if (input.epicIssueSummaries) {
+    queryClient.setQueryData(
+      beadsQueryKeys.epicIssueSummaries({
+        cwd: "/repo",
+        epicIssueId: input.issue.id,
+      }),
+      input.epicIssueSummaries,
     );
   }
   if (input.epicCoordinationDetail) {
@@ -128,7 +138,7 @@ describe("IssueWorkflowActions", () => {
     expect(markup).not.toContain("Planned refine");
   });
 
-  it("renders epic refine actions plus the snapshot-driven coordinator CTA", () => {
+  it("renders epic refine actions plus the snapshot-driven epic CTA", () => {
     const markup = renderIssueWorkflowActions({
       issue: makeIssue({
         id: "EPIC-1",
@@ -145,16 +155,42 @@ describe("IssueWorkflowActions", () => {
         summary: null,
         validation: null,
         status: null,
-        primaryAction: {
-          kind: "start_epic_run",
-          label: "Start epic",
-          busyLabel: "Starting...",
-          disabled: false,
+        execution: {
+          state: "ready",
+          summary: "Epic is ready to launch.",
+          blockingReason: null,
+          nextIssue: null,
         },
+        commands: [
+          {
+            kind: "start_epic_run",
+            label: "Start epic",
+            busyLabel: "Starting...",
+            disabled: false,
+            disabledReason: null,
+          },
+        ],
       },
       projectRunSummary: {
         projectId: PROJECT_ID,
         epics: [],
+      },
+      epicIssueSummaries: {
+        epicId: "EPIC-1",
+        epicTitle: "Epic 1",
+        progress: {
+          totalIssueCount: 1,
+          completedIssueCount: 0,
+          readyIssueCount: 1,
+          activeIssueCount: 0,
+          blockedIssueCount: 0,
+          internalBlockedIssueCount: 0,
+          externalBlockedIssueCount: 0,
+          unknownBlockedIssueCount: 0,
+          activeWorkerCount: 0,
+          isComplete: false,
+        },
+        issues: [],
       },
     });
 
@@ -162,6 +198,58 @@ describe("IssueWorkflowActions", () => {
     expect(markup).toContain("Planned refine");
     expect(markup).toContain("Start epic");
     expect(markup).not.toContain("Start work");
+  });
+
+  it("does not render the retired coordinator action for epic rows", () => {
+    const markup = renderIssueWorkflowActions({
+      issue: makeIssue({
+        id: "EPIC-1",
+        title: "Epic 1",
+        issueType: "epic",
+      }),
+      epicCoordinationDetail: {
+        epicId: "EPIC-1",
+        coordinationLoadState: "ready",
+        coordinationLoadDetail: null,
+        validationState: "valid",
+        validationErrors: [],
+        coordinationState: "not_started",
+        summary: null,
+        validation: null,
+        status: null,
+        execution: {
+          state: "blocked",
+          summary: "No ready work.",
+          blockingReason: "No ready work.",
+          nextIssue: null,
+        },
+        commands: [],
+      },
+      projectRunSummary: {
+        projectId: PROJECT_ID,
+        epics: [],
+      },
+      epicIssueSummaries: {
+        epicId: "EPIC-1",
+        epicTitle: "Epic 1",
+        progress: {
+          totalIssueCount: 1,
+          completedIssueCount: 0,
+          readyIssueCount: 0,
+          activeIssueCount: 0,
+          blockedIssueCount: 1,
+          internalBlockedIssueCount: 1,
+          externalBlockedIssueCount: 0,
+          unknownBlockedIssueCount: 0,
+          activeWorkerCount: 0,
+          isComplete: false,
+        },
+        issues: [],
+      },
+    });
+
+    expect(markup).toContain("Quick refine");
+    expect(markup).not.toContain("Checking epic");
   });
 
   it("can hide epic launch actions when the issue detail owns that surface", () => {

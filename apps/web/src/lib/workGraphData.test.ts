@@ -131,12 +131,21 @@ const BASE_EPIC: BeadsCoordinatorEpicSnapshot = {
     activeWorkerCount: 0,
     isComplete: false,
   },
-  primaryAction: {
-    kind: "start_epic_run",
-    label: "Start",
-    busyLabel: "Starting...",
-    disabled: false,
+  execution: {
+    state: "ready",
+    summary: "Epic is ready to launch.",
+    blockingReason: null,
+    nextIssue: null,
   },
+  commands: [
+    {
+      kind: "start_epic_run",
+      label: "Start",
+      busyLabel: "Starting...",
+      disabled: false,
+      disabledReason: null,
+    },
+  ],
   activeRunId: null,
   activeExecutionId: null,
   projectConflict: null,

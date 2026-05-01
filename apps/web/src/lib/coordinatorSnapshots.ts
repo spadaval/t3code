@@ -51,7 +51,8 @@ export function composeCoordinatorEpicSnapshot(input: {
     validationErrors: input.epicCoordinationDetail.validationErrors,
     coordinationState: input.epicCoordinationDetail.coordinationState,
     progress: input.epicIssueSummaries?.progress ?? emptyProgress(),
-    primaryAction: input.epicCoordinationDetail.primaryAction,
+    execution: input.epicCoordinationDetail.execution,
+    commands: input.epicCoordinationDetail.commands,
     activeRunId,
     activeExecutionId,
     projectConflict:

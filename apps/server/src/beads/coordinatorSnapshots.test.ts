@@ -107,12 +107,10 @@ describe("buildCoordinatorEpicSnapshot", () => {
     expect(snapshot.coordinationState).toBe("not_started");
     expect(snapshot.runs[0]?.status).toBe("failed");
     expect(snapshot.activeRunId).toBeNull();
-    expect(snapshot.primaryAction).toEqual({
-      kind: "start_epic_run",
-      label: "Start run",
-      busyLabel: "Starting...",
-      disabled: false,
-    });
+    expect(snapshot.execution.state).toBe("failed");
+    expect(snapshot.commands).toContainEqual(
+      expect.objectContaining({ kind: "start_epic_run", disabled: false }),
+    );
   });
 
   it("surfaces invalid tracker state separately from run history", () => {
@@ -178,12 +176,10 @@ describe("buildCoordinatorEpicSnapshot", () => {
 
     expect(snapshot.validationState).toBe("invalid");
     expect(snapshot.validationErrors).toEqual(["broken"]);
-    expect(snapshot.primaryAction).toEqual({
-      kind: "open_coordination_prep_thread",
-      label: "Open prep thread",
-      busyLabel: "Opening...",
-      disabled: false,
-    });
+    expect(snapshot.execution.state).toBe("needs_preparation");
+    expect(snapshot.commands).toContainEqual(
+      expect.objectContaining({ kind: "open_coordination_prep_thread", disabled: false }),
+    );
   });
 
   it("preserves backend error detail when validation and status lookups fail", () => {
@@ -268,15 +264,13 @@ describe("buildCoordinatorEpicSnapshot", () => {
       fallbackEpicTitle: "Epic",
     });
 
-    expect(snapshot.primaryAction).toEqual({
-      kind: "start_epic_run",
-      label: "Start run",
-      busyLabel: "Starting...",
-      disabled: false,
-    });
+    expect(snapshot.execution.state).toBe("failed");
+    expect(snapshot.commands).toContainEqual(
+      expect.objectContaining({ kind: "start_epic_run", disabled: false }),
+    );
   });
 
-  it("keeps external tracker blockers as coordinator-open actions instead of continue", () => {
+  it("keeps external tracker blockers non-actionable when no work is ready", () => {
     const failedRun = makeSwarmRun({
       status: "failed",
       failureContext: {
@@ -348,11 +342,84 @@ describe("buildCoordinatorEpicSnapshot", () => {
       fallbackEpicTitle: "Epic",
     });
 
-    expect(snapshot.primaryAction).toEqual({
-      kind: "open_coordinator",
-      label: "Open epic",
-      busyLabel: "Opening...",
-      disabled: false,
+    expect(snapshot.execution.state).toBe("blocked");
+    expect(snapshot.commands).toEqual([]);
+  });
+
+  it("keeps epic start available when ready work exists alongside external blockers", () => {
+    const snapshot = buildCoordinatorEpicSnapshot({
+      issue: null,
+      support: SWARM_SUPPORT,
+      validation: {
+        epicId: "EPIC-1",
+        epicTitle: "Epic",
+        valid: true,
+        trackerSummary: null,
+        errors: [],
+        warnings: [],
+        readyFronts: [],
+        estimatedWorkerSessions: 1,
+        maxParallelism: 1,
+      },
+      status: {
+        epicId: "EPIC-1",
+        epicTitle: "Epic",
+        trackerSummary: null,
+        completed: [],
+        active: [],
+        ready: [
+          {
+            id: "TASK-1",
+            title: "Task 1",
+            status: "open",
+            priority: 1,
+            issueType: "task",
+            assignee: null,
+            owner: null,
+            parent: null,
+          },
+        ],
+        blocked: [
+          {
+            id: "TASK-9",
+            title: "Task 9",
+            status: "blocked",
+            priority: 9,
+            issueType: "task",
+            assignee: null,
+            owner: null,
+            parent: null,
+          },
+        ],
+        blockedBreakdown: {
+          internal: [],
+          external: [
+            {
+              id: "TASK-9",
+              title: "Task 9",
+              status: "blocked",
+              priority: 9,
+              issueType: "task",
+              assignee: null,
+              owner: null,
+              parent: null,
+            },
+          ],
+          unknown: [],
+        },
+      },
+      validationError: null,
+      statusError: null,
+      projectEpicRuns: [],
+      epicRuns: [],
+      epicExecutions: [],
+      fallbackEpicId: "EPIC-1",
+      fallbackEpicTitle: "Epic",
     });
+
+    expect(snapshot.execution.state).toBe("ready");
+    expect(snapshot.commands).toContainEqual(
+      expect.objectContaining({ kind: "start_epic_run", disabled: false }),
+    );
   });
 });

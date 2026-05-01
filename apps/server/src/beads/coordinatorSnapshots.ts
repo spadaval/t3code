@@ -19,7 +19,7 @@ import {
   describeSharedWorkspaceProjectConflict as describeSharedWorkspaceProjectConflictMessage,
   deriveActiveExecutionId,
   deriveActiveRunId,
-  deriveExecutionBlocking,
+  deriveEpicExecutionControl,
   deriveEpicCoordinationProgress,
   deriveCoordinationLoadState,
   deriveCoordinationState,
@@ -68,107 +68,6 @@ function toIssueSummary(issue: BeadsIssueDetail | BeadsIssueSummary): BeadsIssue
   };
 }
 
-function deriveEpicPrimaryAction(input: {
-  readonly epicId: string;
-  readonly validationState: BeadsCoordinatorEpicSnapshot["validationState"];
-  readonly coordinationLoadState: BeadsCoordinatorEpicSnapshot["coordinationLoadState"];
-  readonly coordinationState: BeadsCoordinatorEpicSnapshot["coordinationState"];
-  readonly projectConflict: BeadsCoordinatorEpicSnapshot["projectConflict"];
-  readonly latestRun: OrchestrationEpicRun | null;
-  readonly activeRun: OrchestrationEpicRun | null;
-  readonly status: Pick<
-    BeadsEpicCoordinationStatus,
-    "ready" | "active" | "blocked" | "blockedBreakdown"
-  > | null;
-}): BeadsCoordinatorEpicSnapshot["primaryAction"] {
-  const executionBlocking = deriveExecutionBlocking(input.status);
-
-  if (input.coordinationLoadState === "timeout" || input.coordinationLoadState === "error") {
-    return {
-      kind: "refresh_epic_status",
-      label: "Retry coordination status",
-      busyLabel: "Retrying...",
-      disabled: false,
-    };
-  }
-
-  if (input.validationState === "invalid") {
-    return {
-      kind: "open_coordination_prep_thread",
-      label: "Open prep thread",
-      busyLabel: "Opening...",
-      disabled: false,
-    };
-  }
-
-  if (input.projectConflict !== null) {
-    return {
-      kind: "open_coordinator",
-      label: "View active epic",
-      busyLabel: "Opening...",
-      disabled: false,
-    };
-  }
-
-  if (input.activeRun !== null) {
-    switch (input.activeRun.status) {
-      case "running":
-        return {
-          kind: "stop_epic_run",
-          label: "Stop run",
-          busyLabel: "Stopping...",
-          disabled: false,
-        };
-      case "pending":
-      case "stopping":
-        return {
-          kind: "open_coordinator",
-          label: "Open epic",
-          busyLabel: "Opening...",
-          disabled: false,
-        };
-      case "stopped":
-      case "failed":
-      case "completed":
-        return {
-          kind: "open_coordinator",
-          label: "Open epic",
-          busyLabel: "Opening...",
-          disabled: false,
-        };
-    }
-  }
-
-  if (
-    input.validationState === "valid" &&
-    input.coordinationState !== "completed" &&
-    !executionBlocking.hasExecutionBlockingIssues
-  ) {
-    return {
-      kind: "start_epic_run",
-      label: "Start run",
-      busyLabel: "Starting...",
-      disabled: false,
-    };
-  }
-
-  if (executionBlocking.hasExecutionBlockingIssues) {
-    return {
-      kind: "open_coordinator",
-      label: "Open epic",
-      busyLabel: "Opening...",
-      disabled: false,
-    };
-  }
-
-  return {
-    kind: "open_coordinator",
-    label: input.latestRun === null ? "Completed" : "Open epic",
-    busyLabel: input.latestRun === null ? "Completed" : "Opening...",
-    disabled: input.latestRun === null,
-  };
-}
-
 function deriveIntegrityError(input: {
   readonly epicId: string;
   readonly runs: ReadonlyArray<OrchestrationEpicRun>;
@@ -211,7 +110,6 @@ export function buildCoordinatorEpicSnapshot(input: {
   readonly fallbackEpicTitle: string;
 }): BeadsCoordinatorEpicSnapshot {
   const runs = [...input.epicRuns].toSorted(compareEpicRunsByRequestedAtDesc);
-  const latestRun = runs[0] ?? null;
   const integrityError = deriveIntegrityError({
     epicId: input.issue?.id ?? input.fallbackEpicId,
     runs,
@@ -243,8 +141,6 @@ export function buildCoordinatorEpicSnapshot(input: {
     epicRuns: runs,
   });
   const activeRunId = integrityError === null ? deriveActiveRunId(runs) : null;
-  const activeRun =
-    activeRunId === null ? null : (runs.find((run) => run.runId === activeRunId) ?? null);
   const activeExecutionId =
     integrityError === null
       ? deriveActiveExecutionId({
@@ -252,6 +148,21 @@ export function buildCoordinatorEpicSnapshot(input: {
           executions: input.epicExecutions,
         })
       : null;
+  const executionControl = deriveEpicExecutionControl({
+    status: input.status,
+    validation: input.validation,
+    epicRuns: runs,
+    hasProjectConflict: projectConflict !== null,
+    fetchLifecycle: {
+      kind:
+        coordinationLoadState === "ready"
+          ? "ready"
+          : coordinationLoadState === "timeout"
+            ? "timeout"
+            : "error",
+      detail: coordinationLoadDetail,
+    },
+  });
 
   return {
     epicId: input.issue?.id ?? input.fallbackEpicId,
@@ -263,16 +174,8 @@ export function buildCoordinatorEpicSnapshot(input: {
     validationErrors: validationState === "invalid" ? (input.validation?.errors ?? []) : [],
     coordinationState,
     progress,
-    primaryAction: deriveEpicPrimaryAction({
-      epicId: input.issue?.id ?? input.fallbackEpicId,
-      validationState,
-      coordinationLoadState,
-      coordinationState,
-      projectConflict,
-      latestRun,
-      activeRun,
-      status: input.status,
-    }),
+    execution: executionControl.execution,
+    commands: executionControl.commands,
     activeRunId,
     activeExecutionId,
     projectConflict,
@@ -400,7 +303,8 @@ export function buildEpicCoordinationDetail(input: {
     summary: epic.summary,
     validation: epic.validation,
     status: epic.status,
-    primaryAction: epic.primaryAction,
+    execution: epic.execution,
+    commands: epic.commands,
   };
 }
 

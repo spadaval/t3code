@@ -48,6 +48,7 @@ import Migration0032 from "./Migrations/032_ProjectionEpicRuns.ts";
 import Migration0033 from "./Migrations/033_ProposedPlanFollowUpOutcome.ts";
 import Migration0034 from "./Migrations/034_ProjectionPendingCheckpointCaptures.ts";
 import Migration0035 from "./Migrations/035_ProjectionTurnsTerminalSource.ts";
+import Migration0036 from "./Migrations/036_EnsureProviderInstanceIdColumns.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -95,6 +96,7 @@ export const migrationEntries = [
   [33, "ProposedPlanFollowUpOutcome", Migration0033],
   [34, "ProjectionPendingCheckpointCaptures", Migration0034],
   [35, "ProjectionTurnsTerminalSource", Migration0035],
+  [36, "EnsureProviderInstanceIdColumns", Migration0036],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

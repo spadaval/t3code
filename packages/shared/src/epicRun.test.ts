@@ -18,11 +18,11 @@ import {
   describeSharedWorkspaceProjectConflict,
   deriveExecutionBlocking,
   deriveEpicCoordinatorState,
+  deriveEpicExecutionControl,
   deriveEpicCoordinationProgress,
   deriveEpicRunExecutionState,
   deriveCoordinationState,
   findConflictingSharedWorkspaceRun,
-  getEpicCoordinatorPrimaryAction,
   isEpicCoordinationSummaryComplete,
   listEpicRuns,
   listEpicIssueExecutions,
@@ -513,7 +513,7 @@ describe("coordination", () => {
 
   it("restarts after failed runs when the tracker is still runnable", () => {
     expect(
-      getEpicCoordinatorPrimaryAction({
+      deriveEpicExecutionControl({
         status: makeSwarmStatus(),
         validation: makeSwarmValidation({
           readyFronts: [[makeIssue("TASK-1", 1)]],
@@ -534,16 +534,22 @@ describe("coordination", () => {
         fetchLifecycle: { kind: "ready", detail: null },
       }),
     ).toEqual({
-      kind: "start_epic_run",
-      label: "Start epic",
-      busyLabel: "Starting...",
-      disabled: false,
+      execution: expect.objectContaining({
+        state: "failed",
+      }),
+      commands: [
+        expect.objectContaining({
+          kind: "start_epic_run",
+          label: "Retry run",
+          disabled: false,
+        }),
+      ],
     });
   });
 
-  it("keeps start actions available for internal-only blockers but not external blockers", () => {
+  it("keeps start actions available for ready work and internal-only blockers", () => {
     expect(
-      getEpicCoordinatorPrimaryAction({
+      deriveEpicExecutionControl({
         status: makeSwarmStatus({
           blocked: [makeIssue("TASK-2", 2)],
           blockedBreakdown: {
@@ -558,14 +564,47 @@ describe("coordination", () => {
         fetchLifecycle: { kind: "ready", detail: null },
       }),
     ).toEqual({
-      kind: "start_epic_run",
-      label: "Start epic",
-      busyLabel: "Starting...",
-      disabled: false,
+      execution: expect.objectContaining({
+        state: "ready",
+      }),
+      commands: [
+        expect.objectContaining({
+          kind: "start_epic_run",
+          disabled: false,
+        }),
+      ],
     });
 
     expect(
-      getEpicCoordinatorPrimaryAction({
+      deriveEpicExecutionControl({
+        status: makeSwarmStatus({
+          ready: [makeIssue("TASK-1", 1)],
+          blocked: [makeIssue("TASK-9", 9)],
+          blockedBreakdown: {
+            internal: [],
+            external: [makeIssue("TASK-9", 9)],
+            unknown: [],
+          },
+        }),
+        validation: makeSwarmValidation(),
+        epicRuns: [],
+        hasProjectConflict: false,
+        fetchLifecycle: { kind: "ready", detail: null },
+      }),
+    ).toEqual({
+      execution: expect.objectContaining({
+        state: "ready",
+      }),
+      commands: [
+        expect.objectContaining({
+          kind: "start_epic_run",
+          disabled: false,
+        }),
+      ],
+    });
+
+    expect(
+      deriveEpicExecutionControl({
         status: makeSwarmStatus({
           blocked: [makeIssue("TASK-9", 9)],
           blockedBreakdown: {
@@ -580,16 +619,16 @@ describe("coordination", () => {
         fetchLifecycle: { kind: "ready", detail: null },
       }),
     ).toEqual({
-      kind: "open_coordinator",
-      label: "Open epic",
-      busyLabel: "Opening...",
-      disabled: false,
+      execution: expect.objectContaining({
+        state: "blocked",
+      }),
+      commands: [],
     });
   });
 
   it("returns stop for running runs and restart for stopped runs", () => {
     expect(
-      getEpicCoordinatorPrimaryAction({
+      deriveEpicExecutionControl({
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
         epicRuns: [
@@ -602,14 +641,19 @@ describe("coordination", () => {
         fetchLifecycle: { kind: "ready", detail: null },
       }),
     ).toEqual({
-      kind: "stop_epic_run",
-      label: "Stop run",
-      busyLabel: "Stopping...",
-      disabled: false,
+      execution: expect.objectContaining({
+        state: "running",
+      }),
+      commands: [
+        expect.objectContaining({
+          kind: "stop_epic_run",
+          disabled: false,
+        }),
+      ],
     });
 
     expect(
-      getEpicCoordinatorPrimaryAction({
+      deriveEpicExecutionControl({
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
         epicRuns: [
@@ -622,10 +666,15 @@ describe("coordination", () => {
         fetchLifecycle: { kind: "ready", detail: null },
       }),
     ).toEqual({
-      kind: "start_epic_run",
-      label: "Start epic",
-      busyLabel: "Starting...",
-      disabled: false,
+      execution: expect.objectContaining({
+        state: "failed",
+      }),
+      commands: [
+        expect.objectContaining({
+          kind: "start_epic_run",
+          disabled: false,
+        }),
+      ],
     });
   });
 
@@ -654,7 +703,7 @@ describe("coordination", () => {
 
   it("prefers opening the active swarm when ready state conflicts with another shared run", () => {
     expect(
-      getEpicCoordinatorPrimaryAction({
+      deriveEpicExecutionControl({
         status: makeSwarmStatus(),
         validation: makeSwarmValidation(),
         epicRuns: [],
@@ -662,10 +711,10 @@ describe("coordination", () => {
         fetchLifecycle: { kind: "ready", detail: null },
       }),
     ).toEqual({
-      kind: "open_coordinator",
-      label: "View active epic",
-      busyLabel: "Opening...",
-      disabled: false,
+      execution: expect.objectContaining({
+        state: "blocked",
+      }),
+      commands: [],
     });
   });
 });

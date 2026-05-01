@@ -44,7 +44,7 @@ import { deriveCoordinatorEventLog } from "~/lib/coordinatorEventLog";
 import {
   type CoordinatorActionInput,
   getCoordinatorActionBusyKey,
-  getCoordinatorPrimaryActionInput,
+  getEpicCommandInput,
   useEpicCoordinatorActionRunner,
 } from "~/hooks/useEpicCoordinatorActionRunner";
 import { WorkGraph } from "./WorkGraph";
@@ -82,12 +82,13 @@ function toRunSummarySnapshot(
     validationErrors: [],
     coordinationState: "unknown",
     progress: deriveProgressFromExecutions({ executions: epic.executions }),
-    primaryAction: {
-      kind: "open_coordinator",
-      label: "Open output",
-      busyLabel: "Opening...",
-      disabled: false,
+    execution: {
+      state: "waiting",
+      summary: "Run history is available.",
+      blockingReason: null,
+      nextIssue: null,
     },
+    commands: [],
     activeRunId: null,
     activeExecutionId: null,
     projectConflict: null,
@@ -100,25 +101,16 @@ function toRunSummarySnapshot(
 }
 
 function buildCoordinatorActions(input: { entry: CoordinatorRunEntry }): CoordinatorActionInput[] {
-  const primaryAction = input.entry.epic.primaryAction;
-  const defaultAction = getCoordinatorPrimaryActionInput(input.entry.epic);
-
-  switch (primaryAction.kind) {
-    case "stop_epic_run":
-      return defaultAction ? [defaultAction] : [];
-    case "refresh_epic_status":
-      return defaultAction ? [defaultAction] : [];
-    case "open_coordinator":
-      return input.entry.epic.projectConflict && defaultAction ? [defaultAction] : [];
-    case "start_epic_run":
-      return input.entry.run.status === "failed" || input.entry.run.status === "stopped"
-        ? defaultAction
-          ? [defaultAction]
-          : []
-        : [];
-    default:
-      return [];
-  }
+  return input.entry.epic.commands
+    .filter(
+      (command) =>
+        command.kind === "stop_epic_run" ||
+        command.kind === "refresh_epic_status" ||
+        (command.kind === "start_epic_run" &&
+          (input.entry.run.status === "failed" || input.entry.run.status === "stopped")),
+    )
+    .map((command) => getEpicCommandInput(input.entry.epic, command))
+    .filter((action): action is CoordinatorActionInput => action !== null);
 }
 
 export function CoordinatorTab(props: CoordinatorTabProps) {
@@ -178,7 +170,6 @@ export function CoordinatorTab(props: CoordinatorTabProps) {
     modelSelection: project ? resolveDefaultModelSelection(project.defaultModelSelection) : null,
     runtimeMode: DEFAULT_RUNTIME_MODE,
     onOpenThread: props.onOpenThread,
-    onOpenCoordinator: props.onSelectRun,
   });
 
   if (props.runSummaryPending) {
@@ -463,8 +454,8 @@ function CoordinatorRunDetail(props: {
                               busyLabel: "Starting...",
                             }
                           : {
-                              kind: "open_coordinator",
-                              label: "Open output",
+                              kind: "open_coordination_prep_thread",
+                              label: "Open prep thread",
                               busyLabel: "Opening...",
                             },
                   epic,
@@ -475,7 +466,7 @@ function CoordinatorRunDetail(props: {
                     key={getCoordinatorActionBusyKey(action)}
                     size="sm"
                     variant={
-                      action.kind === "refresh_epic_status" || action.kind === "open_coordinator"
+                      action.kind === "refresh_epic_status"
                         ? "outline"
                         : action.kind === "stop_epic_run"
                           ? "destructive-outline"
@@ -511,7 +502,7 @@ function CoordinatorRunDetail(props: {
         ) : null}
 
         {props.epic.coordinationLoadDetail &&
-        props.epic.primaryAction.kind === "refresh_epic_status" ? (
+        props.epic.commands.some((command) => command.kind === "refresh_epic_status") ? (
           <div className="rounded-lg border border-warning/25 bg-warning/5 px-3 py-2.5 text-sm text-foreground">
             {props.epic.coordinationLoadDetail}
           </div>

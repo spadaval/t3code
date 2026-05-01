@@ -40,7 +40,6 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   type ContextMenuItem,
   type DesktopUpdateState,
-  type GitStatusResult,
   type OrchestrationEpicIssueExecution,
   type OrchestrationEpicRun,
   ProjectId,
@@ -65,7 +64,7 @@ import { usePrimaryEnvironmentId } from "../environments/primary";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import { cn, isLinuxPlatform, isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
+import { cn, isMacPlatform, newCommandId } from "../lib/utils";
 import {
   selectEpicIssueExecutionsAcrossEnvironments,
   selectEpicRunsAcrossEnvironments,
@@ -196,7 +195,7 @@ import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { CommandDialogTrigger } from "./ui/command";
 import { readEnvironmentApi } from "../environmentApi";
 import {
-  getCoordinatorPrimaryActionInput,
+  getEpicCommandInput,
   useEpicCoordinatorActionRunner,
 } from "../hooks/useEpicCoordinatorActionRunner";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
@@ -216,7 +215,7 @@ import {
   type SidebarProjectGroupMember,
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
-import { DEFAULT_RUNTIME_MODE, type Project, type SidebarThreadSummary } from "../types";
+import { DEFAULT_RUNTIME_MODE, type SidebarThreadSummary } from "../types";
 import { StatusIndicator } from "./shared/StatusIndicator";
 import { formatStatusDisplay, getStatusVariant } from "../lib/issueConstants";
 const THREAD_PREVIEW_LIMIT = 6;
@@ -1853,27 +1852,13 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         },
       });
     },
-    onOpenCoordinator: (input) => {
-      void router.navigate({
-        to: "/projects/$projectId/issues" as never,
-        params: { projectId: project.id } as never,
-        search: {
-          tab: "coordinator",
-          epicId: input.epicId,
-          ...(input.runId ? { runId: input.runId } : {}),
-        } as never,
-      });
-    },
   });
   const canStartNewRunByIssueId = useMemo(() => {
     const next = new Map<string, boolean>();
     for (const epicIssueId of epicIssueIds) {
       const snapshot = epicSnapshotByIssueId.get(epicIssueId);
-      const action = snapshot ? getCoordinatorPrimaryActionInput(snapshot) : null;
-      next.set(
-        epicIssueId,
-        action?.kind === "start_epic_run" && snapshot?.primaryAction.disabled === false,
-      );
+      const command = snapshot?.commands.find((candidate) => candidate.kind === "start_epic_run");
+      next.set(epicIssueId, command?.disabled === false);
     }
     return next as ReadonlyMap<string, boolean>;
   }, [epicIssueIds, epicSnapshotByIssueId]);
@@ -1933,8 +1918,13 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         return;
       }
 
-      const action = getCoordinatorPrimaryActionInput(snapshot);
-      if (action?.kind !== "start_epic_run" || snapshot.primaryAction.disabled) {
+      const command = snapshot.commands.find((candidate) => candidate.kind === "start_epic_run");
+      if (!command || command.disabled) {
+        return;
+      }
+
+      const action = getEpicCommandInput(snapshot, command);
+      if (!action) {
         return;
       }
 
@@ -3480,7 +3470,6 @@ export default function Sidebar() {
   const sidebarThreads = useStore(useShallow(selectSidebarThreadsAcrossEnvironments));
   const epicRuns = useStore(useShallow(selectEpicRunsAcrossEnvironments));
   const epicIssueExecutions = useStore(useShallow(selectEpicIssueExecutionsAcrossEnvironments));
-  const activeEnvironmentId = useStore((store) => store.activeEnvironmentId);
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const epicGroupExpandedById = useUiStateStore((store) => store.epicGroupExpandedById);
   const projectOrder = useUiStateStore((store) => store.projectOrder);

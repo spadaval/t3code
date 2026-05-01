@@ -135,6 +135,85 @@ describe("issue title rendering", () => {
     expect(markup.match(/border-destructive\/30[^"]*">Blocked<\/span>/g)).toHaveLength(1);
   });
 
+  it("renders epic execution pills and marks the next child once", () => {
+    const readyChild = makeRelation({ id: "TASK-1", title: "Ready child" });
+    const blockedChild = makeRelation({
+      id: "TASK-2",
+      title: "Blocked child",
+      status: "blocked",
+    });
+
+    const markup = renderToStaticMarkup(
+      <SubIssuesSection
+        subIssues={[blockedChild, readyChild]}
+        executionRows={[
+          {
+            child: readyChild,
+            execution: {
+              issueId: readyChild.id,
+              kind: "next",
+              label: "Next",
+              sequenceLabel: "Wave 1",
+              waveIndex: 0,
+              executionId: null,
+              workerThreadId: null,
+              failureMessage: null,
+              isNext: true,
+            },
+          },
+          {
+            child: blockedChild,
+            execution: {
+              issueId: blockedChild.id,
+              kind: "blocked",
+              label: "Blocked",
+              sequenceLabel: null,
+              waveIndex: null,
+              executionId: null,
+              workerThreadId: null,
+              failureMessage: null,
+              isNext: false,
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(markup.indexOf("Ready child")).toBeLessThan(markup.indexOf("Blocked child"));
+    expect(markup.match(/Next to run/g)).toHaveLength(1);
+    expect(markup).toContain(">Next</span>");
+    expect(markup).not.toContain("border-destructive/30");
+  });
+
+  it("renders worker thread actions for execution rows with thread ids", () => {
+    const child = makeRelation({ id: "TASK-1", title: "Running child" });
+    const markup = renderToStaticMarkup(
+      <SubIssuesSection
+        subIssues={[child]}
+        executionRows={[
+          {
+            child,
+            execution: {
+              issueId: child.id,
+              kind: "active",
+              label: "Running",
+              sequenceLabel: "#2",
+              waveIndex: null,
+              executionId: "exec-1" as never,
+              workerThreadId: "thread-1" as never,
+              failureMessage: null,
+              isNext: false,
+            },
+          },
+        ]}
+        onOpenThread={() => {}}
+      />,
+    );
+
+    expect(markup).toContain("Open worker thread for TASK-1");
+    expect(markup).toContain(">Running</span>");
+  });
+
   it("renders the clearer incoming blocks label in issue detail relationships", () => {
     const markup = renderToStaticMarkup(
       <IssueDetail

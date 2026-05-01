@@ -74,12 +74,21 @@ function makeEpic(
       activeWorkerCount: 1,
       isComplete: false,
     },
-    primaryAction: {
-      kind: "start_epic_run",
-      label: "Start epic",
-      busyLabel: "Starting...",
-      disabled: false,
+    execution: {
+      state: "ready",
+      summary: "Epic is ready to launch.",
+      blockingReason: null,
+      nextIssue: null,
     },
+    commands: [
+      {
+        kind: "start_epic_run",
+        label: "Start epic",
+        busyLabel: "Starting...",
+        disabled: false,
+        disabledReason: null,
+      },
+    ],
     activeRunId: null,
     activeExecutionId: null,
     projectConflict: null,
@@ -156,21 +165,6 @@ describe("epicCoordinatorUi", () => {
   });
 
   it("maps coordinator action copy by surface", () => {
-    expect(
-      describeCoordinatorActionCopy({
-        surface: "issues",
-        action: {
-          kind: "open_coordinator",
-          label: "Open epic",
-          busyLabel: "Opening...",
-        },
-        epic: { projectConflict: null },
-      }),
-    ).toEqual({
-      label: "Open output",
-      busyLabel: "Opening...",
-    });
-
     expect(
       describeCoordinatorActionCopy({
         surface: "coordinator",

@@ -301,19 +301,46 @@ export const BeadsCoordinatorProgress = Schema.Struct({
 });
 export type BeadsCoordinatorProgress = typeof BeadsCoordinatorProgress.Type;
 
-export const BeadsCoordinatorPrimaryAction = Schema.Struct({
+export const BeadsEpicExecutionState = Schema.Literals([
+  "checking",
+  "error",
+  "needs_preparation",
+  "ready",
+  "running",
+  "waiting",
+  "blocked",
+  "failed",
+  "completed",
+]);
+export type BeadsEpicExecutionState = typeof BeadsEpicExecutionState.Type;
+
+export const BeadsEpicExecution = Schema.Struct({
+  state: BeadsEpicExecutionState,
+  summary: TrimmedNonEmptyString,
+  blockingReason: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+  nextIssue: Schema.NullOr(BeadsIssueRelationSummary).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+});
+export type BeadsEpicExecution = typeof BeadsEpicExecution.Type;
+
+export const BeadsEpicCommand = Schema.Struct({
   kind: Schema.Literals([
     "open_coordination_prep_thread",
     "refresh_epic_status",
     "start_epic_run",
     "stop_epic_run",
-    "open_coordinator",
   ]),
   label: TrimmedNonEmptyString,
   busyLabel: TrimmedNonEmptyString,
   disabled: Schema.Boolean,
+  disabledReason: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
 });
-export type BeadsCoordinatorPrimaryAction = typeof BeadsCoordinatorPrimaryAction.Type;
+export type BeadsEpicCommand = typeof BeadsEpicCommand.Type;
 
 export const BeadsCoordinatorProjectConflict = Schema.Struct({
   run: OrchestrationEpicRun,
@@ -335,7 +362,8 @@ export const BeadsCoordinatorEpicSnapshot = Schema.Struct({
   ),
   coordinationState: BeadsCoordinatorState,
   progress: BeadsCoordinatorProgress,
-  primaryAction: BeadsCoordinatorPrimaryAction,
+  execution: BeadsEpicExecution,
+  commands: Schema.Array(BeadsEpicCommand).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   activeRunId: Schema.NullOr(EpicRunId).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   activeExecutionId: Schema.NullOr(EpicIssueExecutionId).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -474,7 +502,8 @@ export const BeadsEpicCoordinationDetail = Schema.Struct({
   status: Schema.NullOr(BeadsEpicCoordinationStatus).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
-  primaryAction: BeadsCoordinatorPrimaryAction,
+  execution: BeadsEpicExecution,
+  commands: Schema.Array(BeadsEpicCommand).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
 });
 export type BeadsEpicCoordinationDetail = typeof BeadsEpicCoordinationDetail.Type;
 

@@ -75,4 +75,40 @@ describe("IssueDetail", () => {
     expect(capturedSubIssuesSectionProps).toHaveLength(1);
     expect(capturedSubIssuesSectionProps[0]?.onIssueContextAction).toBe(onSubIssueContextAction);
   });
+
+  it("passes child execution rows and worker thread handlers through to SubIssuesSection", () => {
+    const child = makeRelation({ id: "TASK-1", title: "Task 1" });
+    const onOpenSubIssueThread = vi.fn();
+    const executionRows = [
+      {
+        child,
+        execution: {
+          issueId: child.id,
+          kind: "next",
+          label: "Next",
+          sequenceLabel: "Wave 1",
+          waveIndex: 0,
+          executionId: null,
+          workerThreadId: "thread-1" as never,
+          failureMessage: null,
+          isNext: true,
+        },
+      },
+    ] as const;
+
+    renderToStaticMarkup(
+      <IssueDetail
+        issue={makeDetail({ id: "EPIC-1", title: "Epic 1", issueType: "epic" })}
+        subIssues={[child]}
+        subIssueExecutionRows={executionRows}
+        subIssueExecutionError={new Error("spawn codex ENOENT")}
+        onOpenSubIssueThread={onOpenSubIssueThread}
+      />,
+    );
+
+    expect(capturedSubIssuesSectionProps).toHaveLength(1);
+    expect(capturedSubIssuesSectionProps[0]?.executionRows).toBe(executionRows);
+    expect(capturedSubIssuesSectionProps[0]?.executionError).toBeInstanceOf(Error);
+    expect(capturedSubIssuesSectionProps[0]?.onOpenThread).toBe(onOpenSubIssueThread);
+  });
 });

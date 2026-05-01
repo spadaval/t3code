@@ -1,12 +1,12 @@
 import type {
   BeadsIssueSortBy,
   BeadsIssueDetail as BeadsIssueDetailType,
+  BeadsIssueRelationSummary,
   BeadsIssueSummary,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { CircleDotIcon, Loader2Icon, MessageSquareTextIcon, SendIcon, XIcon } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
@@ -34,6 +34,8 @@ import { selectThreadsAcrossEnvironments, useStore } from "~/store";
 import { useProjectById } from "~/storeSelectors";
 import { formatShortTimestamp } from "~/timestampFormat";
 import { DEFAULT_RUNTIME_MODE } from "~/types";
+import { useEpicSnapshot } from "~/hooks/useEpicSnapshot";
+import { buildEpicChildExecutionRows } from "~/lib/epicExecutionView";
 import { useSettings } from "~/hooks/useSettings";
 import { IssueList } from "../issue/IssueList";
 import { CreateIssueDialog } from "../issue/CreateIssueDialog";
@@ -53,7 +55,6 @@ import { Textarea } from "../ui/textarea";
 import { StatusIndicator } from "../shared/StatusIndicator";
 import { toastManager } from "../ui/toast";
 import type { IssueContextAction } from "../issue/issueContextMenu";
-import { EpicLaunchPanel } from "./EpicLaunchPanel";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,6 +74,8 @@ type IssuesTabProps = {
   onSortByChange: (sortBy: BeadsIssueSortBy) => void;
   onOpenThread: (threadId: ThreadId) => void;
 };
+
+const EMPTY_RELATION_SUMMARIES: readonly BeadsIssueRelationSummary[] = [];
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -229,7 +232,6 @@ function IssueDetailPanel({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
   const threads = useStore(useShallow(selectThreadsAcrossEnvironments));
 
   const issueDetailQuery = useQuery(
@@ -242,8 +244,22 @@ function IssueDetailPanel({
   );
   const issue = issueDetailQuery.data?.epic ?? null;
   const parent = issueDetailQuery.data?.parent ?? null;
-  const subIssues = issueDetailQuery.data?.children ?? [];
-  const dependents = issueDetailQuery.data?.dependents ?? [];
+  const subIssues = issueDetailQuery.data?.children ?? EMPTY_RELATION_SUMMARIES;
+  const dependents = issueDetailQuery.data?.dependents ?? EMPTY_RELATION_SUMMARIES;
+  const isEpicIssue = issue ? isEpicIssueType(issue.issueType) : false;
+  const epicSnapshotQuery = useEpicSnapshot({
+    cwd,
+    projectId,
+    issueId,
+    enabled: isEpicIssue,
+  });
+  const subIssueExecutionRows = useMemo(
+    () =>
+      isEpicIssue && epicSnapshotQuery.epic
+        ? buildEpicChildExecutionRows({ epic: epicSnapshotQuery.epic, children: subIssues })
+        : undefined,
+    [epicSnapshotQuery.epic, isEpicIssue, subIssues],
+  );
 
   const linkedThreads = useMemo(
     () =>
@@ -363,25 +379,6 @@ function IssueDetailPanel({
     if (!targetThreadId) return;
     onOpenThread(targetThreadId);
   }, [linkedThreads, onOpenThread]);
-  const openCoordinator = useCallback(
-    (input: { epicId: string; runId: string | null }) => {
-      void navigate({
-        to: "/projects/$projectId/issues" as never,
-        params: { projectId } as never,
-        search: (previous) =>
-          ({
-            tab: "coordinator",
-            epicId: input.epicId,
-            ...(input.runId ? { runId: input.runId } : {}),
-            ...(previous.issueId ? { issueId: previous.issueId } : {}),
-            ...(previous.showClosed !== undefined ? { showClosed: previous.showClosed } : {}),
-            ...(previous.sort ? { sort: previous.sort } : {}),
-          }) as never,
-      });
-    },
-    [navigate, projectId],
-  );
-
   if (issueDetailQuery.isPending) {
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -448,8 +445,6 @@ function IssueDetailPanel({
             onOpenLinkedThread={openLinkedThread}
             onOpenInTracker={() => onSelectIssue(issue.id)}
             onOpenThread={onOpenThread}
-            onOpenCoordinator={openCoordinator}
-            showEpicLaunchActions={false}
           />
         </div>
 
@@ -486,21 +481,6 @@ function IssueDetailPanel({
               className="mt-4"
             />
 
-            {isEpicIssueType(issue.issueType) ? (
-              <div className="mt-5">
-                <EpicLaunchPanel
-                  cwd={cwd}
-                  projectId={projectId}
-                  issueId={issue.id}
-                  modelSelection={modelSelection}
-                  runtimeMode={DEFAULT_RUNTIME_MODE}
-                  launchers={workflowLaunchers}
-                  onOpenThread={onOpenThread}
-                  onOpenOutput={openCoordinator}
-                />
-              </div>
-            ) : null}
-
             {/* Editable description */}
             <div className="mt-5">
               <EditableTextArea
@@ -527,6 +507,11 @@ function IssueDetailPanel({
               <div className="mt-5">
                 <SubIssuesSection
                   subIssues={subIssues}
+                  executionRows={subIssueExecutionRows}
+                  executionError={
+                    isEpicIssue && !epicSnapshotQuery.isPending ? epicSnapshotQuery.error : null
+                  }
+                  onOpenThread={onOpenThread}
                   onIssueSelect={onSelectIssue}
                   onIssueContextAction={(childIssueId, action) =>
                     void handleIssueContextAction(childIssueId, action)

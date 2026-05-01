@@ -359,6 +359,132 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
+  it.effect("loads issue detail when comments are unavailable", () =>
+    Effect.gen(function* () {
+      const cwd = "/repo-comments-unavailable";
+      const now = new Date().toISOString();
+
+      mockedRunProcess.mockImplementation(async (_command, args) => {
+        const key = commandKey(args);
+        if (key === "context") {
+          return successJson({
+            beads_dir: "/repo/.beads",
+            repo_root: cwd,
+            cwd_repo_root: cwd,
+            is_redirected: false,
+            is_worktree: false,
+            backend: "dolt",
+            dolt_mode: "server",
+            database: "repo",
+            project_id: "project-1",
+            role: "contributor",
+            bd_version: "1.0.0",
+          });
+        }
+
+        if (key === "show ISS-1 --long") {
+          return successJson([
+            {
+              id: "ISS-1",
+              title: "Issue detail without comments",
+              description: "desc",
+              notes: "notes",
+              status: "open",
+              priority: 1,
+              issue_type: "feature",
+              assignee: null,
+              owner: null,
+              created_at: now,
+              created_by: null,
+              updated_at: now,
+              labels: [],
+              dependencies: [],
+              dependents: [],
+            },
+          ]);
+        }
+
+        if (key === "comments ISS-1") {
+          return {
+            stdout: '{"error":"comments unavailable"}',
+            stderr: "",
+            code: 1,
+            signal: null,
+            timedOut: false,
+          } as const;
+        }
+
+        throw new Error(`Unexpected bd args: ${args.join(" ")}`);
+      });
+
+      const beads = yield* BeadsService;
+      const issue = yield* beads.getIssue({ cwd, issueId: "ISS-1" });
+
+      assert.equal(issue.id, "ISS-1");
+      assert.deepStrictEqual(issue.comments, []);
+    }),
+  );
+
+  it.effect("loads issue batches without reading comments", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      installBdJsonMock({
+        context: {
+          beads_dir: "/repo/.beads",
+          repo_root: "/repo",
+          cwd_repo_root: "/repo",
+          is_redirected: false,
+          is_worktree: false,
+          backend: "dolt",
+          dolt_mode: "server",
+          database: "repo",
+          project_id: "project-1",
+          role: "maintainer",
+          bd_version: "1.0.0",
+        },
+        "show TASK-1 --long": [
+          {
+            id: "TASK-1",
+            title: "Batched issue",
+            description: "desc",
+            notes: null,
+            status: "open",
+            priority: 1,
+            issue_type: "task",
+            assignee: null,
+            owner: "alice",
+            created_at: now,
+            created_by: "alice",
+            updated_at: now,
+            labels: [],
+            dependencies: [
+              {
+                id: "DEP-1",
+                title: "External dependency",
+                status: "open",
+                priority: 2,
+                issue_type: "task",
+                owner: "alice",
+                created_at: now,
+                created_by: "alice",
+                updated_at: now,
+                type: "blocks",
+              },
+            ],
+            dependents: [],
+          },
+        ],
+      });
+
+      const beads = yield* BeadsService;
+      const result = yield* beads.getIssues({ cwd: "/repo", issueIds: ["TASK-1"] });
+
+      assert.equal(result.issues[0]?.id, "TASK-1");
+      assert.equal(result.issues[0]?.dependencies[0]?.dependencyType, "blocks");
+      expect(countBdCommandCalls("comments TASK-1")).toBe(0);
+    }),
+  );
+
   it.effect("keeps write-capable bd commands serialized in server mode", () =>
     Effect.gen(function* () {
       const cwd = "/repo-server-write";
@@ -415,7 +541,7 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
-  it.effect("loads beads context and derives embedded swarm support gating", () =>
+  it.effect("loads beads context and project run summary without coordination graph fanout", () =>
     Effect.gen(function* () {
       installBdJsonMock({
         context: {
@@ -436,7 +562,6 @@ layer("BeadsServiceLive", (it) => {
 
       const beads = yield* BeadsService;
       const context = yield* beads.getContext({ cwd: "/repo" });
-      const support = yield* beads.getEpicRunSupport({ cwd: "/repo" });
       const runSummary = yield* beads.getProjectRunSummary({
         cwd: "/repo",
         projectId: ProjectId.makeUnsafe("project-1"),
@@ -444,8 +569,6 @@ layer("BeadsServiceLive", (it) => {
 
       assert.equal(context.backend.kind, "dolt");
       assert.equal(context.backend.doltMode, "embedded");
-      assert.equal(support.supported, false);
-      expect(support.reason).toContain("embedded Dolt mode");
       assert.deepStrictEqual(runSummary.epics, []);
       expect(
         mockedRunProcess.mock.calls.some(([, args]) => commandKey(args).startsWith("swarm ")),
@@ -638,6 +761,63 @@ layer("BeadsServiceLive", (it) => {
         id: "EPIC-1",
         title: "Epic coordination",
       });
+    }),
+  );
+
+  it.effect("uses bd ready for ready issue queries", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      installBdJsonMock({
+        context: {
+          beads_dir: "/repo/.beads",
+          repo_root: "/repo",
+          cwd_repo_root: "/repo",
+          is_redirected: false,
+          is_worktree: false,
+          backend: "dolt",
+          dolt_mode: "server",
+          database: "repo",
+          project_id: "project-1",
+          role: "contributor",
+          bd_version: "1.0.0",
+        },
+        ready: [
+          {
+            id: "TASK-READY",
+            title: "Ready task",
+            description: "Can start now",
+            notes: null,
+            status: "open",
+            priority: 1,
+            issue_type: "task",
+            assignee: null,
+            owner: null,
+            created_at: now,
+            created_by: null,
+            updated_at: now,
+            labels: [],
+            dependencies: [],
+          },
+        ],
+      });
+
+      const beads = yield* BeadsService;
+      const result = yield* beads.queryIssues({
+        cwd: "/repo",
+        mode: "ready",
+        sortBy: "priority",
+      });
+
+      expect(mockedRunProcess.mock.calls.some(([, args]) => commandKey(args) === "ready")).toBe(
+        true,
+      );
+      expect(
+        mockedRunProcess.mock.calls.some(([, args]) => commandKey(args) === "list --all --limit 0"),
+      ).toBe(false);
+      assert.deepStrictEqual(
+        result.issues.map((issue) => issue.id),
+        ["TASK-READY"],
+      );
     }),
   );
 
@@ -941,7 +1121,7 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
-  it.effect("maps epic issue graph relations from show/comments/history output", () =>
+  it.effect("maps epic issue graph relations without reading comments", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
       installBdJsonMock({
@@ -1038,7 +1218,6 @@ layer("BeadsServiceLive", (it) => {
             labels: [],
           },
         ],
-        "comments EPIC-1": [],
       });
 
       const beads = yield* BeadsService;
@@ -1058,6 +1237,7 @@ layer("BeadsServiceLive", (it) => {
         graph.dependents.map((issue) => issue.id),
         ["FOLLOW-1"],
       );
+      expect(countBdCommandCalls("comments EPIC-1")).toBe(0);
     }),
   );
 
@@ -1517,7 +1697,7 @@ layer("BeadsServiceLive", (it) => {
       }),
   );
 
-  it.effect("maps swarm summary, validation, and status when swarm support is enabled", () =>
+  it.effect("normalizes bd dependency type fields when deriving epic readiness", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
       installBdJsonMock({
@@ -1541,105 +1721,39 @@ layer("BeadsServiceLive", (it) => {
             description: null,
             notes: null,
             status: "open",
-            priority: 2,
+            priority: 1,
             issue_type: "epic",
             assignee: null,
-            owner: "alice",
+            owner: null,
             created_at: now,
-            created_by: "alice",
+            created_by: null,
             updated_at: now,
             labels: [],
             dependencies: [],
-            dependents: [],
-          },
-        ],
-        "swarm list": {
-          swarms: [
-            {
-              swarm_id: "SWARM-1",
-              epic_id: "EPIC-1",
-              epic_title: "Epic coordination",
-              total_issue_count: 4,
-              completed_issue_count: 1,
-              active_issue_count: 1,
-              ready_issue_count: 1,
-              blocked_issue_count: 1,
-              active_worker_count: 1,
-            },
-          ],
-        },
-        "swarm validate EPIC-1": {
-          valid: true,
-          errors: [],
-          warnings: ["One dependency chain is longer than the others."],
-          ready_fronts: [
-            [
+            dependents: [
               {
-                id: "READY-1",
+                id: "TASK-1",
                 title: "Ready child",
                 status: "open",
-                priority: 2,
+                priority: 1,
                 issue_type: "task",
-                assignee: null,
                 owner: null,
+                created_at: now,
+                created_by: null,
+                updated_at: now,
+                type: "parent-child",
               },
             ],
-          ],
-          estimated_worker_sessions: 2,
-          max_parallelism: 3,
-        },
-        "swarm status EPIC-1": {
-          completed: [
-            {
-              id: "DONE-1",
-              title: "Completed child",
-              status: "closed",
-              priority: 2,
-              issue_type: "task",
-              assignee: null,
-              owner: null,
-            },
-          ],
-          active: [
-            {
-              id: "ACTIVE-1",
-              title: "Active child",
-              status: "in_progress",
-              priority: 1,
-              issue_type: "task",
-              assignee: "bob",
-              owner: null,
-            },
-          ],
-          ready: [
-            {
-              id: "READY-1",
-              title: "Ready child",
-              status: "open",
-              priority: 2,
-              issue_type: "task",
-              assignee: null,
-              owner: null,
-            },
-          ],
-          blocked: [
-            {
-              id: "BLOCKED-1",
-              title: "Blocked child",
-              status: "blocked",
-              priority: 2,
-              issue_type: "task",
-              assignee: null,
-              owner: null,
-            },
-          ],
-        },
-        "show BLOCKED-1 --long": [
+          },
+        ],
+        "show TASK-1 --long": [
           {
-            id: "BLOCKED-1",
-            title: "Blocked child",
-            status: "blocked",
-            priority: 2,
+            id: "TASK-1",
+            title: "Ready child",
+            description: null,
+            notes: null,
+            status: "open",
+            priority: 1,
             issue_type: "task",
             assignee: null,
             owner: null,
@@ -1649,16 +1763,16 @@ layer("BeadsServiceLive", (it) => {
             labels: [],
             dependencies: [
               {
-                id: "DEP-1",
-                title: "Dependency",
+                id: "EPIC-1",
+                title: "Epic coordination",
                 status: "open",
                 priority: 1,
-                issue_type: "task",
+                issue_type: "epic",
                 owner: null,
                 created_at: now,
                 created_by: null,
                 updated_at: now,
-                dependency_type: "blocks",
+                type: "parent-child",
               },
             ],
             dependents: [],
@@ -1667,300 +1781,29 @@ layer("BeadsServiceLive", (it) => {
       });
 
       const beads = yield* BeadsService;
-      const swarm = yield* beads.getEpicTrackerSummary({ cwd: "/repo", epicIssueId: "EPIC-1" });
-      const validation = yield* beads.validateEpicRun({ cwd: "/repo", epicIssueId: "EPIC-1" });
-      const status = yield* beads.getEpicTrackerStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
+      const validation = yield* beads.validateEpicCoordination({
+        cwd: "/repo",
+        epicIssueId: "EPIC-1",
+      });
+      const status = yield* beads.getEpicCoordinationStatus({
+        cwd: "/repo",
+        epicIssueId: "EPIC-1",
+      });
 
-      assert.equal(swarm?.trackerId, "SWARM-1");
       assert.equal(validation.valid, true);
-      assert.equal(validation.trackerSummary?.epicId, "EPIC-1");
-      assert.equal(validation.maxParallelism, 3);
       assert.deepStrictEqual(
         validation.readyFronts.map((front) => front.map((issue) => issue.id)),
-        [["READY-1"]],
-      );
-      assert.deepStrictEqual(
-        status.completed.map((issue) => issue.id),
-        ["DONE-1"],
-      );
-      assert.deepStrictEqual(
-        status.active.map((issue) => issue.id),
-        ["ACTIVE-1"],
+        [["TASK-1"]],
       );
       assert.deepStrictEqual(
         status.ready.map((issue) => issue.id),
-        ["READY-1"],
+        ["TASK-1"],
       );
-      assert.deepStrictEqual(
-        status.blocked.map((issue) => issue.id),
-        ["BLOCKED-1"],
-      );
-      assert.deepStrictEqual(
-        status.blockedBreakdown.external.map((issue) => issue.id),
-        ["BLOCKED-1"],
-      );
+      assert.deepStrictEqual(status.blocked, []);
     }),
   );
 
-  it.effect("maps current bd swarm JSON field names without zeroing summary counts", () =>
-    Effect.gen(function* () {
-      const now = new Date().toISOString();
-      installBdJsonMock({
-        context: {
-          beads_dir: "/repo/.beads",
-          repo_root: "/repo",
-          cwd_repo_root: "/repo",
-          is_redirected: false,
-          is_worktree: false,
-          backend: "dolt",
-          dolt_mode: "server",
-          database: "repo",
-          project_id: "project-1",
-          role: "maintainer",
-          bd_version: "1.0.0",
-        },
-        "show EPIC-1 --long": [
-          {
-            id: "EPIC-1",
-            title: "Epic coordination",
-            description: null,
-            notes: null,
-            status: "open",
-            priority: 2,
-            issue_type: "epic",
-            assignee: null,
-            owner: "alice",
-            created_at: now,
-            created_by: "alice",
-            updated_at: now,
-            labels: [],
-            dependencies: [],
-            dependents: [],
-          },
-        ],
-        "swarm list": {
-          swarms: [
-            {
-              id: "SWARM-1",
-              title: "Swarm: Epic coordination",
-              epic_id: "EPIC-1",
-              epic_title: "Epic coordination",
-              status: "open",
-              coordinator: "",
-              total_issues: 13,
-              completed_issues: 5,
-              active_issues: 0,
-              progress_percent: 38.46153846153847,
-            },
-          ],
-        },
-        "swarm validate EPIC-1": {
-          epic_id: "EPIC-1",
-          epic_title: "Epic coordination",
-          total_issues: 13,
-          closed_issues: 5,
-          ready_fronts: [
-            {
-              wave: 0,
-              issues: ["READY-1", "READY-2"],
-              titles: ["Ready child 1", "Ready child 2"],
-            },
-          ],
-          max_parallelism: 6,
-          estimated_sessions: 13,
-          warnings: null,
-          errors: null,
-          swarmable: true,
-        },
-        "swarm status EPIC-1": {
-          epic_id: "EPIC-1",
-          epic_title: "Epic coordination",
-          total_issues: 13,
-          completed: [
-            {
-              id: "DONE-1",
-              title: "Completed child",
-              status: "closed",
-              priority: 2,
-              issue_type: "task",
-              assignee: null,
-              owner: null,
-            },
-          ],
-          active: [],
-          ready: [
-            {
-              id: "READY-1",
-              title: "Ready child 1",
-              status: "open",
-              priority: 2,
-              issue_type: "task",
-              assignee: null,
-              owner: null,
-            },
-          ],
-          blocked: [
-            {
-              id: "BLOCKED-1",
-              title: "Blocked child",
-              status: "blocked",
-              priority: 2,
-              issue_type: "task",
-              assignee: null,
-              owner: null,
-            },
-          ],
-          active_count: 0,
-          ready_count: 1,
-          blocked_count: 1,
-        },
-        "show BLOCKED-1 --long": [
-          {
-            id: "BLOCKED-1",
-            title: "Blocked child",
-            status: "blocked",
-            priority: 2,
-            issue_type: "task",
-            assignee: null,
-            owner: null,
-            created_at: now,
-            created_by: null,
-            updated_at: now,
-            labels: [],
-            dependencies: [
-              {
-                id: "DEP-1",
-                title: "Dependency",
-                status: "open",
-                priority: 1,
-                issue_type: "task",
-                owner: null,
-                created_at: now,
-                created_by: null,
-                updated_at: now,
-                dependency_type: "blocks",
-              },
-            ],
-            dependents: [],
-          },
-        ],
-      });
-
-      const beads = yield* BeadsService;
-      const validation = yield* beads.validateEpicRun({ cwd: "/repo", epicIssueId: "EPIC-1" });
-      const status = yield* beads.getEpicTrackerStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
-
-      assert.equal(validation.trackerSummary?.totalIssueCount, 13);
-      assert.equal(validation.trackerSummary?.completedIssueCount, 5);
-      assert.equal(validation.maxParallelism, 6);
-      assert.equal(validation.estimatedWorkerSessions, 13);
-      assert.deepStrictEqual(
-        validation.readyFronts.map((front) => front.map((issue) => issue.id)),
-        [["READY-1", "READY-2"]],
-      );
-      assert.equal(status.trackerSummary?.totalIssueCount, 13);
-      assert.equal(status.trackerSummary?.completedIssueCount, 1);
-      assert.equal(status.trackerSummary?.readyIssueCount, 1);
-      assert.equal(status.trackerSummary?.blockedIssueCount, 1);
-      assert.deepStrictEqual(
-        status.blockedBreakdown.external.map((issue) => issue.id),
-        ["BLOCKED-1"],
-      );
-    }),
-  );
-
-  it.effect(
-    "returns null swarm summaries when beads reports epic metadata without a swarm id",
-    () =>
-      Effect.gen(function* () {
-        const now = new Date().toISOString();
-        installBdJsonMock({
-          context: {
-            beads_dir: "/repo/.beads",
-            repo_root: "/repo",
-            cwd_repo_root: "/repo",
-            is_redirected: false,
-            is_worktree: false,
-            backend: "dolt",
-            dolt_mode: "server",
-            database: "repo",
-            project_id: "project-1",
-            role: "maintainer",
-            bd_version: "1.0.0",
-          },
-          "show EPIC-1 --long": [
-            {
-              id: "EPIC-1",
-              title: "Epic coordination",
-              description: null,
-              notes: null,
-              status: "open",
-              priority: 2,
-              issue_type: "epic",
-              assignee: null,
-              owner: "alice",
-              created_at: now,
-              created_by: "alice",
-              updated_at: now,
-              labels: [],
-              dependencies: [],
-              dependents: [],
-            },
-          ],
-          "swarm list": {
-            swarms: [],
-          },
-          "swarm validate EPIC-1": {
-            epic_id: "EPIC-1",
-            epic_title: "Epic coordination",
-            total_issues: 3,
-            closed_issues: 1,
-            ready_fronts: [],
-            max_parallelism: 1,
-            estimated_sessions: 3,
-            warnings: null,
-            errors: null,
-            swarmable: true,
-          },
-          "swarm status EPIC-1": {
-            epic_id: "EPIC-1",
-            epic_title: "Epic coordination",
-            total_issues: 3,
-            completed: [],
-            active: [],
-            ready: [
-              {
-                id: "READY-1",
-                title: "Ready child",
-                status: "open",
-                priority: 2,
-                issue_type: "task",
-                assignee: null,
-                owner: null,
-              },
-            ],
-            blocked: [],
-            active_count: 0,
-            ready_count: 1,
-            blocked_count: 0,
-          },
-        });
-
-        const beads = yield* BeadsService;
-        const validation = yield* beads.validateEpicRun({ cwd: "/repo", epicIssueId: "EPIC-1" });
-        const status = yield* beads.getEpicTrackerStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
-
-        assert.equal(validation.trackerSummary, null);
-        assert.equal(status.trackerSummary, null);
-        assert.equal(validation.estimatedWorkerSessions, 3);
-        assert.deepStrictEqual(
-          status.ready.map((issue) => issue.id),
-          ["READY-1"],
-        );
-      }),
-  );
-
-  it.effect("hydrates sparse swarm status entries from epic child records", () =>
+  it.effect("derives coordination status from epic child records", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
       installBdJsonMock({
@@ -2017,25 +1860,23 @@ layer("BeadsServiceLive", (it) => {
             dependencies: [],
           },
         ],
-        "swarm list": {
-          swarms: [],
-        },
-        "swarm status EPIC-1": {
-          completed: [],
-          active: [],
-          ready: [
-            {
-              id: "READY-1",
-              title: "Ready child",
-            },
-          ],
-          blocked: [
-            {
-              id: "BLOCKED-1",
-              title: "Blocked child",
-            },
-          ],
-        },
+        "show READY-1 --long": [
+          {
+            id: "READY-1",
+            title: "Ready child",
+            status: "open",
+            priority: 2,
+            issue_type: "task",
+            assignee: null,
+            owner: "alice",
+            created_at: now,
+            created_by: null,
+            updated_at: now,
+            labels: [],
+            dependencies: [],
+            dependents: [],
+          },
+        ],
         "show BLOCKED-1 --long": [
           {
             id: "BLOCKED-1",
@@ -2069,7 +1910,10 @@ layer("BeadsServiceLive", (it) => {
       });
 
       const beads = yield* BeadsService;
-      const status = yield* beads.getEpicTrackerStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
+      const status = yield* beads.getEpicCoordinationStatus({
+        cwd: "/repo",
+        epicIssueId: "EPIC-1",
+      });
 
       assert.deepStrictEqual(status.ready, [
         {
@@ -2170,27 +2014,29 @@ layer("BeadsServiceLive", (it) => {
             created_by: null,
             updated_at: now,
             labels: [],
+            dependencies: [
+              {
+                title: "Unknown dependency",
+                status: "open",
+                priority: 1,
+                issue_type: "task",
+                owner: null,
+                created_at: now,
+                created_by: null,
+                updated_at: now,
+                dependency_type: "blocks",
+              },
+            ],
             dependents: [],
           },
         ],
-        "swarm list": {
-          swarms: [],
-        },
-        "swarm status EPIC-1": {
-          completed: [],
-          active: [],
-          ready: [],
-          blocked: [
-            {
-              id: "BLOCKED-1",
-              title: "Blocked child",
-            },
-          ],
-        },
       });
 
       const beads = yield* BeadsService;
-      const status = yield* beads.getEpicTrackerStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
+      const status = yield* beads.getEpicCoordinationStatus({
+        cwd: "/repo",
+        epicIssueId: "EPIC-1",
+      });
 
       assert.deepStrictEqual(
         status.blockedBreakdown.unknown.map((issue) => issue.id),
@@ -2366,7 +2212,7 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
-  it.effect("runs validateEpicRun without nested extra context or swarm-list reads", () =>
+  it.effect("runs validateEpicCoordination without context or swarm reads", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
       installBdJsonMock({
@@ -2402,33 +2248,22 @@ layer("BeadsServiceLive", (it) => {
             dependents: [],
           },
         ],
-        "swarm list": {
-          swarms: [],
-        },
-        "swarm validate EPIC-1": {
-          epic_id: "EPIC-1",
-          epic_title: "Epic coordination",
-          valid: true,
-          errors: [],
-          warnings: [],
-          ready_fronts: [],
-          estimated_sessions: 1,
-          max_parallelism: 1,
-        },
       });
 
       const beads = yield* BeadsService;
-      const validation = yield* beads.validateEpicRun({ cwd: "/repo", epicIssueId: "EPIC-1" });
+      const validation = yield* beads.validateEpicCoordination({
+        cwd: "/repo",
+        epicIssueId: "EPIC-1",
+      });
 
       assert.equal(validation.epicId, "EPIC-1");
-      expect(countBdCommandCalls("context")).toBe(1);
+      expect(countBdCommandCalls("context")).toBe(0);
       expect(countBdCommandCalls("show EPIC-1 --long")).toBe(1);
-      expect(countBdCommandCalls("swarm list")).toBe(1);
-      expect(countBdCommandCalls("swarm validate EPIC-1")).toBe(1);
+      expect(countBdCommandCalls("swarm ")).toBe(0);
     }),
   );
 
-  it.effect("runs getEpicTrackerStatus without nested extra context or swarm-list reads", () =>
+  it.effect("runs getEpicCoordinationStatus without context or swarm reads", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
       installBdJsonMock({
@@ -2464,27 +2299,18 @@ layer("BeadsServiceLive", (it) => {
             dependents: [],
           },
         ],
-        "swarm list": {
-          swarms: [],
-        },
-        "swarm status EPIC-1": {
-          epic_id: "EPIC-1",
-          epic_title: "Epic coordination",
-          completed: [],
-          active: [],
-          ready: [],
-          blocked: [],
-        },
       });
 
       const beads = yield* BeadsService;
-      const status = yield* beads.getEpicTrackerStatus({ cwd: "/repo", epicIssueId: "EPIC-1" });
+      const status = yield* beads.getEpicCoordinationStatus({
+        cwd: "/repo",
+        epicIssueId: "EPIC-1",
+      });
 
       assert.equal(status.epicId, "EPIC-1");
-      expect(countBdCommandCalls("context")).toBe(1);
+      expect(countBdCommandCalls("context")).toBe(0);
       expect(countBdCommandCalls("show EPIC-1 --long")).toBe(1);
-      expect(countBdCommandCalls("swarm list")).toBe(1);
-      expect(countBdCommandCalls("swarm status EPIC-1")).toBe(1);
+      expect(countBdCommandCalls("swarm ")).toBe(0);
     }),
   );
 
@@ -2574,6 +2400,65 @@ layer("BeadsServiceLive", (it) => {
         expect(countBdCommandCalls("show EPIC-1 --long")).toBe(2);
         expect(countBdCommandCalls("show CHILD-1 --long")).toBe(1);
       }),
+  );
+
+  it.effect("loads epic issue summaries without reading comments", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      installBdJsonMock({
+        "show EPIC-1 --long": [
+          {
+            id: "EPIC-1",
+            title: "Epic coordination",
+            description: null,
+            notes: null,
+            status: "open",
+            priority: 2,
+            issue_type: "epic",
+            assignee: null,
+            owner: "alice",
+            created_at: now,
+            created_by: "alice",
+            updated_at: now,
+            labels: [],
+            dependencies: [],
+            dependents: [],
+          },
+        ],
+        "list --all --parent EPIC-1 --limit 0": [
+          {
+            id: "TASK-1",
+            title: "Ready child",
+            description: null,
+            notes: null,
+            status: "open",
+            priority: 1,
+            issue_type: "task",
+            assignee: null,
+            owner: "alice",
+            created_at: now,
+            created_by: "alice",
+            updated_at: now,
+            labels: [],
+            parent_id: "EPIC-1",
+            parent_title: "Epic coordination",
+            dependencies: [],
+            dependents: [],
+          },
+        ],
+      });
+
+      const beads = yield* BeadsService;
+      const summaries = yield* beads.getEpicIssueSummaries({
+        cwd: "/repo",
+        epicIssueId: "EPIC-1",
+      });
+
+      assert.equal(summaries.epicId, "EPIC-1");
+      assert.equal(summaries.progress.readyIssueCount, 1);
+      expect(countBdCommandCalls("comments EPIC-1")).toBe(0);
+      expect(countBdCommandCalls("show EPIC-1 --long")).toBe(1);
+    }),
   );
 
   it.effect("starts epic quick refine in a default-mode linked thread", () =>
@@ -3091,7 +2976,7 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
-  it.effect("opens coordination prep when no swarm exists yet and epic structure is invalid", () =>
+  it.effect("opens coordination prep for tracker-only graph refinement", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
       const dispatchedCommands: unknown[] = [];
@@ -3131,33 +3016,6 @@ layer("BeadsServiceLive", (it) => {
         ],
         "comments EPIC-1": [],
         "history EPIC-1": [],
-        "swarm list": {
-          swarms: [],
-        },
-        "swarm validate EPIC-1": {
-          valid: false,
-          errors: ["Epic is missing a swarm."],
-          warnings: [],
-          ready_fronts: [],
-          estimated_worker_sessions: 0,
-          max_parallelism: 0,
-        },
-        "swarm status EPIC-1": {
-          completed: [],
-          active: [],
-          ready: [
-            {
-              id: "READY-1",
-              title: "Ready child",
-              status: "open",
-              priority: 2,
-              issue_type: "task",
-              assignee: null,
-              owner: null,
-            },
-          ],
-          blocked: [],
-        },
       });
       mockedDispatch.mockImplementation((command: unknown) => {
         dispatchedCommands.push(command);
@@ -3203,238 +3061,8 @@ layer("BeadsServiceLive", (it) => {
       expect(messageText).toContain(
         "Fix the epic structure so it is ready for coordinated execution.",
       );
-      expect(messageText).toContain(
-        "Do NOT describe this as repairing an existing swarm -- the epic is not ready yet.",
-      );
+      expect(messageText).toContain("Use `bd` to refine child issues");
       expect(messageText).toContain("Do NOT implement application code. Do NOT create a worktree.");
-    }),
-  );
-
-  it.effect("opens coordination prep when an invalid swarm already exists", () =>
-    Effect.gen(function* () {
-      const now = new Date().toISOString();
-      const dispatchedCommands: unknown[] = [];
-
-      installBdJsonMock({
-        context: {
-          beads_dir: "/repo/.beads",
-          repo_root: "/repo",
-          cwd_repo_root: "/repo",
-          is_redirected: false,
-          is_worktree: false,
-          backend: "dolt",
-          dolt_mode: "server",
-          database: "repo",
-          project_id: "project-1",
-          role: "maintainer",
-          bd_version: "1.0.0",
-        },
-        "show EPIC-1 --long": [
-          {
-            id: "EPIC-1",
-            title: "Epic coordination",
-            description: "Break this into tasks",
-            notes: "Coordinate across workers",
-            status: "open",
-            priority: 2,
-            issue_type: "epic",
-            assignee: null,
-            owner: "alice",
-            created_at: now,
-            created_by: "alice",
-            updated_at: now,
-            labels: ["coordinator"],
-            dependencies: [],
-            dependents: [],
-          },
-        ],
-        "comments EPIC-1": [],
-        "history EPIC-1": [],
-        "swarm list": {
-          swarms: [
-            {
-              swarm_id: "swarm-1",
-              epic_id: "EPIC-1",
-              epic_title: "Epic coordination",
-              total_issue_count: 3,
-              completed_issue_count: 0,
-              active_issue_count: 0,
-              ready_issue_count: 1,
-              blocked_issue_count: 2,
-              active_worker_count: 0,
-            },
-          ],
-        },
-        "swarm validate EPIC-1": {
-          valid: false,
-          swarm: {
-            swarm_id: "swarm-1",
-            epic_id: "EPIC-1",
-            epic_title: "Epic coordination",
-            total_issue_count: 3,
-            completed_issue_count: 0,
-            active_issue_count: 0,
-            ready_issue_count: 1,
-            blocked_issue_count: 2,
-            active_worker_count: 0,
-          },
-          errors: ["Blocked issue graph is inconsistent."],
-          warnings: [],
-          ready_fronts: [],
-          estimated_worker_sessions: 0,
-          max_parallelism: 0,
-        },
-        "swarm status EPIC-1": {
-          swarm: {
-            swarm_id: "swarm-1",
-            epic_id: "EPIC-1",
-            epic_title: "Epic coordination",
-            total_issue_count: 3,
-            completed_issue_count: 0,
-            active_issue_count: 0,
-            ready_issue_count: 1,
-            blocked_issue_count: 2,
-            active_worker_count: 0,
-          },
-          completed: [],
-          active: [],
-          ready: [
-            {
-              id: "READY-1",
-              title: "Ready child",
-              status: "open",
-              priority: 2,
-              issue_type: "task",
-              assignee: null,
-              owner: null,
-            },
-          ],
-          blocked: [
-            {
-              id: "BLOCKED-1",
-              title: "Blocked child",
-              status: "blocked",
-              priority: 2,
-              issue_type: "task",
-              assignee: null,
-              owner: null,
-            },
-          ],
-        },
-        "show BLOCKED-1 --long": [
-          {
-            id: "BLOCKED-1",
-            title: "Blocked child",
-            status: "blocked",
-            priority: 2,
-            issue_type: "task",
-            assignee: null,
-            owner: null,
-            created_at: now,
-            created_by: null,
-            updated_at: now,
-            labels: [],
-            dependencies: [
-              {
-                id: "DEP-1",
-                title: "Dependency",
-                status: "open",
-                priority: 1,
-                issue_type: "task",
-                owner: null,
-                created_at: now,
-                created_by: null,
-                updated_at: now,
-                dependency_type: "blocks",
-              },
-            ],
-            dependents: [],
-          },
-        ],
-      });
-      mockedDispatch.mockImplementation((command: unknown) => {
-        dispatchedCommands.push(command);
-        return Effect.succeed({ sequence: dispatchedCommands.length });
-      });
-
-      const beads = yield* BeadsService;
-      const result = yield* beads.startEpicCoordinationPrep({
-        cwd: "/repo",
-        projectId: ProjectId.makeUnsafe("project-1"),
-        epicIssueId: "EPIC-1",
-        modelSelection: { provider: "codex", model: "gpt-5-codex" },
-        runtimeMode: "full-access",
-      });
-
-      assert.equal(result.created, true);
-      expect(dispatchedCommands[0]).toMatchObject({
-        type: "thread.create",
-        title: "EPIC-1: Epic coordination (Coordination prep)",
-      });
-      const messageText = (dispatchedCommands[1] as { message: { text: string } }).message.text;
-      expect(messageText).toContain(
-        "Use `bd` to repair the existing coordination setup and correct tracker metadata drift.",
-      );
-      expect(messageText).toContain(
-        "Repair the current coordination setup instead of replacing it unless recovery is impossible.",
-      );
-      expect(messageText).toContain(
-        "Do NOT implement application code. Do NOT create a worktree unless tracker-only recovery is impossible.",
-      );
-    }),
-  );
-
-  it.effect("rejects epic coordination prep when swarm support is unavailable", () =>
-    Effect.gen(function* () {
-      installBdJsonMock({
-        context: {
-          beads_dir: "/repo/.beads",
-          repo_root: "/repo",
-          cwd_repo_root: "/repo",
-          is_redirected: false,
-          is_worktree: false,
-          backend: "dolt",
-          dolt_mode: "embedded",
-          database: "repo",
-          project_id: "project-1",
-          role: "contributor",
-          bd_version: "1.0.0",
-        },
-        "show EPIC-1 --long": [
-          {
-            id: "EPIC-1",
-            title: "Epic coordination",
-            description: null,
-            notes: null,
-            status: "open",
-            priority: 2,
-            issue_type: "epic",
-            assignee: null,
-            owner: "alice",
-            created_at: "2026-01-01T00:00:00.000Z",
-            created_by: "alice",
-            updated_at: "2026-01-01T00:00:00.000Z",
-            labels: [],
-            dependencies: [],
-          },
-        ],
-        "comments EPIC-1": [],
-        "history EPIC-1": [],
-      });
-
-      const beads = yield* BeadsService;
-      const exit = yield* beads
-        .startEpicCoordinationPrep({
-          cwd: "/repo",
-          projectId: ProjectId.makeUnsafe("project-1"),
-          epicIssueId: "EPIC-1",
-          modelSelection: { provider: "codex", model: "gpt-5-codex" },
-          runtimeMode: "full-access",
-        })
-        .pipe(Effect.exit);
-
-      assert.strictEqual(exit._tag, "Failure");
-      expect(mockedDispatch).not.toHaveBeenCalled();
     }),
   );
 });

@@ -88,7 +88,6 @@ const decodeEpicCoordinationStatus = Schema.decodeUnknownSync(BeadsEpicCoordinat
 const decodeProjectRunSummary = Schema.decodeUnknownSync(BeadsProjectRunSummary);
 const decodeEpicIssueSummaries = Schema.decodeUnknownSync(BeadsEpicIssueSummaries);
 const decodeEpicCoordinationDetail = Schema.decodeUnknownSync(BeadsEpicCoordinationDetail);
-const BLOCKED_ISSUE_LOOKUP_CONCURRENCY = 4;
 
 interface SessionActivityRecord {
   readonly cwd: string;
@@ -359,15 +358,6 @@ function asRecordArray(value: unknown): ReadonlyArray<Record<string, unknown>> {
     : [];
 }
 
-function asStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.flatMap((entry) => {
-        const trimmed = trimToNull(entry);
-        return trimmed ? [trimmed] : [];
-      })
-    : [];
-}
-
 function asNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -388,16 +378,6 @@ function asBoolean(value: unknown): boolean | null {
     if (value === "false") return false;
   }
   return null;
-}
-
-function asFirstNonNegativeInt(values: ReadonlyArray<unknown>, fallback = 0): number {
-  for (const value of values) {
-    const parsed = asNumber(value);
-    if (parsed !== null && parsed >= 0) {
-      return Math.trunc(parsed);
-    }
-  }
-  return fallback;
 }
 
 function toBeadsError(message: string, cause?: unknown): BeadsError {
@@ -665,16 +645,6 @@ function sortChildIssueRelationsByDependencies(input: {
   });
 }
 
-function buildIssueRecordLookup(
-  rawIssues: ReadonlyArray<Record<string, unknown>>,
-): ReadonlyMap<string, Record<string, unknown>> {
-  const entries = rawIssues.flatMap((rawIssue) => {
-    const id = trimToNull(rawIssue.id);
-    return id ? ([[id, rawIssue]] as const) : [];
-  });
-  return new Map(entries);
-}
-
 function mapBeadsContext(raw: Record<string, unknown>): BeadsContextType {
   return decodeBeadsContext({
     beadsDir: raw.beads_dir,
@@ -816,6 +786,10 @@ function matchesIssueSummary(issue: BeadsIssueSummaryType, input: BeadsQueryIssu
   );
 }
 
+function getBdDependencyType(raw: Record<string, unknown>): string | null {
+  return trimToNull(raw.dependency_type) ?? trimToNull(raw.type);
+}
+
 function mapIssueDependency(raw: Record<string, unknown>): BeadsIssueDependency {
   return {
     id: String(raw.id),
@@ -828,7 +802,7 @@ function mapIssueDependency(raw: Record<string, unknown>): BeadsIssueDependency 
     createdAt: String(raw.created_at),
     createdBy: trimToNull(raw.created_by),
     updatedAt: String(raw.updated_at),
-    dependencyType: String(raw.dependency_type),
+    dependencyType: getBdDependencyType(raw) ?? "unknown",
   };
 }
 
@@ -1537,9 +1511,15 @@ const makeBeadsTrackerService = Effect.gen(function* () {
       (json) => (Array.isArray(json) ? json : []) as ReadonlyArray<Record<string, unknown>>,
     );
 
+  const getIssueCommentsOptional = (cwd: string, issueId: string) =>
+    getIssueComments(cwd, issueId).pipe(Effect.catch(() => Effect.succeed([])));
+
+  const getIssueDetailWithoutComments = (cwd: string, issueId: string) =>
+    getRawIssue(cwd, issueId).pipe(Effect.map((issue) => mapIssueDetail(issue, [])));
+
   const getIssueDetail = (input: BeadsGetIssueInput) =>
     Effect.all(
-      [getRawIssue(input.cwd, input.issueId), getIssueComments(input.cwd, input.issueId)],
+      [getRawIssue(input.cwd, input.issueId), getIssueCommentsOptional(input.cwd, input.issueId)],
       { concurrency: "unbounded" },
     ).pipe(
       Effect.map(([issue, comments]) => mapIssueDetail(issue, comments)),
@@ -1549,19 +1529,23 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     );
 
   const queryIssues: BeadsTrackerServiceShape["queryIssues"] = (input) =>
-    runBdJson(input.cwd, ["list", "--all", "--limit", "0"], (json) => {
-      const rawIssues = asRecordArray(json);
-      const issueTitleById = buildIssueTitleMap(rawIssues);
-      const issues = rawIssues
-        .map((entry) => mapIssueSummary(entry, issueTitleById))
-        .filter((issue) => !isHiddenSwarmMolecule(issue))
-        .filter((issue) => matchesIssueSummary(issue, input))
-        .toSorted((left, right) => compareIssueSummaries(left, right, input.sortBy))
-        .slice(0, 200);
-      return {
-        issues,
-      } satisfies BeadsQueryIssuesResult;
-    });
+    runBdJson(
+      input.cwd,
+      input.mode === "ready" ? ["ready"] : ["list", "--all", "--limit", "0"],
+      (json) => {
+        const rawIssues = asRecordArray(json);
+        const issueTitleById = buildIssueTitleMap(rawIssues);
+        const issues = rawIssues
+          .map((entry) => mapIssueSummary(entry, issueTitleById))
+          .filter((issue) => !isHiddenSwarmMolecule(issue))
+          .filter((issue) => matchesIssueSummary(issue, input))
+          .toSorted((left, right) => compareIssueSummaries(left, right, input.sortBy))
+          .slice(0, 200);
+        return {
+          issues,
+        } satisfies BeadsQueryIssuesResult;
+      },
+    );
 
   const listCoordinatorEpics: BeadsTrackerServiceShape["listCoordinatorEpics"] = (input) =>
     runBdJson(input.cwd, ["list", "--all", "--type", "epic", "--limit", "0"], (json) => {
@@ -1577,14 +1561,17 @@ const makeBeadsTrackerService = Effect.gen(function* () {
 
   const getIssue: BeadsTrackerServiceShape["getIssue"] = (input) => getIssueDetail(input);
 
+  const getIssueWithoutComments: BeadsTrackerServiceShape["getIssueWithoutComments"] = (input) =>
+    getIssueDetailWithoutComments(input.cwd, input.issueId);
+
   const getIssueSummary: BeadsTrackerServiceShape["getIssueSummary"] = (input) =>
     getRawIssue(input.cwd, input.issueId).pipe(Effect.map((issue) => mapIssueSummary(issue)));
 
   const getEpicIssueSummaries: BeadsTrackerServiceShape["getEpicIssueSummaries"] = (input) =>
     Effect.gen(function* () {
-      const [epic, issues] = yield* Effect.all(
+      const [rawEpic, issues] = yield* Effect.all(
         [
-          getIssueDetail({ cwd: input.cwd, issueId: input.epicIssueId }),
+          getRawIssue(input.cwd, input.epicIssueId),
           runBdJson(
             input.cwd,
             ["list", "--all", "--parent", input.epicIssueId, "--limit", "0"],
@@ -1603,7 +1590,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
 
       return decodeEpicIssueSummaries(
         buildEpicIssueSummaries({
-          epic,
+          epic: mapIssueSummary(rawEpic),
           issues,
         }),
       );
@@ -1646,7 +1633,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
             args.push("--set-labels", label);
           }
         } else {
-          const current = yield* getIssueDetail({ cwd: input.cwd, issueId: input.issueId });
+          const current = yield* getIssueSummary({ cwd: input.cwd, issueId: input.issueId });
           for (const label of current.labels) {
             args.push("--remove-label", label);
           }
@@ -1716,10 +1703,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
 
   const getIssueGraph: BeadsTrackerServiceShape["getIssueGraph"] = (input) =>
     Effect.gen(function* () {
-      const [rawIssue, comments] = yield* Effect.all(
-        [getRawIssue(input.cwd, input.epicIssueId), getIssueComments(input.cwd, input.epicIssueId)],
-        { concurrency: "unbounded" },
-      );
+      const rawIssue = yield* getRawIssue(input.cwd, input.epicIssueId);
       const parentRef = mapParentRef(rawIssue);
       const parent =
         parentRef === null
@@ -1729,10 +1713,10 @@ const makeBeadsTrackerService = Effect.gen(function* () {
             );
       const dependentRecords = asRecordArray(rawIssue.dependents);
       const childRecords = dependentRecords.filter(
-        (entry) => trimToNull(entry.dependency_type) === "parent-child",
+        (entry) => getBdDependencyType(entry) === "parent-child",
       );
       const dependentIssueRecords = dependentRecords.filter(
-        (entry) => trimToNull(entry.dependency_type) !== "parent-child",
+        (entry) => getBdDependencyType(entry) !== "parent-child",
       );
       const childDetailResults =
         childRecords.length === 0
@@ -1770,7 +1754,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         children: mapIssueRelationArray(childRecords, childRawById),
         childDetailsById,
       });
-      const epic = mapIssueDetail(rawIssue, comments);
+      const epic = mapIssueDetail(rawIssue, []);
       return decodeIssueGraph({
         epic,
         parent,
@@ -1790,7 +1774,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     rawIssue: Record<string, unknown>,
   ): ReadonlyArray<string> =>
     asRecordArray(rawIssue.dependents).flatMap((entry) => {
-      if (trimToNull(entry.dependency_type) !== "parent-child") {
+      if (getBdDependencyType(entry) !== "parent-child") {
         return [];
       }
       const childId = trimToNull(entry.id);
@@ -1800,8 +1784,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
   const hasOpenDirectDescendants = (rawIssue: Record<string, unknown>): boolean =>
     asRecordArray(rawIssue.dependents).some(
       (entry) =>
-        trimToNull(entry.dependency_type) === "parent-child" &&
-        trimToNull(entry.status) !== "closed",
+        getBdDependencyType(entry) === "parent-child" && trimToNull(entry.status) !== "closed",
     );
 
   const buildEpicCoordinationValidationFromGraphState = (
@@ -1860,7 +1843,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         const externalDependencyIds: string[] = [];
         const unknownDependencyIds: string[] = [];
         asRecordArray(rawChild.dependencies).forEach((dependency, index) => {
-          if (trimToNull(dependency.dependency_type) === "parent-child") {
+          if (getBdDependencyType(dependency) === "parent-child") {
             return;
           }
           if (trimToNull(dependency.status) === "closed") {
@@ -1952,6 +1935,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     queryIssues,
     listCoordinatorEpics,
     getIssueSummary,
+    getIssueWithoutComments,
     getIssue,
     getEpicIssueSummaries,
     createIssue,
@@ -2172,7 +2156,9 @@ const makeBeadsService = Effect.gen(function* () {
   const getIssue: BeadsServiceShape["getIssue"] = (input) => beadsTracker.getIssue(input);
   const getIssues: BeadsServiceShape["getIssues"] = (input) =>
     Effect.all(
-      input.issueIds.map((issueId) => beadsTracker.getIssue({ cwd: input.cwd, issueId })),
+      input.issueIds.map((issueId) =>
+        beadsTracker.getIssueWithoutComments({ cwd: input.cwd, issueId }),
+      ),
       { concurrency: 10 },
     ).pipe(
       Effect.map((issues) => ({ issues })),
@@ -2306,7 +2292,10 @@ const makeBeadsService = Effect.gen(function* () {
 
   const startWorkflow: BeadsServiceShape["startWorkflow"] = (input) =>
     Effect.gen(function* () {
-      const issue = yield* beadsTracker.getIssue({ cwd: input.cwd, issueId: input.issueId });
+      const issue = yield* beadsTracker.getIssueWithoutComments({
+        cwd: input.cwd,
+        issueId: input.issueId,
+      });
 
       const nextInteractionMode =
         input.workflow === "refine" || input.workflow === "plan-implementation"
@@ -2372,7 +2361,10 @@ const makeBeadsService = Effect.gen(function* () {
 
   const startEpicQuickRefine: BeadsServiceShape["startEpicQuickRefine"] = (input) =>
     Effect.gen(function* () {
-      const epic = yield* beadsTracker.getIssue({ cwd: input.cwd, issueId: input.epicIssueId });
+      const epic = yield* beadsTracker.getIssueWithoutComments({
+        cwd: input.cwd,
+        issueId: input.epicIssueId,
+      });
       return yield* startLinkedIssueThread({
         cwd: input.cwd,
         projectId: input.projectId,
@@ -2390,7 +2382,10 @@ const makeBeadsService = Effect.gen(function* () {
 
   const startEpicPlannedRefine: BeadsServiceShape["startEpicPlannedRefine"] = (input) =>
     Effect.gen(function* () {
-      const epic = yield* beadsTracker.getIssue({ cwd: input.cwd, issueId: input.epicIssueId });
+      const epic = yield* beadsTracker.getIssueWithoutComments({
+        cwd: input.cwd,
+        issueId: input.epicIssueId,
+      });
       return yield* startLinkedIssueThread({
         cwd: input.cwd,
         projectId: input.projectId,
@@ -2408,7 +2403,10 @@ const makeBeadsService = Effect.gen(function* () {
 
   const startEpicCoordinationPrep: BeadsServiceShape["startEpicCoordinationPrep"] = (input) =>
     Effect.gen(function* () {
-      const epic = yield* beadsTracker.getIssue({ cwd: input.cwd, issueId: input.epicIssueId });
+      const epic = yield* beadsTracker.getIssueWithoutComments({
+        cwd: input.cwd,
+        issueId: input.epicIssueId,
+      });
       const [validation, status] = yield* Effect.all(
         [
           beadsTracker.validateEpicCoordination({ cwd: input.cwd, epicIssueId: input.epicIssueId }),

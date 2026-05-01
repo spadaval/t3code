@@ -1,4 +1,5 @@
 import type {
+  BeadsEpicCommand,
   EnvironmentId,
   BeadsCoordinatorEpicSnapshot,
   ModelSelection,
@@ -12,7 +13,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 
 import { beadsQueryKeys } from "~/lib/beadsReactQuery";
-import { resolvePrimaryActionOutputTarget } from "~/lib/epicCoordinatorUi";
 import { ensureEnvironmentApi } from "~/environmentApi";
 import { toastManager } from "~/components/ui/toast";
 import { selectProjectsAcrossEnvironments, useStore } from "~/store";
@@ -21,8 +21,7 @@ export type CoordinatorActionInput =
   | { kind: "open_coordination_prep_thread"; epicIssueId: string }
   | { kind: "start_epic_run"; epicIssueId: string }
   | { kind: "stop_epic_run"; runId: OrchestrationEpicRun["runId"] }
-  | { kind: "refresh_epic_status"; epicIssueId: string }
-  | { kind: "open_coordinator"; epicIssueId: string; runId: OrchestrationEpicRun["runId"] | null };
+  | { kind: "refresh_epic_status"; epicIssueId: string };
 
 export function getCoordinatorActionBusyKey(action: CoordinatorActionInput): string {
   switch (action.kind) {
@@ -34,20 +33,18 @@ export function getCoordinatorActionBusyKey(action: CoordinatorActionInput): str
       return `stop:${action.runId}`;
     case "refresh_epic_status":
       return `refresh:${action.epicIssueId}`;
-    case "open_coordinator":
-      return `open:${action.epicIssueId}:${action.runId ?? "latest"}`;
   }
 }
 
-export function getCoordinatorPrimaryActionInput(
-  epic: BeadsCoordinatorEpicSnapshot,
+export function getEpicCommandInput(
+  epic: Pick<BeadsCoordinatorEpicSnapshot, "epicId" | "activeRunId" | "runs">,
+  command: BeadsEpicCommand,
 ): CoordinatorActionInput | null {
-  const primaryAction = epic.primaryAction;
   const activeRun = epic.activeRunId
     ? (epic.runs.find((run) => run.runId === epic.activeRunId) ?? null)
     : null;
 
-  switch (primaryAction.kind) {
+  switch (command.kind) {
     case "open_coordination_prep_thread":
       return {
         kind: "open_coordination_prep_thread",
@@ -70,14 +67,6 @@ export function getCoordinatorPrimaryActionInput(
         kind: "refresh_epic_status",
         epicIssueId: epic.epicId,
       };
-    case "open_coordinator": {
-      const target = resolvePrimaryActionOutputTarget(epic);
-      return {
-        kind: "open_coordinator",
-        epicIssueId: target?.epicId ?? epic.projectConflict?.run.epicIssueId ?? epic.epicId,
-        runId: target?.runId ?? null,
-      };
-    }
   }
 }
 
@@ -91,8 +80,6 @@ export function describeCoordinatorActionError(actionKind: CoordinatorActionInpu
       return "Unable to stop run";
     case "refresh_epic_status":
       return "Unable to refresh coordination status";
-    case "open_coordinator":
-      return "Unable to open coordinator";
   }
 }
 
@@ -108,10 +95,6 @@ export function useEpicCoordinatorActionRunner(input: {
   readonly modelSelection: ModelSelection | null;
   readonly runtimeMode: RuntimeMode;
   readonly onOpenThread: (threadId: ThreadId) => void;
-  readonly onOpenCoordinator: (input: {
-    epicId: string;
-    runId: OrchestrationEpicRun["runId"] | null;
-  }) => void;
 }) {
   const queryClient = useQueryClient();
   const resolveEnvironmentId = useCallback((): EnvironmentId => {
@@ -159,16 +142,9 @@ export function useEpicCoordinatorActionRunner(input: {
           return null;
         case "refresh_epic_status":
           return null;
-        case "open_coordinator":
-          return null;
       }
     },
-    onSuccess: async (result, action) => {
-      if (action.kind === "open_coordinator") {
-        input.onOpenCoordinator({ epicId: action.epicIssueId, runId: action.runId });
-        return;
-      }
-
+    onSuccess: async (result) => {
       invalidateCoordinatorBeadsQueries(queryClient);
 
       if (result) {

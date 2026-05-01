@@ -10,12 +10,9 @@ import type {
 import {
   describeEpicRunCoordinatorFetchFailure,
   describeSharedWorkspaceProjectConflict as describeSharedWorkspaceProjectConflictMessage,
-  deriveExecutionBlocking,
   deriveEpicCoordinatorState as deriveEpicCoordinatorStateShared,
   findConflictingSharedWorkspaceRun as findConflictingSharedWorkspaceRunCore,
-  getEpicCoordinatorPrimaryAction as getEpicCoordinatorPrimaryActionShared,
   isEpicRunCoordinatorFetchTimeoutMessage,
-  type EpicCoordinatorPrimaryAction as SharedEpicCoordinatorPrimaryAction,
   type EpicCoordinatorState as SharedEpicCoordinatorState,
   type EpicCoordinatorStateKind as SharedEpicCoordinatorStateKind,
   selectLatestEpicRun as selectLatestEpicRunCore,
@@ -57,7 +54,6 @@ export interface CoordinatorFetchQueryState {
 
 export type EpicCoordinatorStateKind = SharedEpicCoordinatorStateKind;
 export type EpicCoordinatorState = SharedEpicCoordinatorState;
-export type EpicCoordinatorPrimaryAction = SharedEpicCoordinatorPrimaryAction;
 
 export function deriveCoordinatorFetchLifecycle(input: {
   readonly support?: CoordinatorFetchQueryState;
@@ -207,70 +203,6 @@ export function deriveEpicCoordinatorState(input: {
   readonly fetchLifecycle: CoordinatorFetchLifecycle;
 }): EpicCoordinatorState {
   return deriveEpicCoordinatorStateShared(input);
-}
-
-export function getEpicCoordinatorPrimaryAction(input: {
-  readonly status:
-    | (Pick<BeadsEpicCoordinationStatus, "summary" | "ready" | "active" | "blocked"> &
-        Partial<Pick<BeadsEpicCoordinationStatus, "blockedBreakdown">>)
-    | null;
-  readonly validation: Pick<
-    BeadsEpicCoordinationValidation,
-    "valid" | "summary" | "readyFronts"
-  > | null;
-  readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
-  readonly projectConflict: SharedWorkspaceProjectConflict | null;
-  readonly fetchLifecycle: CoordinatorFetchLifecycle;
-}): EpicCoordinatorPrimaryAction {
-  const { projectConflict: _projectConflict, ...sharedInput } = input;
-  return getEpicCoordinatorPrimaryActionShared({
-    ...sharedInput,
-    hasProjectConflict: input.projectConflict !== null,
-  });
-}
-
-function summarizeIssueIds(issues: ReadonlyArray<{ readonly id: string }>): string {
-  return issues
-    .slice(0, 3)
-    .map((issue) => issue.id)
-    .join(", ");
-}
-
-export function describeDisabledEpicCoordinatorAction(input: {
-  readonly epic: Pick<
-    BeadsCoordinatorEpicSnapshot,
-    "primaryAction" | "coordinationLoadState" | "coordinationLoadDetail" | "status"
-  > | null;
-}): string | null {
-  if (input.epic === null) {
-    return "Checking epic status.";
-  }
-
-  if (!input.epic.primaryAction.disabled) {
-    return null;
-  }
-
-  if (input.epic.coordinationLoadState !== "ready") {
-    return input.epic.coordinationLoadDetail ?? "Checking epic status.";
-  }
-
-  if (input.epic.primaryAction.kind === "stop_epic_run") {
-    const executionBlocking = deriveExecutionBlocking(input.epic.status);
-    if ((input.epic.status?.active.length ?? 0) > 0) {
-      return `Wait for Beads to reconcile active work for this epic: ${summarizeIssueIds(input.epic.status?.active ?? [])}.`;
-    }
-    if (
-      executionBlocking.externalBlockedIssues.length > 0 ||
-      executionBlocking.unknownBlockedIssues.length > 0
-    ) {
-      return "Blocked tracker work does not prevent opening the coordinator.";
-    }
-  }
-
-  return (
-    input.epic.coordinationLoadDetail ??
-    `${input.epic.primaryAction.label} is currently unavailable.`
-  );
 }
 
 export function collectCoordinatorEpics(input: {

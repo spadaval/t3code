@@ -1,4 +1,8 @@
-import type { BeadsCoordinatorEpicSnapshot, OrchestrationEpicRun } from "@t3tools/contracts";
+import type {
+  BeadsCoordinatorEpicSnapshot,
+  BeadsEpicCommand,
+  OrchestrationEpicRun,
+} from "@t3tools/contracts";
 
 import {
   compareRunsByRecency,
@@ -64,6 +68,28 @@ export function resolvePrimaryActionOutputTarget(
   }
 
   return resolveEpicOutputTarget(epic);
+}
+
+export function canStartEpicRunDirectly(
+  epic: Pick<
+    BeadsCoordinatorEpicSnapshot,
+    | "activeRunId"
+    | "coordinationLoadState"
+    | "coordinationState"
+    | "progress"
+    | "projectConflict"
+    | "status"
+    | "validationState"
+  >,
+): boolean {
+  return (
+    epic.coordinationLoadState === "ready" &&
+    epic.validationState === "valid" &&
+    epic.coordinationState !== "completed" &&
+    epic.projectConflict === null &&
+    epic.activeRunId === null &&
+    epic.progress.readyIssueCount > 0
+  );
 }
 
 export function buildCoordinatorRunEntries(
@@ -174,14 +200,11 @@ export function selectCoordinatorRunEntry(input: {
   return pickPreferredEpicRun(input.entries);
 }
 
-type PrimaryActionLike = Pick<
-  BeadsCoordinatorEpicSnapshot["primaryAction"],
-  "kind" | "label" | "busyLabel"
->;
+type CommandLike = Pick<BeadsEpicCommand, "kind" | "label" | "busyLabel">;
 
 export function describeCoordinatorActionCopy(input: {
   readonly surface: "issues" | "coordinator";
-  readonly action: PrimaryActionLike;
+  readonly action: CommandLike;
   readonly epic: Pick<BeadsCoordinatorEpicSnapshot, "projectConflict">;
   readonly selectedRun?: Pick<OrchestrationEpicRun, "status"> | null;
 }): CoordinatorActionCopy {
@@ -214,17 +237,6 @@ export function describeCoordinatorActionCopy(input: {
       return {
         label: "Stop run",
         busyLabel: "Stopping...",
-      };
-    case "open_coordinator":
-      if (input.surface === "issues") {
-        return {
-          label: input.epic.projectConflict ? "View active run" : "Open output",
-          busyLabel: "Opening...",
-        };
-      }
-      return {
-        label: input.epic.projectConflict ? "Open conflicting run" : "Open output",
-        busyLabel: "Opening...",
       };
     default:
       return {

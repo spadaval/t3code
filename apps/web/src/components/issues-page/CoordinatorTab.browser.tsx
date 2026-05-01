@@ -28,13 +28,15 @@ vi.mock("~/hooks/useEpicCoordinatorActionRunner", () => ({
         : action.kind === "start_epic_run"
           ? `start:${action.epicIssueId}`
           : `open:${action.epicIssueId}:${action.runId ?? "latest"}`,
-  getCoordinatorPrimaryActionInput: (epic: {
-    epicId: string;
-    primaryAction: { kind: string };
-    activeRunId: string | null;
-    runs: readonly OrchestrationEpicRun[];
-  }) => {
-    switch (epic.primaryAction.kind) {
+  getEpicCommandInput: (
+    epic: {
+      epicId: string;
+      activeRunId: string | null;
+      runs: readonly OrchestrationEpicRun[];
+    },
+    command: { kind: string },
+  ) => {
+    switch (command.kind) {
       case "stop_epic_run":
         return epic.activeRunId ? { kind: "stop_epic_run", runId: epic.activeRunId } : null;
       case "refresh_epic_status":
@@ -143,12 +145,21 @@ const BASE_EPIC: BeadsCoordinatorEpicSnapshot = {
     activeWorkerCount: 1,
     isComplete: false,
   },
-  primaryAction: {
-    kind: "stop_epic_run",
-    label: "Stop run",
-    busyLabel: "Stopping...",
-    disabled: false,
+  execution: {
+    state: "running",
+    summary: "Epic run is active.",
+    blockingReason: null,
+    nextIssue: null,
   },
+  commands: [
+    {
+      kind: "stop_epic_run",
+      label: "Stop run",
+      busyLabel: "Stopping...",
+      disabled: false,
+      disabledReason: null,
+    },
+  ],
   activeRunId: "run-1" as never,
   activeExecutionId: null,
   projectConflict: null,
@@ -169,10 +180,8 @@ function createSnapshot(
       ...BASE_EPIC.progress,
       ...epicOverrides.progress,
     },
-    primaryAction: {
-      ...BASE_EPIC.primaryAction,
-      ...epicOverrides.primaryAction,
-    },
+    execution: epicOverrides.execution ?? BASE_EPIC.execution,
+    commands: epicOverrides.commands ?? BASE_EPIC.commands,
     runs: epicOverrides.runs ?? BASE_EPIC.runs,
     executions: epicOverrides.executions ?? BASE_EPIC.executions,
   };
@@ -209,7 +218,8 @@ async function renderCoordinator(epicOverrides: Partial<BeadsCoordinatorEpicSnap
       summary: epic.summary,
       validation: epic.validation,
       status: epic.status,
-      primaryAction: epic.primaryAction,
+      execution: epic.execution,
+      commands: epic.commands,
     },
   );
   await render(
@@ -261,12 +271,21 @@ describe("CoordinatorTab browser coverage", () => {
   it("dispatches retry for a failed run", async () => {
     await renderCoordinator({
       coordinationState: "not_started",
-      primaryAction: {
-        kind: "start_epic_run",
-        label: "Start epic",
-        busyLabel: "Starting...",
-        disabled: false,
+      execution: {
+        state: "failed",
+        summary: "Last run failed.",
+        blockingReason: "Last run failed.",
+        nextIssue: null,
       },
+      commands: [
+        {
+          kind: "start_epic_run",
+          label: "Retry run",
+          busyLabel: "Retrying...",
+          disabled: false,
+          disabledReason: null,
+        },
+      ],
       activeRunId: null,
       runs: [createRun("run-failed", "failed")],
       executions: [],
@@ -285,12 +304,21 @@ describe("CoordinatorTab browser coverage", () => {
       coordinationLoadState: "error",
       coordinationLoadDetail: "Tracker request timed out.",
       activeRunId: null,
-      primaryAction: {
-        kind: "refresh_epic_status",
-        label: "Retry epic status",
-        busyLabel: "Retrying...",
-        disabled: false,
+      execution: {
+        state: "error",
+        summary: "Tracker request timed out.",
+        blockingReason: "Tracker request timed out.",
+        nextIssue: null,
       },
+      commands: [
+        {
+          kind: "refresh_epic_status",
+          label: "Retry epic status",
+          busyLabel: "Retrying...",
+          disabled: false,
+          disabledReason: null,
+        },
+      ],
       runs: [createRun("run-stopped", "stopped")],
       executions: [],
     });

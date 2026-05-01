@@ -271,12 +271,21 @@ it.effect("defaults focused coordinator collections", () =>
       coordinationLoadState: "ready",
       validationState: "valid",
       coordinationState: "not_started",
-      primaryAction: {
-        kind: "start_epic_run",
-        label: "Start run",
-        busyLabel: "Starting...",
-        disabled: false,
+      execution: {
+        state: "ready",
+        summary: "Epic is ready to launch.",
+        blockingReason: null,
+        nextIssue: null,
       },
+      commands: [
+        {
+          kind: "start_epic_run",
+          label: "Start run",
+          busyLabel: "Starting...",
+          disabled: false,
+          disabledReason: null,
+        },
+      ],
     });
 
     assert.deepStrictEqual(project.epics, []);

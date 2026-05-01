@@ -7,7 +7,7 @@ import type {
   RuntimeMode,
   ThreadId,
 } from "@t3tools/contracts";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import {
   ArrowUpRightIcon,
@@ -19,17 +19,16 @@ import {
 
 import {
   beadsStartBacklogGroomingMutationOptions,
-  beadsEpicCoordinationDetailOptions,
-  beadsProjectRunSummaryOptions,
   beadsStartEpicPlannedRefineMutationOptions,
   beadsStartEpicQuickRefineMutationOptions,
   beadsStartWorkflowMutationOptions,
 } from "~/lib/beadsReactQuery";
-import { composeCoordinatorEpicSnapshot } from "~/lib/coordinatorSnapshots";
-import { describeDisabledEpicCoordinatorAction, isEpicIssueType } from "~/issuePanel";
+import { describeCoordinatorActionCopy } from "~/lib/epicCoordinatorUi";
+import { isEpicIssueType } from "~/issuePanel";
+import { useEpicSnapshot } from "~/hooks/useEpicSnapshot";
 import {
+  getEpicCommandInput,
   getCoordinatorActionBusyKey,
-  getCoordinatorPrimaryActionInput,
   useEpicCoordinatorActionRunner,
 } from "~/hooks/useEpicCoordinatorActionRunner";
 import { Button } from "../ui/button";
@@ -218,62 +217,40 @@ export function IssueWorkflowActions(props: {
   readonly onOpenLinkedThread: () => void;
   readonly onOpenInTracker: () => void;
   readonly onOpenThread: (threadId: ThreadId) => void;
-  readonly onOpenCoordinator: (input: { epicId: string; runId: string | null }) => void;
   readonly showEpicLaunchActions?: boolean;
 }) {
   const isEpic = isEpicIssueType(props.issue.issueType);
   const shouldShowEpicLaunchActions = props.showEpicLaunchActions ?? true;
   const shouldLoadEpicActions = isEpic && shouldShowEpicLaunchActions;
-  const projectRunSummaryQuery = useQuery(
-    shouldLoadEpicActions
-      ? beadsProjectRunSummaryOptions({
-          cwd: props.cwd,
-          projectId: props.projectId,
-        })
-      : beadsProjectRunSummaryOptions(null),
-  );
-  const epicCoordinationDetailQuery = useQuery(
-    shouldLoadEpicActions
-      ? beadsEpicCoordinationDetailOptions({
-          cwd: props.cwd,
-          projectId: props.projectId,
-          epicIssueId: props.issue.id,
-        })
-      : beadsEpicCoordinationDetailOptions(null),
-  );
+  const epicSnapshotQuery = useEpicSnapshot({
+    cwd: props.cwd,
+    projectId: props.projectId,
+    issueId: props.issue.id,
+    enabled: shouldLoadEpicActions,
+  });
   const epicActionRunner = useEpicCoordinatorActionRunner({
     cwd: props.cwd,
     projectId: props.projectId,
     modelSelection: props.modelSelection,
     runtimeMode: props.runtimeMode,
     onOpenThread: props.onOpenThread,
-    onOpenCoordinator: props.onOpenCoordinator,
   });
 
-  const epicSnapshot = useMemo(
-    () =>
-      epicCoordinationDetailQuery.data
-        ? composeCoordinatorEpicSnapshot({
-            epicIssueId: props.issue.id,
-            projectRunSummary: projectRunSummaryQuery.data ?? null,
-            epicCoordinationDetail: epicCoordinationDetailQuery.data,
-          })
-        : null,
-    [epicCoordinationDetailQuery.data, projectRunSummaryQuery.data, props.issue.id],
-  );
-  const coordinatorPrimaryAction = epicSnapshot?.primaryAction ?? null;
-  const coordinatorActionInput = useMemo(
-    () => (epicSnapshot ? getCoordinatorPrimaryActionInput(epicSnapshot) : null),
-    [epicSnapshot],
-  );
+  const epicSnapshot = epicSnapshotQuery.epic;
+  const primaryCommand =
+    epicSnapshot?.commands.find((command) => !command.disabled) ??
+    epicSnapshot?.commands[0] ??
+    null;
+  const coordinatorActionInput = useMemo(() => {
+    if (!epicSnapshot) {
+      return null;
+    }
+    return primaryCommand ? getEpicCommandInput(epicSnapshot, primaryCommand) : null;
+  }, [epicSnapshot, primaryCommand]);
+  const coordinatorActionUnavailable = epicSnapshot !== null && coordinatorActionInput === null;
   const coordinatorBusy =
     coordinatorActionInput !== null &&
     epicActionRunner.busyActionKey === getCoordinatorActionBusyKey(coordinatorActionInput);
-  const coordinatorDisabledReason = isEpic
-    ? describeDisabledEpicCoordinatorAction({
-        epic: epicSnapshot,
-      })
-    : null;
   const workflowBusy =
     props.launchers.startWorkflowMutation.isPending &&
     props.launchers.startWorkflowMutation.variables?.issueId === props.issue.id;
@@ -345,36 +322,36 @@ export function IssueWorkflowActions(props: {
             Planned refine
           </Button>
 
-          {epicCoordinationDetailQuery.error && !epicSnapshot ? (
+          {epicSnapshotQuery.error && !epicSnapshot ? (
             <Button size="xs" variant="outline" onClick={retryCoordinatorStatus}>
               <ExternalLinkIcon className="size-3.5" />
               Retry epic status
             </Button>
-          ) : coordinatorPrimaryAction ? (
-            coordinatorPrimaryAction.disabled && coordinatorDisabledReason ? (
+          ) : primaryCommand && coordinatorActionInput ? (
+            primaryCommand.disabled && primaryCommand.disabledReason ? (
               <Tooltip>
                 <TooltipTrigger render={<span className="inline-flex cursor-not-allowed" />}>
                   <Button
                     size="xs"
                     variant="outline"
                     disabled
-                    aria-label={coordinatorDisabledReason}
+                    aria-label={primaryCommand.disabledReason}
                   >
                     <ExternalLinkIcon className="size-3.5" />
-                    {coordinatorPrimaryAction.label}
+                    {primaryCommand.label}
                   </Button>
                 </TooltipTrigger>
                 <TooltipPopup side="top" className="max-w-72 whitespace-pre-wrap leading-tight">
-                  {coordinatorDisabledReason}
+                  {primaryCommand.disabledReason}
                 </TooltipPopup>
               </Tooltip>
             ) : (
               <Button
                 size="xs"
                 variant={
-                  coordinatorPrimaryAction.kind === "refresh_epic_status" ? "outline" : "default"
+                  coordinatorActionInput.kind === "refresh_epic_status" ? "outline" : "default"
                 }
-                disabled={coordinatorBusy || coordinatorActionInput === null}
+                disabled={coordinatorBusy}
                 onClick={startCoordinatorAction}
               >
                 {coordinatorBusy ? (
@@ -383,11 +360,15 @@ export function IssueWorkflowActions(props: {
                   <PlayIcon className="size-3.5" />
                 )}
                 {coordinatorBusy
-                  ? coordinatorPrimaryAction.busyLabel
-                  : coordinatorPrimaryAction.label}
+                  ? primaryCommand.busyLabel
+                  : describeCoordinatorActionCopy({
+                      surface: "issues",
+                      action: primaryCommand,
+                      epic: epicSnapshot ?? { projectConflict: null },
+                    }).label}
               </Button>
             )
-          ) : (
+          ) : coordinatorActionUnavailable ? null : (
             <Tooltip>
               <TooltipTrigger render={<span className="inline-flex cursor-not-allowed" />}>
                 <Button size="xs" variant="outline" disabled aria-label="Checking epic status.">

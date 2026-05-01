@@ -9,7 +9,6 @@ import {
   type EnvironmentApi,
   type MessageId,
   type DesktopBridge,
-  type OrchestrationEvent,
   type OrchestrationEpicIssueExecution,
   type OrchestrationEpicRun,
   type OrchestrationReadModel,
@@ -25,12 +24,7 @@ import {
   OrchestrationSessionStatus,
   DEFAULT_SERVER_SETTINGS,
 } from "@t3tools/contracts";
-import {
-  scopedProjectKey,
-  scopedThreadKey,
-  scopeProjectRef,
-  scopeThreadRef,
-} from "@t3tools/client-runtime";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime";
 import { createModelCapabilities, createModelSelection } from "@t3tools/shared/model";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { HttpResponse, http, ws } from "msw";
@@ -102,7 +96,6 @@ const PROJECT_LOGICAL_KEY = deriveLogicalProjectKeyFromSettings(
     sidebarProjectGroupingOverrides: DEFAULT_CLIENT_SETTINGS.sidebarProjectGroupingOverrides,
   },
 );
-const PROJECT_KEY = scopedProjectKey(scopeProjectRef(LOCAL_ENVIRONMENT_ID, PROJECT_ID));
 const EPIC_ID = "EPIC-1";
 const MANAGED_ISSUE_ID = "TASK-1";
 const GHOST_ISSUE_ID = "TASK-2";
@@ -723,16 +716,13 @@ function addSecondaryProjectToSnapshot(snapshot: OrchestrationReadModel): Orches
 }
 
 function createManagedIssueSidebarRpcResolver(options?: {
-  readonly trackerPrimaryAction?: {
-    kind:
-      | "start_epic_run"
-      | "open_coordinator"
-      | "refresh_epic_status"
-      | "open_coordination_prep_thread";
+  readonly trackerCommands?: Array<{
+    kind: "start_epic_run" | "refresh_epic_status" | "open_coordination_prep_thread";
     label: string;
     busyLabel: string;
     disabled: boolean;
-  };
+    disabledReason?: string | null;
+  }>;
   readonly onStartEpicRun?: (input: { projectId: ProjectId; epicIssueId: string }) => void;
 }) {
   const run = createEpicRun("failed");
@@ -752,12 +742,15 @@ function createManagedIssueSidebarRpcResolver(options?: {
       sequenceNumber: 2,
     }),
   ];
-  const trackerPrimaryAction = options?.trackerPrimaryAction ?? {
-    kind: "start_epic_run" as const,
-    label: "Start epic",
-    busyLabel: "Starting...",
-    disabled: false,
-  };
+  const trackerCommands = options?.trackerCommands ?? [
+    {
+      kind: "start_epic_run" as const,
+      label: "Start epic",
+      busyLabel: "Starting...",
+      disabled: false,
+      disabledReason: null,
+    },
+  ];
 
   return (body: NormalizedWsRpcRequestBody): unknown | undefined => {
     switch (body._tag) {
@@ -935,7 +928,13 @@ function createManagedIssueSidebarRpcResolver(options?: {
           summary: null,
           validation: null,
           status: null,
-          primaryAction: trackerPrimaryAction,
+          execution: {
+            state: "ready",
+            summary: "1 issue ready to launch.",
+            blockingReason: null,
+            nextIssue: null,
+          },
+          commands: trackerCommands,
         };
       case ORCHESTRATION_WS_METHODS.startEpicRun: {
         const action = body as unknown as OrchestrationStartEpicRunInput;
@@ -1144,12 +1143,21 @@ function createDraftQuickLaunchRpcResolver() {
               unknown: [],
             },
           },
-          primaryAction: {
-            kind: "start_epic_run",
-            label: "Start epic",
-            busyLabel: "Starting...",
-            disabled: false,
+          execution: {
+            state: "ready",
+            summary: "Epic is ready to launch.",
+            blockingReason: null,
+            nextIssue: null,
           },
+          commands: [
+            {
+              kind: "start_epic_run",
+              label: "Start epic",
+              busyLabel: "Starting...",
+              disabled: false,
+              disabledReason: null,
+            },
+          ],
         };
       default:
         return undefined;
@@ -4934,12 +4942,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotWithManagedIssueSidebar(),
       resolveRpc: createManagedIssueSidebarRpcResolver({
-        trackerPrimaryAction: {
-          kind: "open_coordinator",
-          label: "Open output",
-          busyLabel: "Opening...",
-          disabled: false,
-        },
+        trackerCommands: [],
       }),
     });
 

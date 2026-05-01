@@ -829,6 +829,17 @@ export async function createEpicRunSchedulerHarness(
         }
         return beforeGetIssue.pipe(Effect.flatMap(() => Effect.succeed(issue)));
       }),
+    getIssueWithoutComments: ({ issueId }) =>
+      Effect.suspend(() => {
+        const issue = issues.get(issueId);
+        if (!issue) {
+          return Effect.fail(beadsError(`Unknown issue '${issueId}'.`));
+        }
+        return Effect.succeed({
+          ...issue,
+          comments: [],
+        });
+      }),
     getEpicIssueSummaries: ({ epicIssueId }) =>
       Effect.sync(() => {
         const currentTrackerState = readTrackerStateSnapshot();

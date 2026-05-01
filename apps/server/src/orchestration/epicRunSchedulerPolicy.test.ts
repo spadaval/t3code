@@ -302,6 +302,28 @@ describe("epicRunSchedulerPolicy", () => {
     ).toEqual({ type: "block_run" });
   });
 
+  it("launches ready work before treating blocked siblings as run blockers", () => {
+    expect(
+      decideLaunchNextTask({
+        run: run("run-1", { status: "running" }),
+        trigger: "manual_start",
+        trackerStatus: trackerStatus({
+          ready: [issue("TASK-1", 1)],
+          blocked: [issue("EXT-1", 2)],
+          blockedBreakdown: {
+            internal: [],
+            external: [issue("EXT-1", 2)],
+            unknown: [],
+          },
+        }),
+        executions: [],
+      }),
+    ).toEqual({
+      type: "launch_issue",
+      issue: issue("TASK-1", 1),
+    });
+  });
+
   it("completes the run only when the coordination summary proves the epic is done", () => {
     expect(
       decideLaunchNextTask({

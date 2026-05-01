@@ -1,8 +1,9 @@
-import type { BeadsIssueDetail, BeadsIssueRelationSummary } from "@t3tools/contracts";
+import type { BeadsIssueDetail, BeadsIssueRelationSummary, ThreadId } from "@t3tools/contracts";
 import type { TimestampFormat } from "@t3tools/contracts/settings";
 import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import { MessageSquareTextIcon } from "lucide-react";
 
+import type { EpicChildExecutionRow } from "~/lib/epicExecutionView";
 import { cn } from "~/lib/utils";
 import {
   getStatusVariant,
@@ -29,6 +30,8 @@ export interface IssueDetailProps {
   parent?: BeadsIssueRelationSummary | null;
   /** Direct child issues. When provided, renders a children section. */
   subIssues?: readonly BeadsIssueRelationSummary[] | undefined;
+  subIssueExecutionRows?: readonly EpicChildExecutionRow[] | undefined;
+  subIssueExecutionError?: Error | null | undefined;
   dependents?: readonly BeadsIssueRelationSummary[] | undefined;
   className?: string;
   onDependencyClick?: ((dependencyId: string) => void) | undefined;
@@ -36,6 +39,7 @@ export interface IssueDetailProps {
   onSubIssueContextAction?:
     | ((issueId: string, action: Exclude<IssueContextAction, "copy_id" | "copy_title">) => void)
     | undefined;
+  onOpenSubIssueThread?: ((threadId: ThreadId) => void) | undefined;
   onLabelClick?: ((label: string) => void) | undefined;
   showCompactSections?: boolean;
   // Enhanced interaction props
@@ -77,11 +81,14 @@ export function IssueDetail({
   issue,
   parent = null,
   subIssues,
+  subIssueExecutionRows,
+  subIssueExecutionError,
   dependents = [],
   className,
   onDependencyClick,
   onSubIssueClick,
   onSubIssueContextAction,
+  onOpenSubIssueThread,
   onLabelClick,
   showCompactSections = false,
   loading = false,
@@ -217,6 +224,9 @@ export function IssueDetail({
       {subIssues && subIssues.length > 0 && (
         <SubIssuesSection
           subIssues={subIssues}
+          executionRows={subIssueExecutionRows}
+          executionError={subIssueExecutionError}
+          onOpenThread={onOpenSubIssueThread}
           onIssueSelect={onSubIssueClick}
           onIssueContextAction={onSubIssueContextAction}
         />

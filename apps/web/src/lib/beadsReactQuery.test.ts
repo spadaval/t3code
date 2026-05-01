@@ -22,6 +22,7 @@ describe("beads issue query options", () => {
 
     expect(options.refetchInterval).toBe(ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS);
     expect(options.refetchOnWindowFocus).toBe("always");
+    expect(options.retry).toBe(false);
   });
 
   it("propagates refresh settings for issue graph queries", () => {
@@ -34,6 +35,7 @@ describe("beads issue query options", () => {
 
     expect(options.refetchInterval).toBe(ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS);
     expect(options.refetchOnWindowFocus).toBe("always");
+    expect(options.retry).toBe(false);
   });
 
   it("reads epic titles from project run summary payloads", () => {

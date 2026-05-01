@@ -1,7 +1,10 @@
-import type { BeadsCoordinatorEpicSnapshot } from "@t3tools/contracts";
+import type {
+  BeadsCoordinatorEpicSnapshot,
+  OrchestrationEpicIssueExecution,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
-import { buildEpicExecutionViewData } from "./epicExecutionView";
+import { buildEpicChildExecutionRows, buildEpicExecutionViewData } from "./epicExecutionView";
 
 function makeIssue(id: string, title: string, priority: number | null = null) {
   return {
@@ -25,6 +28,39 @@ function makeIssue(id: string, title: string, priority: number | null = null) {
   } as const;
 }
 
+function makeExecution(
+  input: Pick<
+    OrchestrationEpicIssueExecution,
+    "executionId" | "issueId" | "sequenceNumber" | "status"
+  > &
+    Partial<OrchestrationEpicIssueExecution>,
+): OrchestrationEpicIssueExecution {
+  return {
+    runId: "run-1" as never,
+    workerThreadId: null,
+    workspaceKey: "shared",
+    workspacePath: null,
+    failureContext:
+      input.status === "failed"
+        ? {
+            kind: "worker_failure",
+            message: "Worker crashed.",
+            issueId: input.issueId,
+            executionId: input.executionId,
+            workerThreadId: input.workerThreadId ?? null,
+          }
+        : null,
+    requestedAt: "2026-04-08T00:00:00.000Z",
+    startedAt: "2026-04-08T00:00:01.000Z",
+    stopRequestedAt: null,
+    stoppedAt: input.status === "stopped" ? "2026-04-08T00:00:02.000Z" : null,
+    completedAt: input.status === "completed" ? "2026-04-08T00:00:02.000Z" : null,
+    failedAt: input.status === "failed" ? "2026-04-08T00:00:02.000Z" : null,
+    updatedAt: "2026-04-08T00:00:02.000Z",
+    ...input,
+  };
+}
+
 const BASE_EPIC: BeadsCoordinatorEpicSnapshot = {
   epicId: "EPIC-1" as never,
   epicTitle: "Epic 1",
@@ -46,12 +82,21 @@ const BASE_EPIC: BeadsCoordinatorEpicSnapshot = {
     activeWorkerCount: 0,
     isComplete: false,
   },
-  primaryAction: {
-    kind: "start_epic_run",
-    label: "Start run",
-    busyLabel: "Starting...",
-    disabled: false,
+  execution: {
+    state: "ready",
+    summary: "Epic is ready to launch.",
+    blockingReason: null,
+    nextIssue: null,
   },
+  commands: [
+    {
+      kind: "start_epic_run",
+      label: "Start run",
+      busyLabel: "Starting...",
+      disabled: false,
+      disabledReason: null,
+    },
+  ],
   activeRunId: null,
   activeExecutionId: null,
   projectConflict: null,
@@ -179,5 +224,174 @@ describe("buildEpicExecutionViewData", () => {
       title: "Second task",
       failureMessage: "Worker crashed.",
     });
+  });
+
+  it("orders child execution rows by active, predicted, completed, blocked, and unknown work", () => {
+    const active = makeIssue("TASK-1", "Active task", 1);
+    const readyLowPriority = makeIssue("TASK-2", "Ready low", 2);
+    const readyHighPriority = makeIssue("TASK-3", "Ready high", 1);
+    const completed = makeIssue("TASK-4", "Completed task", 4);
+    const internalBlocked = makeIssue("TASK-5", "Internal blocked", 5);
+    const externalBlocked = makeIssue("TASK-6", "External blocked", 6);
+    const unknownBlocked = makeIssue("TASK-7", "Unknown blocked", 7);
+    const unknown = makeIssue("TASK-8", "Unknown task", 8);
+
+    const rows = buildEpicChildExecutionRows({
+      epic: {
+        ...BASE_EPIC,
+        activeExecutionId: "exec-active" as never,
+        validation: {
+          epicId: "EPIC-1",
+          epicTitle: "Epic 1",
+          summary: null,
+          valid: true,
+          errors: [],
+          warnings: [],
+          readyFronts: [[readyLowPriority, readyHighPriority]],
+          maxParallelism: 1,
+          estimatedWorkerSessions: 1,
+        },
+        status: {
+          epicId: "EPIC-1",
+          epicTitle: "Epic 1",
+          summary: null,
+          completed: [completed],
+          active: [active],
+          ready: [readyLowPriority, readyHighPriority],
+          blocked: [unknownBlocked, internalBlocked, externalBlocked],
+          blockedBreakdown: {
+            internal: [internalBlocked],
+            external: [externalBlocked],
+            unknown: [unknownBlocked],
+          },
+        },
+        executions: [
+          makeExecution({
+            executionId: "exec-active" as never,
+            issueId: active.id,
+            sequenceNumber: 3,
+            status: "running",
+            workerThreadId: "thread-active" as never,
+          }),
+          makeExecution({
+            executionId: "exec-completed" as never,
+            issueId: completed.id,
+            sequenceNumber: 2,
+            status: "completed",
+          }),
+        ],
+      },
+      children: [
+        unknown,
+        unknownBlocked,
+        externalBlocked,
+        internalBlocked,
+        completed,
+        readyLowPriority,
+        readyHighPriority,
+        active,
+      ],
+    });
+
+    expect(rows.map((row) => row.child.id)).toEqual([
+      "TASK-1",
+      "TASK-3",
+      "TASK-2",
+      "TASK-4",
+      "TASK-5",
+      "TASK-6",
+      "TASK-7",
+      "TASK-8",
+    ]);
+    expect(rows.map((row) => row.execution.kind)).toEqual([
+      "active",
+      "next",
+      "ready",
+      "completed",
+      "blocked",
+      "blocked",
+      "blocked",
+      "unknown",
+    ]);
+    expect(rows.filter((row) => row.execution.isNext)).toHaveLength(1);
+    expect(rows.find((row) => row.child.id === "TASK-1")?.execution.workerThreadId).toBe(
+      "thread-active",
+    );
+  });
+
+  it("keeps failed children visible with their failure message", () => {
+    const failed = makeIssue("TASK-1", "Failed task", 1);
+    const ready = makeIssue("TASK-2", "Ready task", 2);
+
+    const rows = buildEpicChildExecutionRows({
+      epic: {
+        ...BASE_EPIC,
+        status: {
+          epicId: "EPIC-1",
+          epicTitle: "Epic 1",
+          summary: null,
+          completed: [],
+          active: [],
+          ready: [ready],
+          blocked: [failed],
+          blockedBreakdown: { internal: [failed], external: [], unknown: [] },
+        },
+        executions: [
+          makeExecution({
+            executionId: "exec-failed" as never,
+            issueId: failed.id,
+            sequenceNumber: 1,
+            status: "failed",
+          }),
+        ],
+      },
+      children: [failed, ready],
+    });
+
+    expect(rows.map((row) => row.child.id)).toEqual(["TASK-2", "TASK-1"]);
+    expect(rows[0]?.execution.kind).toBe("next");
+    expect(rows[1]?.execution).toMatchObject({
+      kind: "failed",
+      label: "Failed",
+      failureMessage: "Worker crashed.",
+    });
+  });
+
+  it("does not mark closed children as next even if validation still reports them ready", () => {
+    const closed = makeIssue("TASK-1", "Closed task", 1);
+    const ready = makeIssue("TASK-2", "Ready task", 2);
+
+    const rows = buildEpicChildExecutionRows({
+      epic: {
+        ...BASE_EPIC,
+        validation: {
+          epicId: "EPIC-1",
+          epicTitle: "Epic 1",
+          summary: null,
+          valid: true,
+          errors: [],
+          warnings: [],
+          readyFronts: [[closed, ready]],
+          maxParallelism: 1,
+          estimatedWorkerSessions: 1,
+        },
+        status: {
+          epicId: "EPIC-1",
+          epicTitle: "Epic 1",
+          summary: null,
+          completed: [],
+          active: [],
+          ready: [closed, ready],
+          blocked: [],
+          blockedBreakdown: { internal: [], external: [], unknown: [] },
+        },
+      },
+      children: [{ ...closed, status: "closed" }, ready],
+    });
+
+    expect(rows.map((row) => [row.child.id, row.execution.kind, row.execution.isNext])).toEqual([
+      ["TASK-2", "next", true],
+      ["TASK-1", "unknown", false],
+    ]);
   });
 });

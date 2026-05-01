@@ -6,6 +6,8 @@ import type {
   BeadsIssueRelationSummary,
   BeadsEpicCoordinationStatus,
   BeadsEpicCoordinationValidation,
+  BeadsEpicCommand,
+  BeadsEpicExecution,
   OrchestrationEvent,
   OrchestrationEpicRunFailureKind,
   OrchestrationEpicRun,
@@ -524,19 +526,6 @@ export interface EpicCoordinatorState {
   readonly fetchLifecycle: EpicRunCoordinatorFetchLifecycle;
 }
 
-export interface EpicCoordinatorPrimaryAction {
-  readonly kind:
-    | "checking"
-    | "open_coordination_prep_thread"
-    | "refresh_epic_status"
-    | "start_epic_run"
-    | "stop_epic_run"
-    | "open_coordinator";
-  readonly label: string;
-  readonly busyLabel: string;
-  readonly disabled: boolean;
-}
-
 export interface EpicCoordinationLoadStateResult {
   readonly coordinationLoadState: BeadsCoordinatorLoadState;
   readonly coordinationLoadDetail: string | null;
@@ -774,7 +763,32 @@ export function deriveEpicCoordinatorState(input: {
   };
 }
 
-export function getEpicCoordinatorPrimaryAction(input: {
+function describeBlockedIssues(issues: ReadonlyArray<BeadsIssueRelationSummary>): string {
+  const issueIds = issues
+    .slice(0, 3)
+    .map((issue) => issue.id)
+    .join(", ");
+  const suffix = issues.length > 3 ? ` and ${issues.length - 3} more` : "";
+  return `${issueIds}${suffix}`;
+}
+
+function command(input: {
+  readonly kind: BeadsEpicCommand["kind"];
+  readonly label: string;
+  readonly busyLabel: string;
+  readonly disabled?: boolean;
+  readonly disabledReason?: string | null;
+}): BeadsEpicCommand {
+  return {
+    kind: input.kind,
+    label: input.label,
+    busyLabel: input.busyLabel,
+    disabled: input.disabled ?? false,
+    disabledReason: input.disabledReason ?? null,
+  };
+}
+
+export function deriveEpicExecutionControl(input: {
   readonly status:
     | (Pick<BeadsEpicCoordinationStatus, "summary" | "ready" | "active" | "blocked"> &
         Partial<Pick<BeadsEpicCoordinationStatus, "blockedBreakdown">>)
@@ -786,41 +800,77 @@ export function getEpicCoordinatorPrimaryAction(input: {
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
   readonly hasProjectConflict: boolean;
   readonly fetchLifecycle: EpicRunCoordinatorFetchLifecycle;
-}): EpicCoordinatorPrimaryAction {
+}): {
+  readonly execution: BeadsEpicExecution;
+  readonly commands: ReadonlyArray<BeadsEpicCommand>;
+} {
   const latestRun = selectLatestEpicRun(input.epicRuns);
   const activeRun = findActiveEpicRun(input.epicRuns);
   const summary = input.status?.summary ?? input.validation?.summary ?? null;
   const coordinationIsComplete = isEpicCoordinationSummaryComplete(summary);
   const executionBlocking = deriveExecutionBlocking(input.status);
+  const hasReadyIssues =
+    (input.status?.ready.length ?? 0) > 0 ||
+    (input.validation?.readyFronts.some((front) => front.length > 0) ?? false);
 
   switch (input.fetchLifecycle.kind) {
     case "loading":
       return {
-        kind: "checking",
-        label: "Checking epic...",
-        busyLabel: "Checking...",
-        disabled: true,
+        execution: {
+          state: "checking",
+          summary: "Checking epic status.",
+          blockingReason: null,
+          nextIssue: null,
+        },
+        commands: [],
       };
     case "timeout":
       return {
-        kind: "refresh_epic_status",
-        label: "Retry epic status",
-        busyLabel: "Retrying...",
-        disabled: false,
+        execution: {
+          state: "error",
+          summary: input.fetchLifecycle.detail ?? "Timed out while checking epic status.",
+          blockingReason: input.fetchLifecycle.detail,
+          nextIssue: null,
+        },
+        commands: [
+          command({
+            kind: "refresh_epic_status",
+            label: "Retry epic status",
+            busyLabel: "Retrying...",
+          }),
+        ],
       };
     case "stale":
       return {
-        kind: "refresh_epic_status",
-        label: "Refresh epic status",
-        busyLabel: "Refreshing...",
-        disabled: false,
+        execution: {
+          state: "checking",
+          summary: input.fetchLifecycle.detail ?? "Epic status may be stale.",
+          blockingReason: null,
+          nextIssue: null,
+        },
+        commands: [
+          command({
+            kind: "refresh_epic_status",
+            label: "Refresh epic status",
+            busyLabel: "Refreshing...",
+          }),
+        ],
       };
     case "error":
       return {
-        kind: "refresh_epic_status",
-        label: "Retry epic status",
-        busyLabel: "Retrying...",
-        disabled: false,
+        execution: {
+          state: "error",
+          summary: input.fetchLifecycle.detail ?? "Unable to check epic status.",
+          blockingReason: input.fetchLifecycle.detail,
+          nextIssue: null,
+        },
+        commands: [
+          command({
+            kind: "refresh_epic_status",
+            label: "Retry epic status",
+            busyLabel: "Retrying...",
+          }),
+        ],
       };
     case "ready":
       break;
@@ -828,19 +878,31 @@ export function getEpicCoordinatorPrimaryAction(input: {
 
   if (input.validation?.valid === false) {
     return {
-      kind: "open_coordination_prep_thread",
-      label: "Open prep thread",
-      busyLabel: "Opening...",
-      disabled: false,
+      execution: {
+        state: "needs_preparation",
+        summary: "Epic needs coordination prep before it can run.",
+        blockingReason: "Epic validation failed.",
+        nextIssue: null,
+      },
+      commands: [
+        command({
+          kind: "open_coordination_prep_thread",
+          label: "Open prep thread",
+          busyLabel: "Opening...",
+        }),
+      ],
     };
   }
 
   if (input.hasProjectConflict) {
     return {
-      kind: "open_coordinator",
-      label: "View active epic",
-      busyLabel: "Opening...",
-      disabled: false,
+      execution: {
+        state: "blocked",
+        summary: "Another epic run is active in this project.",
+        blockingReason: "Finish or stop the active epic run before starting another epic.",
+        nextIssue: null,
+      },
+      commands: [],
     };
   }
 
@@ -848,18 +910,31 @@ export function getEpicCoordinatorPrimaryAction(input: {
     switch (activeRun.status) {
       case "running":
         return {
-          kind: "stop_epic_run",
-          label: "Stop run",
-          busyLabel: "Stopping...",
-          disabled: false,
+          execution: {
+            state: "running",
+            summary: "Epic run is active.",
+            blockingReason: null,
+            nextIssue: null,
+          },
+          commands: [
+            command({
+              kind: "stop_epic_run",
+              label: "Stop run",
+              busyLabel: "Stopping...",
+            }),
+          ],
         };
       case "pending":
       case "stopping":
         return {
-          kind: "open_coordinator",
-          label: "Open epic",
-          busyLabel: "Opening...",
-          disabled: false,
+          execution: {
+            state: activeRun.status === "pending" ? "running" : "waiting",
+            summary:
+              activeRun.status === "pending" ? "Epic run is starting." : "Epic run is stopping.",
+            blockingReason: null,
+            nextIssue: null,
+          },
+          commands: [],
         };
       case "stopped":
       case "failed":
@@ -868,42 +943,91 @@ export function getEpicCoordinatorPrimaryAction(input: {
     }
   }
 
+  const nextIssue =
+    selectDeterministicReadyIssueFromList(input.status?.ready ?? []) ??
+    selectDeterministicReadyIssue({
+      status: null,
+      validation: input.validation,
+    });
+
   if (
     input.validation?.valid === true &&
     !coordinationIsComplete &&
-    !executionBlocking.hasExecutionBlockingIssues
+    (hasReadyIssues || !executionBlocking.hasExecutionBlockingIssues)
   ) {
+    const state =
+      latestRun?.status === "failed" || latestRun?.status === "stopped" ? "failed" : "ready";
     return {
-      kind: "start_epic_run",
-      label: "Start epic",
-      busyLabel: "Starting...",
-      disabled: false,
+      execution: {
+        state,
+        summary:
+          state === "failed"
+            ? (latestRun?.failureContext?.message ?? "Last run failed. Ready work can be retried.")
+            : hasReadyIssues
+              ? `${input.status?.ready.length ?? 0} issue${
+                  (input.status?.ready.length ?? 0) === 1 ? "" : "s"
+                } ready to launch.`
+              : "Epic is ready to launch.",
+        blockingReason: null,
+        nextIssue,
+      },
+      commands: [
+        command({
+          kind: "start_epic_run",
+          label: state === "failed" ? "Retry run" : "Start epic",
+          busyLabel: state === "failed" ? "Retrying..." : "Starting...",
+        }),
+      ],
     };
   }
 
   if (executionBlocking.hasExecutionBlockingIssues) {
+    const blocked = [
+      ...executionBlocking.externalBlockedIssues,
+      ...executionBlocking.unknownBlockedIssues,
+    ];
+    const reason =
+      blocked.length > 0
+        ? `No ready issues. Blocked by ${describeBlockedIssues(blocked)}.`
+        : "No ready issues. Blocked by external or unknown dependencies.";
     return {
-      kind: "open_coordinator",
-      label: "Open epic",
-      busyLabel: "Opening...",
-      disabled: false,
+      execution: {
+        state: "blocked",
+        summary: reason,
+        blockingReason: reason,
+        nextIssue: null,
+      },
+      commands: [],
     };
   }
 
   if (latestRun !== null) {
+    const failed = latestRun.status === "failed";
     return {
-      kind: "open_coordinator",
-      label: "Open epic",
-      busyLabel: "Opening...",
-      disabled: false,
+      execution: {
+        state: failed ? "failed" : latestRun.status === "completed" ? "completed" : "waiting",
+        summary:
+          latestRun.failureContext?.message ??
+          (latestRun.status === "completed"
+            ? "Epic run completed."
+            : "No launchable ready work is available."),
+        blockingReason: latestRun.failureContext?.message ?? null,
+        nextIssue: null,
+      },
+      commands: [],
     };
   }
 
   return {
-    kind: "open_coordinator",
-    label: "Completed",
-    busyLabel: "Completed",
-    disabled: true,
+    execution: {
+      state: coordinationIsComplete ? "completed" : "waiting",
+      summary: coordinationIsComplete
+        ? "Epic is complete."
+        : "No launchable ready work is available.",
+      blockingReason: null,
+      nextIssue: null,
+    },
+    commands: [],
   };
 }
 

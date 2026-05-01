@@ -101,11 +101,6 @@ export function decideLaunchNextTask(input: {
   readonly trackerStatus: BeadsEpicCoordinationStatus;
   readonly executions: ReadonlyArray<OrchestrationEpicIssueExecution>;
 }): LaunchNextTaskDecision {
-  const executionBlocking = deriveExecutionBlocking(input.trackerStatus);
-  if (executionBlocking.hasExecutionBlockingIssues) {
-    return { type: "block_run" };
-  }
-
   if (input.trackerStatus.active.length > 0) {
     return { type: "idle_run" };
   }
@@ -138,6 +133,11 @@ export function decideLaunchNextTask(input: {
         readyIssues: input.trackerStatus.ready,
       }),
     };
+  }
+
+  const executionBlocking = deriveExecutionBlocking(input.trackerStatus);
+  if (executionBlocking.hasExecutionBlockingIssues) {
+    return { type: "block_run" };
   }
 
   if (!isEpicCoordinationComplete(input.trackerStatus.summary)) {
