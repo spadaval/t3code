@@ -170,11 +170,7 @@ function SubIssueRow({
       <div className="flex items-center gap-2">
         <ExecutionIndicator execution={execution} />
         <IssueTypeIcon issueType={child.issueType} className="size-3.5" />
-        {child.status === "blocked" && !execution ? (
-          <span className="shrink-0 rounded-full border border-destructive/30 bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-destructive">
-            Blocked
-          </span>
-        ) : null}
+        <BlockedScopePill execution={execution} childStatus={child.status} />
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-sm text-foreground",
@@ -211,6 +207,56 @@ function SubIssueRow({
         ) : null}
       </div>
     </div>
+  );
+}
+
+function BlockedScopePill({
+  childStatus,
+  execution,
+}: {
+  childStatus: BeadsIssueRelationSummary["status"];
+  execution: EpicChildExecutionState | null;
+}) {
+  const scope = execution?.blockedScope ?? null;
+  if (scope === null && childStatus !== "blocked") {
+    return null;
+  }
+
+  const label =
+    scope === "internal"
+      ? "Internal block"
+      : scope === "external"
+        ? "External block"
+        : scope === "unknown"
+          ? "Dependency error"
+          : "Blocked";
+  const description =
+    scope === "internal"
+      ? "Blocked by another child in this epic."
+      : scope === "external"
+        ? "Blocked by work outside this epic. Resolve before starting the epic."
+        : scope === "unknown"
+          ? "Dependency metadata is incomplete. Fix the tracker dependency before starting the epic."
+          : "Blocked by an open dependency.";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
+        <span
+          className={cn(
+            "rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]",
+            scope === "internal"
+              ? "border-warning/25 bg-warning/10 text-warning-foreground"
+              : "border-destructive/30 bg-destructive/10 text-destructive",
+          )}
+        >
+          {label}
+        </span>
+      </TooltipTrigger>
+      <TooltipPopup side="top" className="max-w-72 leading-tight">
+        {description}
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 

@@ -1711,7 +1711,7 @@ describe("EpicRunScheduler", () => {
     expect(harness.getIssue("TASK-2")?.status).toBe("open");
   });
 
-  it("blocks immediately when only external blockers remain and does not dispatch a worker", async () => {
+  it("refuses to start when external blockers exist and does not dispatch a worker", async () => {
     const baseline = makeTrackerState();
     const harness = await createHarness(
       makeTrackerState({
@@ -1732,14 +1732,47 @@ describe("EpicRunScheduler", () => {
       }),
     );
 
-    const started = await harness.startRun();
+    await expect(harness.startRun()).rejects.toThrow(
+      "Cannot start epic run for EPIC-1: Cannot start epic. External blockers: TASK-9.",
+    );
     const snapshot = await harness.getSnapshot();
-    const run = snapshot.epicRuns.find((entry) => entry.runId === started.runId);
 
-    expect(started.status).toBe("running");
-    expect(run?.status).toBe("running");
-    expect(run?.failureContext).toBeNull();
-    expect(failureMessage(run)).toBeNull();
+    expect(snapshot.epicRuns).toHaveLength(0);
+    expect(snapshot.epicIssueExecutions).toHaveLength(0);
+    expect(snapshot.threads).toHaveLength(0);
+  });
+
+  it("refuses to start when unknown dependency blockers exist and does not dispatch a worker", async () => {
+    const baseline = makeTrackerState();
+    const harness = await createHarness(
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          valid: false,
+          errors: [
+            "Blocked child TASK-7 has an open dependency that could not be identified. Fix dependency metadata before starting the epic.",
+          ],
+          readyFronts: [],
+        },
+        status: {
+          ...baseline.status,
+          ready: [],
+          blocked: [relationIssue("TASK-7", 7)],
+          blockedBreakdown: {
+            internal: [],
+            external: [],
+            unknown: [relationIssue("TASK-7", 7)],
+          },
+        },
+      }),
+    );
+
+    await expect(harness.startRun()).rejects.toThrow(
+      "Cannot start epic run for EPIC-1: Blocked child TASK-7 has an open dependency that could not be identified. Fix dependency metadata before starting the epic.",
+    );
+    const snapshot = await harness.getSnapshot();
+
+    expect(snapshot.epicRuns).toHaveLength(0);
     expect(snapshot.epicIssueExecutions).toHaveLength(0);
     expect(snapshot.threads).toHaveLength(0);
   });

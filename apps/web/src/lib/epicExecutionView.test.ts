@@ -313,6 +313,15 @@ describe("buildEpicExecutionViewData", () => {
       "blocked",
       "unknown",
     ]);
+    expect(
+      rows
+        .filter((row) => row.execution.kind === "blocked")
+        .map((row) => [row.child.id, row.execution.blockedScope]),
+    ).toEqual([
+      ["TASK-5", "internal"],
+      ["TASK-6", "external"],
+      ["TASK-7", "unknown"],
+    ]);
     expect(rows.filter((row) => row.execution.isNext)).toHaveLength(1);
     expect(rows.find((row) => row.child.id === "TASK-1")?.execution.workerThreadId).toBe(
       "thread-active",

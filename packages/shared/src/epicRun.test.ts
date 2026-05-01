@@ -130,7 +130,7 @@ function makeSwarmStatus(
 
 function makeSwarmValidation(
   overrides: Partial<BeadsEpicCoordinationValidation> = {},
-): Pick<BeadsEpicCoordinationValidation, "valid" | "summary" | "readyFronts"> {
+): Pick<BeadsEpicCoordinationValidation, "valid" | "summary" | "readyFronts" | "errors"> {
   return {
     valid: true,
     summary: {
@@ -547,7 +547,7 @@ describe("coordination", () => {
     });
   });
 
-  it("keeps start actions available for ready work and internal-only blockers", () => {
+  it("keeps start actions available for internal-only blockers", () => {
     expect(
       deriveEpicExecutionControl({
         status: makeSwarmStatus({
@@ -555,34 +555,6 @@ describe("coordination", () => {
           blockedBreakdown: {
             internal: [makeIssue("TASK-2", 2)],
             external: [],
-            unknown: [],
-          },
-        }),
-        validation: makeSwarmValidation(),
-        epicRuns: [],
-        hasProjectConflict: false,
-        fetchLifecycle: { kind: "ready", detail: null },
-      }),
-    ).toEqual({
-      execution: expect.objectContaining({
-        state: "ready",
-      }),
-      commands: [
-        expect.objectContaining({
-          kind: "start_epic_run",
-          disabled: false,
-        }),
-      ],
-    });
-
-    expect(
-      deriveEpicExecutionControl({
-        status: makeSwarmStatus({
-          ready: [makeIssue("TASK-1", 1)],
-          blocked: [makeIssue("TASK-9", 9)],
-          blockedBreakdown: {
-            internal: [],
-            external: [makeIssue("TASK-9", 9)],
             unknown: [],
           },
         }),
@@ -623,6 +595,91 @@ describe("coordination", () => {
         state: "blocked",
       }),
       commands: [],
+    });
+  });
+
+  it("blocks start actions for external and unknown blockers even when ready work exists", () => {
+    expect(
+      deriveEpicExecutionControl({
+        status: makeSwarmStatus({
+          ready: [makeIssue("TASK-1", 1)],
+          blocked: [makeIssue("TASK-9", 9)],
+          blockedBreakdown: {
+            internal: [],
+            external: [makeIssue("TASK-9", 9)],
+            unknown: [],
+          },
+        }),
+        validation: makeSwarmValidation(),
+        epicRuns: [],
+        hasProjectConflict: false,
+        fetchLifecycle: { kind: "ready", detail: null },
+      }),
+    ).toEqual({
+      execution: expect.objectContaining({
+        state: "blocked",
+        summary: "Cannot start epic. External blockers: TASK-9.",
+      }),
+      commands: [],
+    });
+
+    expect(
+      deriveEpicExecutionControl({
+        status: makeSwarmStatus({
+          ready: [makeIssue("TASK-1", 1)],
+          blocked: [makeIssue("TASK-7", 7)],
+          blockedBreakdown: {
+            internal: [],
+            external: [],
+            unknown: [makeIssue("TASK-7", 7)],
+          },
+        }),
+        validation: makeSwarmValidation(),
+        epicRuns: [],
+        hasProjectConflict: false,
+        fetchLifecycle: { kind: "ready", detail: null },
+      }),
+    ).toEqual({
+      execution: expect.objectContaining({
+        state: "blocked",
+        summary: "Cannot start epic. Dependency metadata errors: TASK-7.",
+      }),
+      commands: [],
+    });
+  });
+
+  it("surfaces unknown blocker validation errors as preparation blockers", () => {
+    expect(
+      deriveEpicExecutionControl({
+        status: makeSwarmStatus({
+          blocked: [makeIssue("TASK-7", 7)],
+          blockedBreakdown: {
+            internal: [],
+            external: [],
+            unknown: [makeIssue("TASK-7", 7)],
+          },
+        }),
+        validation: makeSwarmValidation({
+          valid: false,
+          errors: [
+            "Blocked child TASK-7 has an open dependency that could not be identified. Fix dependency metadata before starting the epic.",
+          ],
+        }),
+        epicRuns: [],
+        hasProjectConflict: false,
+        fetchLifecycle: { kind: "ready", detail: null },
+      }),
+    ).toEqual({
+      execution: expect.objectContaining({
+        state: "needs_preparation",
+        summary:
+          "Blocked child TASK-7 has an open dependency that could not be identified. Fix dependency metadata before starting the epic.",
+      }),
+      commands: [
+        expect.objectContaining({
+          kind: "open_coordination_prep_thread",
+        }),
+      ],
     });
   });
 

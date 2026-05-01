@@ -20,7 +20,11 @@ import {
   ProviderDriverKind,
 } from "@t3tools/contracts";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
-import { deriveEpicRunExecutionState } from "@t3tools/shared/epicRun";
+import {
+  deriveEpicRunExecutionState,
+  deriveExecutionBlocking,
+  describeExecutionBlockingReason,
+} from "@t3tools/shared/epicRun";
 import { createModelSelection } from "@t3tools/shared/model";
 import { Cause, Deferred, Duration, Effect, Fiber, Layer, Stream } from "effect";
 import type { Scope } from "effect";
@@ -679,6 +683,18 @@ const makeEpicRunScheduler = Effect.gen(function* () {
             coordinationState.validation.errors.join("; ") || "Epic-run validation failed.";
           return Effect.fail(
             workflowError(operation, `Cannot start epic run for ${input.epicIssueId}: ${detail}`),
+          );
+        }
+
+        const executionBlockingReason = describeExecutionBlockingReason(
+          deriveExecutionBlocking(coordinationState.status),
+        );
+        if (executionBlockingReason !== null) {
+          return Effect.fail(
+            workflowError(
+              operation,
+              `Cannot start epic run for ${input.epicIssueId}: ${executionBlockingReason}`,
+            ),
           );
         }
 

@@ -51,6 +51,8 @@ function createTestClient() {
                 snapshotSequence: 1,
                 projects: [],
                 threads: [],
+                epicRuns: [],
+                epicIssueExecutions: [],
                 updatedAt: "2026-04-12T00:00:00.000Z",
               },
             });
@@ -134,6 +136,8 @@ function createTestClient() {
             snapshotSequence,
             projects: [],
             threads: [],
+            epicRuns: [],
+            epicIssueExecutions: [],
             updatedAt: "2026-04-12T00:00:00.000Z",
           },
         });

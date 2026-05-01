@@ -92,6 +92,8 @@ function makeThreadShellSnapshot(params: {
   return {
     snapshotSequence: 1,
     projects: [],
+    epicRuns: [],
+    epicIssueExecutions: [],
     updatedAt: "2026-04-13T00:00:00.000Z",
     threads: [
       {

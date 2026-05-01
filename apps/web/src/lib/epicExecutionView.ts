@@ -45,9 +45,12 @@ export type EpicChildExecutionKind =
   | "waiting"
   | "unknown";
 
+export type EpicChildBlockedScope = "internal" | "external" | "unknown";
+
 export interface EpicChildExecutionState {
   readonly issueId: string;
   readonly kind: EpicChildExecutionKind;
+  readonly blockedScope: EpicChildBlockedScope | null;
   readonly label: string;
   readonly sequenceLabel: string | null;
   readonly waveIndex: number | null;
@@ -287,14 +290,17 @@ function buildChildExecutionState(input: {
   readonly isNext: boolean;
   readonly waveIndex: number | null;
   readonly statusBucket: EpicChildExecutionKind | null;
+  readonly blockedScope: EpicChildBlockedScope | null;
 }): EpicChildExecutionState {
-  const { activeExecution, child, isNext, latestExecution, statusBucket, waveIndex } = input;
+  const { activeExecution, blockedScope, child, isNext, latestExecution, statusBucket, waveIndex } =
+    input;
   const relevantExecution = activeExecution ?? latestExecution;
 
   if (activeExecution) {
     return {
       issueId: child.id,
       kind: "active",
+      blockedScope: null,
       label: formatExecutionLabel(activeExecution.status),
       sequenceLabel: buildSequenceLabel({ execution: activeExecution, waveIndex }),
       waveIndex,
@@ -309,6 +315,7 @@ function buildChildExecutionState(input: {
     return {
       issueId: child.id,
       kind: latestExecution.status,
+      blockedScope: latestExecution.status === "failed" ? blockedScope : null,
       label: formatExecutionLabel(latestExecution.status),
       sequenceLabel: buildSequenceLabel({ execution: latestExecution, waveIndex }),
       waveIndex,
@@ -323,6 +330,7 @@ function buildChildExecutionState(input: {
     return {
       issueId: child.id,
       kind: "next",
+      blockedScope: null,
       label: "Next",
       sequenceLabel: buildSequenceLabel({ execution: relevantExecution, waveIndex }),
       waveIndex,
@@ -348,6 +356,7 @@ function buildChildExecutionState(input: {
   return {
     issueId: child.id,
     kind: bucket,
+    blockedScope: bucket === "blocked" ? blockedScope : null,
     label,
     sequenceLabel: buildSequenceLabel({ execution: relevantExecution, waveIndex }),
     waveIndex,
@@ -374,6 +383,7 @@ export function buildEpicChildExecutionRows(input: {
   const nextIssueId =
     [...predictedByIssueId.keys()].find((issueId) => childById.has(issueId)) ?? null;
   const statusBucketByIssueId = new Map<string, EpicChildExecutionKind>();
+  const blockedScopeByIssueId = new Map<string, EpicChildBlockedScope>();
   const isDoneChild = (issue: BeadsIssueRelationSummary) => {
     const child = childById.get(issue.id) ?? issue;
     return isIssueDoneStatus(child.status);
@@ -396,6 +406,16 @@ export function buildEpicChildExecutionRows(input: {
     if (!isDoneChild(issue)) {
       statusBucketByIssueId.set(issue.id, "blocked");
     }
+  }
+
+  for (const issue of input.epic.status?.blockedBreakdown.internal ?? []) {
+    blockedScopeByIssueId.set(issue.id, "internal");
+  }
+  for (const issue of input.epic.status?.blockedBreakdown.external ?? []) {
+    blockedScopeByIssueId.set(issue.id, "external");
+  }
+  for (const issue of input.epic.status?.blockedBreakdown.unknown ?? []) {
+    blockedScopeByIssueId.set(issue.id, "unknown");
   }
 
   const orderedIds: string[] = [];
@@ -460,6 +480,7 @@ export function buildEpicChildExecutionRows(input: {
         isNext,
         waveIndex: predictedByIssueId.get(issueId) ?? null,
         statusBucket: statusBucketByIssueId.get(issueId) ?? null,
+        blockedScope: blockedScopeByIssueId.get(issueId) ?? null,
       }),
     };
   });

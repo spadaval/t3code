@@ -283,7 +283,7 @@ describe("epicRunSchedulerPolicy", () => {
     ).toEqual({ type: "idle_run" });
   });
 
-  it("blocks the run when coordination state shows external execution blockers", () => {
+  it("fails the run when coordination state shows external execution blockers", () => {
     expect(
       decideLaunchNextTask({
         run: run("run-1", { status: "running" }),
@@ -299,10 +299,13 @@ describe("epicRunSchedulerPolicy", () => {
         }),
         executions: [],
       }),
-    ).toEqual({ type: "block_run" });
+    ).toEqual({
+      type: "fail_run",
+      reason: "Cannot start epic. External blockers: EXT-1.",
+    });
   });
 
-  it("launches ready work before treating blocked siblings as run blockers", () => {
+  it("fails before launching ready work when blocked siblings have external blockers", () => {
     expect(
       decideLaunchNextTask({
         run: run("run-1", { status: "running" }),
@@ -319,8 +322,30 @@ describe("epicRunSchedulerPolicy", () => {
         executions: [],
       }),
     ).toEqual({
-      type: "launch_issue",
-      issue: issue("TASK-1", 1),
+      type: "fail_run",
+      reason: "Cannot start epic. External blockers: EXT-1.",
+    });
+  });
+
+  it("fails before launching ready work when blocked siblings have unknown dependency metadata", () => {
+    expect(
+      decideLaunchNextTask({
+        run: run("run-1", { status: "running" }),
+        trigger: "manual_start",
+        trackerStatus: trackerStatus({
+          ready: [issue("TASK-1", 1)],
+          blocked: [issue("TASK-7", 7)],
+          blockedBreakdown: {
+            internal: [],
+            external: [],
+            unknown: [issue("TASK-7", 7)],
+          },
+        }),
+        executions: [],
+      }),
+    ).toEqual({
+      type: "fail_run",
+      reason: "Cannot start epic. Dependency metadata errors: TASK-7.",
     });
   });
 

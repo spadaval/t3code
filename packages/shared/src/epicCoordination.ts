@@ -301,6 +301,12 @@ export function validateEpicCoordinationGraph(
         `Direct child ${node.issue.id} has open descendants. Coordination requires the epic to execute only direct child issues.`,
       );
     }
+
+    if (node.unknownDependencyIds.length > 0) {
+      errors.push(
+        `Blocked child ${node.issue.id} has an open dependency that could not be identified. Fix dependency metadata before starting the epic.`,
+      );
+    }
   }
 
   const readyFronts = computeEpicExecutionWaves(graph);

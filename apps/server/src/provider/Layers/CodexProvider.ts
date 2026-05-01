@@ -33,6 +33,7 @@ export interface CodexAppServerProviderSnapshot {
   readonly version: string | undefined;
   readonly models: ReadonlyArray<ServerProviderModel>;
   readonly skills: ReadonlyArray<ServerProviderSkill>;
+  readonly configuredReasoningEffort?: CodexSchema.V2ConfigReadResponse__ReasoningEffort | null;
 }
 
 const REASONING_EFFORT_LABELS: Record<CodexSchema.V2ModelListResponse__ReasoningEffort, string> = {
@@ -82,9 +83,17 @@ function codexAccountEmail(account: CodexSchema.V2GetAccountResponse["account"])
 
 function mapCodexModelCapabilities(
   model: CodexSchema.V2ModelListResponse__Model,
+  configuredReasoningEffort?: CodexSchema.V2ConfigReadResponse__ReasoningEffort | null,
 ): ModelCapabilities {
+  const supportedReasoningEfforts = new Set(
+    model.supportedReasoningEfforts.map(({ reasoningEffort }) => reasoningEffort),
+  );
+  const effectiveDefaultReasoning =
+    configuredReasoningEffort && supportedReasoningEfforts.has(configuredReasoningEffort)
+      ? configuredReasoningEffort
+      : model.defaultReasoningEffort;
   const reasoningOptions = model.supportedReasoningEfforts.map(({ reasoningEffort }) =>
-    reasoningEffort === model.defaultReasoningEffort
+    reasoningEffort === effectiveDefaultReasoning
       ? {
           id: reasoningEffort,
           label: REASONING_EFFORT_LABELS[reasoningEffort],
@@ -130,15 +139,23 @@ const toDisplayName = (model: CodexSchema.V2ModelListResponse__Model): string =>
     .replace(/-([a-z])/g, (_, c) => "-" + c.toUpperCase());
 };
 
-function parseCodexModelListResponse(
-  response: CodexSchema.V2ModelListResponse,
-): ReadonlyArray<ServerProviderModel> {
-  return response.data.map((model) => ({
+export function mapCodexModelForProvider(
+  model: CodexSchema.V2ModelListResponse__Model,
+  configuredReasoningEffort?: CodexSchema.V2ConfigReadResponse__ReasoningEffort | null,
+): ServerProviderModel {
+  return {
     slug: model.model,
     name: toDisplayName(model),
     isCustom: false,
-    capabilities: mapCodexModelCapabilities(model),
-  }));
+    capabilities: mapCodexModelCapabilities(model, configuredReasoningEffort),
+  };
+}
+
+function parseCodexModelListResponse(
+  response: CodexSchema.V2ModelListResponse,
+  configuredReasoningEffort?: CodexSchema.V2ConfigReadResponse__ReasoningEffort | null,
+): ReadonlyArray<ServerProviderModel> {
+  return response.data.map((model) => mapCodexModelForProvider(model, configuredReasoningEffort));
 }
 
 function appendCustomCodexModels(
@@ -243,6 +260,7 @@ function parseCodexSkillsListResponse(
 
 const requestAllCodexModels = Effect.fn("requestAllCodexModels")(function* (
   client: CodexClient.CodexAppServerClientShape,
+  configuredReasoningEffort?: CodexSchema.V2ConfigReadResponse__ReasoningEffort | null,
 ) {
   const models: ServerProviderModel[] = [];
   let cursor: string | null | undefined = undefined;
@@ -252,7 +270,7 @@ const requestAllCodexModels = Effect.fn("requestAllCodexModels")(function* (
       "model/list",
       cursor ? { cursor } : {},
     );
-    models.push(...parseCodexModelListResponse(response));
+    models.push(...parseCodexModelListResponse(response, configuredReasoningEffort));
     cursor = response.nextCursor;
   } while (cursor);
 
@@ -326,17 +344,24 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
     return {
       account: accountResponse,
       version,
+      configuredReasoningEffort: null,
       models: appendCustomCodexModels([], input.customModels ?? []),
       skills: [],
     } satisfies CodexAppServerProviderSnapshot;
   }
+
+  const configResponse = yield* client.request("config/read", {
+    cwd: input.cwd,
+    includeLayers: false,
+  });
+  const configuredReasoningEffort = configResponse.config.model_reasoning_effort ?? null;
 
   const [skillsResponse, models] = yield* Effect.all(
     [
       client.request("skills/list", {
         cwds: [input.cwd],
       }),
-      requestAllCodexModels(client),
+      requestAllCodexModels(client, configuredReasoningEffort),
     ],
     { concurrency: "unbounded" },
   );
@@ -344,6 +369,7 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
   return {
     account: accountResponse,
     version,
+    configuredReasoningEffort,
     models: appendCustomCodexModels(models, input.customModels ?? []),
     skills: parseCodexSkillsListResponse(skillsResponse, input.cwd),
   } satisfies CodexAppServerProviderSnapshot;

@@ -85,6 +85,7 @@ describe("IssueDetail", () => {
         execution: {
           issueId: child.id,
           kind: "next",
+          blockedScope: null,
           label: "Next",
           sequenceLabel: "Wave 1",
           waveIndex: 0,

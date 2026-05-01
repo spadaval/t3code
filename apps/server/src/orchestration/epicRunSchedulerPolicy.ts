@@ -6,6 +6,7 @@ import type {
   EpicRunId,
 } from "@t3tools/contracts";
 import {
+  describeExecutionBlockingReason,
   deriveExecutionBlocking,
   selectDeterministicReadyIssueFromList,
 } from "@t3tools/shared/epicRun";
@@ -105,6 +106,15 @@ export function decideLaunchNextTask(input: {
     return { type: "idle_run" };
   }
 
+  const executionBlocking = deriveExecutionBlocking(input.trackerStatus);
+  const executionBlockingReason = describeExecutionBlockingReason(executionBlocking);
+  if (executionBlockingReason !== null) {
+    return {
+      type: "fail_run",
+      reason: executionBlockingReason,
+    };
+  }
+
   const attemptedIssueIds = getAttemptedIssueIds(input.executions);
   const nextReadyIssue = selectLaunchableReadyIssue({
     readyIssues: input.trackerStatus.ready,
@@ -133,11 +143,6 @@ export function decideLaunchNextTask(input: {
         readyIssues: input.trackerStatus.ready,
       }),
     };
-  }
-
-  const executionBlocking = deriveExecutionBlocking(input.trackerStatus);
-  if (executionBlocking.hasExecutionBlockingIssues) {
-    return { type: "block_run" };
   }
 
   if (!isEpicCoordinationComplete(input.trackerStatus.summary)) {

@@ -193,6 +193,54 @@ function maxIso(left: string | null, right: string): string {
   return left > right ? left : right;
 }
 
+function mapEpicRunRow(
+  row: Schema.Schema.Type<typeof ProjectionEpicRunDbRowSchema>,
+): OrchestrationEpicRun {
+  return {
+    runId: row.runId,
+    projectId: row.projectId,
+    epicIssueId: row.epicIssueId,
+    status: row.status,
+    provider: row.provider,
+    model: row.model,
+    modelOptions: row.modelOptions,
+    providerOptions: row.providerOptions,
+    assistantDeliveryMode: row.assistantDeliveryMode,
+    runtimeMode: row.runtimeMode,
+    failureContext: row.failureContext,
+    requestedAt: row.requestedAt,
+    startedAt: row.startedAt,
+    stopRequestedAt: row.stopRequestedAt,
+    stoppedAt: row.stoppedAt,
+    failedAt: row.failedAt,
+    completedAt: row.completedAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function mapEpicIssueExecutionRow(
+  row: Schema.Schema.Type<typeof ProjectionEpicIssueExecutionDbRowSchema>,
+): OrchestrationEpicIssueExecution {
+  return {
+    executionId: row.executionId,
+    runId: row.runId,
+    issueId: row.issueId,
+    workerThreadId: row.workerThreadId,
+    sequenceNumber: row.sequenceNumber,
+    status: row.status,
+    workspaceKey: row.workspaceKey,
+    workspacePath: row.workspacePath,
+    failureContext: row.failureContext,
+    requestedAt: row.requestedAt,
+    startedAt: row.startedAt,
+    stopRequestedAt: row.stopRequestedAt,
+    stoppedAt: row.stoppedAt,
+    completedAt: row.completedAt,
+    failedAt: row.failedAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 function computeSnapshotSequence(
   stateRows: ReadonlyArray<Schema.Schema.Type<typeof ProjectionStateDbRowSchema>>,
 ): number {
@@ -1199,46 +1247,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               updatedAt: row.updatedAt,
             }));
 
-          const epicRuns: Array<OrchestrationEpicRun> = epicRunRows.map((row) => ({
-            runId: row.runId,
-            projectId: row.projectId,
-            epicIssueId: row.epicIssueId,
-            status: row.status,
-            provider: row.provider,
-            model: row.model,
-            modelOptions: row.modelOptions,
-            providerOptions: row.providerOptions,
-            assistantDeliveryMode: row.assistantDeliveryMode,
-            runtimeMode: row.runtimeMode,
-            failureContext: row.failureContext,
-            requestedAt: row.requestedAt,
-            startedAt: row.startedAt,
-            stopRequestedAt: row.stopRequestedAt,
-            stoppedAt: row.stoppedAt,
-            failedAt: row.failedAt,
-            completedAt: row.completedAt,
-            updatedAt: row.updatedAt,
-          }));
-
+          const epicRuns: Array<OrchestrationEpicRun> = epicRunRows.map(mapEpicRunRow);
           const epicIssueExecutions: Array<OrchestrationEpicIssueExecution> =
-            epicIssueExecutionRows.map((row) => ({
-              executionId: row.executionId,
-              runId: row.runId,
-              issueId: row.issueId,
-              workerThreadId: row.workerThreadId,
-              sequenceNumber: row.sequenceNumber,
-              status: row.status,
-              workspaceKey: row.workspaceKey,
-              workspacePath: row.workspacePath,
-              failureContext: row.failureContext,
-              requestedAt: row.requestedAt,
-              startedAt: row.startedAt,
-              stopRequestedAt: row.stopRequestedAt,
-              stoppedAt: row.stoppedAt,
-              completedAt: row.completedAt,
-              failedAt: row.failedAt,
-              updatedAt: row.updatedAt,
-            }));
+            epicIssueExecutionRows.map(mapEpicIssueExecutionRow);
 
           const snapshot = {
             snapshotSequence: computeSnapshotSequence(stateRows),
@@ -1302,6 +1313,22 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               ),
             ),
           ),
+          listEpicRunRows(undefined).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getShellSnapshot:listEpicRuns:query",
+                "ProjectionSnapshotQuery.getShellSnapshot:listEpicRuns:decodeRows",
+              ),
+            ),
+          ),
+          listEpicIssueExecutionRows(undefined).pipe(
+            Effect.mapError(
+              toPersistenceSqlOrDecodeError(
+                "ProjectionSnapshotQuery.getShellSnapshot:listEpicIssueExecutions:query",
+                "ProjectionSnapshotQuery.getShellSnapshot:listEpicIssueExecutions:decodeRows",
+              ),
+            ),
+          ),
           listProjectionStateRows(undefined).pipe(
             Effect.mapError(
               toPersistenceSqlOrDecodeError(
@@ -1313,77 +1340,98 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         ]),
       )
       .pipe(
-        Effect.flatMap(([projectRows, threadRows, sessionRows, latestTurnRows, stateRows]) =>
-          Effect.gen(function* () {
-            let updatedAt: string | null = null;
-            for (const row of projectRows) {
-              updatedAt = maxIso(updatedAt, row.updatedAt);
-            }
-            for (const row of threadRows) {
-              updatedAt = maxIso(updatedAt, row.updatedAt);
-            }
-            for (const row of sessionRows) {
-              updatedAt = maxIso(updatedAt, row.updatedAt);
-            }
-            for (const row of latestTurnRows) {
-              updatedAt = maxIso(updatedAt, row.requestedAt);
-              if (row.startedAt !== null) {
-                updatedAt = maxIso(updatedAt, row.startedAt);
+        Effect.flatMap(
+          ([
+            projectRows,
+            threadRows,
+            sessionRows,
+            latestTurnRows,
+            epicRunRows,
+            epicIssueExecutionRows,
+            stateRows,
+          ]) =>
+            Effect.gen(function* () {
+              let updatedAt: string | null = null;
+              for (const row of projectRows) {
+                updatedAt = maxIso(updatedAt, row.updatedAt);
               }
-              if (row.completedAt !== null) {
-                updatedAt = maxIso(updatedAt, row.completedAt);
+              for (const row of threadRows) {
+                updatedAt = maxIso(updatedAt, row.updatedAt);
               }
-            }
-            for (const row of stateRows) {
-              updatedAt = maxIso(updatedAt, row.updatedAt);
-            }
+              for (const row of sessionRows) {
+                updatedAt = maxIso(updatedAt, row.updatedAt);
+              }
+              for (const row of latestTurnRows) {
+                updatedAt = maxIso(updatedAt, row.requestedAt);
+                if (row.startedAt !== null) {
+                  updatedAt = maxIso(updatedAt, row.startedAt);
+                }
+                if (row.completedAt !== null) {
+                  updatedAt = maxIso(updatedAt, row.completedAt);
+                }
+              }
+              for (const row of epicRunRows) {
+                updatedAt = maxIso(updatedAt, row.updatedAt);
+              }
+              for (const row of epicIssueExecutionRows) {
+                updatedAt = maxIso(updatedAt, row.requestedAt);
+                if (row.startedAt !== null) {
+                  updatedAt = maxIso(updatedAt, row.startedAt);
+                }
+                updatedAt = maxIso(updatedAt, row.updatedAt);
+              }
+              for (const row of stateRows) {
+                updatedAt = maxIso(updatedAt, row.updatedAt);
+              }
 
-            const latestTurnByThread = new Map(
-              latestTurnRows.map((row) => [row.threadId, mapLatestTurn(row)] as const),
-            );
-            const sessionByThread = new Map(
-              sessionRows.map((row) => [row.threadId, mapSessionRow(row)] as const),
-            );
+              const latestTurnByThread = new Map(
+                latestTurnRows.map((row) => [row.threadId, mapLatestTurn(row)] as const),
+              );
+              const sessionByThread = new Map(
+                sessionRows.map((row) => [row.threadId, mapSessionRow(row)] as const),
+              );
 
-            const snapshot = {
-              snapshotSequence: computeSnapshotSequence(stateRows),
-              projects: projectRows
-                .filter((row) => row.deletedAt === null)
-                .map((row) => mapProjectShellRow(row, null)),
-              threads: threadRows
-                .filter((row) => row.deletedAt === null)
-                .map(
-                  (row): OrchestrationThreadShell => ({
-                    id: row.threadId,
-                    projectId: row.projectId,
-                    title: row.title,
-                    modelSelection: row.modelSelection,
-                    runtimeMode: row.runtimeMode,
-                    interactionMode: row.interactionMode,
-                    branch: row.branch,
-                    worktreePath: row.worktreePath,
-                    latestTurn: latestTurnByThread.get(row.threadId) ?? null,
-                    createdAt: row.createdAt,
-                    updatedAt: row.updatedAt,
-                    archivedAt: row.archivedAt,
-                    session: sessionByThread.get(row.threadId) ?? null,
-                    latestUserMessageAt: row.latestUserMessageAt,
-                    hasPendingApprovals: row.pendingApprovalCount > 0,
-                    hasPendingUserInput: row.pendingUserInputCount > 0,
-                    hasActionableProposedPlan: row.hasActionableProposedPlan > 0,
-                  }),
+              const snapshot = {
+                snapshotSequence: computeSnapshotSequence(stateRows),
+                projects: projectRows
+                  .filter((row) => row.deletedAt === null)
+                  .map((row) => mapProjectShellRow(row, null)),
+                threads: threadRows
+                  .filter((row) => row.deletedAt === null)
+                  .map(
+                    (row): OrchestrationThreadShell => ({
+                      id: row.threadId,
+                      projectId: row.projectId,
+                      title: row.title,
+                      modelSelection: row.modelSelection,
+                      runtimeMode: row.runtimeMode,
+                      interactionMode: row.interactionMode,
+                      branch: row.branch,
+                      worktreePath: row.worktreePath,
+                      latestTurn: latestTurnByThread.get(row.threadId) ?? null,
+                      createdAt: row.createdAt,
+                      updatedAt: row.updatedAt,
+                      archivedAt: row.archivedAt,
+                      session: sessionByThread.get(row.threadId) ?? null,
+                      latestUserMessageAt: row.latestUserMessageAt,
+                      hasPendingApprovals: row.pendingApprovalCount > 0,
+                      hasPendingUserInput: row.pendingUserInputCount > 0,
+                      hasActionableProposedPlan: row.hasActionableProposedPlan > 0,
+                    }),
+                  ),
+                epicRuns: epicRunRows.map(mapEpicRunRow),
+                epicIssueExecutions: epicIssueExecutionRows.map(mapEpicIssueExecutionRow),
+                updatedAt: updatedAt ?? new Date(0).toISOString(),
+              };
+
+              return yield* decodeShellSnapshot(snapshot).pipe(
+                Effect.mapError(
+                  toPersistenceDecodeError(
+                    "ProjectionSnapshotQuery.getShellSnapshot:decodeShellSnapshot",
+                  ),
                 ),
-              updatedAt: updatedAt ?? new Date(0).toISOString(),
-            };
-
-            return yield* decodeShellSnapshot(snapshot).pipe(
-              Effect.mapError(
-                toPersistenceDecodeError(
-                  "ProjectionSnapshotQuery.getShellSnapshot:decodeShellSnapshot",
-                ),
-              ),
-            );
-          }),
+              );
+            }),
         ),
         Effect.mapError((error) => {
           if (isPersistenceError(error)) {

@@ -1268,6 +1268,8 @@ function toShellSnapshot(snapshot: OrchestrationReadModel) {
       updatedAt: project.updatedAt,
     })),
     threads: snapshot.threads.map(toShellThread),
+    epicRuns: snapshot.epicRuns,
+    epicIssueExecutions: snapshot.epicIssueExecutions,
     updatedAt: snapshot.updatedAt,
   };
 }

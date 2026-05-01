@@ -745,6 +745,9 @@ function applyShellEvent(event: OrchestrationShellStreamEvent, environmentId: En
       }
       syncThreadUiFromStore();
       return;
+    case "epic-run-event":
+    case "epic-issue-execution-event":
+      return;
   }
 }
 

@@ -16,16 +16,19 @@ import {
   type OrchestrationEpicIssueExecution,
   type OrchestrationEpicRun,
   type OrchestrationReadModel,
+  type OrchestrationShellSnapshot,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
   applyOrchestrationEvent,
   applyOrchestrationEvents,
+  applyShellEvent,
   selectEnvironmentState,
   selectEpicIssueExecutionsForRun,
   selectEpicRunsForProject,
   selectProjectsAcrossEnvironments,
+  syncServerShellSnapshot,
   syncServerReadModel,
   selectThreadByRef,
   selectThreadExistsByRef,
@@ -513,6 +516,38 @@ function makeReadModel(thread: OrchestrationReadModel["threads"][number]): Orche
   };
 }
 
+function makeShellSnapshot(
+  overrides: Partial<OrchestrationShellSnapshot> = {},
+): OrchestrationShellSnapshot {
+  const readModel = makeReadModel(makeReadModelThread({}));
+  return {
+    snapshotSequence: readModel.snapshotSequence,
+    projects: readModel.projects.map(({ deletedAt: _deletedAt, ...project }) => project),
+    threads: readModel.threads.map(
+      ({
+        deletedAt: _deletedAt,
+        messages: _messages,
+        activities: _activities,
+        proposedPlans: _proposedPlans,
+        checkpoints: _checkpoints,
+        pendingCheckpointCaptures: _pendingCheckpointCaptures,
+        issueLink: _issueLink,
+        ...thread
+      }) => ({
+        ...thread,
+        latestUserMessageAt: null,
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        hasActionableProposedPlan: false,
+      }),
+    ),
+    epicRuns: [],
+    epicIssueExecutions: [],
+    updatedAt: readModel.updatedAt,
+    ...overrides,
+  };
+}
+
 function makeReadModelProject(
   overrides: Partial<OrchestrationReadModel["projects"][number]>,
 ): OrchestrationReadModel["projects"][number] {
@@ -772,6 +807,71 @@ describe("store read model sync", () => {
       epicIssueExecutionsOf(next, olderRun.runId).map((execution) => execution.executionId),
     ).toEqual([execution1.executionId, execution2.executionId]);
   });
+
+  it("bootstraps epic runs and issue executions from the shell snapshot", () => {
+    const initialState = makeEmptyState();
+    const runningRun = makeEpicRun({
+      runId: EpicRunId.make("run-2"),
+      epicIssueId: "EPIC-2",
+      status: "running",
+      requestedAt: "2026-02-27T00:10:00.000Z",
+      startedAt: "2026-02-27T00:10:05.000Z",
+      updatedAt: "2026-02-27T00:10:05.000Z",
+    });
+    const olderRun = makeEpicRun({
+      runId: EpicRunId.make("run-1"),
+      requestedAt: "2026-02-27T00:00:00.000Z",
+      updatedAt: "2026-02-27T00:00:00.000Z",
+    });
+    const execution = makeEpicIssueExecution({
+      executionId: EpicIssueExecutionId.make("execution-1"),
+      runId: olderRun.runId,
+      issueId: "ISSUE-1",
+      workerThreadId: ThreadId.make("worker-thread-1"),
+    });
+
+    const next = syncServerShellSnapshot(
+      initialState,
+      makeShellSnapshot({
+        epicRuns: [olderRun, runningRun],
+        epicIssueExecutions: [execution],
+      }),
+      localEnvironmentId,
+    );
+
+    expect(epicRunsOf(next, ProjectId.make("project-1")).map((run) => run.runId)).toEqual([
+      runningRun.runId,
+      olderRun.runId,
+    ]);
+    expect(epicIssueExecutionsOf(next, olderRun.runId)[0]?.workerThreadId).toBe(
+      ThreadId.make("worker-thread-1"),
+    );
+  });
+
+  it("clears stale epic run state when the shell snapshot no longer contains it", () => {
+    const run = makeEpicRun();
+    const execution = makeEpicIssueExecution();
+    const hydrated = syncServerShellSnapshot(
+      makeEmptyState(),
+      makeShellSnapshot({
+        epicRuns: [run],
+        epicIssueExecutions: [execution],
+      }),
+      localEnvironmentId,
+    );
+
+    const cleared = syncServerShellSnapshot(
+      hydrated,
+      makeShellSnapshot({
+        epicRuns: [],
+        epicIssueExecutions: [],
+      }),
+      localEnvironmentId,
+    );
+
+    expect(epicRunsOf(cleared, run.projectId)).toEqual([]);
+    expect(epicIssueExecutionsOf(cleared, execution.runId)).toEqual([]);
+  });
 });
 describe("incremental orchestration updates", () => {
   it("does not mark bootstrap complete for incremental events", () => {
@@ -890,6 +990,57 @@ describe("incremental orchestration updates", () => {
       startedAt: "2026-02-27T00:00:03.000Z",
       completedAt: "2026-02-27T00:00:04.000Z",
       updatedAt: "2026-02-27T00:00:04.000Z",
+    });
+  });
+
+  it("projects epic shell events into store state", () => {
+    const projectId = ProjectId.make("project-1");
+    const requestedRun = makeEvent("epic-run.requested", {
+      runId: EpicRunId.make("run-1"),
+      projectId,
+      epicIssueId: "EPIC-1",
+      provider: ProviderDriverKind.make("codex"),
+      model: DEFAULT_MODEL,
+      modelOptions: null,
+      providerOptions: null,
+      assistantDeliveryMode: null,
+      runtimeMode: DEFAULT_RUNTIME_MODE,
+      requestedAt: "2026-02-27T00:00:00.000Z",
+      updatedAt: "2026-02-27T00:00:00.000Z",
+    });
+    const requestedExecution = makeEvent("epic-issue-execution.requested", {
+      executionId: EpicIssueExecutionId.make("execution-1"),
+      runId: EpicRunId.make("run-1"),
+      issueId: "ISSUE-1",
+      workerThreadId: ThreadId.make("worker-thread-1"),
+      sequenceNumber: 1,
+      requestedAt: "2026-02-27T00:00:01.000Z",
+      updatedAt: "2026-02-27T00:00:01.000Z",
+    });
+
+    const withRun = applyShellEvent(
+      makeEmptyState(),
+      {
+        kind: "epic-run-event",
+        sequence: requestedRun.sequence,
+        event: requestedRun,
+      },
+      localEnvironmentId,
+    );
+    const withExecution = applyShellEvent(
+      withRun,
+      {
+        kind: "epic-issue-execution-event",
+        sequence: requestedExecution.sequence,
+        event: requestedExecution,
+      },
+      localEnvironmentId,
+    );
+
+    expect(epicRunsOf(withExecution, projectId)[0]?.runId).toBe(EpicRunId.make("run-1"));
+    expect(epicIssueExecutionsOf(withExecution, EpicRunId.make("run-1"))[0]).toMatchObject({
+      executionId: EpicIssueExecutionId.make("execution-1"),
+      workerThreadId: ThreadId.make("worker-thread-1"),
     });
   });
 

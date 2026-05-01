@@ -698,42 +698,13 @@ export const OrchestrationShellSnapshot = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   projects: Schema.Array(OrchestrationProjectShell),
   threads: Schema.Array(OrchestrationThreadShell),
+  epicRuns: Schema.Array(OrchestrationEpicRun).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  epicIssueExecutions: Schema.Array(OrchestrationEpicIssueExecution).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   updatedAt: IsoDateTime,
 });
 export type OrchestrationShellSnapshot = typeof OrchestrationShellSnapshot.Type;
-
-export const OrchestrationShellStreamEvent = Schema.Union([
-  Schema.Struct({
-    kind: Schema.Literal("project-upserted"),
-    sequence: NonNegativeInt,
-    project: OrchestrationProjectShell,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("project-removed"),
-    sequence: NonNegativeInt,
-    projectId: ProjectId,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("thread-upserted"),
-    sequence: NonNegativeInt,
-    thread: OrchestrationThreadShell,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("thread-removed"),
-    sequence: NonNegativeInt,
-    threadId: ThreadId,
-  }),
-]);
-export type OrchestrationShellStreamEvent = typeof OrchestrationShellStreamEvent.Type;
-
-export const OrchestrationShellStreamItem = Schema.Union([
-  Schema.Struct({
-    kind: Schema.Literal("snapshot"),
-    snapshot: OrchestrationShellSnapshot,
-  }),
-  OrchestrationShellStreamEvent,
-]);
-export type OrchestrationShellStreamItem = typeof OrchestrationShellStreamItem.Type;
 
 export const OrchestrationSubscribeThreadInput = Schema.Struct({
   threadId: ThreadId,
@@ -1839,6 +1810,108 @@ export const OrchestrationEvent = Schema.Union([
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;
+
+export const OrchestrationEpicRunLifecycleEvent = Schema.Union([
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-run.requested"),
+    payload: EpicRunRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-run.started"),
+    payload: EpicRunStartedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-run.failed"),
+    payload: EpicRunFailedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-run.stopped"),
+    payload: EpicRunStoppedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-run.completed"),
+    payload: EpicRunCompletedPayload,
+  }),
+]);
+export type OrchestrationEpicRunLifecycleEvent = typeof OrchestrationEpicRunLifecycleEvent.Type;
+
+export const OrchestrationEpicIssueExecutionLifecycleEvent = Schema.Union([
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-issue-execution.requested"),
+    payload: EpicIssueExecutionRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-issue-execution.started"),
+    payload: EpicIssueExecutionStartedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-issue-execution.completed"),
+    payload: EpicIssueExecutionCompletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-issue-execution.failed"),
+    payload: EpicIssueExecutionFailedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("epic-issue-execution.stopped"),
+    payload: EpicIssueExecutionStoppedPayload,
+  }),
+]);
+export type OrchestrationEpicIssueExecutionLifecycleEvent =
+  typeof OrchestrationEpicIssueExecutionLifecycleEvent.Type;
+
+export const OrchestrationShellStreamEvent = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("project-upserted"),
+    sequence: NonNegativeInt,
+    project: OrchestrationProjectShell,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("project-removed"),
+    sequence: NonNegativeInt,
+    projectId: ProjectId,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("thread-upserted"),
+    sequence: NonNegativeInt,
+    thread: OrchestrationThreadShell,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("thread-removed"),
+    sequence: NonNegativeInt,
+    threadId: ThreadId,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("epic-run-event"),
+    sequence: NonNegativeInt,
+    event: OrchestrationEpicRunLifecycleEvent,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("epic-issue-execution-event"),
+    sequence: NonNegativeInt,
+    event: OrchestrationEpicIssueExecutionLifecycleEvent,
+  }),
+]);
+export type OrchestrationShellStreamEvent = typeof OrchestrationShellStreamEvent.Type;
+
+export const OrchestrationShellStreamItem = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("snapshot"),
+    snapshot: OrchestrationShellSnapshot,
+  }),
+  OrchestrationShellStreamEvent,
+]);
+export type OrchestrationShellStreamItem = typeof OrchestrationShellStreamItem.Type;
 
 export const OrchestrationThreadStreamItem = Schema.Union([
   Schema.Struct({

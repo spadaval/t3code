@@ -32,7 +32,11 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import { deepMerge } from "@t3tools/shared/Struct";
 import { createModelCapabilities } from "@t3tools/shared/model";
 
-import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from "./CodexProvider.ts";
+import {
+  checkCodexProviderStatus,
+  mapCodexModelForProvider,
+  type CodexAppServerProviderSnapshot,
+} from "./CodexProvider.ts";
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
 import { OpenCodeRuntimeLive } from "../opencodeRuntime.ts";
 import { NoOpProviderEventLoggers, ProviderEventLoggers } from "./ProviderEventLoggers.ts";
@@ -208,6 +212,31 @@ const codexModelCapabilities = createModelCapabilities({
   ],
 }) satisfies NonNullable<ServerProvider["models"][number]["capabilities"]>;
 
+function codexCatalogModel(input: {
+  readonly defaultReasoningEffort: string;
+  readonly supportedReasoningEfforts: ReadonlyArray<string>;
+}) {
+  return {
+    model: "gpt-5.5",
+    displayName: "GPT-5.5",
+    defaultReasoningEffort: input.defaultReasoningEffort,
+    supportedReasoningEfforts: input.supportedReasoningEfforts.map((reasoningEffort) => ({
+      reasoningEffort,
+      description: `${reasoningEffort} reasoning`,
+    })),
+    additionalSpeedTiers: ["fast"],
+  };
+}
+
+function getCodexReasoningDescriptor(model: ServerProvider["models"][number]) {
+  const descriptor = model.capabilities?.optionDescriptors?.find(
+    (candidate) => candidate.id === "reasoningEffort",
+  );
+  assert.ok(descriptor);
+  assert.strictEqual(descriptor.type, "select");
+  return descriptor;
+}
+
 function makeCodexProbeSnapshot(
   input: Partial<CodexAppServerProviderSnapshot> = {},
 ): CodexAppServerProviderSnapshot {
@@ -305,6 +334,95 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
               shortDescription: "Debug failing GitHub Actions checks",
             },
           ]);
+        }),
+      );
+
+      it.effect("uses configured Codex reasoning as the model default when supported", () =>
+        Effect.gen(function* () {
+          const status = yield* checkCodexProviderStatus(defaultCodexSettings, () =>
+            Effect.succeed(
+              makeCodexProbeSnapshot({
+                configuredReasoningEffort: "medium",
+                models: [
+                  mapCodexModelForProvider(
+                    codexCatalogModel({
+                      defaultReasoningEffort: "xhigh",
+                      supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
+                    }),
+                    "medium",
+                  ),
+                ],
+              }),
+            ),
+          );
+
+          const descriptor = getCodexReasoningDescriptor(status.models[0]);
+          assert.strictEqual(descriptor.currentValue, "medium");
+          assert.strictEqual(
+            descriptor.options.find((option) => option.id === "medium")?.isDefault,
+            true,
+          );
+          assert.strictEqual(
+            descriptor.options.find((option) => option.id === "xhigh")?.isDefault,
+            undefined,
+          );
+        }),
+      );
+
+      it.effect(
+        "falls back to the Codex catalog default when configured reasoning is unsupported",
+        () =>
+          Effect.gen(function* () {
+            const status = yield* checkCodexProviderStatus(defaultCodexSettings, () =>
+              Effect.succeed(
+                makeCodexProbeSnapshot({
+                  configuredReasoningEffort: "medium",
+                  models: [
+                    mapCodexModelForProvider(
+                      codexCatalogModel({
+                        defaultReasoningEffort: "high",
+                        supportedReasoningEfforts: ["low", "high"],
+                      }),
+                      "medium",
+                    ),
+                  ],
+                }),
+              ),
+            );
+
+            const descriptor = getCodexReasoningDescriptor(status.models[0]);
+            assert.strictEqual(descriptor.currentValue, "high");
+            assert.strictEqual(
+              descriptor.options.find((option) => option.id === "high")?.isDefault,
+              true,
+            );
+          }),
+      );
+
+      it.effect("preserves the Codex catalog default when no configured reasoning is present", () =>
+        Effect.gen(function* () {
+          const status = yield* checkCodexProviderStatus(defaultCodexSettings, () =>
+            Effect.succeed(
+              makeCodexProbeSnapshot({
+                models: [
+                  mapCodexModelForProvider(
+                    codexCatalogModel({
+                      defaultReasoningEffort: "xhigh",
+                      supportedReasoningEfforts: ["low", "medium", "high", "xhigh"],
+                    }),
+                    null,
+                  ),
+                ],
+              }),
+            ),
+          );
+
+          const descriptor = getCodexReasoningDescriptor(status.models[0]);
+          assert.strictEqual(descriptor.currentValue, "xhigh");
+          assert.strictEqual(
+            descriptor.options.find((option) => option.id === "xhigh")?.isDefault,
+            true,
+          );
         }),
       );
 

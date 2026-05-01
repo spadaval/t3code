@@ -233,6 +233,8 @@ function toShellSnapshot(snapshot: OrchestrationReadModel) {
       hasPendingUserInput: false,
       hasActionableProposedPlan: false,
     })),
+    epicRuns: snapshot.epicRuns,
+    epicIssueExecutions: snapshot.epicIssueExecutions,
     updatedAt: snapshot.updatedAt,
   };
 }

@@ -477,6 +477,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       ]);
       const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
       assert.equal(shellSnapshot.snapshotSequence, 5);
+      assert.equal(shellSnapshot.updatedAt, "2026-02-24T00:00:10.500Z");
       assert.deepEqual(shellSnapshot.projects, [
         {
           id: asProjectId("project-1"),
@@ -541,6 +542,53 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           hasPendingApprovals: true,
           hasPendingUserInput: false,
           hasActionableProposedPlan: false,
+        },
+      ]);
+      assert.deepEqual(shellSnapshot.epicRuns, [
+        {
+          runId: asSwarmRunId("run-1"),
+          projectId: asProjectId("project-1"),
+          epicIssueId: "EPIC-1",
+          status: "running",
+          provider: "codex",
+          model: "gpt-5.4",
+          modelOptions: [{ id: "reasoningEffort", value: "medium" }],
+          providerOptions: {
+            codex: {
+              approvalPolicy: "never",
+              sandboxMode: "danger-full-access",
+            },
+          },
+          assistantDeliveryMode: "streaming",
+          runtimeMode: "full-access",
+          failureContext: null,
+          requestedAt: "2026-02-24T00:00:08.500Z",
+          startedAt: "2026-02-24T00:00:09.000Z",
+          stopRequestedAt: null,
+          stoppedAt: null,
+          failedAt: null,
+          completedAt: null,
+          updatedAt: "2026-02-24T00:00:10.500Z",
+        },
+      ]);
+      assert.deepEqual(shellSnapshot.epicIssueExecutions, [
+        {
+          executionId: asSwarmTaskExecutionId("execution-1"),
+          runId: asSwarmRunId("run-1"),
+          issueId: "TASK-1",
+          workerThreadId: ThreadId.makeUnsafe("thread-1"),
+          sequenceNumber: 1,
+          status: "running",
+          workspaceKey: "shared",
+          workspacePath: null,
+          failureContext: null,
+          requestedAt: "2026-02-24T00:00:09.500Z",
+          startedAt: "2026-02-24T00:00:10.000Z",
+          stopRequestedAt: null,
+          stoppedAt: null,
+          completedAt: null,
+          failedAt: null,
+          updatedAt: "2026-02-24T00:00:10.500Z",
         },
       ]);
 

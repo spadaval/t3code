@@ -152,6 +152,7 @@ describe("issue title rendering", () => {
             execution: {
               issueId: readyChild.id,
               kind: "next",
+              blockedScope: null,
               label: "Next",
               sequenceLabel: "Wave 1",
               waveIndex: 0,
@@ -166,6 +167,7 @@ describe("issue title rendering", () => {
             execution: {
               issueId: blockedChild.id,
               kind: "blocked",
+              blockedScope: "internal",
               label: "Blocked",
               sequenceLabel: null,
               waveIndex: null,
@@ -182,6 +184,7 @@ describe("issue title rendering", () => {
     expect(markup.indexOf("Ready child")).toBeLessThan(markup.indexOf("Blocked child"));
     expect(markup.match(/Next to run/g)).toHaveLength(1);
     expect(markup).toContain(">Next</span>");
+    expect(markup).toContain(">Internal block</span>");
     expect(markup).not.toContain("border-destructive/30");
   });
 
@@ -196,6 +199,7 @@ describe("issue title rendering", () => {
             execution: {
               issueId: child.id,
               kind: "active",
+              blockedScope: null,
               label: "Running",
               sequenceLabel: "#2",
               waveIndex: null,

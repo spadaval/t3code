@@ -1627,6 +1627,8 @@ function syncEnvironmentShellSnapshot(
   let nextState: EnvironmentState = {
     ...state,
     ...buildProjectState(nextProjects),
+    ...buildEpicRunState(snapshot.epicRuns),
+    ...buildEpicIssueExecutionState(snapshot.epicIssueExecutions),
     threadIds: [],
     threadIdsByProjectId: {},
     threadShellById: {},
@@ -2317,6 +2319,9 @@ function applyEnvironmentShellEvent(
       return writeThreadShellState(state, mapThreadShell(event.thread, environmentId));
     case "thread-removed":
       return removeThreadState(state, event.threadId);
+    case "epic-run-event":
+    case "epic-issue-execution-event":
+      return applyEnvironmentOrchestrationEvent(state, event.event, environmentId);
   }
 }
 

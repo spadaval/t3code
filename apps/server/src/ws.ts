@@ -295,6 +295,30 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 threadId: event.payload.threadId,
               }),
             );
+          case "epic-run.requested":
+          case "epic-run.started":
+          case "epic-run.failed":
+          case "epic-run.stopped":
+          case "epic-run.completed":
+            return Effect.succeed(
+              Option.some({
+                kind: "epic-run-event" as const,
+                sequence: event.sequence,
+                event,
+              }),
+            );
+          case "epic-issue-execution.requested":
+          case "epic-issue-execution.started":
+          case "epic-issue-execution.completed":
+          case "epic-issue-execution.failed":
+          case "epic-issue-execution.stopped":
+            return Effect.succeed(
+              Option.some({
+                kind: "epic-issue-execution-event" as const,
+                sequence: event.sequence,
+                event,
+              }),
+            );
           default:
             if (event.aggregateKind !== "thread") {
               return Effect.succeed(Option.none());

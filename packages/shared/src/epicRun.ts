@@ -85,6 +85,36 @@ export function deriveExecutionBlocking(
   };
 }
 
+function formatIssueIds(issues: ReadonlyArray<BeadsIssueRelationSummary>): string {
+  const issueIds = issues
+    .slice(0, 3)
+    .map((issue) => issue.id)
+    .join(", ");
+  const suffix = issues.length > 3 ? ` and ${issues.length - 3} more` : "";
+  return `${issueIds}${suffix}`;
+}
+
+export function describeExecutionBlockingReason(
+  blocking: Pick<
+    EpicIssueExecutionBlockingState,
+    "externalBlockedIssues" | "unknownBlockedIssues" | "hasExecutionBlockingIssues"
+  >,
+): string | null {
+  if (!blocking.hasExecutionBlockingIssues) {
+    return null;
+  }
+
+  if (blocking.unknownBlockedIssues.length > 0) {
+    return `Cannot start epic. Dependency metadata errors: ${formatIssueIds(blocking.unknownBlockedIssues)}.`;
+  }
+
+  if (blocking.externalBlockedIssues.length > 0) {
+    return `Cannot start epic. External blockers: ${formatIssueIds(blocking.externalBlockedIssues)}.`;
+  }
+
+  return "Cannot start epic. External or unknown dependencies must be resolved first.";
+}
+
 export function isEpicCoordinationSummaryComplete(
   summary:
     | Pick<
@@ -763,15 +793,6 @@ export function deriveEpicCoordinatorState(input: {
   };
 }
 
-function describeBlockedIssues(issues: ReadonlyArray<BeadsIssueRelationSummary>): string {
-  const issueIds = issues
-    .slice(0, 3)
-    .map((issue) => issue.id)
-    .join(", ");
-  const suffix = issues.length > 3 ? ` and ${issues.length - 3} more` : "";
-  return `${issueIds}${suffix}`;
-}
-
 function command(input: {
   readonly kind: BeadsEpicCommand["kind"];
   readonly label: string;
@@ -795,7 +816,7 @@ export function deriveEpicExecutionControl(input: {
     | null;
   readonly validation: Pick<
     BeadsEpicCoordinationValidation,
-    "valid" | "summary" | "readyFronts"
+    "valid" | "summary" | "readyFronts" | "errors"
   > | null;
   readonly epicRuns: ReadonlyArray<OrchestrationEpicRun>;
   readonly hasProjectConflict: boolean;
@@ -877,11 +898,15 @@ export function deriveEpicExecutionControl(input: {
   }
 
   if (input.validation?.valid === false) {
+    const dependencyError = input.validation.errors.find((error) =>
+      error.includes("open dependency that could not be identified"),
+    );
+    const summary = dependencyError ?? "Epic needs coordination prep before it can run.";
     return {
       execution: {
         state: "needs_preparation",
-        summary: "Epic needs coordination prep before it can run.",
-        blockingReason: "Epic validation failed.",
+        summary,
+        blockingReason: dependencyError ?? "Epic validation failed.",
         nextIssue: null,
       },
       commands: [
@@ -950,6 +975,20 @@ export function deriveEpicExecutionControl(input: {
       validation: input.validation,
     });
 
+  const executionBlockingReason = describeExecutionBlockingReason(executionBlocking);
+
+  if (executionBlockingReason !== null) {
+    return {
+      execution: {
+        state: "blocked",
+        summary: executionBlockingReason,
+        blockingReason: executionBlockingReason,
+        nextIssue: null,
+      },
+      commands: [],
+    };
+  }
+
   if (
     input.validation?.valid === true &&
     !coordinationIsComplete &&
@@ -978,26 +1017,6 @@ export function deriveEpicExecutionControl(input: {
           busyLabel: state === "failed" ? "Retrying..." : "Starting...",
         }),
       ],
-    };
-  }
-
-  if (executionBlocking.hasExecutionBlockingIssues) {
-    const blocked = [
-      ...executionBlocking.externalBlockedIssues,
-      ...executionBlocking.unknownBlockedIssues,
-    ];
-    const reason =
-      blocked.length > 0
-        ? `No ready issues. Blocked by ${describeBlockedIssues(blocked)}.`
-        : "No ready issues. Blocked by external or unknown dependencies.";
-    return {
-      execution: {
-        state: "blocked",
-        summary: reason,
-        blockingReason: reason,
-        nextIssue: null,
-      },
-      commands: [],
     };
   }
 
