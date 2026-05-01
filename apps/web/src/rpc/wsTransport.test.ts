@@ -927,9 +927,13 @@ describe("WsTransport", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(attempts).toBe(1);
-    expect(warnSpy).toHaveBeenCalledWith("WebSocket RPC subscription failed", {
-      error: "Git command failed in GitCore.statusDetails",
-    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      "WebSocket RPC subscription failed",
+      expect.objectContaining({
+        error: "Git command failed in GitCore.statusDetails",
+        hasReceivedValue: false,
+      }),
+    );
     expect(warnSpy).not.toHaveBeenCalledWith(
       "WebSocket RPC subscription disconnected",
       expect.anything(),
@@ -964,9 +968,14 @@ describe("WsTransport", () => {
       expect(attempts).toBeGreaterThanOrEqual(2);
     });
 
-    expect(warnSpy).toHaveBeenCalledWith("WebSocket RPC subscription disconnected", {
-      error: "SocketCloseError: WebSocket closed",
-    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      "WebSocket RPC subscription disconnected",
+      expect.objectContaining({
+        error: "SocketCloseError: WebSocket closed",
+        hasReceivedValue: false,
+        retryDelayMs: 10,
+      }),
+    );
 
     unsubscribe();
     await transport.dispose();
@@ -996,9 +1005,14 @@ describe("WsTransport", () => {
     await waitFor(() => {
       expect(warnSpy).toHaveBeenCalledTimes(1);
     });
-    expect(warnSpy).toHaveBeenCalledWith("WebSocket RPC subscription disconnected", {
-      error: "SocketCloseError: 1006",
-    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      "WebSocket RPC subscription disconnected",
+      expect.objectContaining({
+        error: "SocketCloseError: 1006",
+        hasReceivedValue: false,
+        retryDelayMs: 10,
+      }),
+    );
 
     unsubscribeA();
     unsubscribeB();
