@@ -581,16 +581,24 @@ function initializePackagedLogging(): void {
 }
 
 function captureBackendOutput(child: ChildProcess.ChildProcess): void {
-  const attachStream = (stream: NodeJS.ReadableStream | null | undefined): void => {
+  const attachStream = (
+    streamName: "stdout" | "stderr",
+    stream: NodeJS.ReadableStream | null | undefined,
+  ): void => {
     stream?.on("data", (chunk: unknown) => {
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), "utf8");
-      backendLogSink?.write(buffer);
+      if (backendLogSink) {
+        backendLogSink.write(buffer);
+      } else {
+        const output = streamName === "stderr" ? process.stderr : process.stdout;
+        output.write(buffer);
+      }
       backendListeningDetector?.push(buffer);
     });
   };
 
-  attachStream(child.stdout);
-  attachStream(child.stderr);
+  attachStream("stdout", child.stdout);
+  attachStream("stderr", child.stderr);
 }
 
 initializePackagedLogging();
