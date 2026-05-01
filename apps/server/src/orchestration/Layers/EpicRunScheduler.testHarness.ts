@@ -19,6 +19,9 @@ import {
   type OrchestrationEpicRun,
   type OrchestrationEpicIssueExecution,
   type EpicRunId,
+  type GitRunStackedActionInput,
+  type GitRunStackedActionResult,
+  type GitStatusLocalResult,
   TurnId,
 } from "@t3tools/contracts";
 import { createEpicRunFailureContext } from "@t3tools/shared/epicRun";
@@ -31,6 +34,7 @@ import {
   type OrchestrationEngineShape,
 } from "../Services/OrchestrationEngine.ts";
 import { EpicRunScheduler, type EpicRunSchedulerShape } from "../Services/EpicRunScheduler.ts";
+import { GitManager, type GitManagerShape } from "../../git/Services/GitManager.ts";
 import { EpicRunSchedulerLive } from "./EpicRunScheduler.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
@@ -51,6 +55,12 @@ export type HarnessOptions = {
   failUpdateIssueForIds?: ReadonlyArray<string>;
   failDispatchForCommandTypes?: ReadonlyArray<OrchestrationCommand["type"]>;
   beforeGetIssue?: (issueId: string) => Effect.Effect<void>;
+  git?: {
+    isRepo?: boolean;
+    changedFiles?: ReadonlyArray<string>;
+    failCommitWith?: string;
+    keepDirtyAfterCommit?: boolean;
+  };
 };
 
 function beadsError(message: string) {
@@ -726,6 +736,10 @@ type EpicRunSchedulerTestHarness = {
     patch: Partial<OrchestrationEpicIssueExecution>,
   ) => void;
   injectExecutionDrift: (execution: OrchestrationEpicIssueExecution) => void;
+  setGitChangedFiles: (paths: ReadonlyArray<string>) => void;
+  getGitCommitCalls: () => ReadonlyArray<GitRunStackedActionInput>;
+  setGitCommitFailure: (message: string | null) => void;
+  setGitKeepDirtyAfterCommit: (value: boolean) => void;
 };
 
 export type EpicRunSchedulerHarnessRuntime = {
@@ -745,6 +759,10 @@ export async function createEpicRunSchedulerHarness(
   let readModel = createEmptyReadModel();
   let readModelCallCount = 0;
   let sequence = 0;
+  let gitChangedFiles = [...(options.git?.changedFiles ?? [])];
+  let gitFailCommitWith = options.git?.failCommitWith ?? null;
+  let gitKeepDirtyAfterCommit = options.git?.keepDirtyAfterCommit ?? false;
+  const gitCommitCalls: GitRunStackedActionInput[] = [];
   const issues = new Map<string, BeadsIssueDetail>([
     [
       "TASK-1",
@@ -950,9 +968,80 @@ export async function createEpicRunSchedulerHarness(
       }),
   };
 
+  const makeGitStatus = (): GitStatusLocalResult => ({
+    isRepo: options.git?.isRepo ?? true,
+    hasOriginRemote: true,
+    isDefaultBranch: false,
+    branch: "feature/test",
+    hasWorkingTreeChanges: gitChangedFiles.length > 0,
+    workingTree: {
+      files: gitChangedFiles.map((path) => ({
+        path,
+        insertions: 1,
+        deletions: 0,
+      })),
+      insertions: gitChangedFiles.length,
+      deletions: 0,
+    },
+  });
+
+  const gitManagerService: GitManagerShape = {
+    status: () =>
+      Effect.succeed({
+        ...makeGitStatus(),
+        hasUpstream: true,
+        aheadCount: 0,
+        behindCount: 0,
+        pr: null,
+      }),
+    localStatus: () => Effect.succeed(makeGitStatus()),
+    remoteStatus: () =>
+      Effect.succeed({
+        hasUpstream: true,
+        aheadCount: 0,
+        behindCount: 0,
+        pr: null,
+      }),
+    invalidateLocalStatus: () => Effect.void,
+    invalidateRemoteStatus: () => Effect.void,
+    invalidateStatus: () => Effect.void,
+    resolvePullRequest: () => Effect.fail(new Error("unexpected resolvePullRequest call") as never),
+    preparePullRequestThread: () =>
+      Effect.fail(new Error("unexpected preparePullRequestThread call") as never),
+    runStackedAction: (input) =>
+      Effect.sync(() => {
+        gitCommitCalls.push(input);
+        if (gitFailCommitWith !== null) {
+          throw new Error(gitFailCommitWith);
+        }
+        const hadChanges = gitChangedFiles.length > 0;
+        if (!gitKeepDirtyAfterCommit) {
+          gitChangedFiles = [];
+        }
+        return {
+          action: input.action,
+          branch: { status: "skipped_not_requested" },
+          commit: hadChanges
+            ? {
+                status: "created",
+                commitSha: "commit-sha-1",
+                subject: input.commitMessage?.split("\n")[0] ?? "commit",
+              }
+            : { status: "skipped_no_changes" },
+          push: { status: "skipped_not_requested" },
+          pr: { status: "skipped_not_requested" },
+          toast: {
+            title: "Committed",
+            cta: { kind: "none" },
+          },
+        } satisfies GitRunStackedActionResult;
+      }),
+  };
+
   const layer = EpicRunSchedulerLive.pipe(
     Layer.provideMerge(Layer.succeed(OrchestrationEngineService, engineService)),
     Layer.provideMerge(Layer.succeed(BeadsTrackerService, trackerService)),
+    Layer.provideMerge(Layer.succeed(GitManager, gitManagerService)),
   );
 
   const runtime = ManagedRuntime.make(layer);
@@ -1053,6 +1142,16 @@ export async function createEpicRunSchedulerHarness(
         ...readModel,
         epicIssueExecutions: [...readModel.epicIssueExecutions, execution],
       };
+    },
+    setGitChangedFiles: (paths) => {
+      gitChangedFiles = [...paths];
+    },
+    getGitCommitCalls: () => gitCommitCalls,
+    setGitCommitFailure: (message) => {
+      gitFailCommitWith = message;
+    },
+    setGitKeepDirtyAfterCommit: (value) => {
+      gitKeepDirtyAfterCommit = value;
     },
   };
 

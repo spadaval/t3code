@@ -19,6 +19,7 @@ import {
   type OrchestrationEvent,
   ProviderDriverKind,
 } from "@t3tools/contracts";
+import type { GitStatusLocalResult } from "@t3tools/contracts";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
 import {
   deriveEpicRunExecutionState,
@@ -30,6 +31,7 @@ import { Cause, Deferred, Duration, Effect, Fiber, Layer, Stream } from "effect"
 import type { Scope } from "effect";
 
 import { BeadsTrackerService } from "../../beads/Services/BeadsTrackerService.ts";
+import { GitManager } from "../../git/Services/GitManager.ts";
 import {
   decideReconcileCurrentExecution,
   decideReconcileRequestedExecution,
@@ -183,6 +185,33 @@ function asControlResult(run: OrchestrationEpicRun): OrchestrationEpicRunControl
   };
 }
 
+function describeWorkingTreeChanges(status: GitStatusLocalResult): string {
+  const files = status.workingTree.files.map((file) => file.path).slice(0, 8);
+  if (files.length === 0) {
+    return "Git reported working tree changes but did not list changed files.";
+  }
+
+  const suffix =
+    status.workingTree.files.length > files.length
+      ? `, and ${status.workingTree.files.length - files.length} more`
+      : "";
+  return `Changed files: ${files.join(", ")}${suffix}.`;
+}
+
+function buildSettlementCommitMessage(input: {
+  readonly run: OrchestrationEpicRun;
+  readonly execution: OrchestrationEpicIssueExecution;
+}) {
+  return [
+    `chore(epic-run): persist ${input.execution.issueId} worker changes`,
+    "",
+    `Epic: ${input.run.epicIssueId}`,
+    `Run: ${input.run.runId}`,
+    `Execution: ${input.execution.executionId}`,
+    `Worker thread: ${input.execution.workerThreadId ?? "unknown"}`,
+  ].join("\n");
+}
+
 function workerTurnStopped(input: Parameters<typeof workerThreadStillHasActiveTurn>[0]): boolean {
   return !workerThreadStillHasActiveTurn(input);
 }
@@ -228,6 +257,7 @@ function prioritizeDriveRequests(
 const makeEpicRunScheduler = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const beadsTracker = yield* BeadsTrackerService;
+  const gitManager = yield* GitManager;
   const coordinationSnapshotReader = yield* EpicCoordinationSnapshotReader;
   const activeProjectFibers = new Map<OrchestrationProject["id"], Fiber.Fiber<void, never>>();
 
@@ -527,6 +557,111 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       modelSelection: createModelSelection(defaultInstanceIdForDriver(provider), model),
     };
   };
+
+  const readLocalGitStatus = (operation: string, cwd: string) =>
+    gitManager
+      .localStatus({ cwd })
+      .pipe(
+        Effect.mapError((error) =>
+          workflowError(
+            operation,
+            `Failed to read Git status for ${cwd}: ${toErrorMessage(error)}`,
+            error,
+          ),
+        ),
+      );
+
+  const requireCleanEpicWorktree = (input: {
+    readonly operation: string;
+    readonly cwd: string;
+    readonly epicIssueId: string;
+    readonly context: "start" | "launch" | "settlement";
+  }) =>
+    Effect.gen(function* () {
+      const status = yield* readLocalGitStatus(input.operation, input.cwd);
+      if (!status.isRepo) {
+        return yield* workflowError(
+          input.operation,
+          `Cannot ${
+            input.context === "start" ? "start" : "continue"
+          } epic run for ${input.epicIssueId} because ${input.cwd} is not a Git repository.`,
+        );
+      }
+
+      if (status.hasWorkingTreeChanges) {
+        const action = input.context === "start" ? "start" : "continue";
+        return yield* workflowError(
+          input.operation,
+          `Cannot ${action} epic run for ${input.epicIssueId} because ${input.cwd} has uncommitted changes. Commit or stash them before ${
+            input.context === "start" ? "starting" : "continuing"
+          }. ${describeWorkingTreeChanges(status)}`,
+        );
+      }
+    });
+
+  const reopenIssueAfterSettlementFailure = (input: {
+    readonly cwd: string;
+    readonly issueId: string;
+  }) =>
+    beadsTracker
+      .updateIssue({
+        cwd: input.cwd,
+        issueId: input.issueId,
+        status: "open",
+      })
+      .pipe(
+        Effect.mapError((error) =>
+          workflowError(
+            "reopenIssueAfterSettlementFailure",
+            `Failed to reopen issue '${input.issueId}' after settlement failure: ${toErrorMessage(error)}`,
+            error,
+          ),
+        ),
+      );
+
+  const commitClosedWorkerChanges = (input: {
+    readonly run: OrchestrationEpicRun;
+    readonly project: OrchestrationProject;
+    readonly execution: OrchestrationEpicIssueExecution;
+  }) =>
+    Effect.gen(function* () {
+      const beforeStatus = yield* readLocalGitStatus(
+        "commitClosedWorkerChanges:beforeStatus",
+        input.project.workspaceRoot,
+      );
+      if (!beforeStatus.isRepo) {
+        return yield* workflowError(
+          "commitClosedWorkerChanges",
+          `Cannot settle epic-run execution '${input.execution.executionId}' because ${input.project.workspaceRoot} is not a Git repository.`,
+        );
+      }
+
+      if (beforeStatus.hasWorkingTreeChanges) {
+        yield* gitManager
+          .runStackedAction({
+            actionId: `epic-run-settlement:${input.execution.executionId}`,
+            cwd: input.project.workspaceRoot,
+            action: "commit",
+            commitMessage: buildSettlementCommitMessage(input),
+          })
+          .pipe(
+            Effect.mapError((error) =>
+              workflowError(
+                "commitClosedWorkerChanges",
+                `Failed to commit worker changes for issue '${input.execution.issueId}': ${toErrorMessage(error)}`,
+                error,
+              ),
+            ),
+          );
+      }
+
+      yield* requireCleanEpicWorktree({
+        operation: "commitClosedWorkerChanges:afterStatus",
+        cwd: input.project.workspaceRoot,
+        epicIssueId: input.run.epicIssueId,
+        context: "settlement",
+      });
+    });
 
   const getCoordinationState = (input: {
     projectId: OrchestrationProject["id"];
@@ -991,6 +1126,13 @@ const makeEpicRunScheduler = Effect.gen(function* () {
     nextReadyIssue: BeadsIssueRelationSummary,
   ): Effect.Effect<OrchestrationEpicRun, EpicRunSchedulerError> =>
     Effect.gen(function* () {
+      yield* requireCleanEpicWorktree({
+        operation: "executeLaunchIssue:requireCleanWorktree",
+        cwd: snapshot.project.workspaceRoot,
+        epicIssueId: snapshot.run.epicIssueId,
+        context: "launch",
+      });
+
       yield* Effect.logDebug("epic run launching next issue execution").pipe(
         Effect.annotateLogs({
           runId: snapshot.run.runId,
@@ -1483,6 +1625,13 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         return existingRun;
       }
 
+      yield* requireCleanEpicWorktree({
+        operation: "createRun:requireCleanWorktree",
+        cwd: project.workspaceRoot,
+        epicIssueId: input.epicIssueId,
+        context: "start",
+      });
+
       yield* requireStartableTrackerState("startEpicRun", {
         projectId: input.projectId,
         epicIssueId: input.epicIssueId,
@@ -1642,6 +1791,42 @@ const makeEpicRunScheduler = Effect.gen(function* () {
           currentStatus: issue.status,
           workerThreadId: execution.workerThreadId,
         });
+        yield* failEpicIssueExecution({
+          runId: run.runId,
+          executionId: execution.executionId,
+          reason,
+        });
+        return yield* getRunById(run.runId);
+      }
+
+      const settlementExit = yield* Effect.exit(
+        commitClosedWorkerChanges({
+          run,
+          project,
+          execution,
+        }),
+      );
+      if (settlementExit._tag === "Failure") {
+        const settlementReason = truncateEpicRunFailureDetail(
+          toErrorMessage(Cause.squash(settlementExit.cause)),
+          500,
+        );
+        const reopenExit = yield* Effect.exit(
+          reopenIssueAfterSettlementFailure({
+            cwd: project.workspaceRoot,
+            issueId: execution.issueId,
+          }),
+        );
+        const reason =
+          reopenExit._tag === "Failure"
+            ? truncateEpicRunFailureDetail(
+                `${settlementReason} Also failed to reopen issue '${execution.issueId}': ${toErrorMessage(
+                  Cause.squash(reopenExit.cause),
+                )}`,
+                500,
+              )
+            : settlementReason;
+
         yield* failEpicIssueExecution({
           runId: run.runId,
           executionId: execution.executionId,

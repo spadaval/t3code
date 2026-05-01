@@ -13,6 +13,7 @@ import {
 } from "@t3tools/contracts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { EpicRunScheduler } from "../Services/EpicRunScheduler.ts";
+import { buildEpicRunWorkerPrompt } from "../epicRunWorker.ts";
 import {
   createEpicRunSchedulerHarness,
   type HarnessOptions,
@@ -103,6 +104,31 @@ describe("EpicRunScheduler", () => {
     expect(issue?.status).toBe("open");
     expect(issue?.assignee).toBeNull();
     expect(issue?.comments).toHaveLength(0);
+  });
+
+  it("rejects starting a new epic run when the project worktree is dirty", async () => {
+    const harness = await createHarness(makeTrackerState(), {
+      git: {
+        changedFiles: ["apps/server/src/dirty.ts"],
+      },
+    });
+
+    await expect(
+      runtime!.runPromise(
+        harness.workflow.startEpicRun({
+          projectId: harness.projectId,
+          epicIssueId: "EPIC-1",
+          runtimeMode: "full-access",
+        }),
+      ),
+    ).rejects.toThrow(
+      "Cannot start epic run for EPIC-1 because /repo/project has uncommitted changes.",
+    );
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    expect(snapshot.epicRuns).toHaveLength(0);
+    expect(snapshot.epicIssueExecutions).toHaveLength(0);
+    expect(snapshot.threads).toHaveLength(0);
   });
 
   it("keeps requested execution pending before timeout when launch has been requested but not observed", async () => {
@@ -890,6 +916,262 @@ describe("EpicRunScheduler", () => {
     expect(nextIssue?.status).toBe("open");
     expect(nextIssue?.assignee).toBeNull();
     expect(nextIssue?.comments).toHaveLength(0);
+  });
+
+  it("commits dirty shared-worktree changes before completing a closed worker issue", async () => {
+    const harness = await createHarness();
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startEpicRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const initialSnapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const initialExecution = initialSnapshot.epicIssueExecutions[0];
+    expect(initialExecution?.workerThreadId).toBeTruthy();
+    if (!initialExecution?.workerThreadId) {
+      return;
+    }
+
+    const baseline = makeTrackerState();
+    harness.setTrackerState(
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [[relationIssue("TASK-2", 2)]],
+        },
+        status: {
+          ...baseline.status,
+          completed: [relationIssue("TASK-1", 1)],
+          ready: [relationIssue("TASK-2", 2)],
+          active: [],
+          blocked: [],
+        },
+      }),
+    );
+    harness.setGitChangedFiles(["apps/server/src/worker-change.ts"]);
+    harness.patchIssue("TASK-1", { status: "closed" });
+    harness.patchThread(initialExecution.workerThreadId, {
+      latestTurn: makeCompletedLatestTurn("turn-commit-worker"),
+      session: makeReadySession(initialExecution.workerThreadId),
+    });
+
+    await runtime!.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          yield* harness.workflow.start;
+          yield* harness.workflow.drain;
+        }),
+      ),
+    );
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const run = snapshot.epicRuns.find((entry) => entry.runId === started.runId);
+    const completedExecution = snapshot.epicIssueExecutions.find(
+      (entry) => entry.executionId === initialExecution.executionId,
+    );
+    const nextExecution = snapshot.epicIssueExecutions.find(
+      (entry) => entry.executionId !== initialExecution.executionId,
+    );
+    const commitCalls = harness.getGitCommitCalls();
+
+    expect(run?.status).toBe("running");
+    expect(run?.failureContext).toBeNull();
+    expect(completedExecution?.status).toBe("completed");
+    expect(nextExecution?.issueId).toBe("TASK-2");
+    expect(commitCalls).toHaveLength(1);
+    expect(commitCalls[0]?.action).toBe("commit");
+    expect(commitCalls[0]?.commitMessage).toContain(
+      "chore(epic-run): persist TASK-1 worker changes",
+    );
+    expect(commitCalls[0]?.commitMessage).toContain(`Run: ${started.runId}`);
+  });
+
+  it("skips settlement commits when the closed worker leaves a clean worktree", async () => {
+    const harness = await createHarness();
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startEpicRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const initialSnapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const execution = initialSnapshot.epicIssueExecutions[0];
+    expect(execution?.workerThreadId).toBeTruthy();
+    if (!execution?.workerThreadId) {
+      return;
+    }
+
+    const baseline = makeTrackerState();
+    harness.setTrackerState(
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          summary: {
+            ...baseline.validation.summary!,
+            totalIssueCount: 1,
+            completedIssueCount: 1,
+            readyIssueCount: 0,
+            activeIssueCount: 0,
+            blockedIssueCount: 0,
+          },
+          readyFronts: [],
+        },
+        status: {
+          ...baseline.status,
+          summary: {
+            ...baseline.status.summary!,
+            totalIssueCount: 1,
+            completedIssueCount: 1,
+            readyIssueCount: 0,
+            activeIssueCount: 0,
+            blockedIssueCount: 0,
+          },
+          ready: [],
+          completed: [relationIssue("TASK-1", 1)],
+        },
+      }),
+    );
+    harness.patchIssue("TASK-1", { status: "closed" });
+    harness.patchThread(execution.workerThreadId, {
+      latestTurn: makeCompletedLatestTurn("turn-clean-worker"),
+      session: makeReadySession(execution.workerThreadId),
+    });
+
+    await runtime!.runPromise(Effect.scoped(harness.workflow.start));
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const completed = snapshot.epicRuns.find((entry) => entry.runId === started.runId);
+
+    expect(completed?.status).toBe("completed");
+    expect(harness.getGitCommitCalls()).toHaveLength(0);
+  });
+
+  it("fails the run and reopens the closed issue when settlement commit fails", async () => {
+    const harness = await createHarness(makeTrackerState(), {
+      git: {
+        failCommitWith: "pre-commit hook rejected worker changes",
+      },
+    });
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startEpicRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const initialSnapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const execution = initialSnapshot.epicIssueExecutions[0];
+    expect(execution?.workerThreadId).toBeTruthy();
+    if (!execution?.workerThreadId) {
+      return;
+    }
+
+    const baseline = makeTrackerState();
+    harness.setTrackerState(
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [[relationIssue("TASK-2", 2)]],
+        },
+        status: {
+          ...baseline.status,
+          completed: [relationIssue("TASK-1", 1)],
+          ready: [relationIssue("TASK-2", 2)],
+        },
+      }),
+    );
+    harness.setGitChangedFiles(["apps/server/src/failing-change.ts"]);
+    harness.patchIssue("TASK-1", { status: "closed" });
+    harness.patchThread(execution.workerThreadId, {
+      latestTurn: makeCompletedLatestTurn("turn-failing-commit"),
+      session: makeReadySession(execution.workerThreadId),
+    });
+
+    await runtime!.runPromise(Effect.scoped(harness.workflow.start));
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const run = snapshot.epicRuns.find((entry) => entry.runId === started.runId);
+    const failedExecution = snapshot.epicIssueExecutions.find(
+      (entry) => entry.executionId === execution.executionId,
+    );
+    const nextExecution = snapshot.epicIssueExecutions.find(
+      (entry) => entry.executionId !== execution.executionId,
+    );
+    const issue = harness.getIssue("TASK-1");
+
+    expect(run?.status).toBe("failed");
+    expect(failureMessage(run)).toContain("pre-commit hook rejected worker changes");
+    expect(failedExecution?.status).toBe("failed");
+    expect(nextExecution).toBeUndefined();
+    expect(issue?.status).toBe("open");
+    expect(issue?.comments.at(-1)?.text).toContain("Epic-run worker failed.");
+    expect(issue?.comments.at(-1)?.text).toContain("pre-commit hook rejected worker changes");
+  });
+
+  it("fails the run when the worktree becomes dirty before launching the next worker", async () => {
+    const baseline = makeTrackerState();
+    const harness = await createHarness(
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [],
+        },
+        status: {
+          ...baseline.status,
+          ready: [],
+          blocked: [relationIssue("TASK-2", 2)],
+        },
+      }),
+    );
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startEpicRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    harness.setTrackerState(
+      makeTrackerState({
+        validation: {
+          ...baseline.validation,
+          readyFronts: [[relationIssue("TASK-2", 2)]],
+        },
+        status: {
+          ...baseline.status,
+          ready: [relationIssue("TASK-2", 2)],
+          active: [],
+          blocked: [],
+        },
+      }),
+    );
+    harness.setGitChangedFiles(["apps/server/src/prelaunch-dirty.ts"]);
+
+    await runtime!.runPromise(Effect.scoped(harness.workflow.start));
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const run = snapshot.epicRuns.find((entry) => entry.runId === started.runId);
+
+    expect(run?.status).toBe("failed");
+    expect(failureMessage(run)).toContain(
+      "Cannot continue epic run for EPIC-1 because /repo/project has uncommitted changes.",
+    );
+    expect(snapshot.epicIssueExecutions).toHaveLength(0);
+    expect(snapshot.threads).toHaveLength(0);
   });
 
   it("completes automatic runs when the last task finishes and no work remains", async () => {
@@ -1795,5 +2077,22 @@ describe("EpicRunScheduler", () => {
     expect(snapshot.epicIssueExecutions).toHaveLength(1);
     expect(snapshot.epicIssueExecutions[0]?.status).toBe("launching");
     expect(snapshot.threads).toHaveLength(1);
+  });
+});
+
+describe("buildEpicRunWorkerPrompt", () => {
+  it("instructs epic workers to commit all uncommitted files before closing", () => {
+    const prompt = buildEpicRunWorkerPrompt({
+      issueId: "TASK-1",
+      issueTitle: "Task 1",
+      epicIssueId: "EPIC-1",
+      runId: "run-1" as never,
+      executionId: "execution-1" as never,
+      sequenceNumber: 1,
+    });
+
+    expect(prompt).toContain("git status --short");
+    expect(prompt).toContain("git add -A");
+    expect(prompt).toContain("all uncommitted files");
   });
 });
