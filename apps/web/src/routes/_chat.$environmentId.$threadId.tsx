@@ -36,8 +36,9 @@ import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/component
 
 const DiffPanel = lazy(() => import("../components/DiffPanel"));
 const RIGHT_PANE_SIDEBAR_WIDTH_STORAGE_KEY = "chat_right_pane_width";
-const RIGHT_PANE_DEFAULT_WIDTH = "clamp(28rem,48vw,44rem)";
-const RIGHT_PANE_MIN_WIDTH = 26 * 16;
+const RIGHT_PANE_DEFAULT_WIDTH = "clamp(24rem,34vw,36rem)";
+const RIGHT_PANE_MIN_WIDTH = 22 * 16;
+const RIGHT_PANE_MAX_WIDTH = 36 * 16;
 const COMPOSER_COMPACT_MIN_LEFT_CONTROLS_WIDTH_PX = 208;
 const DiffLoadingFallback = (props: { mode: DiffPanelMode }) => {
   return (
@@ -130,6 +131,7 @@ const RightPaneInlineSidebar = (props: {
         collapsible="offcanvas"
         className="border-l border-border bg-card text-foreground"
         resizable={{
+          maxWidth: RIGHT_PANE_MAX_WIDTH,
           minWidth: RIGHT_PANE_MIN_WIDTH,
           shouldAcceptWidth: shouldAcceptInlineSidebarWidth,
           storageKey: RIGHT_PANE_SIDEBAR_WIDTH_STORAGE_KEY,
@@ -240,7 +242,7 @@ function ChatThreadRouteView() {
   if (!shouldUseDiffSheet) {
     return (
       <>
-        <SidebarInset className="h-dvh  min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+        <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
           <ChatView
             environmentId={threadRef.environmentId}
             threadId={threadRef.threadId}
@@ -258,7 +260,7 @@ function ChatThreadRouteView() {
 
   return (
     <>
-      <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+      <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
         <ChatView
           environmentId={threadRef.environmentId}
           threadId={threadRef.threadId}
