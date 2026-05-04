@@ -12,7 +12,6 @@ import {
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
   deriveLatestProviderActionFailure,
-  PROVIDER_OPTIONS,
   derivePendingApprovals,
   derivePendingUserInputs,
   deriveRunningSessionStallState,

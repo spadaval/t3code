@@ -1,4 +1,4 @@
-import type { GitCoreShape } from "../git/Services/GitCore.ts";
+import type { GitVcsDriverShape } from "../vcs/GitVcsDriver.ts";
 import { Effect } from "effect";
 import {
   buildTemporaryWorktreeBranchName,
@@ -23,7 +23,7 @@ function toErrorMessage(error: unknown): string {
 }
 
 export const createTemporaryWorktree = (input: {
-  git: GitCoreShape;
+  git: GitVcsDriverShape;
   cwd: string;
   baseBranch: string;
 }) =>
@@ -36,19 +36,19 @@ export const createTemporaryWorktree = (input: {
 
     const worktree = yield* input.git.createWorktree({
       cwd: input.cwd,
-      branch: input.baseBranch,
-      newBranch: branch,
+      refName: input.baseBranch,
+      newRefName: branch,
       path: null,
     });
 
     return {
-      branch: worktree.worktree.branch,
+      branch: worktree.worktree.refName,
       path: worktree.worktree.path,
     };
   });
 
 export const cleanupTemporaryWorktree = (input: {
-  git: GitCoreShape;
+  git: GitVcsDriverShape;
   cwd: string;
   branch: string | null;
   worktreePath: string | null;

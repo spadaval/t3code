@@ -25,7 +25,7 @@ import { RuntimeReceiptBus } from "../Services/RuntimeReceiptBus.ts";
 import type { CheckpointStoreError } from "../../checkpointing/Errors.ts";
 import type { OrchestrationDispatchError } from "../Errors.ts";
 import { isGitRepository } from "../../git/Utils.ts";
-import { GitStatusBroadcaster } from "../../git/Services/GitStatusBroadcaster.ts";
+import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { WorkspaceEntries } from "../../workspace/Services/WorkspaceEntries.ts";
 import { type WritableCheckpointSettlementStatus } from "../checkpointCapture.ts";
 
@@ -59,7 +59,7 @@ const make = Effect.gen(function* () {
   const checkpointStore = yield* CheckpointStore;
   const receiptBus = yield* RuntimeReceiptBus;
   const workspaceEntries = yield* WorkspaceEntries;
-  const gitStatusBroadcaster = yield* GitStatusBroadcaster;
+  const vcsStatusBroadcaster = yield* VcsStatusBroadcaster;
 
   const appendRevertFailureActivity = (input: {
     readonly threadId: ThreadId;
@@ -271,6 +271,7 @@ const make = Effect.gen(function* () {
         fromCheckpointRef,
         toCheckpointRef: targetCheckpointRef,
         fallbackFromToHead: false,
+        ignoreWhitespace: false,
       })
       .pipe(
         Effect.map((diff) =>
@@ -407,7 +408,7 @@ const make = Effect.gen(function* () {
         return;
       }
 
-      yield* gitStatusBroadcaster
+      yield* vcsStatusBroadcaster
         .refreshLocalStatus(checkpointCwd)
         .pipe(Effect.catch(() => Effect.void));
 

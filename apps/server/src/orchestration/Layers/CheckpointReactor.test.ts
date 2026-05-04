@@ -26,11 +26,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CheckpointStoreLive } from "../../checkpointing/Layers/CheckpointStore.ts";
 import { CheckpointStore } from "../../checkpointing/Services/CheckpointStore.ts";
-import { GitCoreLive } from "../../git/Layers/GitCore.ts";
-import {
-  GitStatusBroadcaster,
-  type GitStatusBroadcasterShape,
-} from "../../git/Services/GitStatusBroadcaster.ts";
+import * as VcsDriverRegistry from "../../vcs/VcsDriverRegistry.ts";
+import * as VcsProcess from "../../vcs/VcsProcess.ts";
+import { VcsStatusBroadcaster } from "../../vcs/VcsStatusBroadcaster.ts";
 import { CheckpointReactorLive } from "./CheckpointReactor.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
@@ -290,34 +288,39 @@ describe("CheckpointReactor", () => {
     const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
       prefix: "t3-checkpoint-reactor-test-",
     });
+    const vcsStatusBroadcasterLayer = Layer.succeed(VcsStatusBroadcaster, {
+      getStatus: () => Effect.die("getStatus should not be called in this test"),
+      refreshLocalStatus: (cwd: string) =>
+        Effect.sync(() => {
+          options?.gitStatusRefreshCalls?.push(cwd);
+        }).pipe(
+          Effect.as({
+            isRepo: true,
+            hasPrimaryRemote: false,
+            isDefaultRef: true,
+            refName: "main",
+            hasWorkingTreeChanges: false,
+            workingTree: { files: [], insertions: 0, deletions: 0 },
+          }),
+        ),
+      refreshStatus: () => Effect.die("refreshStatus should not be called in this test"),
+      streamStatus: () => Stream.empty,
+    });
 
     const layer = CheckpointReactorLive.pipe(
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(RuntimeReceiptBusLive),
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
+      Layer.provideMerge(vcsStatusBroadcasterLayer),
+      Layer.provideMerge(CheckpointStoreLive.pipe(Layer.provide(VcsDriverRegistry.layer))),
       Layer.provideMerge(
-        Layer.succeed(GitStatusBroadcaster, {
-          getStatus: () => Effect.die("getStatus should not be called in this test"),
-          refreshLocalStatus: (cwd: string) =>
-            Effect.sync(() => {
-              options?.gitStatusRefreshCalls?.push(cwd);
-              return {
-                kind: "local-only" as const,
-                cwd,
-                isGitRepository: true,
-                hasChanges: false,
-                files: [],
-                updatedAt: new Date().toISOString(),
-              };
-            }),
-          refreshStatus: () => Effect.die("refreshStatus should not be called in this test"),
-          streamStatus: () => Stream.empty,
-        } satisfies GitStatusBroadcasterShape),
+        WorkspaceEntriesLive.pipe(
+          Layer.provide(WorkspacePathsLive),
+          Layer.provideMerge(VcsDriverRegistry.layer),
+        ),
       ),
-      Layer.provideMerge(CheckpointStoreLive),
-      Layer.provideMerge(WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive))),
       Layer.provideMerge(WorkspacePathsLive),
-      Layer.provideMerge(GitCoreLive),
+      Layer.provideMerge(VcsProcess.layer),
       Layer.provideMerge(ServerConfigLayer),
       Layer.provideMerge(NodeServices.layer),
     );

@@ -19,7 +19,7 @@ import {
   type OrchestrationEvent,
   ProviderDriverKind,
 } from "@t3tools/contracts";
-import type { GitStatusLocalResult } from "@t3tools/contracts";
+import type { VcsStatusLocalResult } from "@t3tools/contracts";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
 import {
   deriveEpicRunExecutionState,
@@ -31,7 +31,7 @@ import { Cause, Deferred, Duration, Effect, Fiber, Layer, Stream } from "effect"
 import type { Scope } from "effect";
 
 import { BeadsTrackerService } from "../../beads/Services/BeadsTrackerService.ts";
-import { GitManager } from "../../git/Services/GitManager.ts";
+import { GitManager } from "../../git/GitManager.ts";
 import {
   decideReconcileCurrentExecution,
   decideReconcileRequestedExecution,
@@ -185,7 +185,7 @@ function asControlResult(run: OrchestrationEpicRun): OrchestrationEpicRunControl
   };
 }
 
-function describeWorkingTreeChanges(status: GitStatusLocalResult): string {
+function describeWorkingTreeChanges(status: VcsStatusLocalResult): string {
   const files = status.workingTree.files.map((file) => file.path).slice(0, 8);
   if (files.length === 0) {
     return "Git reported working tree changes but did not list changed files.";

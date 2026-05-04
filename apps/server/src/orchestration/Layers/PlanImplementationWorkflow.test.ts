@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { CommandId, ProjectId, ThreadId } from "@t3tools/contracts";
-import { type GitCoreShape, GitCore } from "../../git/Services/GitCore.ts";
+import { GitVcsDriver, type GitVcsDriverShape } from "../../vcs/GitVcsDriver.ts";
 import { ServerConfig, type ServerConfigShape } from "../../config.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
@@ -32,11 +32,11 @@ describe("PlanImplementationWorkflow", () => {
   });
 
   async function createHarness() {
-    const createWorktree = vi.fn((params: { newBranch?: string; branch: string }) =>
+    const createWorktree = vi.fn((params: { newRefName?: string; refName: string }) =>
       Effect.succeed({
         worktree: {
-          path: `/tmp/worktrees/${params.newBranch ?? params.branch}`,
-          branch: params.newBranch ?? params.branch,
+          path: `/tmp/worktrees/${params.newRefName ?? params.refName}`,
+          refName: params.newRefName ?? params.refName,
         },
       }),
     );
@@ -63,13 +63,13 @@ describe("PlanImplementationWorkflow", () => {
       Layer.provideMerge(ProjectionPlanImplementationLaunchRepositoryLive),
       Layer.provideMerge(SqlitePersistenceMemory),
       Layer.provideMerge(
-        Layer.succeed(GitCore, {
+        Layer.succeed(GitVcsDriver, {
           createWorktree,
           listBranches,
           listLocalBranchNames,
           removeWorktree,
           deleteLocalBranch,
-        } as unknown as GitCoreShape),
+        } as unknown as GitVcsDriverShape),
       ),
       Layer.provideMerge(
         Layer.succeed(ServerConfig, {

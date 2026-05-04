@@ -21,7 +21,7 @@ import {
   type EpicRunId,
   type GitRunStackedActionInput,
   type GitRunStackedActionResult,
-  type GitStatusLocalResult,
+  type VcsStatusLocalResult,
   TurnId,
 } from "@t3tools/contracts";
 import { createEpicRunFailureContext } from "@t3tools/shared/epicRun";
@@ -34,7 +34,7 @@ import {
   type OrchestrationEngineShape,
 } from "../Services/OrchestrationEngine.ts";
 import { EpicRunScheduler, type EpicRunSchedulerShape } from "../Services/EpicRunScheduler.ts";
-import { GitManager, type GitManagerShape } from "../../git/Services/GitManager.ts";
+import { GitManager, type GitManagerShape } from "../../git/GitManager.ts";
 import { EpicRunSchedulerLive } from "./EpicRunScheduler.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
@@ -968,11 +968,11 @@ export async function createEpicRunSchedulerHarness(
       }),
   };
 
-  const makeGitStatus = (): GitStatusLocalResult => ({
+  const makeGitStatus = (): VcsStatusLocalResult => ({
     isRepo: options.git?.isRepo ?? true,
-    hasOriginRemote: true,
-    isDefaultBranch: false,
-    branch: "feature/test",
+    hasPrimaryRemote: true,
+    isDefaultRef: false,
+    refName: "feature/test",
     hasWorkingTreeChanges: gitChangedFiles.length > 0,
     workingTree: {
       files: gitChangedFiles.map((path) => ({

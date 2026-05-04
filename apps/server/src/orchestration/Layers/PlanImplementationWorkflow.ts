@@ -24,7 +24,7 @@ import {
 import { projectScriptRuntimeEnv, setupProjectScript } from "@t3tools/shared/projectScripts";
 import { Cause, Duration, Effect, Fiber, Layer, Option } from "effect";
 
-import { GitCore } from "../../git/Services/GitCore.ts";
+import { GitVcsDriver } from "../../vcs/GitVcsDriver.ts";
 import type { ProjectionPlanImplementationLaunch } from "../../persistence/Services/ProjectionPlanImplementationLaunches.ts";
 import { ProjectionPlanImplementationLaunchRepository } from "../../persistence/Services/ProjectionPlanImplementationLaunches.ts";
 import { PlanImplementationWorkflowError } from "../Errors.ts";
@@ -104,7 +104,7 @@ function summarizeOutput(stdout: string, stderr: string): string | null {
 
 const makePlanImplementationWorkflow = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
-  const git = yield* GitCore;
+  const git = yield* GitVcsDriver;
   const projectionLaunchRepository = yield* ProjectionPlanImplementationLaunchRepository;
   const activeLaunchFibers = new Map<PlanImplementationLaunchId, Fiber.Fiber<void, never>>();
 
@@ -248,12 +248,12 @@ const makePlanImplementationWorkflow = Effect.gen(function* () {
           return Effect.succeed(threadBranch);
         }
 
-        return git.listBranches({ cwd: project.workspaceRoot }).pipe(
+        return git.listRefs({ cwd: project.workspaceRoot }).pipe(
           Effect.mapError((error) =>
             workflowError("resolveBaseBranch", truncateDetail(toErrorMessage(error)), error),
           ),
-          Effect.flatMap((branches) => {
-            const baseBranch = resolveDefaultLocalBranchName(branches.branches);
+          Effect.flatMap((refs) => {
+            const baseBranch = resolveDefaultLocalBranchName(refs.refs);
             return baseBranch
               ? Effect.succeed(baseBranch)
               : Effect.fail(

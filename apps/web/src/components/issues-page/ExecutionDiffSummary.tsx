@@ -96,6 +96,7 @@ export function ExecutionDiffSummary(props: ExecutionDiffSummaryProps) {
       threadId: workerThreadId,
       fromTurnCount: 0,
       toTurnCount: latestCheckpointTurnCount,
+      ignoreWhitespace: false,
       cacheScope: `exec-${execution.executionId}`,
       enabled: expanded && latestCheckpointTurnCount !== null,
     }),
