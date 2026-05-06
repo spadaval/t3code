@@ -4,6 +4,7 @@ import {
   BeadsError,
   ProviderInstanceId,
   type BeadsIssueDetail,
+  type BeadsIssueReferenceSummary,
   type BeadsEpicCoordinationStatus,
   type BeadsEpicCoordinationValidation,
   CommandId,
@@ -857,6 +858,29 @@ export async function createEpicRunSchedulerHarness(
           ...issue,
           comments: [],
         });
+      }),
+    resolveIssueRefs: ({ issueIds }) =>
+      Effect.sync(() => {
+        const resolvedIssues: BeadsIssueReferenceSummary[] = [];
+        const missingIssueIds: string[] = [];
+        for (const issueId of issueIds) {
+          const issue = issues.get(issueId);
+          if (!issue) {
+            missingIssueIds.push(issueId);
+            continue;
+          }
+          resolvedIssues.push({
+            id: issue.id,
+            title: issue.title,
+            status: issue.status,
+            issueType: issue.issueType,
+          });
+        }
+        return {
+          issues: resolvedIssues,
+          missingIssueIds,
+          loadErrors: [],
+        };
       }),
     getEpicIssueSummaries: ({ epicIssueId }) =>
       Effect.sync(() => {

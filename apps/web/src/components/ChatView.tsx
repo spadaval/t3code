@@ -1827,6 +1827,27 @@ export default function ChatView(props: ChatViewProps) {
     rawSearch.issueId,
     threadId,
   ]);
+  const handleOpenBeadsIssue = useCallback(
+    (issueId: string) => {
+      if (!isServerThread) {
+        return;
+      }
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: {
+          environmentId,
+          threadId,
+        },
+        replace: true,
+        search: ((previous: any) => ({
+          ...stripRightPaneSearchParams(previous),
+          rightPane: "issues" as const,
+          issueId,
+        })) as never,
+      });
+    },
+    [environmentId, isServerThread, navigate, threadId],
+  );
 
   const envLocked = Boolean(
     activeThread &&
@@ -3792,6 +3813,7 @@ export default function ChatView(props: ChatViewProps) {
                 onOpenTurnDiff={onOpenTurnDiff}
                 revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
                 onRevertUserMessage={onRevertUserMessage}
+                onOpenBeadsIssue={handleOpenBeadsIssue}
                 isRevertingCheckpoint={isRevertingCheckpoint}
                 onImageExpand={onExpandTimelineImage}
                 markdownCwd={gitCwd ?? undefined}

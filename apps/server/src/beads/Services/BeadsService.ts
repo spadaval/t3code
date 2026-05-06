@@ -11,6 +11,8 @@ import type {
   BeadsGetIssueInput,
   BeadsGetIssuesInput,
   BeadsGetIssuesResult,
+  BeadsResolveIssueRefsInput,
+  BeadsResolveIssueRefsResult,
   BeadsGetSessionActivityInput,
   BeadsGetSessionActivityResult,
   BeadsIssueDetail,
@@ -43,6 +45,9 @@ export interface BeadsServiceShape {
   readonly getIssues: (
     input: BeadsGetIssuesInput,
   ) => Effect.Effect<BeadsGetIssuesResult, BeadsError>;
+  readonly resolveIssueRefs: (
+    input: BeadsResolveIssueRefsInput,
+  ) => Effect.Effect<BeadsResolveIssueRefsResult, BeadsError>;
   readonly updateIssue: (
     input: BeadsUpdateIssueInput,
   ) => Effect.Effect<BeadsIssueSummary, BeadsError>;

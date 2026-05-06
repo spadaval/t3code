@@ -1097,6 +1097,24 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ),
             { "rpc.aggregate": "beads" },
           ),
+        [BEADS_WS_METHODS.resolveIssueRefs]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.resolveIssueRefs,
+            beads.resolveIssueRefs(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure(
+                        "Failed to resolve beads issue references",
+                        cause,
+                      ),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
+          ),
         [BEADS_WS_METHODS.createIssue]: (input) =>
           observeRpcEffect(
             BEADS_WS_METHODS.createIssue,

@@ -116,6 +116,7 @@ const rpcClientMock = {
     queryIssues: vi.fn(),
     getIssue: vi.fn(),
     getIssues: vi.fn(),
+    resolveIssueRefs: vi.fn(),
     createIssue: vi.fn(),
     updateIssue: vi.fn(),
     commentIssue: vi.fn(),

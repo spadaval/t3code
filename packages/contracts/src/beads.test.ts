@@ -7,6 +7,8 @@ import {
   BeadsEpicIssueSummaries,
   BeadsEpicCoordinationDetail,
   BeadsIssueGraph,
+  BeadsResolveIssueRefsInput,
+  BeadsResolveIssueRefsResult,
   BeadsIssueSummary,
   BeadsQueryIssuesInput,
   BeadsProjectRunSummary,
@@ -22,6 +24,8 @@ const decodeBeadsContext = Schema.decodeUnknownEffect(BeadsContext);
 const decodeBeadsEpicIssueSummaries = Schema.decodeUnknownEffect(BeadsEpicIssueSummaries);
 const decodeBeadsEpicCoordinationDetail = Schema.decodeUnknownEffect(BeadsEpicCoordinationDetail);
 const decodeBeadsIssueGraph = Schema.decodeUnknownEffect(BeadsIssueGraph);
+const decodeBeadsResolveIssueRefsInput = Schema.decodeUnknownEffect(BeadsResolveIssueRefsInput);
+const decodeBeadsResolveIssueRefsResult = Schema.decodeUnknownEffect(BeadsResolveIssueRefsResult);
 const decodeBeadsIssueSummary = Schema.decodeUnknownEffect(BeadsIssueSummary);
 const decodeBeadsQueryIssuesInput = Schema.decodeUnknownEffect(BeadsQueryIssuesInput);
 const decodeBeadsProjectRunSummary = Schema.decodeUnknownEffect(BeadsProjectRunSummary);
@@ -110,6 +114,37 @@ it.effect("defaults missing issue summary dependency refs for historical payload
     });
 
     assert.deepStrictEqual(parsed.dependencyRefs, []);
+  }),
+);
+
+it.effect("decodes beads issue reference resolution inputs and partial results", () =>
+  Effect.gen(function* () {
+    const input = yield* decodeBeadsResolveIssueRefsInput({
+      cwd: "/tmp/repo",
+      issueIds: ["t3code-dci", "t3code-missing"],
+    });
+    const result = yield* decodeBeadsResolveIssueRefsResult({
+      issues: [
+        {
+          id: "t3code-dci",
+          title: "Merge nightly",
+          status: "open",
+          issueType: "task",
+        },
+      ],
+      missingIssueIds: ["t3code-missing"],
+      loadErrors: [
+        {
+          issueId: "t3code-bad",
+          message: "Failed to run bd: permission denied.",
+        },
+      ],
+    });
+
+    assert.deepStrictEqual(input.issueIds, ["t3code-dci", "t3code-missing"]);
+    assert.strictEqual(result.issues[0]?.title, "Merge nightly");
+    assert.deepStrictEqual(result.missingIssueIds, ["t3code-missing"]);
+    assert.strictEqual(result.loadErrors[0]?.message, "Failed to run bd: permission denied.");
   }),
 );
 

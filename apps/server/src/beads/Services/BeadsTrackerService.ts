@@ -6,6 +6,8 @@ import type {
   BeadsEpicIssueInput,
   BeadsGetContextInput,
   BeadsGetIssueInput,
+  BeadsResolveIssueRefsInput,
+  BeadsResolveIssueRefsResult,
   BeadsIssueDetail,
   BeadsIssueGraph,
   BeadsIssueSummary,
@@ -30,6 +32,9 @@ export interface BeadsTrackerServiceShape {
   readonly getIssueSummary: (
     input: BeadsGetIssueInput,
   ) => Effect.Effect<BeadsIssueSummary, BeadsError>;
+  readonly resolveIssueRefs: (
+    input: BeadsResolveIssueRefsInput,
+  ) => Effect.Effect<BeadsResolveIssueRefsResult, BeadsError>;
   readonly getIssueWithoutComments: (
     input: BeadsGetIssueInput,
   ) => Effect.Effect<BeadsIssueDetail, BeadsError>;

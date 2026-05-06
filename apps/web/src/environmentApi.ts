@@ -67,6 +67,7 @@ export function createEnvironmentApi(rpcClient: WsRpcClient): EnvironmentApi {
       queryIssues: rpcClient.beads.queryIssues,
       getIssue: rpcClient.beads.getIssue,
       getIssues: rpcClient.beads.getIssues,
+      resolveIssueRefs: rpcClient.beads.resolveIssueRefs,
       createIssue: rpcClient.beads.createIssue,
       updateIssue: rpcClient.beads.updateIssue,
       commentIssue: rpcClient.beads.commentIssue,

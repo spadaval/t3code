@@ -22,6 +22,8 @@ import type {
   BeadsProjectRunSummaryInput,
   BeadsQueryIssuesInput,
   BeadsQueryIssuesResult,
+  BeadsResolveIssueRefsInput,
+  BeadsResolveIssueRefsResult,
   BeadsStartBacklogGroomingInput,
   BeadsStartEpicCoordinationPrepInput,
   BeadsStartEpicPlannedRefineInput,
@@ -450,6 +452,7 @@ export interface EnvironmentApi {
     queryIssues: (input: BeadsQueryIssuesInput) => Promise<BeadsQueryIssuesResult>;
     getIssue: (input: BeadsGetIssueInput) => Promise<BeadsIssueDetail>;
     getIssues: (input: BeadsGetIssuesInput) => Promise<BeadsGetIssuesResult>;
+    resolveIssueRefs: (input: BeadsResolveIssueRefsInput) => Promise<BeadsResolveIssueRefsResult>;
     createIssue: (input: BeadsCreateIssueInput) => Promise<BeadsIssueSummary>;
     updateIssue: (input: BeadsUpdateIssueInput) => Promise<BeadsIssueSummary>;
     commentIssue: (input: BeadsCommentIssueInput) => Promise<BeadsIssueDetail>;

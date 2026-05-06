@@ -82,6 +82,7 @@ interface TimelineRowSharedState {
   workspaceRoot: string | undefined;
   activeThreadEnvironmentId: EnvironmentId;
   onRevertUserMessage: (messageId: MessageId) => void;
+  onOpenBeadsIssue: (issueId: string) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
 }
@@ -106,6 +107,7 @@ interface MessagesTimelineProps {
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   revertTurnCountByUserMessageId: Map<MessageId, number>;
   onRevertUserMessage: (messageId: MessageId) => void;
+  onOpenBeadsIssue: (issueId: string) => void;
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   activeThreadEnvironmentId: EnvironmentId;
@@ -134,6 +136,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onOpenTurnDiff,
   revertTurnCountByUserMessageId,
   onRevertUserMessage,
+  onOpenBeadsIssue,
   isRevertingCheckpoint,
   onImageExpand,
   activeThreadEnvironmentId,
@@ -205,6 +208,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       workspaceRoot,
       activeThreadEnvironmentId,
       onRevertUserMessage,
+      onOpenBeadsIssue,
       onImageExpand,
       onOpenTurnDiff,
     }),
@@ -221,6 +225,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       workspaceRoot,
       activeThreadEnvironmentId,
       onRevertUserMessage,
+      onOpenBeadsIssue,
       onImageExpand,
       onOpenTurnDiff,
     ],
@@ -406,6 +411,8 @@ function TimelineRowContent({ row }: { row: TimelineRow }) {
                   text={messageText}
                   cwd={ctx.markdownCwd}
                   isStreaming={Boolean(row.message.streaming)}
+                  enableBeadsIssueLinks={!row.message.streaming}
+                  onOpenBeadsIssue={ctx.onOpenBeadsIssue}
                 />
                 <AssistantChangedFilesSection
                   turnSummary={row.assistantTurnDiffSummary}

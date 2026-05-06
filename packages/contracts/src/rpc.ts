@@ -21,6 +21,8 @@ import {
   BeadsGetIssueInput,
   BeadsGetIssuesInput,
   BeadsGetIssuesResult,
+  BeadsResolveIssueRefsInput,
+  BeadsResolveIssueRefsResult,
   BeadsGetContextInput,
   BeadsGetSessionActivityInput,
   BeadsGetSessionActivityResult,
@@ -402,6 +404,12 @@ export const WsBeadsGetIssuesRpc = Rpc.make(BEADS_WS_METHODS.getIssues, {
   error: BeadsError,
 });
 
+export const WsBeadsResolveIssueRefsRpc = Rpc.make(BEADS_WS_METHODS.resolveIssueRefs, {
+  payload: BeadsResolveIssueRefsInput,
+  success: BeadsResolveIssueRefsResult,
+  error: BeadsError,
+});
+
 export const WsBeadsUpdateIssueRpc = Rpc.make(BEADS_WS_METHODS.updateIssue, {
   payload: BeadsUpdateIssueInput,
   success: BeadsIssueSummary,
@@ -664,6 +672,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsBeadsQueryIssuesRpc,
   WsBeadsGetIssueRpc,
   WsBeadsGetIssuesRpc,
+  WsBeadsResolveIssueRefsRpc,
   WsBeadsUpdateIssueRpc,
   WsBeadsCreateIssueRpc,
   WsBeadsCommentIssueRpc,

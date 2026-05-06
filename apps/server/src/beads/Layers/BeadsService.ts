@@ -10,6 +10,7 @@ import {
   BeadsGetSessionActivityResult,
   BeadsIssueDetail,
   BeadsIssueGraph,
+  BeadsIssueReferenceSummary,
   BeadsIssueRelationSummary,
   BeadsIssueSummary,
   BeadsProjectRunSummary,
@@ -23,6 +24,7 @@ import {
   type BeadsIssueComment,
   type BeadsIssueDependency,
   type BeadsIssueDetail as BeadsIssueDetailType,
+  type BeadsIssueReferenceSummary as BeadsIssueReferenceSummaryType,
   type BeadsIssueRelationSummary as BeadsIssueRelationSummaryType,
   type BeadsIssueSummary as BeadsIssueSummaryType,
   type BeadsQueryIssuesInput,
@@ -77,7 +79,9 @@ const MAX_BD_JSON_OUTPUT_BYTES = 8 * 1024 * 1024;
 const SLOW_BD_COMMAND_WARN_MS = 3_000;
 const BD_COMMAND_PREVIEW_LIMIT = 240;
 const BD_LOG_SCOPE = "beads.bd";
+const MAX_BEADS_ISSUE_REFS_PER_REQUEST = 50;
 const decodeIssueSummary = Schema.decodeUnknownSync(BeadsIssueSummary);
+const decodeIssueReferenceSummary = Schema.decodeUnknownSync(BeadsIssueReferenceSummary);
 const decodeIssueDetail = Schema.decodeUnknownSync(BeadsIssueDetail);
 const decodeBeadsContext = Schema.decodeUnknownSync(BeadsContext);
 const decodeIssueRelationSummary = Schema.decodeUnknownSync(BeadsIssueRelationSummary);
@@ -737,6 +741,15 @@ function mapIssueSummary(
     dependencyCount: typeof raw.dependency_count === "number" ? raw.dependency_count : undefined,
     dependentCount: typeof raw.dependent_count === "number" ? raw.dependent_count : undefined,
     commentCount: typeof raw.comment_count === "number" ? raw.comment_count : undefined,
+  });
+}
+
+function mapIssueReferenceSummary(issue: BeadsIssueSummaryType): BeadsIssueReferenceSummaryType {
+  return decodeIssueReferenceSummary({
+    id: issue.id,
+    title: issue.title,
+    status: issue.status,
+    issueType: issue.issueType,
   });
 }
 
@@ -1567,6 +1580,49 @@ const makeBeadsTrackerService = Effect.gen(function* () {
   const getIssueSummary: BeadsTrackerServiceShape["getIssueSummary"] = (input) =>
     getRawIssue(input.cwd, input.issueId).pipe(Effect.map((issue) => mapIssueSummary(issue)));
 
+  const resolveIssueRefs: BeadsTrackerServiceShape["resolveIssueRefs"] = (input) => {
+    const uniqueIssueIds = [...new Set(input.issueIds)];
+    if (uniqueIssueIds.length > MAX_BEADS_ISSUE_REFS_PER_REQUEST) {
+      return Effect.fail(
+        toBeadsError(
+          `Cannot resolve more than ${MAX_BEADS_ISSUE_REFS_PER_REQUEST} beads issue references per request.`,
+        ),
+      );
+    }
+
+    return Effect.all(
+      uniqueIssueIds.map((issueId) =>
+        runBdJson(input.cwd, ["show", issueId, "--long"], (json) => {
+          const items = Array.isArray(json) ? json : [];
+          const rawIssue = items[0] as Record<string, unknown> | undefined;
+          return rawIssue ? mapIssueReferenceSummary(mapIssueSummary(rawIssue)) : null;
+        }).pipe(
+          Effect.map((issue) =>
+            issue ? { kind: "found" as const, issue } : { kind: "missing" as const, issueId },
+          ),
+          Effect.catch((error) =>
+            Effect.succeed({
+              kind: "error" as const,
+              issueId,
+              message: error.message,
+            }),
+          ),
+        ),
+      ),
+      { concurrency: 10 },
+    ).pipe(
+      Effect.map((results) => ({
+        issues: results.flatMap((result) => (result.kind === "found" ? [result.issue] : [])),
+        missingIssueIds: results.flatMap((result) =>
+          result.kind === "missing" ? [result.issueId] : [],
+        ),
+        loadErrors: results.flatMap((result) =>
+          result.kind === "error" ? [{ issueId: result.issueId, message: result.message }] : [],
+        ),
+      })),
+    );
+  };
+
   const getEpicIssueSummaries: BeadsTrackerServiceShape["getEpicIssueSummaries"] = (input) =>
     Effect.gen(function* () {
       const [rawEpic, issues] = yield* Effect.all(
@@ -1935,6 +1991,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     queryIssues,
     listCoordinatorEpics,
     getIssueSummary,
+    resolveIssueRefs,
     getIssueWithoutComments,
     getIssue,
     getEpicIssueSummaries,
@@ -2154,6 +2211,8 @@ const makeBeadsService = Effect.gen(function* () {
 
   const queryIssues: BeadsServiceShape["queryIssues"] = (input) => beadsTracker.queryIssues(input);
   const getIssue: BeadsServiceShape["getIssue"] = (input) => beadsTracker.getIssue(input);
+  const resolveIssueRefs: BeadsServiceShape["resolveIssueRefs"] = (input) =>
+    beadsTracker.resolveIssueRefs(input);
   const getIssues: BeadsServiceShape["getIssues"] = (input) =>
     Effect.all(
       input.issueIds.map((issueId) =>
@@ -2440,6 +2499,7 @@ const makeBeadsService = Effect.gen(function* () {
   return {
     queryIssues,
     getIssue,
+    resolveIssueRefs,
     getIssues,
     createIssue,
     updateIssue,

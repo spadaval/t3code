@@ -19,6 +19,8 @@ import type {
   BeadsProjectRunSummaryInput,
   BeadsQueryIssuesInput,
   BeadsQueryIssuesResult,
+  BeadsResolveIssueRefsInput,
+  BeadsResolveIssueRefsResult,
   BeadsStartBacklogGroomingInput,
   BeadsUpdateIssueInput,
   BeadsCommentIssueInput,
@@ -87,6 +89,8 @@ export const beadsQueryKeys = {
     ["beads", "session-activity", input.cwd] as const,
   issueGraph: (cwd: string | null, issueId: string | null) =>
     ["beads", "issue-graph", cwd, issueId] as const,
+  issueRefs: (cwd: string | null, issueIds: readonly string[]) =>
+    ["beads", "issue-refs", cwd, [...new Set(issueIds)].toSorted()] as const,
 };
 
 export function beadsQueryIssuesOptions(
@@ -177,6 +181,25 @@ export function beadsIssuesBatchOptions(input: BeadsGetIssuesInput | null) {
       return beadsApiForCwd(input.cwd).getIssues(input);
     },
     enabled: input !== null && input.issueIds.length > 0,
+    retry: false,
+    staleTime: 10_000,
+  });
+}
+
+export function beadsResolveIssueRefsOptions(input: BeadsResolveIssueRefsInput | null) {
+  const issueIds = input ? [...new Set(input.issueIds)] : [];
+  return queryOptions<BeadsResolveIssueRefsResult>({
+    queryKey: beadsQueryKeys.issueRefs(input?.cwd ?? null, issueIds),
+    queryFn: async () => {
+      if (!input) {
+        throw new Error("Issue references are unavailable.");
+      }
+      return beadsApiForCwd(input.cwd).resolveIssueRefs({
+        cwd: input.cwd,
+        issueIds,
+      });
+    },
+    enabled: input !== null && input.cwd.length > 0 && issueIds.length > 0,
     retry: false,
     staleTime: 10_000,
   });

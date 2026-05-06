@@ -485,6 +485,141 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
+  it.effect("resolves issue references with found and missing issues", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      installBdJsonMock({
+        context: {
+          beads_dir: "/repo/.beads",
+          repo_root: "/repo",
+          cwd_repo_root: "/repo",
+          is_redirected: false,
+          is_worktree: false,
+          backend: "dolt",
+          dolt_mode: "server",
+          database: "repo",
+          project_id: "project-1",
+          role: "maintainer",
+          bd_version: "1.0.0",
+        },
+        "show TASK-1 --long": [
+          {
+            id: "TASK-1",
+            title: "Resolved task",
+            description: "desc",
+            notes: null,
+            status: "open",
+            priority: 1,
+            issue_type: "task",
+            assignee: null,
+            owner: "alice",
+            created_at: now,
+            created_by: "alice",
+            updated_at: now,
+            labels: [],
+          },
+        ],
+        "show MISSING-1 --long": [],
+      });
+
+      const beads = yield* BeadsService;
+      const result = yield* beads.resolveIssueRefs({
+        cwd: "/repo",
+        issueIds: ["TASK-1", "TASK-1", "MISSING-1"],
+      });
+
+      expect(result.issues).toEqual([
+        {
+          id: "TASK-1",
+          title: "Resolved task",
+          status: "open",
+          issueType: "task",
+        },
+      ]);
+      expect(result.missingIssueIds).toEqual(["MISSING-1"]);
+      expect(result.loadErrors).toEqual([]);
+      expect(countBdCommandCalls("show TASK-1 --long")).toBe(1);
+    }),
+  );
+
+  it.effect("preserves per-issue resolver errors", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      mockedRunProcess.mockImplementation(async (_command, args) => {
+        const key = commandKey(args);
+        if (key === "context") {
+          return successJson({
+            beads_dir: "/repo/.beads",
+            repo_root: "/repo",
+            cwd_repo_root: "/repo",
+            is_redirected: false,
+            is_worktree: false,
+            backend: "dolt",
+            dolt_mode: "server",
+            database: "repo",
+            project_id: "project-1",
+            role: "maintainer",
+            bd_version: "1.0.0",
+          });
+        }
+        if (key === "show TASK-1 --long") {
+          return successJson([
+            {
+              id: "TASK-1",
+              title: "Resolved task",
+              description: "desc",
+              notes: null,
+              status: "open",
+              priority: 1,
+              issue_type: "task",
+              assignee: null,
+              owner: "alice",
+              created_at: now,
+              created_by: "alice",
+              updated_at: now,
+              labels: [],
+            },
+          ]);
+        }
+        throw new Error(`bd show failed for ${key}`);
+      });
+
+      const beads = yield* BeadsService;
+      const result = yield* beads.resolveIssueRefs({
+        cwd: "/repo",
+        issueIds: ["TASK-1", "BROKEN-1"],
+      });
+
+      expect(result.issues.map((issue) => issue.id)).toEqual(["TASK-1"]);
+      expect(result.loadErrors).toEqual([
+        {
+          issueId: "BROKEN-1",
+          message: "Failed to run bd: bd show failed for show BROKEN-1 --long",
+        },
+      ]);
+    }),
+  );
+
+  it.effect("rejects oversized issue reference resolution requests", () =>
+    Effect.gen(function* () {
+      const beads = yield* BeadsService;
+      const exit = yield* beads
+        .resolveIssueRefs({
+          cwd: "/repo",
+          issueIds: Array.from({ length: 51 }, (_, index) => `TASK-${index + 1}`),
+        })
+        .pipe(Effect.exit);
+
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (!Exit.isFailure(exit)) {
+        return;
+      }
+      expect(Cause.squash(exit.cause)).toMatchObject({
+        message: "Cannot resolve more than 50 beads issue references per request.",
+      });
+    }),
+  );
+
   it.effect("keeps write-capable bd commands serialized in server mode", () =>
     Effect.gen(function* () {
       const cwd = "/repo-server-write";

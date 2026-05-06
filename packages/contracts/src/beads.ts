@@ -36,6 +36,7 @@ export const BEADS_WS_METHODS = {
   startEpicPlannedRefine: "beads.startEpicPlannedRefine",
   startEpicCoordinationPrep: "beads.startEpicCoordinationPrep",
   getIssues: "beads.getIssues",
+  resolveIssueRefs: "beads.resolveIssueRefs",
 } as const;
 
 const BeadsIssueId = TrimmedNonEmptyString;
@@ -96,6 +97,20 @@ export const BeadsIssueSummary = Schema.Struct({
   commentCount: Schema.optional(NonNegativeInt),
 });
 export type BeadsIssueSummary = typeof BeadsIssueSummary.Type;
+
+export const BeadsIssueReferenceSummary = Schema.Struct({
+  id: BeadsIssueId,
+  title: TrimmedNonEmptyString,
+  status: BeadsIssueStatus,
+  issueType: BeadsIssueType,
+});
+export type BeadsIssueReferenceSummary = typeof BeadsIssueReferenceSummary.Type;
+
+export const BeadsIssueReferenceLoadError = Schema.Struct({
+  issueId: BeadsIssueId,
+  message: TrimmedNonEmptyString,
+});
+export type BeadsIssueReferenceLoadError = typeof BeadsIssueReferenceLoadError.Type;
 
 export const BeadsIssueDependency = Schema.Struct({
   id: BeadsIssueId,
@@ -425,6 +440,23 @@ export const BeadsGetIssuesResult = Schema.Struct({
   issues: Schema.Array(BeadsIssueDetail),
 });
 export type BeadsGetIssuesResult = typeof BeadsGetIssuesResult.Type;
+
+export const BeadsResolveIssueRefsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  issueIds: Schema.Array(BeadsIssueId),
+});
+export type BeadsResolveIssueRefsInput = typeof BeadsResolveIssueRefsInput.Type;
+
+export const BeadsResolveIssueRefsResult = Schema.Struct({
+  issues: Schema.Array(BeadsIssueReferenceSummary).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  missingIssueIds: Schema.Array(BeadsIssueId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  loadErrors: Schema.Array(BeadsIssueReferenceLoadError).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+});
+export type BeadsResolveIssueRefsResult = typeof BeadsResolveIssueRefsResult.Type;
 
 export const BeadsGetContextInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
