@@ -1,9 +1,10 @@
 // @ts-nocheck
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { CommandId, ProjectId, ThreadId } from "@t3tools/contracts";
+import { CommandId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import { createModelCapabilities } from "@t3tools/shared/model";
 import { GitVcsDriver, type GitVcsDriverShape } from "../../vcs/GitVcsDriver.ts";
 import { ServerConfig, type ServerConfigShape } from "../../config.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
@@ -16,6 +17,7 @@ import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
 import { PlanImplementationWorkflowLive } from "./PlanImplementationWorkflow.ts";
 import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
+import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
@@ -62,6 +64,56 @@ describe("PlanImplementationWorkflow", () => {
       Layer.provideMerge(orchestrationLayer),
       Layer.provideMerge(ProjectionPlanImplementationLaunchRepositoryLive),
       Layer.provideMerge(SqlitePersistenceMemory),
+      Layer.provideMerge(
+        Layer.succeed(ProviderRegistry, {
+          getProviders: Effect.succeed([
+            {
+              driver: "codex",
+              instanceId: ProviderInstanceId.make("codex"),
+              displayName: "Codex",
+              enabled: true,
+              installed: true,
+              version: null,
+              status: "ready",
+              checkedAt: now,
+              auth: { status: "authenticated", type: "apiKey", label: "OpenAI API Key" },
+              models: [
+                {
+                  slug: "gpt-5.4",
+                  name: "GPT-5.4",
+                  isCustom: false,
+                  capabilities: createModelCapabilities({
+                    optionDescriptors: [
+                      {
+                        id: "reasoningEffort",
+                        label: "Reasoning",
+                        type: "select",
+                        options: [
+                          { id: "low", label: "Low" },
+                          { id: "medium", label: "Medium", isDefault: true },
+                        ],
+                        currentValue: "medium",
+                      },
+                      {
+                        id: "fastMode",
+                        label: "Fast Mode",
+                        type: "boolean",
+                        currentValue: true,
+                      },
+                    ],
+                  }),
+                },
+              ],
+              skills: [],
+              slashCommands: [],
+              showInteractionModeToggle: true,
+            },
+          ]),
+          refresh: () => Effect.succeed([]),
+          refreshInstance: () => Effect.succeed([]),
+          streamChanges: Stream.never,
+        } as any),
+      ),
       Layer.provideMerge(
         Layer.succeed(GitVcsDriver, {
           createWorktree,
@@ -125,7 +177,10 @@ describe("PlanImplementationWorkflow", () => {
         projectId,
         title: "Project",
         workspaceRoot: "/repo/project",
-        defaultModelSelection: { provider: "codex", model: "gpt-5-codex" },
+        defaultModelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+        },
         createdAt: now,
       }),
     );
@@ -136,7 +191,11 @@ describe("PlanImplementationWorkflow", () => {
         threadId,
         projectId,
         title: "Planning thread",
-        modelSelection: { provider: "codex", model: "gpt-5-codex" },
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5-codex",
+          options: [{ id: "reasoningEffort", value: "low" }],
+        },
         runtimeMode: "full-access",
         interactionMode: "default",
         branch: "feature/source",
@@ -222,8 +281,36 @@ describe("PlanImplementationWorkflow", () => {
       },
     ]);
     expect(targetThread?.messages.at(-1)?.text).toContain("PLEASE IMPLEMENT THIS PLAN");
+    expect(targetThread?.modelSelection.options).toEqual([
+      { id: "reasoningEffort", value: "low" },
+      { id: "fastMode", value: true },
+    ]);
     expect(harness.createWorktree).toHaveBeenCalled();
     expect(harness.listBranches).not.toHaveBeenCalled();
+  });
+
+  it("keeps explicit fast mode false on plan implementation launches", async () => {
+    const harness = await createHarness();
+
+    const result = await runtime!.runPromise(
+      harness.workflow.launchPlanImplementation({
+        sourceThreadId: harness.threadId,
+        planId: "plan-1",
+        modelOptions: [{ id: "fastMode", value: false }],
+        runtimeMode: "full-access",
+        launchMode: "worktree",
+        runSetup: false,
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const targetThread = snapshot.threads.find((thread) => thread.id === result.targetThreadId);
+
+    expect(targetThread?.modelSelection.options).toEqual([
+      { id: "reasoningEffort", value: "medium" },
+      { id: "fastMode", value: false },
+    ]);
   });
 
   it("rejects retrying a started launch", async () => {

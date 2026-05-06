@@ -92,6 +92,10 @@ describe("EpicRunScheduler", () => {
     expect(runsForEpic).toHaveLength(1);
     expect(runsForEpic[0]?.provider).toBe("codex");
     expect(runsForEpic[0]?.model).toBe("gpt-5-codex");
+    expect(runsForEpic[0]?.modelOptions).toEqual([
+      { id: "reasoningEffort", value: "low" },
+      { id: "fastMode", value: true },
+    ]);
     expect(snapshot.epicIssueExecutions).toHaveLength(1);
     expect(snapshot.epicIssueExecutions[0]?.issueId).toBe("TASK-1");
     expect(snapshot.epicIssueExecutions[0]?.status).toBe("launching");
@@ -99,11 +103,56 @@ describe("EpicRunScheduler", () => {
     expect(snapshot.threads).toHaveLength(1);
     expect(snapshot.threads[0]?.title).toBe("TASK-1: Task 1 (Epic-run worker)");
     expect(snapshot.threads[0]?.issueLink?.issueId).toBe("TASK-1");
+    expect(snapshot.threads[0]?.modelSelection.options).toEqual([
+      { id: "reasoningEffort", value: "low" },
+      { id: "fastMode", value: true },
+    ]);
+    const workerTurnStart = harness
+      .getDispatchedCommands()
+      .find((command) => command.type === "thread.turn.start");
+    expect(workerTurnStart?.modelSelection?.options).toEqual([
+      { id: "reasoningEffort", value: "low" },
+      { id: "fastMode", value: true },
+    ]);
 
     const issue = harness.getIssue("TASK-1");
     expect(issue?.status).toBe("open");
     expect(issue?.assignee).toBeNull();
     expect(issue?.comments).toHaveLength(0);
+  });
+
+  it("keeps explicit fast mode false on epic run worker selections", async () => {
+    const harness = await createHarness();
+
+    await runtime!.runPromise(
+      harness.workflow.startEpicRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        modelOptions: [{ id: "fastMode", value: false }],
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const snapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const run = snapshot.epicRuns[0];
+    const workerThread = snapshot.threads[0];
+    const workerTurnStart = harness
+      .getDispatchedCommands()
+      .find((command) => command.type === "thread.turn.start");
+
+    expect(run?.modelOptions).toEqual([
+      { id: "reasoningEffort", value: "medium" },
+      { id: "fastMode", value: false },
+    ]);
+    expect(workerThread?.modelSelection.options).toEqual([
+      { id: "reasoningEffort", value: "medium" },
+      { id: "fastMode", value: false },
+    ]);
+    expect(workerTurnStart?.modelSelection?.options).toEqual([
+      { id: "reasoningEffort", value: "medium" },
+      { id: "fastMode", value: false },
+    ]);
   });
 
   it("rejects starting a new epic run when the project worktree is dirty", async () => {

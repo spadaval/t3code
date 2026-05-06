@@ -1,11 +1,11 @@
 import {
   CommandId,
-  defaultInstanceIdForDriver,
   DEFAULT_MODEL,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   EventId,
+  type ModelSelection,
   MessageId,
   PlanImplementationLaunchId,
   ProviderDriverKind,
@@ -16,7 +16,7 @@ import {
 } from "@t3tools/contracts";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import { resolveDefaultLocalBranchName } from "@t3tools/shared/git";
-import { createModelSelection } from "@t3tools/shared/model";
+import { createModelSelectionWithProviderDefaults } from "@t3tools/shared/model";
 import {
   buildPlanImplementationPrompt,
   buildPlanImplementationThreadTitle,
@@ -31,6 +31,7 @@ import { PlanImplementationWorkflowError } from "../Errors.ts";
 import { runProjectScriptShell } from "../projectScriptRunner.ts";
 import { cleanupTemporaryWorktree, createTemporaryWorktree } from "../tempWorktree.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import {
   PlanImplementationWorkflow,
   type PlanImplementationWorkflowShape,
@@ -106,6 +107,7 @@ const makePlanImplementationWorkflow = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const git = yield* GitVcsDriver;
   const projectionLaunchRepository = yield* ProjectionPlanImplementationLaunchRepository;
+  const providerRegistry = yield* ProviderRegistry;
   const activeLaunchFibers = new Map<PlanImplementationLaunchId, Fiber.Fiber<void, never>>();
 
   type DispatchInput = Parameters<typeof orchestrationEngine.dispatch>[0];
@@ -130,6 +132,40 @@ const makePlanImplementationWorkflow = Effect.gen(function* () {
           : Effect.fail(workflowError("getLaunchRow", `Launch '${launchId}' was not found.`)),
       ),
     );
+
+  const inferProviderFromSelection = (modelSelection: ModelSelection | null | undefined) =>
+    Effect.gen(function* () {
+      const providers = yield* providerRegistry.getProviders;
+      const provider =
+        providers.find((candidate) => candidate.instanceId === modelSelection?.instanceId)
+          ?.driver ?? ProviderDriverKind.make("codex");
+      return { provider, providers } as const;
+    });
+
+  const buildDefaultedModelSelection = (input: {
+    readonly provider: ProviderDriverKind;
+    readonly model: string;
+    readonly seedOptions?: ModelSelection["options"] | null;
+  }) =>
+    Effect.gen(function* () {
+      const providers = yield* providerRegistry.getProviders;
+      return createModelSelectionWithProviderDefaults({
+        provider: input.provider,
+        model: input.model,
+        providers,
+        seedOptions: input.seedOptions,
+      });
+    });
+
+  const buildLaunchModelSelection = (launch: ProjectionPlanImplementationLaunch) =>
+    buildDefaultedModelSelection({
+      provider: launch.provider ?? ProviderDriverKind.make("codex"),
+      model:
+        launch.model ??
+        DEFAULT_MODEL_BY_PROVIDER[ProviderDriverKind.make("codex")] ??
+        DEFAULT_MODEL,
+      seedOptions: launch.modelOptions,
+    });
 
   const getSourceContext = (launch: ProjectionPlanImplementationLaunch) =>
     orchestrationEngine.getReadModel().pipe(
@@ -362,18 +398,14 @@ const makePlanImplementationWorkflow = Effect.gen(function* () {
       );
 
       const createAndMarkPrepared = Effect.gen(function* () {
+        const modelSelection = yield* buildLaunchModelSelection(launch);
         yield* dispatchOrFail("prepareWorktree:createThread", {
           type: "thread.create",
           commandId: serverCommandId("plan-implementation-create-thread"),
           threadId: launch.targetThreadId,
           projectId: launch.projectId,
           title: launch.title,
-          modelSelection: createModelSelection(
-            defaultInstanceIdForDriver(launch.provider ?? ProviderDriverKind.make("codex")),
-            launch.model ??
-              DEFAULT_MODEL_BY_PROVIDER[ProviderDriverKind.make("codex")] ??
-              DEFAULT_MODEL,
-          ),
+          modelSelection,
           runtimeMode: launch.runtimeMode,
           interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
           branch: worktree.branch,
@@ -490,6 +522,7 @@ const makePlanImplementationWorkflow = Effect.gen(function* () {
 
   const startTurn = (launch: ProjectionPlanImplementationLaunch) =>
     Effect.gen(function* () {
+      const modelSelection = yield* buildLaunchModelSelection(launch);
       yield* dispatchOrFail("startTurn:threadTurnStart", {
         type: "thread.turn.start",
         commandId: serverCommandId("plan-implementation-start-turn"),
@@ -504,10 +537,7 @@ const makePlanImplementationWorkflow = Effect.gen(function* () {
           threadId: launch.sourceThreadId,
           planId: launch.sourcePlanId,
         },
-        ...(launch.provider ? { provider: launch.provider } : {}),
-        ...(launch.model ? { model: launch.model } : {}),
-        ...(launch.modelOptions ? { modelOptions: launch.modelOptions } : {}),
-        ...(launch.providerOptions ? { providerOptions: launch.providerOptions } : {}),
+        modelSelection,
         ...(launch.assistantDeliveryMode
           ? { assistantDeliveryMode: launch.assistantDeliveryMode }
           : {}),
@@ -713,6 +743,17 @@ const makePlanImplementationWorkflow = Effect.gen(function* () {
       const createdAt = nowIso();
       const title =
         input.titleOverride ?? buildPlanImplementationThreadTitle(sourcePlan.planMarkdown);
+      const inferredProvider = input.provider
+        ? { provider: input.provider, providers: yield* providerRegistry.getProviders }
+        : yield* inferProviderFromSelection(sourceThread.modelSelection);
+      const model = input.model ?? sourceThread.modelSelection.model;
+      const seedOptions = input.modelOptions ?? sourceThread.modelSelection.options ?? null;
+      const modelSelection = createModelSelectionWithProviderDefaults({
+        provider: inferredProvider.provider,
+        model,
+        providers: inferredProvider.providers,
+        seedOptions,
+      });
 
       yield* dispatchOrFail("launchPlanImplementation:request", {
         type: "plan-implementation-launch.request",
@@ -727,9 +768,9 @@ const makePlanImplementationWorkflow = Effect.gen(function* () {
         setupEnabled: input.runSetup,
         launchMode: input.launchMode,
         promptText: buildPlanImplementationPrompt(sourcePlan.planMarkdown),
-        ...(input.provider ? { provider: input.provider } : {}),
-        model: input.model ?? sourceThread.modelSelection.model,
-        ...(input.modelOptions ? { modelOptions: input.modelOptions } : {}),
+        provider: inferredProvider.provider,
+        model: modelSelection.model,
+        ...(modelSelection.options ? { modelOptions: modelSelection.options } : {}),
         ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
         assistantDeliveryMode: input.assistantDeliveryMode ?? "buffered",
         runtimeMode: input.runtimeMode ?? DEFAULT_RUNTIME_MODE,

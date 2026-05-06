@@ -215,6 +215,7 @@ const codexModelCapabilities = createModelCapabilities({
 function codexCatalogModel(input: {
   readonly defaultReasoningEffort: string;
   readonly supportedReasoningEfforts: ReadonlyArray<string>;
+  readonly additionalSpeedTiers?: ReadonlyArray<string>;
 }) {
   return {
     model: "gpt-5.5",
@@ -224,7 +225,7 @@ function codexCatalogModel(input: {
       reasoningEffort,
       description: `${reasoningEffort} reasoning`,
     })),
-    additionalSpeedTiers: ["fast"],
+    additionalSpeedTiers: input.additionalSpeedTiers ?? ["fast"],
   };
 }
 
@@ -234,6 +235,15 @@ function getCodexReasoningDescriptor(model: ServerProvider["models"][number]) {
   );
   assert.ok(descriptor);
   assert.strictEqual(descriptor.type, "select");
+  return descriptor;
+}
+
+function getCodexFastModeDescriptor(model: ServerProvider["models"][number]) {
+  const descriptor = model.capabilities?.optionDescriptors?.find(
+    (candidate) => candidate.id === "fastMode",
+  );
+  assert.ok(descriptor);
+  assert.strictEqual(descriptor.type, "boolean");
   return descriptor;
 }
 
@@ -423,6 +433,83 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
             descriptor.options.find((option) => option.id === "xhigh")?.isDefault,
             true,
           );
+        }),
+      );
+
+      it.effect("uses configured Codex fast service tier as the fast mode default", () =>
+        Effect.gen(function* () {
+          const status = yield* checkCodexProviderStatus(defaultCodexSettings, () =>
+            Effect.succeed(
+              makeCodexProbeSnapshot({
+                configuredServiceTier: "fast",
+                models: [
+                  mapCodexModelForProvider(
+                    codexCatalogModel({
+                      defaultReasoningEffort: "medium",
+                      supportedReasoningEfforts: ["medium", "high"],
+                    }),
+                    null,
+                    "fast",
+                  ),
+                ],
+              }),
+            ),
+          );
+
+          const descriptor = getCodexFastModeDescriptor(status.models[0]);
+          assert.strictEqual(descriptor.currentValue, true);
+        }),
+      );
+
+      it.effect("preserves fast mode descriptor shape when no service tier is configured", () =>
+        Effect.gen(function* () {
+          const status = yield* checkCodexProviderStatus(defaultCodexSettings, () =>
+            Effect.succeed(
+              makeCodexProbeSnapshot({
+                models: [
+                  mapCodexModelForProvider(
+                    codexCatalogModel({
+                      defaultReasoningEffort: "medium",
+                      supportedReasoningEfforts: ["medium", "high"],
+                    }),
+                    null,
+                    null,
+                  ),
+                ],
+              }),
+            ),
+          );
+
+          const descriptor = getCodexFastModeDescriptor(status.models[0]);
+          assert.strictEqual(descriptor.currentValue, undefined);
+        }),
+      );
+
+      it.effect("ignores configured Codex fast service tier for models without fast support", () =>
+        Effect.gen(function* () {
+          const status = yield* checkCodexProviderStatus(defaultCodexSettings, () =>
+            Effect.succeed(
+              makeCodexProbeSnapshot({
+                configuredServiceTier: "fast",
+                models: [
+                  mapCodexModelForProvider(
+                    codexCatalogModel({
+                      defaultReasoningEffort: "medium",
+                      supportedReasoningEfforts: ["medium", "high"],
+                      additionalSpeedTiers: [],
+                    }),
+                    null,
+                    "fast",
+                  ),
+                ],
+              }),
+            ),
+          );
+
+          const descriptor = status.models[0].capabilities?.optionDescriptors?.find(
+            (candidate) => candidate.id === "fastMode",
+          );
+          assert.strictEqual(descriptor, undefined);
         }),
       );
 

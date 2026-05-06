@@ -3,7 +3,6 @@ import {
   type BeadsEpicCoordinationStatus,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
-  defaultInstanceIdForDriver,
   DEFAULT_MODEL,
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_RUNTIME_MODE,
@@ -26,12 +25,13 @@ import {
   deriveExecutionBlocking,
   describeExecutionBlockingReason,
 } from "@t3tools/shared/epicRun";
-import { createModelSelection } from "@t3tools/shared/model";
+import { createModelSelectionWithProviderDefaults } from "@t3tools/shared/model";
 import { Cause, Deferred, Duration, Effect, Fiber, Layer, Stream } from "effect";
 import type { Scope } from "effect";
 
 import { BeadsTrackerService } from "../../beads/Services/BeadsTrackerService.ts";
 import { GitManager } from "../../git/GitManager.ts";
+import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import {
   decideReconcileCurrentExecution,
   decideReconcileRequestedExecution,
@@ -259,6 +259,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
   const beadsTracker = yield* BeadsTrackerService;
   const gitManager = yield* GitManager;
   const coordinationSnapshotReader = yield* EpicCoordinationSnapshotReader;
+  const providerRegistry = yield* ProviderRegistry;
   const activeProjectFibers = new Map<OrchestrationProject["id"], Fiber.Fiber<void, never>>();
 
   type DispatchInput = Parameters<typeof orchestrationEngine.dispatch>[0];
@@ -543,20 +544,46 @@ const makeEpicRunScheduler = Effect.gen(function* () {
     ) => Effect.Effect<any, any, any>
       ? I
       : never,
-  ) => {
-    const provider = input.provider ?? ProviderDriverKind.make("codex");
-    const model =
-      input.model ??
-      project.defaultModelSelection?.model ??
-      DEFAULT_MODEL_BY_PROVIDER[provider] ??
-      DEFAULT_MODEL;
+  ) =>
+    Effect.gen(function* () {
+      const providers = yield* providerRegistry.getProviders;
+      const provider =
+        input.provider ??
+        providers.find(
+          (candidate) => candidate.instanceId === project.defaultModelSelection?.instanceId,
+        )?.driver ??
+        ProviderDriverKind.make("codex");
+      const model =
+        input.model ??
+        project.defaultModelSelection?.model ??
+        DEFAULT_MODEL_BY_PROVIDER[provider] ??
+        DEFAULT_MODEL;
+      const modelSelection = createModelSelectionWithProviderDefaults({
+        provider,
+        model,
+        providers,
+        seedOptions: input.modelOptions ?? project.defaultModelSelection?.options ?? null,
+      });
 
-    return {
-      provider,
-      model,
-      modelSelection: createModelSelection(defaultInstanceIdForDriver(provider), model),
-    };
-  };
+      return {
+        provider,
+        model: modelSelection.model,
+        modelSelection,
+      };
+    });
+
+  const getRunModelSelection = (run: OrchestrationEpicRun) =>
+    Effect.gen(function* () {
+      const provider = run.provider ?? ProviderDriverKind.make("codex");
+      const model = run.model ?? DEFAULT_MODEL_BY_PROVIDER[provider] ?? DEFAULT_MODEL;
+      const providers = yield* providerRegistry.getProviders;
+      return createModelSelectionWithProviderDefaults({
+        provider,
+        model,
+        providers,
+        seedOptions: run.modelOptions,
+      });
+    });
 
   const readLocalGitStatus = (operation: string, cwd: string) =>
     gitManager
@@ -980,25 +1007,25 @@ const makeEpicRunScheduler = Effect.gen(function* () {
     readonly threadId: ThreadId;
     readonly issueLink: ReturnType<typeof buildEpicRunIssueLink>;
     readonly title: string;
-  }) => {
-    const provider = input.run.provider ?? ProviderDriverKind.make("codex");
-    const model = input.run.model ?? DEFAULT_MODEL_BY_PROVIDER[provider] ?? DEFAULT_MODEL;
+  }) =>
+    Effect.gen(function* () {
+      const modelSelection = yield* getRunModelSelection(input.run);
 
-    return dispatchOrFail("createWorkerThread", {
-      type: "thread.create",
-      commandId: serverCommandId("epic-run-worker-thread-create"),
-      threadId: input.threadId,
-      projectId: input.project.id,
-      title: input.title,
-      modelSelection: createModelSelection(defaultInstanceIdForDriver(provider), model),
-      runtimeMode: input.run.runtimeMode,
-      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-      branch: null,
-      worktreePath: null,
-      issueLink: input.issueLink,
-      createdAt: nowIso(),
-    }).pipe(Effect.asVoid);
-  };
+      yield* dispatchOrFail("createWorkerThread", {
+        type: "thread.create",
+        commandId: serverCommandId("epic-run-worker-thread-create"),
+        threadId: input.threadId,
+        projectId: input.project.id,
+        title: input.title,
+        modelSelection,
+        runtimeMode: input.run.runtimeMode,
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        branch: null,
+        worktreePath: null,
+        issueLink: input.issueLink,
+        createdAt: nowIso(),
+      }).pipe(Effect.asVoid);
+    });
 
   const deleteWorkerThread = (threadId: ThreadId) =>
     dispatchOrFail("deleteWorkerThread", {
@@ -1028,27 +1055,27 @@ const makeEpicRunScheduler = Effect.gen(function* () {
     readonly threadId: ThreadId;
     readonly promptText: string;
     readonly title: string;
-  }) => {
-    const provider = input.run.provider ?? ProviderDriverKind.make("codex");
-    const model = input.run.model ?? DEFAULT_MODEL_BY_PROVIDER[provider] ?? DEFAULT_MODEL;
+  }) =>
+    Effect.gen(function* () {
+      const modelSelection = yield* getRunModelSelection(input.run);
 
-    return dispatchOrFail("startWorkerThreadTurn", {
-      type: "thread.turn.start",
-      commandId: serverCommandId("epic-run-worker-thread-turn-start"),
-      threadId: input.threadId,
-      message: {
-        messageId: messageId("epic-run-worker"),
-        role: "user",
-        text: input.promptText,
-        attachments: [],
-      },
-      modelSelection: createModelSelection(defaultInstanceIdForDriver(provider), model),
-      titleSeed: input.title,
-      runtimeMode: input.run.runtimeMode,
-      interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-      createdAt: nowIso(),
-    }).pipe(Effect.asVoid);
-  };
+      yield* dispatchOrFail("startWorkerThreadTurn", {
+        type: "thread.turn.start",
+        commandId: serverCommandId("epic-run-worker-thread-turn-start"),
+        threadId: input.threadId,
+        message: {
+          messageId: messageId("epic-run-worker"),
+          role: "user",
+          text: input.promptText,
+          attachments: [],
+        },
+        modelSelection,
+        titleSeed: input.title,
+        runtimeMode: input.run.runtimeMode,
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt: nowIso(),
+      }).pipe(Effect.asVoid);
+    });
 
   const nextExecutionSequenceNumber = (runId: EpicRunId) =>
     getReadModel().pipe(
@@ -1637,7 +1664,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         epicIssueId: input.epicIssueId,
       });
 
-      const modelSelection = getEffectiveModelSelection(project, input);
+      const modelSelection = yield* getEffectiveModelSelection(project, input);
       const runId = nextRunId();
       const createdAt = nowIso();
 
@@ -1649,7 +1676,9 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         epicIssueId: input.epicIssueId,
         provider: modelSelection.provider,
         model: modelSelection.model,
-        ...(input.modelOptions ? { modelOptions: input.modelOptions } : {}),
+        ...(modelSelection.modelSelection.options
+          ? { modelOptions: modelSelection.modelSelection.options }
+          : {}),
         ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
         ...(input.assistantDeliveryMode
           ? { assistantDeliveryMode: input.assistantDeliveryMode }

@@ -2,12 +2,14 @@ import {
   DEFAULT_MODEL,
   DEFAULT_MODEL_BY_PROVIDER,
   MODEL_SLUG_ALIASES_BY_PROVIDER,
+  defaultInstanceIdForDriver,
   type ModelCapabilities,
   type ModelSelection,
   ProviderDriverKind,
   ProviderInstanceId,
   type ProviderOptionDescriptor,
   type ProviderOptionSelection,
+  type ServerProvider,
 } from "@t3tools/contracts";
 
 const DEFAULT_PROVIDER_DRIVER_KIND = ProviderDriverKind.make("codex");
@@ -324,6 +326,30 @@ export function createModelSelection(
     model,
   };
   return selections.length > 0 ? { ...base, options: selections } : base;
+}
+
+export function createModelSelectionWithProviderDefaults(input: {
+  readonly provider: ProviderDriverKind;
+  readonly model: string;
+  readonly providers: ReadonlyArray<ServerProvider>;
+  readonly seedOptions?: ReadonlyArray<ProviderOptionSelection> | null | undefined;
+}): ModelSelection {
+  const instanceId = defaultInstanceIdForDriver(input.provider);
+  const snapshot = input.providers.find((candidate) => candidate.instanceId === instanceId);
+  const normalizedModel = normalizeModelSlug(input.model, input.provider);
+  const capabilities =
+    snapshot?.models.find((candidate) => candidate.slug === normalizedModel)?.capabilities ?? null;
+
+  if (!capabilities) {
+    return createModelSelection(instanceId, input.model, input.seedOptions);
+  }
+
+  const descriptors = getProviderOptionDescriptors({
+    caps: capabilities,
+    selections: input.seedOptions,
+  });
+  const options = buildProviderOptionSelectionsFromDescriptors(descriptors);
+  return createModelSelection(instanceId, input.model, options);
 }
 
 /**

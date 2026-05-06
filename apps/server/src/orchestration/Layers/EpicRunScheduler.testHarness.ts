@@ -26,6 +26,7 @@ import {
   TurnId,
 } from "@t3tools/contracts";
 import { createEpicRunFailureContext } from "@t3tools/shared/epicRun";
+import { createModelCapabilities } from "@t3tools/shared/model";
 import {
   BeadsTrackerService,
   type BeadsTrackerServiceShape,
@@ -36,6 +37,7 @@ import {
 } from "../Services/OrchestrationEngine.ts";
 import { EpicRunScheduler, type EpicRunSchedulerShape } from "../Services/EpicRunScheduler.ts";
 import { GitManager, type GitManagerShape } from "../../git/GitManager.ts";
+import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import { EpicRunSchedulerLive } from "./EpicRunScheduler.ts";
 
 const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
@@ -739,6 +741,7 @@ type EpicRunSchedulerTestHarness = {
   injectExecutionDrift: (execution: OrchestrationEpicIssueExecution) => void;
   setGitChangedFiles: (paths: ReadonlyArray<string>) => void;
   getGitCommitCalls: () => ReadonlyArray<GitRunStackedActionInput>;
+  getDispatchedCommands: () => ReadonlyArray<OrchestrationCommand>;
   setGitCommitFailure: (message: string | null) => void;
   setGitKeepDirtyAfterCommit: (value: boolean) => void;
 };
@@ -764,6 +767,7 @@ export async function createEpicRunSchedulerHarness(
   let gitFailCommitWith = options.git?.failCommitWith ?? null;
   let gitKeepDirtyAfterCommit = options.git?.keepDirtyAfterCommit ?? false;
   const gitCommitCalls: GitRunStackedActionInput[] = [];
+  const dispatchedCommands: OrchestrationCommand[] = [];
   const issues = new Map<string, BeadsIssueDetail>([
     [
       "TASK-1",
@@ -986,6 +990,7 @@ export async function createEpicRunSchedulerHarness(
         if (options.failDispatchForCommandTypes?.includes(command.type)) {
           throw new Error(`Simulated dispatch failure for command '${command.type}'.`);
         }
+        dispatchedCommands.push(command);
         sequence += 1;
         readModel = applyCommand(readModel, command, sequence);
         return { sequence };
@@ -1066,6 +1071,56 @@ export async function createEpicRunSchedulerHarness(
     Layer.provideMerge(Layer.succeed(OrchestrationEngineService, engineService)),
     Layer.provideMerge(Layer.succeed(BeadsTrackerService, trackerService)),
     Layer.provideMerge(Layer.succeed(GitManager, gitManagerService)),
+    Layer.provideMerge(
+      Layer.succeed(ProviderRegistry, {
+        getProviders: Effect.succeed([
+          {
+            driver: "codex",
+            instanceId: ProviderInstanceId.make("codex"),
+            displayName: "Codex",
+            enabled: true,
+            installed: true,
+            version: null,
+            status: "ready",
+            checkedAt: now,
+            auth: { status: "authenticated", type: "apiKey", label: "OpenAI API Key" },
+            models: [
+              {
+                slug: "gpt-5.4",
+                name: "GPT-5.4",
+                isCustom: false,
+                capabilities: createModelCapabilities({
+                  optionDescriptors: [
+                    {
+                      id: "reasoningEffort",
+                      label: "Reasoning",
+                      type: "select",
+                      options: [
+                        { id: "low", label: "Low" },
+                        { id: "medium", label: "Medium", isDefault: true },
+                      ],
+                      currentValue: "medium",
+                    },
+                    {
+                      id: "fastMode",
+                      label: "Fast Mode",
+                      type: "boolean",
+                      currentValue: true,
+                    },
+                  ],
+                }),
+              },
+            ],
+            skills: [],
+            slashCommands: [],
+            showInteractionModeToggle: true,
+          },
+        ]),
+        refresh: () => Effect.succeed([]),
+        refreshInstance: () => Effect.succeed([]),
+        streamChanges: Stream.never,
+      } as any),
+    ),
   );
 
   const runtime = ManagedRuntime.make(layer);
@@ -1083,7 +1138,11 @@ export async function createEpicRunSchedulerHarness(
       projectId,
       title: "Project",
       workspaceRoot: "/repo/project",
-      defaultModelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+      defaultModelSelection: {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-5-codex",
+        options: [{ id: "reasoningEffort", value: "low" }],
+      },
       createdAt: now,
     }),
   );
@@ -1171,6 +1230,7 @@ export async function createEpicRunSchedulerHarness(
       gitChangedFiles = [...paths];
     },
     getGitCommitCalls: () => gitCommitCalls,
+    getDispatchedCommands: () => dispatchedCommands,
     setGitCommitFailure: (message) => {
       gitFailCommitWith = message;
     },

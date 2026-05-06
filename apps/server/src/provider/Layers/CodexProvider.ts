@@ -34,6 +34,7 @@ export interface CodexAppServerProviderSnapshot {
   readonly models: ReadonlyArray<ServerProviderModel>;
   readonly skills: ReadonlyArray<ServerProviderSkill>;
   readonly configuredReasoningEffort?: CodexSchema.V2ConfigReadResponse__ReasoningEffort | null;
+  readonly configuredServiceTier?: CodexSchema.V2ConfigReadResponse__ServiceTier | null;
 }
 
 const REASONING_EFFORT_LABELS: Record<CodexSchema.V2ModelListResponse__ReasoningEffort, string> = {
@@ -84,6 +85,7 @@ function codexAccountEmail(account: CodexSchema.V2GetAccountResponse["account"])
 function mapCodexModelCapabilities(
   model: CodexSchema.V2ModelListResponse__Model,
   configuredReasoningEffort?: CodexSchema.V2ConfigReadResponse__ReasoningEffort | null,
+  configuredServiceTier?: CodexSchema.V2ConfigReadResponse__ServiceTier | null,
 ): ModelCapabilities {
   const supportedReasoningEfforts = new Set(
     model.supportedReasoningEfforts.map(({ reasoningEffort }) => reasoningEffort),
@@ -106,6 +108,8 @@ function mapCodexModelCapabilities(
   );
   const defaultReasoning = reasoningOptions.find((option) => option.isDefault)?.id;
   const supportsFastMode = (model.additionalSpeedTiers ?? []).includes("fast");
+  const configuredFastMode =
+    configuredServiceTier === "fast" && supportsFastMode ? true : undefined;
   return createModelCapabilities({
     optionDescriptors: [
       ...(reasoningOptions.length > 0
@@ -125,6 +129,7 @@ function mapCodexModelCapabilities(
               id: "fastMode",
               label: "Fast Mode",
               type: "boolean" as const,
+              ...(configuredFastMode === true ? { currentValue: configuredFastMode } : {}),
             },
           ]
         : []),
@@ -142,20 +147,28 @@ const toDisplayName = (model: CodexSchema.V2ModelListResponse__Model): string =>
 export function mapCodexModelForProvider(
   model: CodexSchema.V2ModelListResponse__Model,
   configuredReasoningEffort?: CodexSchema.V2ConfigReadResponse__ReasoningEffort | null,
+  configuredServiceTier?: CodexSchema.V2ConfigReadResponse__ServiceTier | null,
 ): ServerProviderModel {
   return {
     slug: model.model,
     name: toDisplayName(model),
     isCustom: false,
-    capabilities: mapCodexModelCapabilities(model, configuredReasoningEffort),
+    capabilities: mapCodexModelCapabilities(
+      model,
+      configuredReasoningEffort,
+      configuredServiceTier,
+    ),
   };
 }
 
 function parseCodexModelListResponse(
   response: CodexSchema.V2ModelListResponse,
   configuredReasoningEffort?: CodexSchema.V2ConfigReadResponse__ReasoningEffort | null,
+  configuredServiceTier?: CodexSchema.V2ConfigReadResponse__ServiceTier | null,
 ): ReadonlyArray<ServerProviderModel> {
-  return response.data.map((model) => mapCodexModelForProvider(model, configuredReasoningEffort));
+  return response.data.map((model) =>
+    mapCodexModelForProvider(model, configuredReasoningEffort, configuredServiceTier),
+  );
 }
 
 function appendCustomCodexModels(
@@ -261,6 +274,7 @@ function parseCodexSkillsListResponse(
 const requestAllCodexModels = Effect.fn("requestAllCodexModels")(function* (
   client: CodexClient.CodexAppServerClientShape,
   configuredReasoningEffort?: CodexSchema.V2ConfigReadResponse__ReasoningEffort | null,
+  configuredServiceTier?: CodexSchema.V2ConfigReadResponse__ServiceTier | null,
 ) {
   const models: ServerProviderModel[] = [];
   let cursor: string | null | undefined = undefined;
@@ -270,7 +284,9 @@ const requestAllCodexModels = Effect.fn("requestAllCodexModels")(function* (
       "model/list",
       cursor ? { cursor } : {},
     );
-    models.push(...parseCodexModelListResponse(response, configuredReasoningEffort));
+    models.push(
+      ...parseCodexModelListResponse(response, configuredReasoningEffort, configuredServiceTier),
+    );
     cursor = response.nextCursor;
   } while (cursor);
 
@@ -345,6 +361,7 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
       account: accountResponse,
       version,
       configuredReasoningEffort: null,
+      configuredServiceTier: null,
       models: appendCustomCodexModels([], input.customModels ?? []),
       skills: [],
     } satisfies CodexAppServerProviderSnapshot;
@@ -355,13 +372,14 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
     includeLayers: false,
   });
   const configuredReasoningEffort = configResponse.config.model_reasoning_effort ?? null;
+  const configuredServiceTier = configResponse.config.service_tier ?? null;
 
   const [skillsResponse, models] = yield* Effect.all(
     [
       client.request("skills/list", {
         cwds: [input.cwd],
       }),
-      requestAllCodexModels(client, configuredReasoningEffort),
+      requestAllCodexModels(client, configuredReasoningEffort, configuredServiceTier),
     ],
     { concurrency: "unbounded" },
   );
@@ -370,6 +388,7 @@ const probeCodexAppServerProvider = Effect.fn("probeCodexAppServerProvider")(fun
     account: accountResponse,
     version,
     configuredReasoningEffort,
+    configuredServiceTier,
     models: appendCustomCodexModels(models, input.customModels ?? []),
     skills: parseCodexSkillsListResponse(skillsResponse, input.cwd),
   } satisfies CodexAppServerProviderSnapshot;
