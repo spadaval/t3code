@@ -2,7 +2,6 @@ import type { BeadsIssueSortBy, ProjectId, ThreadId } from "@t3tools/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
-import { KanbanIcon, LayoutListIcon } from "lucide-react";
 
 import {
   ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
@@ -10,24 +9,9 @@ import {
   beadsQueryIssuesOptions,
 } from "~/lib/beadsReactQuery";
 import { buildIssueListQueryInput } from "~/lib/issueListQueries";
-import { matchesIssueListVisibility } from "~/lib/issuePanelLogic";
 import { parseIssuesRouteSearch } from "~/issuesRouteSearch";
-import { cn } from "~/lib/utils";
 import { useProjectById } from "~/storeSelectors";
-import { Button } from "../ui/button";
 import { IssuesTab } from "./IssuesTab";
-import { KanbanBoard } from "./KanbanBoard";
-
-// ---------------------------------------------------------------------------
-// Tab definitions
-// ---------------------------------------------------------------------------
-
-const TABS = [
-  { id: "issues" as const, label: "Issues", icon: LayoutListIcon },
-  { id: "board" as const, label: "Board", icon: KanbanIcon },
-] as const;
-
-type TabId = (typeof TABS)[number]["id"];
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -37,7 +21,6 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
   const navigate = useNavigate();
   const rawSearch = useSearch({ strict: false });
   const search = useMemo(() => parseIssuesRouteSearch(rawSearch), [rawSearch]);
-  const activeTab = (search.tab ?? "issues") as TabId;
   const showClosed = search.showClosed ?? false;
   const sortBy = search.sort ?? "updated";
   const project = useProjectById(projectId) ?? null;
@@ -58,26 +41,6 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
     ),
   );
 
-  // Navigation helpers
-  const setTab = useCallback(
-    (tab: TabId) => {
-      void navigate({
-        to: "/projects/$projectId/issues" as never,
-        params: { projectId } as never,
-        search: (prev) =>
-          ({
-            tab,
-            ...(prev.epicId ? { epicId: prev.epicId } : {}),
-            ...(prev.issueId ? { issueId: prev.issueId } : {}),
-            ...(prev.showClosed !== undefined ? { showClosed: prev.showClosed } : {}),
-            ...(prev.sort ? { sort: prev.sort } : {}),
-          }) as never,
-        replace: true,
-      });
-    },
-    [navigate, projectId],
-  );
-
   const setSelectedIssueId = useCallback(
     (issueId: string | null) => {
       void navigate({
@@ -85,7 +48,6 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
         params: { projectId } as never,
         search: (prev) =>
           ({
-            ...(prev.tab ? { tab: prev.tab } : {}),
             ...(prev.epicId ? { epicId: prev.epicId } : {}),
             ...(issueId ? { issueId } : {}),
             ...(prev.showClosed !== undefined ? { showClosed: prev.showClosed } : {}),
@@ -103,7 +65,6 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
         params: { projectId } as never,
         search: (prev) =>
           ({
-            ...(prev.tab ? { tab: prev.tab } : {}),
             ...(prev.epicId ? { epicId: prev.epicId } : {}),
             ...(prev.issueId ? { issueId: prev.issueId } : {}),
             ...(nextShowClosed ? { showClosed: true } : {}),
@@ -122,7 +83,6 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
         params: { projectId } as never,
         search: (prev) =>
           ({
-            ...(prev.tab ? { tab: prev.tab } : {}),
             ...(prev.epicId ? { epicId: prev.epicId } : {}),
             ...(prev.issueId ? { issueId: prev.issueId } : {}),
             ...(prev.showClosed !== undefined ? { showClosed: prev.showClosed } : {}),
@@ -147,11 +107,6 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
     [navigate, project],
   );
 
-  // Issue counts for tab badge
-  const issueCount =
-    issuesQuery.data?.issues.filter((issue) => matchesIssueListVisibility(issue, showClosed))
-      .length ?? null;
-
   if (!project || !cwd) {
     return (
       <div className="flex flex-1 items-center justify-center p-8">
@@ -162,68 +117,21 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Tab bar */}
-      <div className="flex items-center gap-1 border-b border-border px-4 py-1.5">
-        {TABS.map((tab) => {
-          const count = issueCount;
-          return (
-            <Button
-              key={tab.id}
-              role="tab"
-              aria-selected={activeTab === tab.id}
-              variant={activeTab === tab.id ? "default" : "ghost"}
-              size="xs"
-              onClick={() => setTab(tab.id)}
-              className={cn("gap-1.5", activeTab !== tab.id && "text-muted-foreground")}
-            >
-              <tab.icon className="size-3.5" />
-              {tab.label}
-              {count !== null && count > 0 ? (
-                <span
-                  className={cn(
-                    "ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none",
-                    activeTab === tab.id
-                      ? "bg-primary-foreground/20 text-primary-foreground"
-                      : "bg-muted text-muted-foreground",
-                  )}
-                >
-                  {count}
-                </span>
-              ) : null}
-            </Button>
-          );
-        })}
-      </div>
-
-      {/* Tab content */}
       <div className="min-h-0 flex-1">
-        {activeTab === "board" ? (
-          <KanbanBoard
-            cwd={cwd}
-            projectId={projectId}
-            issues={issuesQuery.data?.issues ?? []}
-            loading={issuesQuery.isPending}
-            error={issuesQuery.error}
-            selectedIssueId={search.issueId ?? null}
-            onSelectIssue={setSelectedIssueId}
-            onOpenThread={openThread}
-          />
-        ) : (
-          <IssuesTab
-            cwd={cwd}
-            projectId={projectId}
-            issues={issuesQuery.data?.issues ?? []}
-            issuesPending={issuesQuery.isPending}
-            issuesError={issuesQuery.error}
-            showClosed={showClosed}
-            sortBy={sortBy}
-            selectedIssueId={search.issueId ?? null}
-            onSelectIssue={setSelectedIssueId}
-            onShowClosedChange={setShowClosed}
-            onSortByChange={setSortBy}
-            onOpenThread={openThread}
-          />
-        )}
+        <IssuesTab
+          cwd={cwd}
+          projectId={projectId}
+          issues={issuesQuery.data?.issues ?? []}
+          issuesPending={issuesQuery.isPending}
+          issuesError={issuesQuery.error}
+          showClosed={showClosed}
+          sortBy={sortBy}
+          selectedIssueId={search.issueId ?? null}
+          onSelectIssue={setSelectedIssueId}
+          onShowClosedChange={setShowClosed}
+          onSortByChange={setSortBy}
+          onOpenThread={openThread}
+        />
       </div>
     </div>
   );

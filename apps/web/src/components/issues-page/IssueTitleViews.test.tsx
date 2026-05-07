@@ -2,8 +2,6 @@ import type {
   BeadsCoordinatorEpicSnapshot,
   BeadsIssueDetail,
   BeadsIssueRelationSummary,
-  BeadsIssueSummary,
-  ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -12,32 +10,7 @@ import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
 import { beadsQueryKeys } from "~/lib/beadsReactQuery";
-import { KanbanBoard } from "./KanbanBoard";
 import { WorkGraph } from "./WorkGraph";
-
-function makeIssueSummary(
-  input: Partial<BeadsIssueSummary> & Pick<BeadsIssueSummary, "id" | "title">,
-): BeadsIssueSummary {
-  const { id, title, ...rest } = input;
-  return {
-    id,
-    title,
-    description: null,
-    notes: null,
-    status: "open",
-    priority: null,
-    issueType: "task",
-    assignee: null,
-    owner: null,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    createdBy: null,
-    updatedAt: "2026-01-02T00:00:00.000Z",
-    labels: [],
-    parent: null,
-    dependencyRefs: [],
-    ...rest,
-  } satisfies BeadsIssueSummary;
-}
 
 function makeRelation(
   input: Partial<BeadsIssueRelationSummary> & Pick<BeadsIssueRelationSummary, "id" | "title">,
@@ -88,27 +61,6 @@ function renderWithQueryClient(element: ReactNode, queryClient?: QueryClient) {
 }
 
 describe("issue title views", () => {
-  it("strikes through closed kanban card titles without affecting open titles", () => {
-    const markup = renderWithQueryClient(
-      <KanbanBoard
-        cwd="/repo"
-        projectId={"project-1" as ProjectId}
-        issues={[
-          makeIssueSummary({ id: "TASK-CLOSED", title: "Closed card", status: "closed" }),
-          makeIssueSummary({ id: "TASK-OPEN", title: "Open card", status: "open" }),
-        ]}
-        loading={false}
-        error={null}
-        selectedIssueId={null}
-        onSelectIssue={() => {}}
-        onOpenThread={() => {}}
-      />,
-    );
-
-    expect(markup).toMatch(/<p class="[^"]*line-through[^"]*">Closed card<\/p>/);
-    expect(markup).not.toMatch(/<p class="[^"]*line-through[^"]*">Open card<\/p>/);
-  });
-
   it("uses tracker status for work graph title strikethrough and does not infer it from completed buckets", () => {
     const activeIssue = makeRelation({
       id: "TASK-ACTIVE",

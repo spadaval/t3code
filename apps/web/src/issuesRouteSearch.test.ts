@@ -89,7 +89,7 @@ describe("issuesRouteSearchNeedsRedirect", () => {
     ).toBe(true);
   });
 
-  it("accepts canonical issue and board searches as-is", () => {
+  it("accepts canonical issue searches as-is and redirects legacy board links", () => {
     expect(
       issuesRouteSearchNeedsRedirect({
         tab: "issues",
@@ -103,6 +103,16 @@ describe("issuesRouteSearchNeedsRedirect", () => {
         tab: "board",
         showClosed: "true",
       }),
-    ).toBe(false);
+    ).toBe(true);
+
+    expect(
+      resolveCanonicalIssuesRouteSearch({
+        tab: "board",
+        showClosed: "true",
+      }),
+    ).toEqual({
+      tab: "issues",
+      showClosed: true,
+    });
   });
 });

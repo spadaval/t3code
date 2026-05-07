@@ -1,7 +1,7 @@
 import type { BeadsIssueSortBy } from "@t3tools/contracts";
 
 export interface IssuesRouteSearch {
-  tab?: "issues" | "board";
+  tab?: "issues";
   epicId?: string;
   issueId?: string;
   showClosed?: boolean;
@@ -17,8 +17,8 @@ function normalizeSearchString(value: unknown): string | undefined {
 }
 
 function parseTab(value: unknown): IssuesRouteSearch["tab"] {
-  if (value === "issues" || value === "board") {
-    return value;
+  if (value === "issues") {
+    return "issues";
   }
   return undefined;
 }
@@ -59,10 +59,9 @@ export function resolveCanonicalIssuesRouteSearch(
   search: Record<string, unknown>,
 ): IssuesRouteSearch {
   const parsed = parseIssuesRouteSearch(search);
-  const nextTab = search.tab === "board" ? "board" : "issues";
 
   return {
-    tab: nextTab,
+    tab: "issues",
     ...(parsed.epicId ? { epicId: parsed.epicId } : {}),
     ...(parsed.issueId ? { issueId: parsed.issueId } : {}),
     ...(parsed.showClosed !== undefined ? { showClosed: parsed.showClosed } : {}),
