@@ -209,6 +209,8 @@ function decodeForEvent<A>(
   field: string,
 ): Effect.Effect<A, OrchestrationProjectorDecodeError> {
   return Effect.try({
+    // Effect Schema currently loses the decoded payload type here unless we
+    // force the schema into decodeUnknownSync's expected shape.
     try: () => Schema.decodeUnknownSync(schema as any)(value),
     catch: (error) => toProjectorDecodeError(`${eventType}:${field}`)(error as Schema.SchemaError),
   });

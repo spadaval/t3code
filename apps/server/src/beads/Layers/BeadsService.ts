@@ -199,8 +199,11 @@ function trimToNull(value: unknown): string | null {
 }
 
 function errorMessageFromCause(cause: unknown): string {
-  const squashed = Cause.squash(cause as any);
-  return squashed instanceof Error ? squashed.message : String(squashed);
+  if (Cause.isCause(cause)) {
+    const squashed = Cause.squash(cause);
+    return squashed instanceof Error ? squashed.message : String(squashed);
+  }
+  return errorDetailFromUnknown(cause) ?? String(cause);
 }
 
 function errorDetailFromUnknown(cause: unknown): string | null {

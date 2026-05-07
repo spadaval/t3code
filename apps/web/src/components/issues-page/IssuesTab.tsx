@@ -3,6 +3,7 @@ import type {
   BeadsIssueDetail as BeadsIssueDetailType,
   BeadsIssueRelationSummary,
   BeadsIssueSummary,
+  BeadsUpdateIssueInput,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -301,12 +302,20 @@ function IssueDetailPanel({
       claim?: boolean;
     }) => {
       try {
-        // Map null priority to undefined for the API (omit rather than send null)
-        const payload: Record<string, unknown> = { cwd, issueId };
-        for (const [key, value] of Object.entries(fields)) {
-          if (value !== undefined) payload[key] = value;
-        }
-        await updateIssueMutation.mutateAsync(payload as any);
+        const payload: BeadsUpdateIssueInput = {
+          cwd,
+          issueId,
+          ...(fields.title !== undefined ? { title: fields.title } : {}),
+          ...(fields.description !== undefined ? { description: fields.description } : {}),
+          ...(fields.notes !== undefined ? { notes: fields.notes } : {}),
+          ...(fields.priority !== undefined && fields.priority !== null
+            ? { priority: fields.priority }
+            : {}),
+          ...(fields.assignee !== undefined ? { assignee: fields.assignee } : {}),
+          ...(fields.labels !== undefined ? { labels: fields.labels } : {}),
+          ...(fields.claim !== undefined ? { claim: fields.claim } : {}),
+        };
+        await updateIssueMutation.mutateAsync(payload);
       } catch (error) {
         toastManager.add({
           type: "error",
