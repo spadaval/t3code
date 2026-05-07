@@ -8,7 +8,7 @@ import {
   type OrchestrationReadModel,
   type OrchestrationThread,
 } from "@t3tools/contracts";
-import { Cause, Effect, Exit, Layer, Schema, Stream } from "effect";
+import { Cause, Effect, Exit, Layer, Option, Schema, Stream } from "effect";
 import { afterEach, expect, vi } from "vitest";
 
 vi.mock("../../processRunner", () => ({
@@ -21,6 +21,7 @@ import {
   type OrchestrationDispatchError,
 } from "../../orchestration/Errors.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { BeadsService } from "../Services/BeadsService.ts";
 import {
   BeadsServiceLive,
@@ -53,9 +54,27 @@ const orchestrationEngineLayer = Layer.mock(OrchestrationEngineService)({
   streamDomainEvents: Stream.empty,
 });
 
+const projectionSnapshotQueryLayer = Layer.mock(ProjectionSnapshotQuery)({
+  getCommandReadModel: () => mockedGetReadModel(),
+  getSnapshot: () => mockedGetReadModel(),
+  getShellSnapshot: () => Effect.die("getShellSnapshot was not expected in this test"),
+  getSnapshotSequence: () => Effect.die("getSnapshotSequence was not expected in this test"),
+  getCounts: () => Effect.die("getCounts was not expected in this test"),
+  getActiveProjectByWorkspaceRoot: () =>
+    Effect.die("getActiveProjectByWorkspaceRoot was not expected in this test"),
+  getProjectShellById: () => Effect.die("getProjectShellById was not expected in this test"),
+  getFirstActiveThreadIdByProjectId: () =>
+    Effect.die("getFirstActiveThreadIdByProjectId was not expected in this test"),
+  getThreadCheckpointContext: () =>
+    Effect.die("getThreadCheckpointContext was not expected in this test"),
+  getThreadShellById: () => Effect.die("getThreadShellById was not expected in this test"),
+  getThreadDetailById: () => Effect.succeed(Option.none()),
+});
+
 const layer = it.layer(
   BeadsServiceLive.pipe(
     Layer.provide(BeadsTrackerServiceLive),
+    Layer.provide(projectionSnapshotQueryLayer),
     Layer.provide(orchestrationEngineLayer),
   ),
 );
@@ -447,6 +466,69 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
+  it.effect("reloads issue detail after an earlier read completes", () =>
+    Effect.gen(function* () {
+      const cwd = "/repo-live-issue";
+      const now = new Date().toISOString();
+      let title = "First title";
+
+      mockedRunProcess.mockImplementation(async (_command, args) => {
+        const key = commandKey(args);
+        if (key === "context") {
+          return successJson({
+            beads_dir: "/repo/.beads",
+            repo_root: cwd,
+            cwd_repo_root: cwd,
+            is_redirected: false,
+            is_worktree: false,
+            backend: "dolt",
+            dolt_mode: "server",
+            database: "repo",
+            project_id: "project-1",
+            role: "contributor",
+            bd_version: "1.0.0",
+          });
+        }
+
+        if (key === "show ISS-1 --long") {
+          return successJson([
+            {
+              id: "ISS-1",
+              title,
+              description: "desc",
+              notes: "notes",
+              status: "open",
+              priority: 1,
+              issue_type: "feature",
+              assignee: null,
+              owner: null,
+              created_at: now,
+              created_by: null,
+              updated_at: now,
+              labels: [],
+            },
+          ]);
+        }
+
+        if (key === "comments ISS-1") {
+          return successJson([]);
+        }
+
+        throw new Error(`Unexpected bd args: ${args.join(" ")}`);
+      });
+
+      const beads = yield* BeadsService;
+      const first = yield* beads.getIssue({ cwd, issueId: "ISS-1" });
+      title = "Second title";
+      const second = yield* beads.getIssue({ cwd, issueId: "ISS-1" });
+
+      assert.equal(first.title, "First title");
+      assert.equal(second.title, "Second title");
+      expect(countBdCommandCalls("show ISS-1 --long")).toBe(2);
+      expect(countBdCommandCalls("comments ISS-1")).toBe(2);
+    }),
+  );
+
   it.effect("loads issue batches without reading comments", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
@@ -619,6 +701,71 @@ layer("BeadsServiceLive", (it) => {
           message: "Failed to run bd: bd show failed for show BROKEN-1 --long",
         },
       ]);
+    }),
+  );
+
+  it.effect("reloads issue queries after an earlier read completes", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      let listTitle = "Ready issue v1";
+
+      mockedRunProcess.mockImplementation(async (_command, args) => {
+        const key = commandKey(args);
+        if (key === "context") {
+          return successJson({
+            beads_dir: "/repo/.beads",
+            repo_root: "/repo",
+            cwd_repo_root: "/repo",
+            is_redirected: false,
+            is_worktree: false,
+            backend: "dolt",
+            dolt_mode: "server",
+            database: "repo",
+            project_id: "project-1",
+            role: "maintainer",
+            bd_version: "1.0.0",
+          });
+        }
+
+        if (key === "list --all --limit 0") {
+          return successJson([
+            {
+              id: "TASK-1",
+              title: listTitle,
+              description: null,
+              notes: null,
+              status: "open",
+              priority: 1,
+              issue_type: "task",
+              assignee: null,
+              owner: null,
+              created_at: now,
+              created_by: null,
+              updated_at: now,
+              labels: [],
+            },
+          ]);
+        }
+
+        throw new Error(`Unexpected bd args: ${args.join(" ")}`);
+      });
+
+      const beads = yield* BeadsService;
+      const first = yield* beads.queryIssues({
+        cwd: "/repo",
+        statuses: ["open"],
+        sortBy: "updated",
+      });
+      listTitle = "Ready issue v2";
+      const second = yield* beads.queryIssues({
+        cwd: "/repo",
+        statuses: ["open"],
+        sortBy: "updated",
+      });
+
+      assert.equal(first.issues[0]?.title, "Ready issue v1");
+      assert.equal(second.issues[0]?.title, "Ready issue v2");
+      expect(countBdCommandCalls("list --all --limit 0")).toBe(2);
     }),
   );
 
@@ -918,6 +1065,103 @@ layer("BeadsServiceLive", (it) => {
         id: "EPIC-1",
         title: "Epic coordination",
       });
+    }),
+  );
+
+  it.effect("reloads issue graphs after an earlier read completes", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      let childTitle = "First child";
+
+      mockedRunProcess.mockImplementation(async (_command, args) => {
+        const key = commandKey(args);
+        if (key === "context") {
+          return successJson({
+            beads_dir: "/repo/.beads",
+            repo_root: "/repo",
+            cwd_repo_root: "/repo",
+            is_redirected: false,
+            is_worktree: false,
+            backend: "dolt",
+            dolt_mode: "server",
+            database: "repo",
+            project_id: "project-1",
+            role: "maintainer",
+            bd_version: "1.0.0",
+          });
+        }
+
+        if (key === "show EPIC-1 --long") {
+          return successJson([
+            {
+              id: "EPIC-1",
+              title: "Epic coordination",
+              description: null,
+              notes: null,
+              status: "open",
+              priority: 2,
+              issue_type: "epic",
+              assignee: null,
+              owner: "alice",
+              created_at: now,
+              created_by: "alice",
+              updated_at: now,
+              labels: [],
+              dependencies: [],
+              dependents: [
+                {
+                  id: "CHILD-1",
+                  title: childTitle,
+                  status: "open",
+                  priority: 1,
+                  issue_type: "task",
+                  assignee: null,
+                  owner: "alice",
+                  parent_id: "EPIC-1",
+                  parent_title: "Epic coordination",
+                  dependency_type: "parent-child",
+                },
+              ],
+            },
+          ]);
+        }
+
+        if (key === "show CHILD-1 --long") {
+          return successJson([
+            {
+              id: "CHILD-1",
+              title: childTitle,
+              description: null,
+              notes: null,
+              status: "open",
+              priority: 1,
+              issue_type: "task",
+              assignee: null,
+              owner: "alice",
+              created_at: now,
+              created_by: "alice",
+              updated_at: now,
+              labels: [],
+              parent_id: "EPIC-1",
+              parent_title: "Epic coordination",
+              dependencies: [],
+              dependents: [],
+            },
+          ]);
+        }
+
+        throw new Error(`Unexpected bd args: ${args.join(" ")}`);
+      });
+
+      const beads = yield* BeadsService;
+      const first = yield* beads.getIssueGraph({ cwd: "/repo", epicIssueId: "EPIC-1" });
+      childTitle = "Updated child";
+      const second = yield* beads.getIssueGraph({ cwd: "/repo", epicIssueId: "EPIC-1" });
+
+      assert.equal(first.children[0]?.title, "First child");
+      assert.equal(second.children[0]?.title, "Updated child");
+      expect(countBdCommandCalls("show EPIC-1 --long")).toBe(2);
+      expect(countBdCommandCalls("show CHILD-1 --long")).toBe(2);
     }),
   );
 
@@ -2471,92 +2715,90 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
-  it.effect(
-    "loads epic coordination detail without comments or duplicate child graph fetches",
-    () =>
-      Effect.gen(function* () {
-        const now = new Date().toISOString();
-        installBdJsonMock({
-          context: {
-            beads_dir: "/repo/.beads",
-            repo_root: "/repo",
-            cwd_repo_root: "/repo",
-            is_redirected: false,
-            is_worktree: false,
-            backend: "dolt",
-            dolt_mode: "server",
-            database: "repo",
-            project_id: "project-1",
-            role: "maintainer",
-            bd_version: "1.0.0",
+  it.effect("loads epic coordination detail without comments and with live epic reloads", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      installBdJsonMock({
+        context: {
+          beads_dir: "/repo/.beads",
+          repo_root: "/repo",
+          cwd_repo_root: "/repo",
+          is_redirected: false,
+          is_worktree: false,
+          backend: "dolt",
+          dolt_mode: "server",
+          database: "repo",
+          project_id: "project-1",
+          role: "maintainer",
+          bd_version: "1.0.0",
+        },
+        "show EPIC-1 --long": [
+          {
+            id: "EPIC-1",
+            title: "Epic coordination",
+            description: null,
+            notes: null,
+            status: "open",
+            priority: 2,
+            issue_type: "epic",
+            assignee: null,
+            owner: "alice",
+            created_at: now,
+            created_by: "alice",
+            updated_at: now,
+            labels: [],
+            dependencies: [],
+            dependents: [
+              {
+                id: "CHILD-1",
+                title: "First child",
+                status: "open",
+                priority: 1,
+                issue_type: "task",
+                assignee: null,
+                owner: "alice",
+                parent_id: "EPIC-1",
+                parent_title: "Epic coordination",
+                dependency_type: "parent-child",
+              },
+            ],
           },
-          "show EPIC-1 --long": [
-            {
-              id: "EPIC-1",
-              title: "Epic coordination",
-              description: null,
-              notes: null,
-              status: "open",
-              priority: 2,
-              issue_type: "epic",
-              assignee: null,
-              owner: "alice",
-              created_at: now,
-              created_by: "alice",
-              updated_at: now,
-              labels: [],
-              dependencies: [],
-              dependents: [
-                {
-                  id: "CHILD-1",
-                  title: "First child",
-                  status: "open",
-                  priority: 1,
-                  issue_type: "task",
-                  assignee: null,
-                  owner: "alice",
-                  parent_id: "EPIC-1",
-                  parent_title: "Epic coordination",
-                  dependency_type: "parent-child",
-                },
-              ],
-            },
-          ],
-          "show CHILD-1 --long": [
-            {
-              id: "CHILD-1",
-              title: "First child",
-              description: null,
-              notes: null,
-              status: "open",
-              priority: 1,
-              issue_type: "task",
-              assignee: null,
-              owner: "alice",
-              created_at: now,
-              created_by: "alice",
-              updated_at: now,
-              labels: [],
-              parent_id: "EPIC-1",
-              parent_title: "Epic coordination",
-              dependencies: [],
-              dependents: [],
-            },
-          ],
-        });
+        ],
+        "show CHILD-1 --long": [
+          {
+            id: "CHILD-1",
+            title: "First child",
+            description: null,
+            notes: null,
+            status: "open",
+            priority: 1,
+            issue_type: "task",
+            assignee: null,
+            owner: "alice",
+            created_at: now,
+            created_by: "alice",
+            updated_at: now,
+            labels: [],
+            parent_id: "EPIC-1",
+            parent_title: "Epic coordination",
+            dependencies: [],
+            dependents: [],
+          },
+        ],
+      });
 
-        const beads = yield* BeadsService;
-        const detail = yield* beads.getEpicCoordinationDetail({
-          cwd: "/repo",
-          projectId: ProjectId.makeUnsafe("project-1"),
-          epicIssueId: "EPIC-1",
-        });
+      const beads = yield* BeadsService;
+      const detail = yield* beads.getEpicCoordinationDetail({
+        cwd: "/repo",
+        projectId: ProjectId.makeUnsafe("project-1"),
+        epicIssueId: "EPIC-1",
+      });
 
-        assert.equal(detail.epicId, "EPIC-1");
-        expect(countBdCommandCalls("comments EPIC-1")).toBe(0);
-        expect(countBdCommandCalls("show EPIC-1 --long")).toBe(1);
-        expect(countBdCommandCalls("show CHILD-1 --long")).toBe(1);
-      }),
+      assert.equal(detail.epicId, "EPIC-1");
+      expect(countBdCommandCalls("comments EPIC-1")).toBe(0);
+      expect(countBdCommandCalls("show EPIC-1 --long")).toBe(2);
+      expect(countBdCommandCalls("show CHILD-1 --long")).toBe(1);
+    }),
   );
 
   it.effect("loads epic issue summaries without reading comments", () =>

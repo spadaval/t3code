@@ -81,16 +81,6 @@ const SLOW_BD_COMMAND_WARN_MS = 3_000;
 const BD_COMMAND_PREVIEW_LIMIT = 240;
 const BD_LOG_SCOPE = "beads.bd";
 const MAX_BEADS_ISSUE_REFS_PER_REQUEST = 50;
-const MAX_BEADS_READ_CACHE_ENTRIES = 500;
-const BEADS_READ_CACHE_TTL_MS = {
-  context: 60_000,
-  issue: 10_000,
-  issueGraph: 20_000,
-  issueSummary: 20_000,
-  issueWithoutComments: 20_000,
-  queryIssues: 20_000,
-  coordinator: 20_000,
-} as const;
 const decodeIssueSummary = Schema.decodeUnknownSync(BeadsIssueSummary);
 const decodeIssueReferenceSummary = Schema.decodeUnknownSync(BeadsIssueReferenceSummary);
 const decodeIssueDetail = Schema.decodeUnknownSync(BeadsIssueDetail);
@@ -123,22 +113,8 @@ interface EpicCoordinationGraphState {
   readonly loadErrors: ReadonlyArray<string>;
 }
 
-interface BeadsReadCacheEntry {
-  readonly cwd: string;
-  readonly groups: ReadonlySet<string>;
-  readonly issueIds: ReadonlySet<string>;
-  readonly expiresAt: number;
-  readonly value?: unknown;
-  readonly inFlight?: Deferred.Deferred<unknown, BeadsError>;
-}
-
-type BeadsReadCacheReservation<A> =
-  | { readonly kind: "hit"; readonly value: A }
-  | { readonly kind: "wait"; readonly deferred: Deferred.Deferred<unknown, BeadsError> }
-  | { readonly kind: "load"; readonly deferred: Deferred.Deferred<unknown, BeadsError> };
-
 const beadsReadCacheRefs = new Set<
-  SynchronizedRef.SynchronizedRef<Map<string, BeadsReadCacheEntry>>
+  SynchronizedRef.SynchronizedRef<Map<string, Deferred.Deferred<unknown, BeadsError>>>
 >();
 
 export function clearBeadsReadCachesForTesting(): Effect.Effect<void, never, never> {
@@ -1194,7 +1170,9 @@ const makeBeadsTrackerService = Effect.gen(function* () {
   const bdExecutionStrategyDeferredsRef = yield* SynchronizedRef.make(
     new Map<string, Deferred.Deferred<BdExecutionStrategy, BeadsError>>(),
   );
-  const readCacheRef = yield* SynchronizedRef.make(new Map<string, BeadsReadCacheEntry>());
+  const readCacheRef = yield* SynchronizedRef.make(
+    new Map<string, Deferred.Deferred<unknown, BeadsError>>(),
+  );
   yield* Effect.sync(() => {
     beadsReadCacheRefs.add(readCacheRef);
   });
@@ -1206,153 +1184,60 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     readonly params?: unknown;
   }): string => `${getBdKey(input.cwd)}:${input.name}:${stableCacheJson(input.params ?? {})}`;
 
-  const trimReadCache = (
-    entries: Map<string, BeadsReadCacheEntry>,
-  ): Map<string, BeadsReadCacheEntry> => {
-    if (entries.size <= MAX_BEADS_READ_CACHE_ENTRIES) {
-      return entries;
-    }
-    const next = new Map(entries);
-    while (next.size > MAX_BEADS_READ_CACHE_ENTRIES) {
-      const firstKey = next.keys().next().value;
-      if (firstKey === undefined) {
-        break;
-      }
-      next.delete(firstKey);
-    }
-    return next;
-  };
-
-  const invalidateReadCacheWhere = (
-    predicate: (entry: BeadsReadCacheEntry) => boolean,
-  ): Effect.Effect<void, never, never> =>
-    SynchronizedRef.update(readCacheRef, (current) => {
-      let changed = false;
-      const next = new Map(current);
-      for (const [key, entry] of current) {
-        if (predicate(entry)) {
-          next.delete(key);
-          changed = true;
-        }
-      }
-      return changed ? next : current;
-    });
-
-  const invalidateReadCacheForCwd = (cwd: string) => {
-    const cacheCwd = getBdKey(cwd);
-    return invalidateReadCacheWhere((entry) => entry.cwd === cacheCwd);
-  };
-
-  const invalidateReadCacheForIssue = (cwd: string, issueId: string) => {
-    const cacheCwd = getBdKey(cwd);
-    return invalidateReadCacheWhere(
-      (entry) =>
-        entry.cwd === cacheCwd &&
-        (entry.issueIds.has(issueId) ||
-          entry.groups.has("issues") ||
-          entry.groups.has("coordinator")),
-    );
-  };
-
-  const invalidateReadCacheForIssueDetail = (cwd: string, issueId: string) => {
-    const cacheCwd = getBdKey(cwd);
-    return invalidateReadCacheWhere(
-      (entry) => entry.cwd === cacheCwd && entry.issueIds.has(issueId) && entry.groups.has("issue"),
-    );
-  };
-
-  const getOrLoadCachedRead = <A>(
+  const getOrLoadCoalescedRead = <A>(
     input: {
       readonly cwd: string;
       readonly name: string;
-      readonly ttlMs: number;
       readonly params?: unknown;
-      readonly groups?: ReadonlyArray<string>;
-      readonly issueIds?: ReadonlyArray<string>;
     },
     load: Effect.Effect<A, BeadsError>,
   ): Effect.Effect<A, BeadsError> =>
     Effect.gen(function* () {
       const key = getReadCacheKey(input);
-      const cwd = getBdKey(input.cwd);
-      const now = Date.now();
       const newDeferred = yield* Deferred.make<unknown, BeadsError>();
-      const reservation: BeadsReadCacheReservation<A> = yield* SynchronizedRef.modify(
+      const cwd = getBdKey(input.cwd);
+      const reservation = yield* SynchronizedRef.modify(
         readCacheRef,
-        (current): readonly [BeadsReadCacheReservation<A>, Map<string, BeadsReadCacheEntry>] => {
+        (
+          current,
+        ): readonly [
+          {
+            readonly deferred: Deferred.Deferred<unknown, BeadsError>;
+            readonly created: boolean;
+          },
+          Map<string, Deferred.Deferred<unknown, BeadsError>>,
+        ] => {
           const existing = current.get(key);
-          if (
-            existing &&
-            existing.value !== undefined &&
-            existing.expiresAt > now &&
-            !existing.inFlight
-          ) {
-            return [
-              { kind: "hit", value: existing.value as A } satisfies BeadsReadCacheReservation<A>,
-              current,
-            ] as const;
+          if (existing) {
+            return [{ deferred: existing, created: false }, current] as const;
           }
-          if (existing?.inFlight) {
-            return [
-              {
-                kind: "wait",
-                deferred: existing.inFlight,
-              } satisfies BeadsReadCacheReservation<A>,
-              current,
-            ] as const;
-          }
-
-          const next = trimReadCache(
-            new Map(current).set(key, {
-              cwd,
-              groups: new Set(input.groups ?? []),
-              issueIds: new Set(input.issueIds ?? []),
-              expiresAt: 0,
-              inFlight: newDeferred,
-            }),
-          );
           return [
-            { kind: "load", deferred: newDeferred } satisfies BeadsReadCacheReservation<A>,
-            next,
+            { deferred: newDeferred, created: true },
+            new Map(current).set(key, newDeferred),
           ] as const;
         },
       );
 
-      if (reservation.kind === "hit") {
-        yield* Effect.logDebug("beads read cache hit", {
-          name: input.name,
-          cwd,
-        }).pipe(Effect.annotateLogs({ scope: BD_LOG_SCOPE }));
-        return reservation.value;
-      }
-
-      if (reservation.kind === "wait") {
-        yield* Effect.logDebug("beads read cache coalesced", {
+      if (!reservation.created) {
+        yield* Effect.logDebug("beads read coalesced", {
           name: input.name,
           cwd,
         }).pipe(Effect.annotateLogs({ scope: BD_LOG_SCOPE }));
         return (yield* Deferred.await(reservation.deferred)) as A;
       }
 
-      yield* Effect.logDebug("beads read cache miss", {
+      yield* Effect.logDebug("beads read started", {
         name: input.name,
         cwd,
       }).pipe(Effect.annotateLogs({ scope: BD_LOG_SCOPE }));
 
       const exit = yield* Effect.exit(load);
       if (exit._tag === "Success") {
-        const expiresAt = Date.now() + input.ttlMs;
-        yield* SynchronizedRef.update(readCacheRef, (current) =>
-          trimReadCache(
-            new Map(current).set(key, {
-              cwd,
-              groups: new Set(input.groups ?? []),
-              issueIds: new Set(input.issueIds ?? []),
-              expiresAt,
-              value: exit.value,
-            }),
-          ),
-        );
+        yield* SynchronizedRef.update(readCacheRef, (current) => {
+          const next = new Map(current);
+          next.delete(key);
+          return next;
+        });
         yield* Deferred.succeed(reservation.deferred, exit.value).pipe(Effect.orDie);
         return exit.value;
       }
@@ -1750,14 +1635,11 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     });
 
   const getRawIssue = (cwd: string, issueId: string) =>
-    getOrLoadCachedRead(
+    getOrLoadCoalescedRead(
       {
         cwd,
         name: "raw-issue",
-        ttlMs: BEADS_READ_CACHE_TTL_MS.issueSummary,
         params: { issueId },
-        groups: ["issue"],
-        issueIds: [issueId],
       },
       loadRawIssue(cwd, issueId),
     );
@@ -1768,14 +1650,11 @@ const makeBeadsTrackerService = Effect.gen(function* () {
       return Effect.succeed(new Map<string, Record<string, unknown>>());
     }
 
-    return getOrLoadCachedRead(
+    return getOrLoadCoalescedRead(
       {
         cwd,
         name: "raw-issues",
-        ttlMs: BEADS_READ_CACHE_TTL_MS.issueWithoutComments,
         params: { issueIds: uniqueIssueIds.toSorted() },
-        groups: ["issue"],
-        issueIds: uniqueIssueIds,
       },
       runBdJson(cwd, ["show", ...makeBdShowIssueArgs(uniqueIssueIds), "--long"], (json) => {
         const issues = asRecordArray(json);
@@ -1800,27 +1679,21 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     getIssueComments(cwd, issueId).pipe(Effect.catch(() => Effect.succeed([])));
 
   const getIssueDetailWithoutComments = (cwd: string, issueId: string) =>
-    getOrLoadCachedRead(
+    getOrLoadCoalescedRead(
       {
         cwd,
         name: "issue-without-comments",
-        ttlMs: BEADS_READ_CACHE_TTL_MS.issueWithoutComments,
         params: { issueId },
-        groups: ["issue"],
-        issueIds: [issueId],
       },
       getRawIssue(cwd, issueId).pipe(Effect.map((issue) => mapIssueDetail(issue, []))),
     );
 
   const getIssueDetail = (input: BeadsGetIssueInput) =>
-    getOrLoadCachedRead(
+    getOrLoadCoalescedRead(
       {
         cwd: input.cwd,
         name: "issue-detail",
-        ttlMs: BEADS_READ_CACHE_TTL_MS.issue,
         params: { issueId: input.issueId },
-        groups: ["issue"],
-        issueIds: [input.issueId],
       },
       Effect.all(
         [getRawIssue(input.cwd, input.issueId), getIssueCommentsOptional(input.cwd, input.issueId)],
@@ -1836,13 +1709,11 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     );
 
   const queryIssues: BeadsTrackerServiceShape["queryIssues"] = (input) =>
-    getOrLoadCachedRead(
+    getOrLoadCoalescedRead(
       {
         cwd: input.cwd,
         name: "query-issues",
-        ttlMs: BEADS_READ_CACHE_TTL_MS.queryIssues,
         params: input,
-        groups: ["issues"],
       },
       runBdJson(
         input.cwd,
@@ -1864,12 +1735,10 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     );
 
   const listCoordinatorEpics: BeadsTrackerServiceShape["listCoordinatorEpics"] = (input) =>
-    getOrLoadCachedRead(
+    getOrLoadCoalescedRead(
       {
         cwd: input.cwd,
         name: "coordinator-epics",
-        ttlMs: BEADS_READ_CACHE_TTL_MS.coordinator,
-        groups: ["coordinator", "issues"],
       },
       runBdJson(input.cwd, ["list", "--all", "--type", "epic", "--limit", "0"], (json) => {
         const rawIssues = asRecordArray(json);
@@ -1889,14 +1758,11 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     getIssueDetailWithoutComments(input.cwd, input.issueId);
 
   const getIssuesWithoutComments: BeadsTrackerServiceShape["getIssuesWithoutComments"] = (input) =>
-    getOrLoadCachedRead(
+    getOrLoadCoalescedRead(
       {
         cwd: input.cwd,
         name: "issues-without-comments",
-        ttlMs: BEADS_READ_CACHE_TTL_MS.issueWithoutComments,
         params: { issueIds: [...new Set(input.issueIds)].toSorted() },
-        groups: ["issue"],
-        issueIds: input.issueIds,
       },
       getRawIssues(input.cwd, input.issueIds).pipe(
         Effect.map((rawIssuesById) =>
@@ -1909,14 +1775,11 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     );
 
   const getIssueSummary: BeadsTrackerServiceShape["getIssueSummary"] = (input) =>
-    getOrLoadCachedRead(
+    getOrLoadCoalescedRead(
       {
         cwd: input.cwd,
         name: "issue-summary",
-        ttlMs: BEADS_READ_CACHE_TTL_MS.issueSummary,
         params: { issueId: input.issueId },
-        groups: ["issue"],
-        issueIds: [input.issueId],
       },
       getRawIssue(input.cwd, input.issueId).pipe(Effect.map((issue) => mapIssueSummary(issue))),
     );
@@ -1946,14 +1809,11 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         ),
       );
 
-    return getOrLoadCachedRead(
+    return getOrLoadCoalescedRead(
       {
         cwd: input.cwd,
         name: "issue-refs",
-        ttlMs: BEADS_READ_CACHE_TTL_MS.issueWithoutComments,
         params: { issueIds: uniqueIssueIds.toSorted() },
-        groups: ["issue"],
-        issueIds: uniqueIssueIds,
       },
       getRawIssues(input.cwd, uniqueIssueIds).pipe(
         Effect.map((rawIssuesById) => ({
@@ -1982,14 +1842,11 @@ const makeBeadsTrackerService = Effect.gen(function* () {
   };
 
   const getEpicIssueSummaries: BeadsTrackerServiceShape["getEpicIssueSummaries"] = (input) =>
-    getOrLoadCachedRead(
+    getOrLoadCoalescedRead(
       {
         cwd: input.cwd,
         name: "epic-issue-summaries",
-        ttlMs: BEADS_READ_CACHE_TTL_MS.coordinator,
         params: { epicIssueId: input.epicIssueId },
-        groups: ["coordinator", "issues"],
-        issueIds: [input.epicIssueId],
       },
       Effect.gen(function* () {
         const [rawEpic, issues] = yield* Effect.all(
@@ -2072,7 +1929,6 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         }
         return mapIssueSummary(issue);
       });
-      yield* invalidateReadCacheForIssue(input.cwd, input.issueId);
       return updated;
     });
 
@@ -2110,24 +1966,20 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         }
         return mapIssueSummary(issue);
       });
-      yield* invalidateReadCacheForCwd(input.cwd);
       return created;
     });
 
   const commentIssue: BeadsTrackerServiceShape["commentIssue"] = (input) =>
     Effect.gen(function* () {
       yield* runBdRaw(input.cwd, ["comment", input.issueId, input.text]);
-      yield* invalidateReadCacheForIssueDetail(input.cwd, input.issueId);
       return yield* getIssueDetail({ cwd: input.cwd, issueId: input.issueId });
     });
 
   const getContext: BeadsTrackerServiceShape["getContext"] = (input) =>
-    getOrLoadCachedRead(
+    getOrLoadCoalescedRead(
       {
         cwd: input.cwd,
         name: "context",
-        ttlMs: BEADS_READ_CACHE_TTL_MS.context,
-        groups: ["context"],
       },
       runBdJson(input.cwd, ["context"], (json) => {
         const record = asRecord(json);
@@ -2139,14 +1991,11 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     );
 
   const getIssueGraph: BeadsTrackerServiceShape["getIssueGraph"] = (input) =>
-    getOrLoadCachedRead(
+    getOrLoadCoalescedRead(
       {
         cwd: input.cwd,
         name: "issue-graph",
-        ttlMs: BEADS_READ_CACHE_TTL_MS.issueGraph,
         params: { epicIssueId: input.epicIssueId },
-        groups: ["issue", "coordinator"],
-        issueIds: [input.epicIssueId],
       },
       Effect.gen(function* () {
         const rawIssue = yield* getRawIssue(input.cwd, input.epicIssueId);
