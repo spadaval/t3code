@@ -1957,6 +1957,94 @@ describe("EpicRunScheduler", () => {
     expect(issue?.comments.at(-1)?.text).toContain("Epic-run worker cancelled.");
   });
 
+  it("treats stop as settled when the active execution fails during cancellation", async () => {
+    let shouldInjectFailure = false;
+    let injectedFailure = false;
+    let targetExecutionId: EpicIssueExecutionId | null = null;
+    let targetRunId: string | null = null;
+    let harness;
+
+    harness = await createHarness(makeTrackerState(), {
+      beforeGetIssue: () =>
+        Effect.sync(() => {
+          if (!shouldInjectFailure || injectedFailure || targetExecutionId === null) {
+            return;
+          }
+
+          injectedFailure = true;
+          harness.patchReadModel((current) => ({
+            ...current,
+            epicRuns: current.epicRuns.map((run) =>
+              run.runId !== targetRunId
+                ? run
+                : {
+                    ...run,
+                    status: "failed",
+                    failureContext: {
+                      kind: "environment_failure",
+                      message: "Worker failed while stop was in progress.",
+                      issueId: "TASK-1",
+                      executionId: targetExecutionId,
+                      workerThreadId: null,
+                    },
+                    failedAt: now,
+                    updatedAt: now,
+                  },
+            ),
+            epicIssueExecutions: current.epicIssueExecutions.map((execution) =>
+              execution.executionId !== targetExecutionId
+                ? execution
+                : {
+                    ...execution,
+                    status: "failed",
+                    failureContext: {
+                      kind: "environment_failure",
+                      message: "Worker failed while stop was in progress.",
+                      issueId: execution.issueId,
+                      executionId: execution.executionId,
+                      workerThreadId: execution.workerThreadId,
+                    },
+                    failedAt: now,
+                    updatedAt: now,
+                  },
+            ),
+          }));
+        }),
+    });
+
+    const started = await runtime!.runPromise(
+      harness.workflow.startEpicRun({
+        projectId: harness.projectId,
+        epicIssueId: "EPIC-1",
+        runtimeMode: "full-access",
+      }),
+    );
+    await runtime!.runPromise(harness.workflow.drain);
+
+    const initialSnapshot = await runtime!.runPromise(harness.engine.getReadModel());
+    const execution = initialSnapshot.epicIssueExecutions[0];
+    if (!execution) {
+      return;
+    }
+
+    targetRunId = started.runId;
+    targetExecutionId = execution.executionId;
+    shouldInjectFailure = true;
+
+    const stopped = await runtime!.runPromise(
+      harness.workflow.stopEpicRun({
+        runId: started.runId,
+      }),
+    );
+
+    const stopExecutionCommands = harness
+      .getDispatchedCommands()
+      .filter((command) => command.type === "epic-issue-execution.stop");
+
+    expect(stopped.status).toBe("failed");
+    expect(stopExecutionCommands).toHaveLength(0);
+  });
+
   it("fails the run with environment_failure when stop cannot confirm the worker stopped", async () => {
     const harness = await createHarness();
 

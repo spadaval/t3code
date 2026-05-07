@@ -220,6 +220,10 @@ function isNonTerminalExecutionStatus(status: OrchestrationEpicIssueExecution["s
   return status === "launching" || status === "running" || status === "stopping";
 }
 
+function isTerminalExecutionStatus(status: OrchestrationEpicIssueExecution["status"]): boolean {
+  return !isNonTerminalExecutionStatus(status);
+}
+
 function isWorkerLifecycleObservationEvent(
   event: OrchestrationEvent,
 ): event is Extract<OrchestrationEvent, { type: "thread.session-set" }> {
@@ -993,13 +997,21 @@ const makeEpicRunScheduler = Effect.gen(function* () {
     }).pipe(Effect.asVoid);
 
   const cancelTaskExecutionCommand = (input: CancelEpicIssueExecutionInput) =>
-    dispatchOrFail("cancelTaskExecutionCommand", {
-      type: "epic-issue-execution.stop",
-      commandId: serverCommandId("epic-issue-execution-stop"),
-      executionId: input.executionId,
-      runId: input.runId,
-      createdAt: nowIso(),
-    }).pipe(Effect.asVoid);
+    getExecutionById(input.executionId).pipe(
+      Effect.flatMap((execution) => {
+        if (execution.runId === input.runId && isTerminalExecutionStatus(execution.status)) {
+          return Effect.void;
+        }
+
+        return dispatchOrFail("cancelTaskExecutionCommand", {
+          type: "epic-issue-execution.stop",
+          commandId: serverCommandId("epic-issue-execution-stop"),
+          executionId: input.executionId,
+          runId: input.runId,
+          createdAt: nowIso(),
+        }).pipe(Effect.asVoid);
+      }),
+    );
 
   const createWorkerThread = (input: {
     readonly run: OrchestrationEpicRun;
@@ -1787,6 +1799,11 @@ const makeEpicRunScheduler = Effect.gen(function* () {
           project,
           execution,
         });
+
+        const latestRun = yield* getRunById(run.runId);
+        if (isTerminalRunStatus(latestRun.status)) {
+          return asControlResult(latestRun);
+        }
       }
 
       yield* cancelRun(run.runId);
