@@ -23,7 +23,7 @@
 
 ## Critical Gaps
 
-1. **No parallel agent execution** -- Epic runs process issues sequentially. Every other system supports parallelism.
+1. **Parallel agent execution is future work** -- Epic runs currently process issues sequentially. Every other system supports parallelism.
 2. **No context management strategy** -- 24K char client-side text truncation. No structured summarization, no cross-session context.
 3. **No persistent memory or learning** -- Every new thread starts from scratch. No cross-session knowledge accumulation.
 4. **No quality gates** -- No automated verification of agent output (lint, test, build).
@@ -67,7 +67,7 @@
 
 ### Phase 2: Multi-Agent Reliability
 
-- Parallel epic execution with isolated worktrees
+- Future parallel epic execution with isolated worktrees
 - Merge queue / integration branch strategy
 - Fleet-level health dashboard
 - Cost budgets and aggregate tracking

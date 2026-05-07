@@ -18,7 +18,7 @@ T3 Code uses an event-sourced CQRS architecture for orchestration. The core is a
 - Plan implementation workflow (plan -> worktree -> thread -> execution)
 - Epic runs: execute issues from a beads epic **sequentially** (one worker thread at a time)
 
-**Critical limitation:** The `requireNoConflictingSharedWorkspaceRun` invariant in `commandInvariants.ts:347-363` enforces single-execution. The `EpicRunScheduler` dispatches one issue, waits for completion, then selects the next. There is no concurrent agent coordination.
+**Current limitation:** The `requireNoConflictingSharedWorkspaceRun` invariant in `commandInvariants.ts:347-363` enforces single-execution. The `EpicRunScheduler` dispatches one issue, waits for completion, then selects the next. T3 Code does not currently support concurrent epic issue execution.
 
 ## How Each Tool Solves It
 
@@ -49,9 +49,9 @@ T3 Code uses an event-sourced CQRS architecture for orchestration. The core is a
 
 ## Proposed Direction
 
-### Parallel Epic Execution
+### Future Parallel Epic Execution
 
-Evolve the epic run scheduler to dispatch multiple issues concurrently:
+A possible future direction is to evolve the epic run scheduler to dispatch multiple issues concurrently:
 
 1. **Replace the shared workspace invariant** with per-issue workspace isolation. Each concurrent execution gets its own git worktree (the `createTemporaryWorktree` infrastructure already exists).
 2. **Add concurrency bounds**: `maxConcurrentExecutions` per epic run (configurable, default 3-5). Similar to Symphony's `max_concurrent_agents`.
