@@ -53,7 +53,7 @@ export default function IssuesPageContent({ projectId }: { projectId: ProjectId 
         sortBy,
         enabled: cwd !== null,
         refetchIntervalMs: ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
-        refetchOnWindowFocus: "always",
+        refetchOnWindowFocus: false,
       }),
     ),
   );

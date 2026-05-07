@@ -1,4 +1,8 @@
-import type { BeadsCoordinatorEpicSnapshot, ProjectId } from "@t3tools/contracts";
+import type {
+  BeadsCoordinatorEpicSnapshot,
+  BeadsProjectRunSummary,
+  ProjectId,
+} from "@t3tools/contracts";
 import { useQuery } from "@tanstack/react-query";
 
 import {
@@ -12,6 +16,7 @@ export function useEpicSnapshot(input: {
   readonly cwd: string;
   readonly projectId: ProjectId;
   readonly issueId: string;
+  readonly projectRunSummary?: BeadsProjectRunSummary | null;
   readonly enabled?: boolean;
 }): {
   readonly isPending: boolean;
@@ -19,8 +24,9 @@ export function useEpicSnapshot(input: {
   readonly epic: BeadsCoordinatorEpicSnapshot | null;
 } {
   const enabled = input.enabled ?? true;
+  const shouldLoadProjectRunSummary = enabled && input.projectRunSummary === undefined;
   const projectRunSummaryQuery = useQuery(
-    enabled
+    shouldLoadProjectRunSummary
       ? beadsProjectRunSummaryOptions({
           cwd: input.cwd,
           projectId: input.projectId,
@@ -57,7 +63,7 @@ export function useEpicSnapshot(input: {
     coordinationDetailQuery.data && issueSummariesQuery.data
       ? composeCoordinatorEpicSnapshot({
           epicIssueId: input.issueId,
-          projectRunSummary: projectRunSummaryQuery.data ?? null,
+          projectRunSummary: input.projectRunSummary ?? projectRunSummaryQuery.data ?? null,
           epicIssueSummaries: issueSummariesQuery.data,
           epicCoordinationDetail: coordinationDetailQuery.data,
         })
@@ -67,7 +73,7 @@ export function useEpicSnapshot(input: {
     isPending:
       coordinationDetailQuery.isPending ||
       issueSummariesQuery.isPending ||
-      projectRunSummaryQuery.isPending,
+      (shouldLoadProjectRunSummary && projectRunSummaryQuery.isPending),
     error:
       coordinationDetailQuery.error ?? issueSummariesQuery.error ?? projectRunSummaryQuery.error,
     epic,

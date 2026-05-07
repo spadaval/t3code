@@ -134,7 +134,7 @@ export function DraftQuickLaunchPanel(props: {
       mode: "all",
       sortBy: "updated",
       refetchIntervalMs: ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
-      refetchOnWindowFocus: "always",
+      refetchOnWindowFocus: false,
     }),
   );
   const issuesById = useMemo(

@@ -22,7 +22,11 @@ import {
 } from "../../orchestration/Errors.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { BeadsService } from "../Services/BeadsService.ts";
-import { BeadsServiceLive, BeadsTrackerServiceLive } from "./BeadsService.ts";
+import {
+  BeadsServiceLive,
+  BeadsTrackerServiceLive,
+  clearBeadsReadCachesForTesting,
+} from "./BeadsService.ts";
 
 const mockedRunProcess = vi.mocked(runProcess);
 function makeEmptyReadModel(): OrchestrationReadModel {
@@ -60,6 +64,7 @@ afterEach(() => {
   mockedRunProcess.mockReset();
   mockedGetReadModel.mockReset();
   mockedDispatch.mockReset();
+  Effect.runSync(clearBeadsReadCachesForTesting());
   mockedGetReadModel.mockImplementation(() => Effect.succeed(makeEmptyReadModel()));
   mockedDispatch.mockImplementation((_: unknown) =>
     Effect.die("dispatch was not expected in this test"),
@@ -77,14 +82,31 @@ function successJson(value: unknown) {
 }
 
 function commandKey(args: readonly string[]): string {
-  return args.filter((arg) => arg !== "--json").join(" ");
+  return args
+    .filter((arg) => arg !== "--json")
+    .map((arg) => (arg.startsWith("--id=") ? arg.slice("--id=".length) : arg))
+    .join(" ");
 }
 
 function installBdJsonMock(outputs: Record<string, unknown>) {
   mockedRunProcess.mockImplementation(async (_command, args) => {
     const key = commandKey(args);
+    const nonJsonArgs = args.filter((arg) => arg !== "--json");
+    const showIds =
+      nonJsonArgs[0] === "show"
+        ? nonJsonArgs.flatMap((arg, index) => {
+            if (index === 0 || arg === "--long") return [];
+            return arg.startsWith("--id=") ? [arg.slice("--id=".length)] : [arg];
+          })
+        : [];
     const output =
       outputs[key] ??
+      (showIds.length > 1
+        ? showIds.flatMap((issueId) => {
+            const issueOutput = outputs[`show ${issueId} --long`];
+            return Array.isArray(issueOutput) ? issueOutput : [];
+          })
+        : undefined) ??
       (args[0] === "history" && args.includes("--limit")
         ? outputs[
             args
@@ -220,7 +242,7 @@ layer("BeadsServiceLive", (it) => {
 
       assert.equal(left.id, "ISS-1");
       assert.equal(right.id, "ISS-1");
-      expect(mockedRunProcess).toHaveBeenCalledTimes(5);
+      expect(mockedRunProcess).toHaveBeenCalledTimes(3);
       expect(maxActiveCalls).toBe(1);
     }),
   );
@@ -538,7 +560,7 @@ layer("BeadsServiceLive", (it) => {
       ]);
       expect(result.missingIssueIds).toEqual(["MISSING-1"]);
       expect(result.loadErrors).toEqual([]);
-      expect(countBdCommandCalls("show TASK-1 --long")).toBe(1);
+      expect(countBdCommandCalls("show TASK-1 MISSING-1 --long")).toBe(1);
     }),
   );
 
@@ -2532,7 +2554,7 @@ layer("BeadsServiceLive", (it) => {
 
         assert.equal(detail.epicId, "EPIC-1");
         expect(countBdCommandCalls("comments EPIC-1")).toBe(0);
-        expect(countBdCommandCalls("show EPIC-1 --long")).toBe(2);
+        expect(countBdCommandCalls("show EPIC-1 --long")).toBe(1);
         expect(countBdCommandCalls("show CHILD-1 --long")).toBe(1);
       }),
   );

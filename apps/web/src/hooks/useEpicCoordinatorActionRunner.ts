@@ -12,7 +12,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 
-import { beadsQueryKeys } from "~/lib/beadsReactQuery";
+import { invalidateBeadsCoordinator } from "~/lib/beadsReactQuery";
 import { ensureEnvironmentApi } from "~/environmentApi";
 import { toastManager } from "~/components/ui/toast";
 import { selectProjectsAcrossEnvironments, useStore } from "~/store";
@@ -86,7 +86,18 @@ export function describeCoordinatorActionError(actionKind: CoordinatorActionInpu
 export function invalidateCoordinatorBeadsQueries(
   queryClient: Pick<QueryClient, "invalidateQueries">,
 ) {
-  void queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
+  void queryClient.invalidateQueries({
+    predicate: (query) => {
+      const key = query.queryKey;
+      return (
+        Array.isArray(key) &&
+        key[0] === "beads" &&
+        (key[1] === "project-run-summary" ||
+          key[1] === "epic-issue-summaries" ||
+          key[1] === "epic-coordination-detail")
+      );
+    },
+  });
 }
 
 export function useEpicCoordinatorActionRunner(input: {
@@ -144,8 +155,17 @@ export function useEpicCoordinatorActionRunner(input: {
           return null;
       }
     },
-    onSuccess: async (result) => {
-      invalidateCoordinatorBeadsQueries(queryClient);
+    onSuccess: async (result, action) => {
+      await invalidateBeadsCoordinator(queryClient, {
+        cwd: input.cwd,
+        projectId: input.projectId,
+        epicIssueId:
+          action.kind === "open_coordination_prep_thread" ||
+          action.kind === "start_epic_run" ||
+          action.kind === "refresh_epic_status"
+            ? action.epicIssueId
+            : undefined,
+      });
 
       if (result) {
         if (!result.created) {

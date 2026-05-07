@@ -786,7 +786,7 @@ export async function createEpicRunSchedulerHarness(
     ],
   ]);
 
-  const readTrackerStateSnapshot = (): TrackerState => {
+  const readTrackerStateSnapshot = (input?: { holdForPairedRead?: boolean }): TrackerState => {
     if (pendingTrackerStateSnapshot !== null) {
       const snapshot = pendingTrackerStateSnapshot;
       pendingTrackerStateReadsRemaining -= 1;
@@ -802,8 +802,10 @@ export async function createEpicRunSchedulerHarness(
       trackerStateSequence = trackerStateSequence.slice(1);
     }
 
-    pendingTrackerStateSnapshot = snapshot;
-    pendingTrackerStateReadsRemaining = 2;
+    if (input?.holdForPairedRead) {
+      pendingTrackerStateSnapshot = snapshot;
+      pendingTrackerStateReadsRemaining = 2;
+    }
     return snapshot;
   };
 
@@ -862,6 +864,21 @@ export async function createEpicRunSchedulerHarness(
           ...issue,
           comments: [],
         });
+      }),
+    getIssuesWithoutComments: ({ issueIds }) =>
+      Effect.gen(function* () {
+        const result = [];
+        for (const issueId of issueIds) {
+          const issue = issues.get(issueId);
+          if (!issue) {
+            return yield* beadsError(`Unknown issue '${issueId}'.`);
+          }
+          result.push({
+            ...issue,
+            comments: [],
+          });
+        }
+        return result;
       }),
     resolveIssueRefs: ({ issueIds }) =>
       Effect.sync(() => {
@@ -961,8 +978,10 @@ export async function createEpicRunSchedulerHarness(
       }),
     getContext: () => Effect.fail(beadsError("unexpected getContext call")),
     getIssueGraph: () => Effect.fail(beadsError("unexpected getIssueGraph call")),
-    validateEpicCoordination: () => Effect.succeed(readTrackerStateSnapshot().validation),
-    getEpicCoordinationStatus: () => Effect.succeed(readTrackerStateSnapshot().status),
+    validateEpicCoordination: () =>
+      Effect.succeed(readTrackerStateSnapshot({ holdForPairedRead: true }).validation),
+    getEpicCoordinationStatus: () =>
+      Effect.succeed(readTrackerStateSnapshot({ holdForPairedRead: true }).status),
     loadEpicCoordinationState: ({ issueSummary }) =>
       Effect.sync(() => {
         const currentTrackerState = readTrackerStateSnapshot();

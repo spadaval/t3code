@@ -80,6 +80,16 @@ const SLOW_BD_COMMAND_WARN_MS = 3_000;
 const BD_COMMAND_PREVIEW_LIMIT = 240;
 const BD_LOG_SCOPE = "beads.bd";
 const MAX_BEADS_ISSUE_REFS_PER_REQUEST = 50;
+const MAX_BEADS_READ_CACHE_ENTRIES = 500;
+const BEADS_READ_CACHE_TTL_MS = {
+  context: 60_000,
+  issue: 10_000,
+  issueGraph: 20_000,
+  issueSummary: 20_000,
+  issueWithoutComments: 20_000,
+  queryIssues: 20_000,
+  coordinator: 20_000,
+} as const;
 const decodeIssueSummary = Schema.decodeUnknownSync(BeadsIssueSummary);
 const decodeIssueReferenceSummary = Schema.decodeUnknownSync(BeadsIssueReferenceSummary);
 const decodeIssueDetail = Schema.decodeUnknownSync(BeadsIssueDetail);
@@ -110,6 +120,32 @@ interface EpicCoordinationGraphState {
   readonly epic: BeadsIssueSummaryType;
   readonly graph: ReturnType<typeof buildEpicCoordinationGraph>;
   readonly loadErrors: ReadonlyArray<string>;
+}
+
+interface BeadsReadCacheEntry {
+  readonly cwd: string;
+  readonly groups: ReadonlySet<string>;
+  readonly issueIds: ReadonlySet<string>;
+  readonly expiresAt: number;
+  readonly value?: unknown;
+  readonly inFlight?: Deferred.Deferred<unknown, BeadsError>;
+}
+
+type BeadsReadCacheReservation<A> =
+  | { readonly kind: "hit"; readonly value: A }
+  | { readonly kind: "wait"; readonly deferred: Deferred.Deferred<unknown, BeadsError> }
+  | { readonly kind: "load"; readonly deferred: Deferred.Deferred<unknown, BeadsError> };
+
+const beadsReadCacheRefs = new Set<
+  SynchronizedRef.SynchronizedRef<Map<string, BeadsReadCacheEntry>>
+>();
+
+export function clearBeadsReadCachesForTesting(): Effect.Effect<void, never, never> {
+  return Effect.forEach(
+    [...beadsReadCacheRefs],
+    (cacheRef) => SynchronizedRef.set(cacheRef, new Map()),
+    { discard: true },
+  );
 }
 
 type BdExecutionStrategy = "parallel" | "serial";
@@ -262,6 +298,29 @@ function getBdCommandDetails(args: ReadonlyArray<string>): BdCommandDetails {
     preview: summarizeBdArgs(args),
     argCount: args.length,
   };
+}
+
+function stableCacheValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stableCacheValue);
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .toSorted(([left], [right]) => left.localeCompare(right))
+      .map(([key, entryValue]) => [key, stableCacheValue(entryValue)]),
+  );
+}
+
+function stableCacheJson(value: unknown): string {
+  return JSON.stringify(stableCacheValue(value));
+}
+
+function makeBdShowIssueArgs(issueIds: ReadonlyArray<string>): ReadonlyArray<string> {
+  return issueIds.map((issueId) => (issueId.startsWith("-") ? `--id=${issueId}` : issueId));
 }
 
 function recordBdCommandMetrics(input: {
@@ -1131,8 +1190,177 @@ const makeBeadsTrackerService = Effect.gen(function* () {
   const bdExecutionStrategyDeferredsRef = yield* SynchronizedRef.make(
     new Map<string, Deferred.Deferred<BdExecutionStrategy, BeadsError>>(),
   );
+  const readCacheRef = yield* SynchronizedRef.make(new Map<string, BeadsReadCacheEntry>());
+  yield* Effect.sync(() => {
+    beadsReadCacheRefs.add(readCacheRef);
+  });
 
   const getBdKey = (cwd: string) => path.resolve(cwd);
+  const getReadCacheKey = (input: {
+    readonly cwd: string;
+    readonly name: string;
+    readonly params?: unknown;
+  }): string => `${getBdKey(input.cwd)}:${input.name}:${stableCacheJson(input.params ?? {})}`;
+
+  const trimReadCache = (
+    entries: Map<string, BeadsReadCacheEntry>,
+  ): Map<string, BeadsReadCacheEntry> => {
+    if (entries.size <= MAX_BEADS_READ_CACHE_ENTRIES) {
+      return entries;
+    }
+    const next = new Map(entries);
+    while (next.size > MAX_BEADS_READ_CACHE_ENTRIES) {
+      const firstKey = next.keys().next().value;
+      if (firstKey === undefined) {
+        break;
+      }
+      next.delete(firstKey);
+    }
+    return next;
+  };
+
+  const invalidateReadCacheWhere = (
+    predicate: (entry: BeadsReadCacheEntry) => boolean,
+  ): Effect.Effect<void, never, never> =>
+    SynchronizedRef.update(readCacheRef, (current) => {
+      let changed = false;
+      const next = new Map(current);
+      for (const [key, entry] of current) {
+        if (predicate(entry)) {
+          next.delete(key);
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+
+  const invalidateReadCacheForCwd = (cwd: string) => {
+    const cacheCwd = getBdKey(cwd);
+    return invalidateReadCacheWhere((entry) => entry.cwd === cacheCwd);
+  };
+
+  const invalidateReadCacheForIssue = (cwd: string, issueId: string) => {
+    const cacheCwd = getBdKey(cwd);
+    return invalidateReadCacheWhere(
+      (entry) =>
+        entry.cwd === cacheCwd &&
+        (entry.issueIds.has(issueId) ||
+          entry.groups.has("issues") ||
+          entry.groups.has("coordinator")),
+    );
+  };
+
+  const invalidateReadCacheForIssueDetail = (cwd: string, issueId: string) => {
+    const cacheCwd = getBdKey(cwd);
+    return invalidateReadCacheWhere(
+      (entry) => entry.cwd === cacheCwd && entry.issueIds.has(issueId) && entry.groups.has("issue"),
+    );
+  };
+
+  const getOrLoadCachedRead = <A>(
+    input: {
+      readonly cwd: string;
+      readonly name: string;
+      readonly ttlMs: number;
+      readonly params?: unknown;
+      readonly groups?: ReadonlyArray<string>;
+      readonly issueIds?: ReadonlyArray<string>;
+    },
+    load: Effect.Effect<A, BeadsError>,
+  ): Effect.Effect<A, BeadsError> =>
+    Effect.gen(function* () {
+      const key = getReadCacheKey(input);
+      const cwd = getBdKey(input.cwd);
+      const now = Date.now();
+      const newDeferred = yield* Deferred.make<unknown, BeadsError>();
+      const reservation: BeadsReadCacheReservation<A> = yield* SynchronizedRef.modify(
+        readCacheRef,
+        (current): readonly [BeadsReadCacheReservation<A>, Map<string, BeadsReadCacheEntry>] => {
+          const existing = current.get(key);
+          if (
+            existing &&
+            existing.value !== undefined &&
+            existing.expiresAt > now &&
+            !existing.inFlight
+          ) {
+            return [
+              { kind: "hit", value: existing.value as A } satisfies BeadsReadCacheReservation<A>,
+              current,
+            ] as const;
+          }
+          if (existing?.inFlight) {
+            return [
+              {
+                kind: "wait",
+                deferred: existing.inFlight,
+              } satisfies BeadsReadCacheReservation<A>,
+              current,
+            ] as const;
+          }
+
+          const next = trimReadCache(
+            new Map(current).set(key, {
+              cwd,
+              groups: new Set(input.groups ?? []),
+              issueIds: new Set(input.issueIds ?? []),
+              expiresAt: 0,
+              inFlight: newDeferred,
+            }),
+          );
+          return [
+            { kind: "load", deferred: newDeferred } satisfies BeadsReadCacheReservation<A>,
+            next,
+          ] as const;
+        },
+      );
+
+      if (reservation.kind === "hit") {
+        yield* Effect.logDebug("beads read cache hit", {
+          name: input.name,
+          cwd,
+        }).pipe(Effect.annotateLogs({ scope: BD_LOG_SCOPE }));
+        return reservation.value;
+      }
+
+      if (reservation.kind === "wait") {
+        yield* Effect.logDebug("beads read cache coalesced", {
+          name: input.name,
+          cwd,
+        }).pipe(Effect.annotateLogs({ scope: BD_LOG_SCOPE }));
+        return (yield* Deferred.await(reservation.deferred)) as A;
+      }
+
+      yield* Effect.logDebug("beads read cache miss", {
+        name: input.name,
+        cwd,
+      }).pipe(Effect.annotateLogs({ scope: BD_LOG_SCOPE }));
+
+      const exit = yield* Effect.exit(load);
+      if (exit._tag === "Success") {
+        const expiresAt = Date.now() + input.ttlMs;
+        yield* SynchronizedRef.update(readCacheRef, (current) =>
+          trimReadCache(
+            new Map(current).set(key, {
+              cwd,
+              groups: new Set(input.groups ?? []),
+              issueIds: new Set(input.issueIds ?? []),
+              expiresAt,
+              value: exit.value,
+            }),
+          ),
+        );
+        yield* Deferred.succeed(reservation.deferred, exit.value).pipe(Effect.orDie);
+        return exit.value;
+      }
+
+      yield* SynchronizedRef.update(readCacheRef, (current) => {
+        const next = new Map(current);
+        next.delete(key);
+        return next;
+      });
+      yield* Deferred.failCause(reservation.deferred, exit.cause).pipe(Effect.orDie);
+      return yield* Effect.failCause(exit.cause);
+    });
 
   const getBdSemaphore = (cwd: string): Effect.Effect<Semaphore.Semaphore> =>
     SynchronizedRef.modifyEffect(bdLocksRef, (current) => {
@@ -1507,8 +1735,8 @@ const makeBeadsTrackerService = Effect.gen(function* () {
       ),
     );
 
-  const getRawIssue = (cwd: string, issueId: string) =>
-    runBdJson(cwd, ["show", issueId, "--long"], (json) => {
+  const loadRawIssue = (cwd: string, issueId: string) =>
+    runBdJson(cwd, ["show", ...makeBdShowIssueArgs([issueId]), "--long"], (json) => {
       const items = Array.isArray(json) ? json : [];
       const issue = items[0] as Record<string, unknown> | undefined;
       if (!issue) {
@@ -1516,6 +1744,46 @@ const makeBeadsTrackerService = Effect.gen(function* () {
       }
       return issue;
     });
+
+  const getRawIssue = (cwd: string, issueId: string) =>
+    getOrLoadCachedRead(
+      {
+        cwd,
+        name: "raw-issue",
+        ttlMs: BEADS_READ_CACHE_TTL_MS.issueSummary,
+        params: { issueId },
+        groups: ["issue"],
+        issueIds: [issueId],
+      },
+      loadRawIssue(cwd, issueId),
+    );
+
+  const getRawIssues = (cwd: string, issueIds: ReadonlyArray<string>) => {
+    const uniqueIssueIds = [...new Set(issueIds)];
+    if (uniqueIssueIds.length === 0) {
+      return Effect.succeed(new Map<string, Record<string, unknown>>());
+    }
+
+    return getOrLoadCachedRead(
+      {
+        cwd,
+        name: "raw-issues",
+        ttlMs: BEADS_READ_CACHE_TTL_MS.issueWithoutComments,
+        params: { issueIds: uniqueIssueIds.toSorted() },
+        groups: ["issue"],
+        issueIds: uniqueIssueIds,
+      },
+      runBdJson(cwd, ["show", ...makeBdShowIssueArgs(uniqueIssueIds), "--long"], (json) => {
+        const issues = asRecordArray(json);
+        return new Map(
+          issues.flatMap((issue) => {
+            const issueId = trimToNull(issue.id);
+            return issueId ? ([[issueId, issue]] as const) : [];
+          }),
+        );
+      }),
+    );
+  };
 
   const getIssueComments = (cwd: string, issueId: string) =>
     runBdJson(
@@ -1528,57 +1796,126 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     getIssueComments(cwd, issueId).pipe(Effect.catch(() => Effect.succeed([])));
 
   const getIssueDetailWithoutComments = (cwd: string, issueId: string) =>
-    getRawIssue(cwd, issueId).pipe(Effect.map((issue) => mapIssueDetail(issue, [])));
+    getOrLoadCachedRead(
+      {
+        cwd,
+        name: "issue-without-comments",
+        ttlMs: BEADS_READ_CACHE_TTL_MS.issueWithoutComments,
+        params: { issueId },
+        groups: ["issue"],
+        issueIds: [issueId],
+      },
+      getRawIssue(cwd, issueId).pipe(Effect.map((issue) => mapIssueDetail(issue, []))),
+    );
 
   const getIssueDetail = (input: BeadsGetIssueInput) =>
-    Effect.all(
-      [getRawIssue(input.cwd, input.issueId), getIssueCommentsOptional(input.cwd, input.issueId)],
-      { concurrency: "unbounded" },
-    ).pipe(
-      Effect.map(([issue, comments]) => mapIssueDetail(issue, comments)),
-      Effect.mapError((error) =>
-        Schema.is(BeadsError)(error) ? error : toBeadsError("Failed to load issue detail.", error),
+    getOrLoadCachedRead(
+      {
+        cwd: input.cwd,
+        name: "issue-detail",
+        ttlMs: BEADS_READ_CACHE_TTL_MS.issue,
+        params: { issueId: input.issueId },
+        groups: ["issue"],
+        issueIds: [input.issueId],
+      },
+      Effect.all(
+        [getRawIssue(input.cwd, input.issueId), getIssueCommentsOptional(input.cwd, input.issueId)],
+        { concurrency: "unbounded" },
+      ).pipe(
+        Effect.map(([issue, comments]) => mapIssueDetail(issue, comments)),
+        Effect.mapError((error) =>
+          Schema.is(BeadsError)(error)
+            ? error
+            : toBeadsError("Failed to load issue detail.", error),
+        ),
       ),
     );
 
   const queryIssues: BeadsTrackerServiceShape["queryIssues"] = (input) =>
-    runBdJson(
-      input.cwd,
-      input.mode === "ready" ? ["ready"] : ["list", "--all", "--limit", "0"],
-      (json) => {
-        const rawIssues = asRecordArray(json);
-        const issueTitleById = buildIssueTitleMap(rawIssues);
-        const issues = rawIssues
-          .map((entry) => mapIssueSummary(entry, issueTitleById))
-          .filter((issue) => !isHiddenSwarmMolecule(issue))
-          .filter((issue) => matchesIssueSummary(issue, input))
-          .toSorted((left, right) => compareIssueSummaries(left, right, input.sortBy))
-          .slice(0, 200);
-        return {
-          issues,
-        } satisfies BeadsQueryIssuesResult;
+    getOrLoadCachedRead(
+      {
+        cwd: input.cwd,
+        name: "query-issues",
+        ttlMs: BEADS_READ_CACHE_TTL_MS.queryIssues,
+        params: input,
+        groups: ["issues"],
       },
+      runBdJson(
+        input.cwd,
+        input.mode === "ready" ? ["ready"] : ["list", "--all", "--limit", "0"],
+        (json) => {
+          const rawIssues = asRecordArray(json);
+          const issueTitleById = buildIssueTitleMap(rawIssues);
+          const issues = rawIssues
+            .map((entry) => mapIssueSummary(entry, issueTitleById))
+            .filter((issue) => !isHiddenSwarmMolecule(issue))
+            .filter((issue) => matchesIssueSummary(issue, input))
+            .toSorted((left, right) => compareIssueSummaries(left, right, input.sortBy))
+            .slice(0, 200);
+          return {
+            issues,
+          } satisfies BeadsQueryIssuesResult;
+        },
+      ),
     );
 
   const listCoordinatorEpics: BeadsTrackerServiceShape["listCoordinatorEpics"] = (input) =>
-    runBdJson(input.cwd, ["list", "--all", "--type", "epic", "--limit", "0"], (json) => {
-      const rawIssues = asRecordArray(json);
-      const issueTitleById = buildIssueTitleMap(rawIssues);
-      return rawIssues
-        .map((entry) => mapIssueSummary(entry, issueTitleById))
-        .filter((issue) => !isHiddenSwarmMolecule(issue))
-        .filter((issue) => issue.status !== "closed")
-        .toSorted((left, right) => compareIssueSummaries(left, right, "updated"))
-        .slice(0, 200);
-    });
+    getOrLoadCachedRead(
+      {
+        cwd: input.cwd,
+        name: "coordinator-epics",
+        ttlMs: BEADS_READ_CACHE_TTL_MS.coordinator,
+        groups: ["coordinator", "issues"],
+      },
+      runBdJson(input.cwd, ["list", "--all", "--type", "epic", "--limit", "0"], (json) => {
+        const rawIssues = asRecordArray(json);
+        const issueTitleById = buildIssueTitleMap(rawIssues);
+        return rawIssues
+          .map((entry) => mapIssueSummary(entry, issueTitleById))
+          .filter((issue) => !isHiddenSwarmMolecule(issue))
+          .filter((issue) => issue.status !== "closed")
+          .toSorted((left, right) => compareIssueSummaries(left, right, "updated"))
+          .slice(0, 200);
+      }),
+    );
 
   const getIssue: BeadsTrackerServiceShape["getIssue"] = (input) => getIssueDetail(input);
 
   const getIssueWithoutComments: BeadsTrackerServiceShape["getIssueWithoutComments"] = (input) =>
     getIssueDetailWithoutComments(input.cwd, input.issueId);
 
+  const getIssuesWithoutComments: BeadsTrackerServiceShape["getIssuesWithoutComments"] = (input) =>
+    getOrLoadCachedRead(
+      {
+        cwd: input.cwd,
+        name: "issues-without-comments",
+        ttlMs: BEADS_READ_CACHE_TTL_MS.issueWithoutComments,
+        params: { issueIds: [...new Set(input.issueIds)].toSorted() },
+        groups: ["issue"],
+        issueIds: input.issueIds,
+      },
+      getRawIssues(input.cwd, input.issueIds).pipe(
+        Effect.map((rawIssuesById) =>
+          input.issueIds.flatMap((issueId) => {
+            const rawIssue = rawIssuesById.get(issueId);
+            return rawIssue ? [mapIssueDetail(rawIssue, [])] : [];
+          }),
+        ),
+      ),
+    );
+
   const getIssueSummary: BeadsTrackerServiceShape["getIssueSummary"] = (input) =>
-    getRawIssue(input.cwd, input.issueId).pipe(Effect.map((issue) => mapIssueSummary(issue)));
+    getOrLoadCachedRead(
+      {
+        cwd: input.cwd,
+        name: "issue-summary",
+        ttlMs: BEADS_READ_CACHE_TTL_MS.issueSummary,
+        params: { issueId: input.issueId },
+        groups: ["issue"],
+        issueIds: [input.issueId],
+      },
+      getRawIssue(input.cwd, input.issueId).pipe(Effect.map((issue) => mapIssueSummary(issue))),
+    );
 
   const resolveIssueRefs: BeadsTrackerServiceShape["resolveIssueRefs"] = (input) => {
     const uniqueIssueIds = [...new Set(input.issueIds)];
@@ -1590,71 +1927,98 @@ const makeBeadsTrackerService = Effect.gen(function* () {
       );
     }
 
-    return Effect.all(
-      uniqueIssueIds.map((issueId) =>
-        runBdJson(input.cwd, ["show", issueId, "--long"], (json) => {
-          const items = Array.isArray(json) ? json : [];
-          const rawIssue = items[0] as Record<string, unknown> | undefined;
-          return rawIssue ? mapIssueReferenceSummary(mapIssueSummary(rawIssue)) : null;
-        }).pipe(
-          Effect.map((issue) =>
-            issue ? { kind: "found" as const, issue } : { kind: "missing" as const, issueId },
-          ),
-          Effect.catch((error) =>
-            Effect.succeed({
-              kind: "error" as const,
-              issueId,
-              message: error.message,
-            }),
+    const resolveOneIssueRef = (issueId: string) =>
+      loadRawIssue(input.cwd, issueId).pipe(
+        Effect.map((rawIssue) => ({
+          kind: "found" as const,
+          issue: mapIssueReferenceSummary(mapIssueSummary(rawIssue)),
+        })),
+        Effect.catch((error) =>
+          Effect.succeed({
+            kind: "error" as const,
+            issueId,
+            message: error.message,
+          }),
+        ),
+      );
+
+    return getOrLoadCachedRead(
+      {
+        cwd: input.cwd,
+        name: "issue-refs",
+        ttlMs: BEADS_READ_CACHE_TTL_MS.issueWithoutComments,
+        params: { issueIds: uniqueIssueIds.toSorted() },
+        groups: ["issue"],
+        issueIds: uniqueIssueIds,
+      },
+      getRawIssues(input.cwd, uniqueIssueIds).pipe(
+        Effect.map((rawIssuesById) => ({
+          issues: uniqueIssueIds.flatMap((issueId) => {
+            const rawIssue = rawIssuesById.get(issueId);
+            return rawIssue ? [mapIssueReferenceSummary(mapIssueSummary(rawIssue))] : [];
+          }),
+          missingIssueIds: uniqueIssueIds.filter((issueId) => !rawIssuesById.has(issueId)),
+          loadErrors: [],
+        })),
+        Effect.catch(() =>
+          Effect.all(uniqueIssueIds.map(resolveOneIssueRef), { concurrency: 10 }).pipe(
+            Effect.map((results) => ({
+              issues: results.flatMap((result) => (result.kind === "found" ? [result.issue] : [])),
+              missingIssueIds: [],
+              loadErrors: results.flatMap((result) =>
+                result.kind === "error"
+                  ? [{ issueId: result.issueId, message: result.message }]
+                  : [],
+              ),
+            })),
           ),
         ),
       ),
-      { concurrency: 10 },
-    ).pipe(
-      Effect.map((results) => ({
-        issues: results.flatMap((result) => (result.kind === "found" ? [result.issue] : [])),
-        missingIssueIds: results.flatMap((result) =>
-          result.kind === "missing" ? [result.issueId] : [],
-        ),
-        loadErrors: results.flatMap((result) =>
-          result.kind === "error" ? [{ issueId: result.issueId, message: result.message }] : [],
-        ),
-      })),
     );
   };
 
   const getEpicIssueSummaries: BeadsTrackerServiceShape["getEpicIssueSummaries"] = (input) =>
-    Effect.gen(function* () {
-      const [rawEpic, issues] = yield* Effect.all(
-        [
-          getRawIssue(input.cwd, input.epicIssueId),
-          runBdJson(
-            input.cwd,
-            ["list", "--all", "--parent", input.epicIssueId, "--limit", "0"],
-            (json) => {
-              const rawIssues = asRecordArray(json);
-              const issueTitleById = buildIssueTitleMap(rawIssues);
-              return rawIssues
-                .map((entry) => mapIssueSummary(entry, issueTitleById))
-                .toSorted((left, right) => compareIssueSummaries(left, right, "updated"))
-                .slice(0, 200);
-            },
-          ),
-        ],
-        { concurrency: "unbounded" },
-      );
+    getOrLoadCachedRead(
+      {
+        cwd: input.cwd,
+        name: "epic-issue-summaries",
+        ttlMs: BEADS_READ_CACHE_TTL_MS.coordinator,
+        params: { epicIssueId: input.epicIssueId },
+        groups: ["coordinator", "issues"],
+        issueIds: [input.epicIssueId],
+      },
+      Effect.gen(function* () {
+        const [rawEpic, issues] = yield* Effect.all(
+          [
+            getRawIssue(input.cwd, input.epicIssueId),
+            runBdJson(
+              input.cwd,
+              ["list", "--all", "--parent", input.epicIssueId, "--limit", "0"],
+              (json) => {
+                const rawIssues = asRecordArray(json);
+                const issueTitleById = buildIssueTitleMap(rawIssues);
+                return rawIssues
+                  .map((entry) => mapIssueSummary(entry, issueTitleById))
+                  .toSorted((left, right) => compareIssueSummaries(left, right, "updated"))
+                  .slice(0, 200);
+              },
+            ),
+          ],
+          { concurrency: "unbounded" },
+        );
 
-      return decodeEpicIssueSummaries(
-        buildEpicIssueSummaries({
-          epic: mapIssueSummary(rawEpic),
-          issues,
-        }),
-      );
-    }).pipe(
-      Effect.mapError((error) =>
-        Schema.is(BeadsError)(error)
-          ? error
-          : toBeadsError("Failed to load epic issue summaries.", error),
+        return decodeEpicIssueSummaries(
+          buildEpicIssueSummaries({
+            epic: mapIssueSummary(rawEpic),
+            issues,
+          }),
+        );
+      }).pipe(
+        Effect.mapError((error) =>
+          Schema.is(BeadsError)(error)
+            ? error
+            : toBeadsError("Failed to load epic issue summaries.", error),
+        ),
       ),
     );
 
@@ -1696,7 +2060,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         }
       }
 
-      return yield* runBdJson(input.cwd, args, (json) => {
+      const updated = yield* runBdJson(input.cwd, args, (json) => {
         const items = Array.isArray(json) ? json : [];
         const issue = items[0] as Record<string, unknown> | undefined;
         if (!issue) {
@@ -1704,6 +2068,8 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         }
         return mapIssueSummary(issue);
       });
+      yield* invalidateReadCacheForIssue(input.cwd, input.issueId);
+      return updated;
     });
 
   const createIssue: BeadsTrackerServiceShape["createIssue"] = (input) =>
@@ -1732,7 +2098,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         args.push("--labels", input.labels.join(","));
       }
 
-      return yield* runBdJson(input.cwd, args, (json) => {
+      const created = yield* runBdJson(input.cwd, args, (json) => {
         const items = Array.isArray(json) ? json : [json];
         const issue = (items[0] ?? json) as Record<string, unknown> | undefined;
         if (!issue) {
@@ -1740,89 +2106,92 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         }
         return mapIssueSummary(issue);
       });
+      yield* invalidateReadCacheForCwd(input.cwd);
+      return created;
     });
 
   const commentIssue: BeadsTrackerServiceShape["commentIssue"] = (input) =>
     Effect.gen(function* () {
       yield* runBdRaw(input.cwd, ["comment", input.issueId, input.text]);
+      yield* invalidateReadCacheForIssueDetail(input.cwd, input.issueId);
       return yield* getIssueDetail({ cwd: input.cwd, issueId: input.issueId });
     });
 
   const getContext: BeadsTrackerServiceShape["getContext"] = (input) =>
-    runBdJson(input.cwd, ["context"], (json) => {
-      const record = asRecord(json);
-      if (!record) {
-        throw new Error("Expected beads context object.");
-      }
-      return mapBeadsContext(record);
-    });
+    getOrLoadCachedRead(
+      {
+        cwd: input.cwd,
+        name: "context",
+        ttlMs: BEADS_READ_CACHE_TTL_MS.context,
+        groups: ["context"],
+      },
+      runBdJson(input.cwd, ["context"], (json) => {
+        const record = asRecord(json);
+        if (!record) {
+          throw new Error("Expected beads context object.");
+        }
+        return mapBeadsContext(record);
+      }),
+    );
 
   const getIssueGraph: BeadsTrackerServiceShape["getIssueGraph"] = (input) =>
-    Effect.gen(function* () {
-      const rawIssue = yield* getRawIssue(input.cwd, input.epicIssueId);
-      const parentRef = mapParentRef(rawIssue);
-      const parent =
-        parentRef === null
-          ? null
-          : yield* getRawIssue(input.cwd, parentRef.id).pipe(
-              Effect.map((rawParent) => mapIssueRelationSummary(rawParent)),
-            );
-      const dependentRecords = asRecordArray(rawIssue.dependents);
-      const childRecords = dependentRecords.filter(
-        (entry) => getBdDependencyType(entry) === "parent-child",
-      );
-      const dependentIssueRecords = dependentRecords.filter(
-        (entry) => getBdDependencyType(entry) !== "parent-child",
-      );
-      const childDetailResults =
-        childRecords.length === 0
-          ? []
-          : yield* Effect.all(
-              childRecords.flatMap((entry) => {
-                const childId = trimToNull(entry.id);
-                if (!childId) {
-                  return [];
-                }
-
-                return [
-                  Effect.exit(
-                    getRawIssue(input.cwd, childId).pipe(
-                      Effect.map((rawChild) => [childId, rawChild] as const),
-                    ),
-                  ),
-                ] as const;
-              }),
-              { concurrency: "unbounded" },
-            );
-      const childRawById = new Map<string, Record<string, unknown>>();
-      for (const childDetailResult of childDetailResults) {
-        if (childDetailResult._tag === "Success") {
-          childRawById.set(childDetailResult.value[0], childDetailResult.value[1]);
-        }
-      }
-      const childDetailsById = new Map(
-        [...childRawById.entries()].map(([childId, rawChild]) => [
-          childId,
-          mapIssueDetail(rawChild, []),
-        ]),
-      );
-      const children = sortChildIssueRelationsByDependencies({
-        children: mapIssueRelationArray(childRecords, childRawById),
-        childDetailsById,
-      });
-      const epic = mapIssueDetail(rawIssue, []);
-      return decodeIssueGraph({
-        epic,
-        parent,
-        children,
-        dependencies: mapIssueRelationArray(rawIssue.dependencies),
-        dependents: dependentIssueRecords.map((entry) => mapIssueRelationSummary(entry)),
-      });
-    }).pipe(
-      Effect.mapError((error) =>
-        Schema.is(BeadsError)(error)
-          ? error
-          : toBeadsError("Failed to load beads issue graph.", error),
+    getOrLoadCachedRead(
+      {
+        cwd: input.cwd,
+        name: "issue-graph",
+        ttlMs: BEADS_READ_CACHE_TTL_MS.issueGraph,
+        params: { epicIssueId: input.epicIssueId },
+        groups: ["issue", "coordinator"],
+        issueIds: [input.epicIssueId],
+      },
+      Effect.gen(function* () {
+        const rawIssue = yield* getRawIssue(input.cwd, input.epicIssueId);
+        const parentRef = mapParentRef(rawIssue);
+        const dependentRecords = asRecordArray(rawIssue.dependents);
+        const childRecords = dependentRecords.filter(
+          (entry) => getBdDependencyType(entry) === "parent-child",
+        );
+        const dependentIssueRecords = dependentRecords.filter(
+          (entry) => getBdDependencyType(entry) !== "parent-child",
+        );
+        const childIds = childRecords.flatMap((entry) => {
+          const childId = trimToNull(entry.id);
+          return childId ? [childId] : [];
+        });
+        const relatedIssueIds = [...new Set([...(parentRef ? [parentRef.id] : []), ...childIds])];
+        const relatedRawById = yield* getRawIssues(input.cwd, relatedIssueIds);
+        const parent = parentRef
+          ? relatedRawById.has(parentRef.id)
+            ? mapIssueRelationSummary(relatedRawById.get(parentRef.id)!)
+            : null
+          : null;
+        const childRawById = new Map(
+          [...relatedRawById.entries()].filter(([issueId]) => childIds.includes(issueId)),
+        );
+        const childDetailsById = new Map(
+          [...childRawById.entries()].map(([childId, rawChild]) => [
+            childId,
+            mapIssueDetail(rawChild, []),
+          ]),
+        );
+        const children = sortChildIssueRelationsByDependencies({
+          children: mapIssueRelationArray(childRecords, childRawById),
+          childDetailsById,
+        });
+        const epic = mapIssueDetail(rawIssue, []);
+        return decodeIssueGraph({
+          epic,
+          parent,
+          children,
+          dependencies: mapIssueRelationArray(rawIssue.dependencies),
+          dependents: dependentIssueRecords.map((entry) => mapIssueRelationSummary(entry)),
+        });
+      }).pipe(
+        Effect.mapError((error) =>
+          Schema.is(BeadsError)(error)
+            ? error
+            : toBeadsError("Failed to load beads issue graph.", error),
+        ),
       ),
     );
 
@@ -1993,6 +2362,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     getIssueSummary,
     resolveIssueRefs,
     getIssueWithoutComments,
+    getIssuesWithoutComments,
     getIssue,
     getEpicIssueSummaries,
     createIssue,
@@ -2214,12 +2584,7 @@ const makeBeadsService = Effect.gen(function* () {
   const resolveIssueRefs: BeadsServiceShape["resolveIssueRefs"] = (input) =>
     beadsTracker.resolveIssueRefs(input);
   const getIssues: BeadsServiceShape["getIssues"] = (input) =>
-    Effect.all(
-      input.issueIds.map((issueId) =>
-        beadsTracker.getIssueWithoutComments({ cwd: input.cwd, issueId }),
-      ),
-      { concurrency: 10 },
-    ).pipe(
+    beadsTracker.getIssuesWithoutComments(input).pipe(
       Effect.map((issues) => ({ issues })),
       Effect.mapError((error) =>
         Schema.is(BeadsError)(error) ? error : toBeadsError("Failed to load issues batch.", error),
@@ -2466,16 +2831,18 @@ const makeBeadsService = Effect.gen(function* () {
         cwd: input.cwd,
         issueId: input.epicIssueId,
       });
-      const [validation, status] = yield* Effect.all(
-        [
-          beadsTracker.validateEpicCoordination({ cwd: input.cwd, epicIssueId: input.epicIssueId }),
-          beadsTracker.getEpicCoordinationStatus({
-            cwd: input.cwd,
-            epicIssueId: input.epicIssueId,
-          }),
-        ],
-        { concurrency: "unbounded" },
-      );
+      const coordinationState = yield* beadsTracker.loadEpicCoordinationState({
+        cwd: input.cwd,
+        epicIssueId: input.epicIssueId,
+        issueSummary: epic,
+      });
+      if (!coordinationState.validation || !coordinationState.status) {
+        return yield* toBeadsError(
+          coordinationState.validationError ??
+            coordinationState.statusError ??
+            "Failed to load epic coordination state.",
+        );
+      }
 
       return yield* startLinkedIssueThread({
         cwd: input.cwd,
@@ -2487,8 +2854,8 @@ const makeBeadsService = Effect.gen(function* () {
         threadTitle: buildEpicCoordinationPrepThreadTitle(epic),
         promptText: buildEpicCoordinationPrepPrompt({
           issue: epic,
-          validation,
-          status,
+          validation: coordinationState.validation,
+          status: coordinationState.status,
         }),
         workflowKind: "coordination-prep",
         createThreadErrorMessage: "Failed to create epic coordination prep thread.",

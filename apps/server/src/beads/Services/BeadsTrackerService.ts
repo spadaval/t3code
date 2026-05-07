@@ -38,6 +38,10 @@ export interface BeadsTrackerServiceShape {
   readonly getIssueWithoutComments: (
     input: BeadsGetIssueInput,
   ) => Effect.Effect<BeadsIssueDetail, BeadsError>;
+  readonly getIssuesWithoutComments: (input: {
+    readonly cwd: string;
+    readonly issueIds: ReadonlyArray<string>;
+  }) => Effect.Effect<ReadonlyArray<BeadsIssueDetail>, BeadsError>;
   readonly getIssue: (input: BeadsGetIssueInput) => Effect.Effect<BeadsIssueDetail, BeadsError>;
   readonly getEpicIssueSummaries: (
     input: BeadsEpicIssueInput,
@@ -73,7 +77,7 @@ export interface BeadsTrackerServiceShape {
       readonly validationError: string | null;
       readonly statusError: string | null;
     },
-    never
+    BeadsError
   >;
 }
 

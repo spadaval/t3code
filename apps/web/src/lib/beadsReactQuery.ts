@@ -35,7 +35,14 @@ import type { EnvironmentId } from "@t3tools/contracts";
 import { ensureEnvironmentApi } from "~/environmentApi";
 import { selectProjectsAcrossEnvironments, useStore } from "~/store";
 
-export const ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS = 15_000;
+type BeadsInvalidationQueryClient = Pick<QueryClient, "invalidateQueries">;
+
+export const ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS = 30_000;
+const BEADS_LIST_STALE_TIME_MS = 20_000;
+const BEADS_DETAIL_STALE_TIME_MS = 20_000;
+const BEADS_COORDINATOR_STALE_TIME_MS = 20_000;
+const BEADS_CONTEXT_STALE_TIME_MS = 60_000;
+const BEADS_ISSUE_REFS_STALE_TIME_MS = 30_000;
 
 function resolveEnvironmentIdForCwd(cwd: string): EnvironmentId {
   const project = selectProjectsAcrossEnvironments(useStore.getState()).find(
@@ -93,6 +100,84 @@ export const beadsQueryKeys = {
     ["beads", "issue-refs", cwd, [...new Set(issueIds)].toSorted()] as const,
 };
 
+export function invalidateBeadsIssueLists(queryClient: BeadsInvalidationQueryClient, cwd: string) {
+  return queryClient.invalidateQueries({
+    predicate: (query) => {
+      const key = query.queryKey;
+      return Array.isArray(key) && key[0] === "beads" && key[1] === "issues" && key[2] === cwd;
+    },
+  });
+}
+
+export function invalidateBeadsIssue(
+  queryClient: BeadsInvalidationQueryClient,
+  cwd: string,
+  issueId: string,
+) {
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: beadsQueryKeys.issue(cwd, issueId) }),
+    queryClient.invalidateQueries({ queryKey: beadsQueryKeys.issueGraph(cwd, issueId) }),
+    queryClient.invalidateQueries({
+      predicate: (query) => {
+        const key = query.queryKey;
+        if (!Array.isArray(key) || key[0] !== "beads") {
+          return false;
+        }
+        if ((key[1] === "issues-batch" || key[1] === "issue-refs") && key[2] === cwd) {
+          return Array.isArray(key[3]) && key[3].includes(issueId);
+        }
+        return false;
+      },
+    }),
+  ]);
+}
+
+export function invalidateBeadsCoordinator(
+  queryClient: BeadsInvalidationQueryClient,
+  input: {
+    cwd: string;
+    projectId?: string | null | undefined;
+    epicIssueId?: string | null | undefined;
+  },
+) {
+  return queryClient.invalidateQueries({
+    predicate: (query) => {
+      const key = query.queryKey;
+      if (!Array.isArray(key) || key[0] !== "beads") {
+        return false;
+      }
+
+      if (key[1] === "project-run-summary") {
+        return (
+          key[2] === input.cwd && (input.projectId === undefined || key[3] === input.projectId)
+        );
+      }
+      if (key[1] === "epic-issue-summaries") {
+        return (
+          key[2] === input.cwd && (input.epicIssueId === undefined || key[3] === input.epicIssueId)
+        );
+      }
+      if (key[1] === "epic-coordination-detail") {
+        return (
+          key[2] === input.cwd &&
+          (input.projectId === undefined || key[3] === input.projectId) &&
+          (input.epicIssueId === undefined || key[4] === input.epicIssueId)
+        );
+      }
+      if (
+        key[1] === "epic-coordination-validation" ||
+        key[1] === "epic-coordination-status" ||
+        key[1] === "issue-graph"
+      ) {
+        return (
+          key[2] === input.cwd && (input.epicIssueId === undefined || key[3] === input.epicIssueId)
+        );
+      }
+      return false;
+    },
+  });
+}
+
 export function beadsQueryIssuesOptions(
   input: BeadsQueryIssuesInput & {
     enabled?: boolean;
@@ -106,7 +191,7 @@ export function beadsQueryIssuesOptions(
     queryFn: async () => beadsApiForCwd(queryInput.cwd).queryIssues(queryInput),
     enabled: (enabled ?? true) && input.cwd.length > 0,
     retry: false,
-    staleTime: 10_000,
+    staleTime: BEADS_LIST_STALE_TIME_MS,
     ...(refetchIntervalMs !== undefined ? { refetchInterval: refetchIntervalMs } : {}),
     ...(refetchOnWindowFocus !== undefined ? { refetchOnWindowFocus } : {}),
   });
@@ -140,7 +225,7 @@ export function beadsIssueDetailOptions(input: BeadsGetIssueInput | null) {
     },
     enabled: input !== null,
     retry: false,
-    staleTime: 5_000,
+    staleTime: 10_000,
   });
 }
 
@@ -163,7 +248,7 @@ export function beadsIssueGraphOptions(
     },
     enabled: input !== null,
     retry: false,
-    staleTime: 5_000,
+    staleTime: BEADS_DETAIL_STALE_TIME_MS,
     ...(input?.refetchIntervalMs !== undefined ? { refetchInterval: input.refetchIntervalMs } : {}),
     ...(input?.refetchOnWindowFocus !== undefined
       ? { refetchOnWindowFocus: input.refetchOnWindowFocus }
@@ -182,7 +267,7 @@ export function beadsIssuesBatchOptions(input: BeadsGetIssuesInput | null) {
     },
     enabled: input !== null && input.issueIds.length > 0,
     retry: false,
-    staleTime: 10_000,
+    staleTime: BEADS_DETAIL_STALE_TIME_MS,
   });
 }
 
@@ -201,7 +286,7 @@ export function beadsResolveIssueRefsOptions(input: BeadsResolveIssueRefsInput |
     },
     enabled: input !== null && input.cwd.length > 0 && issueIds.length > 0,
     retry: false,
-    staleTime: 10_000,
+    staleTime: BEADS_ISSUE_REFS_STALE_TIME_MS,
   });
 }
 
@@ -216,7 +301,7 @@ export function beadsContextOptions(input: (BeadsGetContextInput & { enabled?: b
     },
     enabled: input !== null && (input.enabled ?? true),
     retry: false,
-    staleTime: 10_000,
+    staleTime: BEADS_CONTEXT_STALE_TIME_MS,
   });
 }
 
@@ -236,7 +321,7 @@ export function beadsEpicCoordinationValidationOptions(
     },
     enabled: input !== null && (input.enabled ?? true),
     retry: false,
-    staleTime: 5_000,
+    staleTime: BEADS_COORDINATOR_STALE_TIME_MS,
   });
 }
 
@@ -253,7 +338,7 @@ export function beadsEpicCoordinationStatusOptions(
     },
     enabled: input !== null && (input.enabled ?? true),
     retry: false,
-    staleTime: 5_000,
+    staleTime: BEADS_COORDINATOR_STALE_TIME_MS,
   });
 }
 
@@ -270,7 +355,7 @@ export function beadsProjectRunSummaryOptions(
     },
     enabled: input !== null && (input.enabled ?? true),
     retry: false,
-    staleTime: 30_000,
+    staleTime: BEADS_COORDINATOR_STALE_TIME_MS,
   });
 }
 
@@ -305,7 +390,7 @@ export function beadsEpicIssueSummariesOptions(
     },
     enabled: input !== null && (input.enabled ?? true),
     retry: false,
-    staleTime: 5_000,
+    staleTime: BEADS_COORDINATOR_STALE_TIME_MS,
   });
 }
 
@@ -322,7 +407,7 @@ export function beadsEpicCoordinationDetailOptions(
     },
     enabled: input !== null && (input.enabled ?? true),
     retry: false,
-    staleTime: 5_000,
+    staleTime: BEADS_COORDINATOR_STALE_TIME_MS,
   });
 }
 
@@ -344,7 +429,12 @@ export function beadsUpdateIssueMutationOptions(input: { queryClient: QueryClien
       beadsApiForCwd(payload.cwd).updateIssue(payload),
     onSuccess: async (issue, variables) => {
       await Promise.all([
-        input.queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all }),
+        invalidateBeadsIssue(input.queryClient, variables.cwd, variables.issueId),
+        invalidateBeadsIssueLists(input.queryClient, variables.cwd),
+        invalidateBeadsCoordinator(input.queryClient, {
+          cwd: variables.cwd,
+          epicIssueId: variables.issueId,
+        }),
         input.queryClient.setQueryData(
           beadsQueryKeys.issue(variables.cwd, variables.issueId),
           (previous: any) =>
@@ -364,8 +454,11 @@ export function beadsCreateIssueMutationOptions(input: { queryClient: QueryClien
   return mutationOptions({
     mutationFn: async (payload: BeadsCreateIssueInput) =>
       beadsApiForCwd(payload.cwd).createIssue(payload),
-    onSuccess: async () => {
-      await input.queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
+    onSuccess: async (_issue, variables) => {
+      await Promise.all([
+        invalidateBeadsIssueLists(input.queryClient, variables.cwd),
+        invalidateBeadsCoordinator(input.queryClient, { cwd: variables.cwd }),
+      ]);
     },
   });
 }
@@ -376,7 +469,7 @@ export function beadsCommentIssueMutationOptions(input: { queryClient: QueryClie
       beadsApiForCwd(payload.cwd).commentIssue(payload),
     onSuccess: async (issue, variables) => {
       await Promise.all([
-        input.queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all }),
+        invalidateBeadsIssue(input.queryClient, variables.cwd, variables.issueId),
         input.queryClient.setQueryData(
           beadsQueryKeys.issue(variables.cwd, variables.issueId),
           issue,
@@ -390,8 +483,14 @@ export function beadsStartWorkflowMutationOptions(input: { queryClient: QueryCli
   return mutationOptions({
     mutationFn: async (payload: BeadsStartWorkflowInput) =>
       beadsApiForCwd(payload.cwd).startWorkflow(payload),
-    onSuccess: async () => {
-      await input.queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
+    onSuccess: async (_result, variables) => {
+      await Promise.all([
+        invalidateBeadsIssue(input.queryClient, variables.cwd, variables.issueId),
+        invalidateBeadsCoordinator(input.queryClient, {
+          cwd: variables.cwd,
+          epicIssueId: variables.issueId,
+        }),
+      ]);
     },
   });
 }
@@ -400,8 +499,14 @@ export function beadsStartBacklogGroomingMutationOptions(input: { queryClient: Q
   return mutationOptions({
     mutationFn: async (payload: BeadsStartBacklogGroomingInput) =>
       beadsApiForCwd(payload.cwd).startBacklogGrooming(payload),
-    onSuccess: async () => {
-      await input.queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
+    onSuccess: async (_result, variables) => {
+      await Promise.all([
+        invalidateBeadsIssueLists(input.queryClient, variables.cwd),
+        invalidateBeadsCoordinator(input.queryClient, {
+          cwd: variables.cwd,
+          projectId: variables.projectId,
+        }),
+      ]);
     },
   });
 }
@@ -410,8 +515,12 @@ export function beadsStartEpicQuickRefineMutationOptions(input: { queryClient: Q
   return mutationOptions({
     mutationFn: async (payload: BeadsStartEpicQuickRefineInput) =>
       beadsApiForCwd(payload.cwd).startEpicQuickRefine(payload),
-    onSuccess: async () => {
-      await input.queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
+    onSuccess: async (_result, variables) => {
+      await invalidateBeadsCoordinator(input.queryClient, {
+        cwd: variables.cwd,
+        projectId: variables.projectId,
+        epicIssueId: variables.epicIssueId,
+      });
     },
   });
 }
@@ -420,8 +529,12 @@ export function beadsStartEpicPlannedRefineMutationOptions(input: { queryClient:
   return mutationOptions({
     mutationFn: async (payload: BeadsStartEpicPlannedRefineInput) =>
       beadsApiForCwd(payload.cwd).startEpicPlannedRefine(payload),
-    onSuccess: async () => {
-      await input.queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
+    onSuccess: async (_result, variables) => {
+      await invalidateBeadsCoordinator(input.queryClient, {
+        cwd: variables.cwd,
+        projectId: variables.projectId,
+        epicIssueId: variables.epicIssueId,
+      });
     },
   });
 }
@@ -430,8 +543,12 @@ export function beadsStartEpicCoordinationPrepMutationOptions(input: { queryClie
   return mutationOptions({
     mutationFn: async (payload: BeadsStartEpicCoordinationPrepInput) =>
       beadsApiForCwd(payload.cwd).startEpicCoordinationPrep(payload),
-    onSuccess: async () => {
-      await input.queryClient.invalidateQueries({ queryKey: beadsQueryKeys.all });
+    onSuccess: async (_result, variables) => {
+      await invalidateBeadsCoordinator(input.queryClient, {
+        cwd: variables.cwd,
+        projectId: variables.projectId,
+        epicIssueId: variables.epicIssueId,
+      });
     },
   });
 }

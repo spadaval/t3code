@@ -239,7 +239,7 @@ function IssueDetailPanel({
       cwd,
       epicIssueId: issueId,
       refetchIntervalMs: ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
-      refetchOnWindowFocus: "always",
+      refetchOnWindowFocus: false,
     }),
   );
   const issue = issueDetailQuery.data?.epic ?? null;

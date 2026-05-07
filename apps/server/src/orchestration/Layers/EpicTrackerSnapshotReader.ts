@@ -1,5 +1,6 @@
 import { Effect, Layer } from "effect";
 
+import { BeadsError } from "@t3tools/contracts";
 import { BeadsTrackerService } from "../../beads/Services/BeadsTrackerService.ts";
 import {
   EpicCoordinationSnapshotReader,
@@ -10,26 +11,21 @@ const makeEpicCoordinationSnapshotReader = Effect.gen(function* () {
   const beadsTracker = yield* BeadsTrackerService;
 
   const readSnapshot = (input: { readonly cwd: string; readonly epicIssueId: string }) =>
-    Effect.all(
-      [
-        beadsTracker.validateEpicCoordination({
-          cwd: input.cwd,
-          epicIssueId: input.epicIssueId,
-        }),
-        beadsTracker.getEpicCoordinationStatus({
-          cwd: input.cwd,
-          epicIssueId: input.epicIssueId,
-        }),
-      ],
-      { concurrency: "unbounded" },
-    ).pipe(
-      Effect.map(
-        ([validation, status]) =>
-          ({
-            validation,
-            status,
-          }) satisfies EpicCoordinationSnapshot,
-      ),
+    beadsTracker.loadEpicCoordinationState(input).pipe(
+      Effect.flatMap((state) => {
+        if (!state.validation || !state.status) {
+          return Effect.fail(
+            new BeadsError({
+              message:
+                state.validationError ?? state.statusError ?? "Failed to load epic coordination.",
+            }),
+          );
+        }
+        return Effect.succeed({
+          validation: state.validation,
+          status: state.status,
+        } satisfies EpicCoordinationSnapshot);
+      }),
     );
 
   return {

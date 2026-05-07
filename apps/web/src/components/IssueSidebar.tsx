@@ -114,7 +114,7 @@ export function IssueSidebar(props: {
         sortBy: paneState.sortBy,
         enabled: project !== undefined,
         refetchIntervalMs: ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
-        refetchOnWindowFocus: "always",
+        refetchOnWindowFocus: false,
       }),
     ),
   );
@@ -125,7 +125,7 @@ export function IssueSidebar(props: {
           cwd: project.cwd,
           epicIssueId: selectedIssueId,
           refetchIntervalMs: ACTIVE_BEADS_ISSUE_REFETCH_INTERVAL_MS,
-          refetchOnWindowFocus: "always",
+          refetchOnWindowFocus: false,
         })
       : beadsIssueGraphOptions(null),
   );
