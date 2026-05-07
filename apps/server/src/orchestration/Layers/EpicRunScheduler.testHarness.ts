@@ -35,6 +35,7 @@ import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { EpicRunScheduler, type EpicRunSchedulerShape } from "../Services/EpicRunScheduler.ts";
 import { GitManager, type GitManagerShape } from "../../git/GitManager.ts";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
@@ -996,12 +997,12 @@ export async function createEpicRunSchedulerHarness(
     createIssue: () => Effect.fail(beadsError("unexpected createIssue call")),
   };
 
+  const getReadModel = () =>
+    Effect.sync(() => {
+      readModelCallCount += 1;
+      return readModel;
+    });
   const engineService: OrchestrationEngineShape = {
-    getReadModel: () =>
-      Effect.sync(() => {
-        readModelCallCount += 1;
-        return readModel;
-      }),
     readEvents: () => Stream.empty,
     streamDomainEvents: Stream.empty,
     dispatch: (command) =>
@@ -1088,6 +1089,21 @@ export async function createEpicRunSchedulerHarness(
 
   const layer = EpicRunSchedulerLive.pipe(
     Layer.provideMerge(Layer.succeed(OrchestrationEngineService, engineService)),
+    Layer.provideMerge(
+      Layer.succeed(ProjectionSnapshotQuery, {
+        getCommandReadModel: getReadModel,
+        getSnapshot: getReadModel,
+        getShellSnapshot: () => Effect.die("unused"),
+        getSnapshotSequence: () => Effect.succeed({ snapshotSequence: readModel.snapshotSequence }),
+        getCounts: () => Effect.die("unused"),
+        getActiveProjectByWorkspaceRoot: () => Effect.die("unused"),
+        getProjectShellById: () => Effect.die("unused"),
+        getFirstActiveThreadIdByProjectId: () => Effect.die("unused"),
+        getThreadCheckpointContext: () => Effect.die("unused"),
+        getThreadShellById: () => Effect.die("unused"),
+        getThreadDetailById: () => Effect.die("unused"),
+      }),
+    ),
     Layer.provideMerge(Layer.succeed(BeadsTrackerService, trackerService)),
     Layer.provideMerge(Layer.succeed(GitManager, gitManagerService)),
     Layer.provideMerge(
@@ -1146,7 +1162,10 @@ export async function createEpicRunSchedulerHarness(
   const runPromise = <A, E, R extends OrchestrationEngineService | EpicRunScheduler>(
     effect: Effect.Effect<A, E, R>,
   ) => runtime.runPromise(effect);
-  const engine = await runPromise(Effect.service(OrchestrationEngineService));
+  const engine = {
+    ...(await runPromise(Effect.service(OrchestrationEngineService))),
+    getReadModel,
+  };
   const workflow = await runPromise(Effect.service(EpicRunScheduler));
   const projectId = asProjectId("project-1");
 

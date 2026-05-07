@@ -31,6 +31,7 @@ import { PlanImplementationWorkflowError } from "../Errors.ts";
 import { runProjectScriptShell } from "../projectScriptRunner.ts";
 import { cleanupTemporaryWorktree, createTemporaryWorktree } from "../tempWorktree.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
 import {
   PlanImplementationWorkflow,
@@ -105,6 +106,7 @@ function summarizeOutput(stdout: string, stderr: string): string | null {
 
 const makePlanImplementationWorkflow = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const git = yield* GitVcsDriver;
   const projectionLaunchRepository = yield* ProjectionPlanImplementationLaunchRepository;
   const providerRegistry = yield* ProviderRegistry;
@@ -168,7 +170,7 @@ const makePlanImplementationWorkflow = Effect.gen(function* () {
     });
 
   const getSourceContext = (launch: ProjectionPlanImplementationLaunch) =>
-    orchestrationEngine.getReadModel().pipe(
+    projectionSnapshotQuery.getSnapshot().pipe(
       Effect.mapError((error) =>
         workflowError("getSourceContext", truncateDetail(toErrorMessage(error)), error),
       ),
@@ -684,8 +686,8 @@ const makePlanImplementationWorkflow = Effect.gen(function* () {
     retryOfLaunchId: PlanImplementationLaunchId | null,
   ) =>
     Effect.gen(function* () {
-      const readModel = yield* orchestrationEngine
-        .getReadModel()
+      const readModel = yield* projectionSnapshotQuery
+        .getSnapshot()
         .pipe(
           Effect.mapError((error) =>
             workflowError("launchPlanImplementation", truncateDetail(toErrorMessage(error)), error),

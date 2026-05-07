@@ -77,6 +77,8 @@ import {
 } from "./auth/http.ts";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
+import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
+import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
 import {
   clearPersistedServerRuntimeState,
@@ -293,6 +295,8 @@ const RuntimeCoreDependenciesLive = ReactorLayerLive.pipe(
 
 const RuntimeDependenciesLive = RuntimeCoreDependenciesLive.pipe(
   // Misc.
+  Layer.provideMerge(ProcessDiagnostics.layer),
+  Layer.provideMerge(TraceDiagnostics.layer),
   Layer.provideMerge(AnalyticsServiceLayerLive),
   Layer.provideMerge(OpenLive),
   Layer.provideMerge(ServerLifecycleEventsLive),
@@ -433,6 +437,6 @@ export const makeServerLayer = Layer.unwrap(
 // Important: Only `ServerConfig` should be provided by the CLI layer!!! Don't let other requirements leak into the launch layer.
 export const runServer = Layer.launch(makeServerLayer) satisfies Effect.Effect<
   never,
-  any,
+  unknown,
   ServerConfig
 >;

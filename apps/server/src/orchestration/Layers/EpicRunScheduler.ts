@@ -47,6 +47,7 @@ import {
 } from "../FailurePolicy.ts";
 import { EpicRunSchedulerError } from "../Errors.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { EpicCoordinationSnapshotReader } from "../Services/EpicTrackerSnapshotReader.ts";
 import { EpicRunScheduler, type EpicRunSchedulerShape } from "../Services/EpicRunScheduler.ts";
 import {
@@ -260,6 +261,7 @@ function prioritizeDriveRequests(
 
 const makeEpicRunScheduler = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const beadsTracker = yield* BeadsTrackerService;
   const gitManager = yield* GitManager;
   const coordinationSnapshotReader = yield* EpicCoordinationSnapshotReader;
@@ -277,7 +279,14 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         ),
       );
 
-  const getReadModel = () => orchestrationEngine.getReadModel();
+  const getReadModel = () =>
+    projectionSnapshotQuery
+      .getSnapshot()
+      .pipe(
+        Effect.mapError((error) =>
+          workflowError("getReadModel", truncateEpicRunFailureDetail(toErrorMessage(error)), error),
+        ),
+      );
   let enqueueProjectRequest:
     | ((
         projectId: OrchestrationProject["id"],
@@ -1617,6 +1626,11 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         Effect.forEach(readModel.projects, (project) => worker.drainKey(project.id)),
       ),
       Effect.asVoid,
+      Effect.catch((error) =>
+        Effect.logWarning("epic-run scheduler failed to drain queued work", {
+          cause: error,
+        }),
+      ),
     );
 
   const interruptActiveProject = (projectId: OrchestrationProject["id"]) =>
@@ -1938,6 +1952,12 @@ const makeEpicRunScheduler = Effect.gen(function* () {
         ),
       ),
       Effect.asVoid,
+      Effect.catch((error) =>
+        Effect.logWarning("epic-run scheduler failed to enqueue runs for reconciliation", {
+          trigger,
+          cause: error,
+        }),
+      ),
     );
 
   const reconcileAllSafely = () => enqueueAllRuns("startup_reconcile");
@@ -1954,7 +1974,7 @@ const makeEpicRunScheduler = Effect.gen(function* () {
       ),
       Effect.catchCause((cause) => {
         if (Cause.hasInterruptsOnly(cause)) {
-          return Effect.failCause(cause);
+          return Effect.interrupt;
         }
 
         return Effect.logWarning(

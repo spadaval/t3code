@@ -17,9 +17,8 @@ import * as TestConsole from "effect/testing/TestConsole";
 import { Command } from "effect/unstable/cli";
 import { afterEach, beforeEach } from "vitest";
 
-import { cli } from "./cli.ts";
+import { cli } from "./bin.ts";
 import { deriveServerPaths, ServerConfig, type ServerConfigShape } from "./config.ts";
-import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import { OrchestrationLayerLive } from "./orchestration/runtimeLayer.ts";
 import {
@@ -165,7 +164,7 @@ const withLiveProjectCliServer = <A, E, R>(baseDir: string, run: () => Effect.Ef
     );
   });
 
-it.layer(NodeServices.layer)("cli log-level parsing", (it) => {
+it.layer(NodeServices.layer)("bin cli parsing", (it) => {
   it.effect("accepts the built-in lowercase log-level flag values", () =>
     runCliWithRuntime(["--log-level", "debug", "--version"]),
   );
@@ -332,8 +331,8 @@ it.layer(NodeServices.layer)("cli log-level parsing", (it) => {
             "--base-dir",
             baseDir,
           ]);
-          const orchestrationEngine = yield* OrchestrationEngineService;
-          const readModel = yield* orchestrationEngine.getReadModel();
+          const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+          const readModel = yield* projectionSnapshotQuery.getSnapshot();
           const addedProject = readModel.projects.find(
             (project) => project.workspaceRoot === workspaceRoot && project.deletedAt === null,
           );

@@ -75,7 +75,7 @@ layer("027_028_ProviderInstanceIdColumns", (it) => {
 
 const recoveryLayer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
-recoveryLayer("036_EnsureProviderInstanceIdColumns", (it) => {
+recoveryLayer("037_EnsureProviderInstanceIdColumns", (it) => {
   it.effect("recovers older databases where migration ids 27 and 28 were already used", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -88,7 +88,7 @@ recoveryLayer("036_EnsureProviderInstanceIdColumns", (it) => {
           (28, 'ProjectionThreadsIssueLink')
       `;
 
-      yield* runMigrations({ toMigrationInclusive: 36 });
+      yield* runMigrations({ toMigrationInclusive: 37 });
 
       const migrations = yield* sql<{
         readonly migration_id: number;
@@ -96,7 +96,7 @@ recoveryLayer("036_EnsureProviderInstanceIdColumns", (it) => {
       }>`
         SELECT migration_id, name
         FROM effect_sql_migrations
-        WHERE migration_id IN (27, 28, 36)
+        WHERE migration_id IN (27, 28, 37)
         ORDER BY migration_id
       `;
       assert.deepStrictEqual(migrations, [
@@ -109,7 +109,7 @@ recoveryLayer("036_EnsureProviderInstanceIdColumns", (it) => {
           name: "ProjectionThreadsIssueLink",
         },
         {
-          migration_id: 36,
+          migration_id: 37,
           name: "EnsureProviderInstanceIdColumns",
         },
       ]);

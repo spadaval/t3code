@@ -21,6 +21,7 @@ import { CheckpointStore } from "../../checkpointing/Services/CheckpointStore.ts
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { CheckpointReactor, type CheckpointReactorShape } from "../Services/CheckpointReactor.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { RuntimeReceiptBus } from "../Services/RuntimeReceiptBus.ts";
 import type { CheckpointStoreError } from "../../checkpointing/Errors.ts";
 import type { OrchestrationDispatchError } from "../Errors.ts";
@@ -55,6 +56,7 @@ const serverCommandId = (tag: string): CommandId =>
 
 const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
   const checkpointStore = yield* CheckpointStore;
   const receiptBus = yield* RuntimeReceiptBus;
@@ -113,29 +115,26 @@ const make = Effect.gen(function* () {
   const resolveSessionRuntimeForThread = Effect.fn("resolveSessionRuntimeForThread")(function* (
     threadId: ThreadId,
   ): Effect.fn.Return<Option.Option<{ readonly threadId: ThreadId; readonly cwd: string }>> {
-    const readModel = yield* orchestrationEngine.getReadModel();
-    const thread = readModel.threads.find((entry) => entry.id === threadId);
-
     const sessions = yield* providerService.listSessions();
+    const session = sessions.find((entry) => entry.threadId === threadId);
+    return session?.cwd
+      ? Option.some({ threadId: session.threadId, cwd: session.cwd })
+      : Option.none();
+  });
 
-    const findSessionWithCwd = (
-      session: (typeof sessions)[number] | undefined,
-    ): Option.Option<{ readonly threadId: ThreadId; readonly cwd: string }> => {
-      if (!session?.cwd) {
-        return Option.none();
-      }
-      return Option.some({ threadId: session.threadId, cwd: session.cwd });
-    };
+  const resolveThreadDetail = Effect.fn("resolveThreadDetail")(function* (threadId: ThreadId) {
+    return yield* projectionSnapshotQuery
+      .getThreadDetailById(threadId)
+      .pipe(Effect.map(Option.getOrUndefined));
+  });
 
-    if (thread) {
-      const projectedSession = sessions.find((session) => session.threadId === thread.id);
-      const fromProjected = findSessionWithCwd(projectedSession);
-      if (Option.isSome(fromProjected)) {
-        return fromProjected;
-      }
-    }
-
-    return Option.none();
+  const resolveThreadProjects = Effect.fn("resolveThreadProjects")(function* (
+    projectId: ProjectId,
+  ) {
+    const project = yield* projectionSnapshotQuery
+      .getProjectShellById(projectId)
+      .pipe(Effect.map(Option.getOrUndefined));
+    return project ? [project] : [];
   });
 
   const isGitWorkspace = (cwd: string) => isGitRepository(cwd);
@@ -375,8 +374,7 @@ const make = Effect.gen(function* () {
         return;
       }
 
-      const readModel = yield* orchestrationEngine.getReadModel();
-      const thread = readModel.threads.find((entry) => entry.id === event.threadId);
+      const thread = yield* resolveThreadDetail(event.threadId);
       if (!thread) {
         return;
       }
@@ -398,10 +396,11 @@ const make = Effect.gen(function* () {
         return;
       }
 
+      const projects = yield* resolveThreadProjects(thread.projectId);
       const checkpointCwd = yield* resolveCheckpointCwd({
         threadId: thread.id,
         thread,
-        projects: readModel.projects,
+        projects,
         preferSessionRuntime: true,
       });
       if (!checkpointCwd) {
@@ -438,7 +437,7 @@ const make = Effect.gen(function* () {
       readonly assistantMessageId: MessageId | undefined;
       readonly createdAt: string;
     }) {
-      const readModel = yield* orchestrationEngine.getReadModel();
+      const readModel = yield* projectionSnapshotQuery.getSnapshot();
       const thread = readModel.threads.find((entry) => entry.id === input.threadId);
       if (!thread) {
         yield* Effect.logWarning("checkpoint capture request skipped: thread not found", {
@@ -513,16 +512,16 @@ const make = Effect.gen(function* () {
         return;
       }
 
-      const readModel = yield* orchestrationEngine.getReadModel();
-      const thread = readModel.threads.find((entry) => entry.id === event.threadId);
+      const thread = yield* resolveThreadDetail(event.threadId);
       if (!thread) {
         return;
       }
 
+      const projects = yield* resolveThreadProjects(thread.projectId);
       const checkpointCwd = yield* resolveCheckpointCwd({
         threadId: thread.id,
         thread,
-        projects: readModel.projects,
+        projects,
         preferSessionRuntime: false,
       });
       if (!checkpointCwd) {
@@ -575,16 +574,16 @@ const make = Effect.gen(function* () {
     }
 
     const threadId = event.payload.threadId;
-    const readModel = yield* orchestrationEngine.getReadModel();
-    const thread = readModel.threads.find((entry) => entry.id === threadId);
+    const thread = yield* resolveThreadDetail(threadId);
     if (!thread) {
       return;
     }
 
+    const projects = yield* resolveThreadProjects(thread.projectId);
     const checkpointCwd = yield* resolveCheckpointCwd({
       threadId,
       thread,
-      projects: readModel.projects,
+      projects,
       preferSessionRuntime: false,
     });
     if (!checkpointCwd) {
@@ -622,8 +621,7 @@ const make = Effect.gen(function* () {
   ) {
     const now = new Date().toISOString();
 
-    const readModel = yield* orchestrationEngine.getReadModel();
-    const thread = readModel.threads.find((entry) => entry.id === event.payload.threadId);
+    const thread = yield* resolveThreadDetail(event.payload.threadId);
     if (!thread) {
       yield* appendRevertFailureActivity({
         threadId: event.payload.threadId,
@@ -817,7 +815,7 @@ const make = Effect.gen(function* () {
 
   const recoverPendingCheckpointCaptures = Effect.fn("recoverPendingCheckpointCaptures")(
     function* () {
-      const readModel = yield* orchestrationEngine.getReadModel();
+      const readModel = yield* projectionSnapshotQuery.getSnapshot();
       const pendingRequests = readModel.threads.flatMap((thread) =>
         thread.pendingCheckpointCaptures.map((request) => ({
           threadId: thread.id,

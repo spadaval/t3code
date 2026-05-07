@@ -63,6 +63,7 @@ import {
   metricAttributes,
 } from "../../observability/Metrics.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import {
   buildEpicIssueSummaries,
   buildEpicCoordinationDetail,
@@ -2378,6 +2379,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
 
 const makeBeadsService = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const beadsTracker = yield* BeadsTrackerService;
   const sessionActivityRef = yield* Ref.make<ReadonlyArray<SessionActivityRecord>>([]);
   type SessionWorkflowKind = BeadsStartWorkflowInput["workflow"] | "coordination-prep";
@@ -2485,8 +2487,8 @@ const makeBeadsService = Effect.gen(function* () {
       createThreadErrorMessage: string;
       startTurnErrorMessage: string;
     }) {
-      const readModel = yield* orchestrationEngine
-        .getReadModel()
+      const readModel = yield* projectionSnapshotQuery
+        .getSnapshot()
         .pipe(
           Effect.mapError((cause) => toBeadsError("Failed to load orchestration state.", cause)),
         );
@@ -2657,8 +2659,8 @@ const makeBeadsService = Effect.gen(function* () {
       const [epicIssues, readModel] = yield* Effect.all(
         [
           beadsTracker.listCoordinatorEpics({ cwd: input.cwd }),
-          orchestrationEngine
-            .getReadModel()
+          projectionSnapshotQuery
+            .getSnapshot()
             .pipe(
               Effect.mapError((cause) =>
                 toBeadsError("Failed to load orchestration state.", cause),
@@ -2685,8 +2687,8 @@ const makeBeadsService = Effect.gen(function* () {
       const [issue, readModel] = yield* Effect.all(
         [
           beadsTracker.getIssueSummary({ cwd: input.cwd, issueId: input.epicIssueId }),
-          orchestrationEngine
-            .getReadModel()
+          projectionSnapshotQuery
+            .getSnapshot()
             .pipe(
               Effect.mapError((cause) =>
                 toBeadsError("Failed to load orchestration state.", cause),
@@ -2729,8 +2731,8 @@ const makeBeadsService = Effect.gen(function* () {
       const promptText = buildWorkflowPrompt(issue, input.workflow);
 
       if (input.workflow === "continue") {
-        const readModel = yield* orchestrationEngine
-          .getReadModel()
+        const readModel = yield* projectionSnapshotQuery
+          .getSnapshot()
           .pipe(
             Effect.mapError((cause) => toBeadsError("Failed to load orchestration state.", cause)),
           );

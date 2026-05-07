@@ -72,7 +72,7 @@ describe("ChatMarkdown", () => {
     try {
       const link = page.getByRole("link", { name: "PermissionRule.ts · L1" });
       await expect.element(link).toBeInTheDocument();
-      await expect.element(link).toHaveAttribute("href", `${filePath}#L1`);
+      await expect.element(link).toHaveAttribute("href", `${filePath}:1`);
 
       await link.click();
 
@@ -94,7 +94,7 @@ describe("ChatMarkdown", () => {
     try {
       const link = page.getByRole("link", { name: "PermissionRule.ts · L1:C7" });
       await expect.element(link).toBeInTheDocument();
-      await expect.element(link).toHaveAttribute("href", `${filePath}#L1C7`);
+      await expect.element(link).toHaveAttribute("href", `${filePath}:1:7`);
 
       await link.click();
 

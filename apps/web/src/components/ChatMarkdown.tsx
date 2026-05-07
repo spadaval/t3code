@@ -34,7 +34,11 @@ import {
   extractBeadsIssueRefCandidates,
   linkifyBeadsIssueRefsInMarkdown,
 } from "../lib/beadsIssueRefs";
-import { resolveMarkdownFileLinkMeta, rewriteMarkdownFileUriHref } from "../markdown-links";
+import {
+  normalizeMarkdownLinkDestination,
+  resolveMarkdownFileLinkMeta,
+  rewriteMarkdownFileUriHref,
+} from "../markdown-links";
 import { readLocalApi } from "../localApi";
 import { cn } from "../lib/utils";
 
@@ -221,6 +225,32 @@ function SuspenseShikiCodeBlock({
     );
   }
 
+  return (
+    <UncachedShikiCodeBlock
+      code={code}
+      language={language}
+      themeName={themeName}
+      cacheKey={cacheKey}
+      isStreaming={isStreaming}
+    />
+  );
+}
+
+interface UncachedShikiCodeBlockProps {
+  code: string;
+  language: string;
+  themeName: DiffThemeName;
+  cacheKey: string;
+  isStreaming: boolean;
+}
+
+function UncachedShikiCodeBlock({
+  code,
+  language,
+  themeName,
+  cacheKey,
+  isStreaming,
+}: UncachedShikiCodeBlockProps) {
   const highlighter = use(getHighlighterPromise(language));
   const highlightedHtml = useMemo(() => {
     try {
@@ -339,7 +369,8 @@ function extractMarkdownLinkHrefs(text: string): string[] {
 }
 
 function normalizeMarkdownLinkHrefKey(href: string): string {
-  return rewriteMarkdownFileUriHref(href.trim()) ?? href.trim();
+  const normalizedHref = normalizeMarkdownLinkDestination(href);
+  return rewriteMarkdownFileUriHref(normalizedHref) ?? normalizedHref;
 }
 
 function isBeadsIssueHref(href: string | undefined): boolean {
@@ -618,7 +649,7 @@ function ChatMarkdown({
 
         return (
           <MarkdownFileLink
-            href={href ?? fileLinkMeta.targetPath}
+            href={fileLinkMeta.targetPath}
             targetPath={fileLinkMeta.targetPath}
             displayPath={fileLinkMeta.displayPath}
             filePath={fileLinkMeta.filePath}

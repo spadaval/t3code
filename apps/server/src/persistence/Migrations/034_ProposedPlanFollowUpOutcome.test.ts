@@ -8,12 +8,12 @@ import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 
 const layer = it.layer(Layer.mergeAll(NodeSqliteClient.layerMemory()));
 
-layer("033_ProposedPlanFollowUpOutcome", (it) => {
+layer("034_ProposedPlanFollowUpOutcome", (it) => {
   it.effect("adds and backfills follow-up outcome JSON from legacy implementation columns", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
 
-      yield* runMigrations({ toMigrationInclusive: 31 });
+      yield* runMigrations({ toMigrationInclusive: 32 });
       yield* sql`
         INSERT INTO projection_thread_proposed_plans (
           plan_id,
@@ -38,7 +38,7 @@ layer("033_ProposedPlanFollowUpOutcome", (it) => {
         )
       `;
 
-      yield* runMigrations({ toMigrationInclusive: 33 });
+      yield* runMigrations({ toMigrationInclusive: 34 });
 
       const proposedPlanColumns = yield* sql<{
         readonly name: string;
