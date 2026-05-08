@@ -16,6 +16,34 @@
       "types": "./src/sourceControl.ts",
       "import": "./src/sourceControl.ts"
     },
+    "./plan": {
+      "types": "./src/plan.ts",
+      "import": "./src/plan.ts"
+    },
+    "./epicRun": {
+      "types": "./src/epicRun.ts",
+      "import": "./src/epicRun.ts"
+    },
+    "./epicCoordination": {
+      "types": "./src/epicCoordination.ts",
+      "import": "./src/epicCoordination.ts"
+    },
+    "./projectScripts": {
+      "types": "./src/projectScripts.ts",
+      "import": "./src/projectScripts.ts"
+    },
+    "./searchRanking": {
+      "types": "./src/searchRanking.ts",
+      "import": "./src/searchRanking.ts"
+    },
+    "./dependencyOrder": {
+      "types": "./src/dependencyOrder.ts",
+      "import": "./src/dependencyOrder.ts"
+    },
+    "./qrCode": {
+      "types": "./src/qrCode.ts",
+      "import": "./src/qrCode.ts"
+    },
     "./logging": {
       "types": "./src/logging.ts",
       "import": "./src/logging.ts"
@@ -55,18 +83,6 @@
     "./String": {
       "types": "./src/String.ts",
       "import": "./src/String.ts"
-    },
-    "./projectScripts": {
-      "types": "./src/projectScripts.ts",
-      "import": "./src/projectScripts.ts"
-    },
-    "./searchRanking": {
-      "types": "./src/searchRanking.ts",
-      "import": "./src/searchRanking.ts"
-    },
-    "./qrCode": {
-      "types": "./src/qrCode.ts",
-      "import": "./src/qrCode.ts"
     },
     "./cliArgs": {
       "types": "./src/cliArgs.ts",

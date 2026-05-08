@@ -75,6 +75,26 @@ export function resolveAutoFeatureBranchName(
   return `${resolvedBase}-${suffix}`;
 }
 
+export function buildTemporaryWorktreeBranchName(): string {
+  const token = Effect.runSync(Random.nextUUIDv4).replace(/-/g, "").slice(0, 8).toLowerCase();
+  return `${WORKTREE_BRANCH_PREFIX}/${token}`;
+}
+
+export function isTemporaryWorktreeBranchName(branch: string): boolean {
+  return TEMP_WORKTREE_BRANCH_PATTERN.test(branch.trim().toLowerCase());
+}
+
+export function resolveDefaultLocalBranchName(
+  branches: ReadonlyArray<{
+    readonly name: string;
+    readonly isDefault: boolean;
+    readonly isRemote?: boolean | undefined;
+  }>,
+): string | null {
+  const branch = branches.find((entry) => entry.isDefault && entry.isRemote !== true);
+  return branch?.name ?? null;
+}
+
 /**
  * Strip the remote prefix from a remote ref such as `origin/feature/demo`.
  */
@@ -86,13 +106,8 @@ export function deriveLocalBranchNameFromRemoteRef(branchName: string): string {
   return branchName.slice(firstSeparatorIndex + 1);
 }
 
-export function buildTemporaryWorktreeBranchName(): string {
-  const token = Effect.runSync(Random.nextUUIDv4).replace(/-/g, "").slice(0, 8).toLowerCase();
-  return `${WORKTREE_BRANCH_PREFIX}/${token}`;
-}
-
-export function isTemporaryWorktreeBranch(refName: string): boolean {
-  return TEMP_WORKTREE_BRANCH_PATTERN.test(refName.trim().toLowerCase());
+export function isTemporaryWorktreeBranch(branch: string): boolean {
+  return TEMP_WORKTREE_BRANCH_PATTERN.test(branch.trim().toLowerCase());
 }
 
 /**

@@ -4,6 +4,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   type ModelCapabilities,
+  type ServerProvider,
 } from "@t3tools/contracts";
 
 import {
@@ -11,6 +12,7 @@ import {
   buildProviderOptionSelectionsFromDescriptors,
   createModelCapabilities,
   createModelSelection,
+  createModelSelectionWithProviderDefaults,
   getModelSelectionBooleanOptionValue,
   getModelSelectionStringOptionValue,
   getProviderOptionDescriptors,
@@ -69,6 +71,31 @@ const claudeCaps: ModelCapabilities = createModelCapabilities({
     },
   ],
 });
+
+function codexProviderWithCapabilities(capabilities: ModelCapabilities | null): ServerProvider {
+  return {
+    driver: ProviderDriverKind.make("codex"),
+    instanceId: ProviderInstanceId.make("codex"),
+    displayName: "Codex",
+    enabled: true,
+    installed: true,
+    version: null,
+    status: "ready",
+    checkedAt: "2026-01-01T00:00:00.000Z",
+    models: [
+      {
+        slug: "gpt-5.4",
+        name: "GPT-5.4",
+        isCustom: false,
+        capabilities,
+      },
+    ],
+    auth: { status: "authenticated", type: "apiKey", label: "OpenAI API Key" },
+    skills: [],
+    slashCommands: [],
+    showInteractionModeToggle: true,
+  };
+}
 
 describe("normalizeModelSlug", () => {
   it("maps known aliases to canonical slugs", () => {
@@ -226,5 +253,83 @@ describe("descriptor helpers", () => {
     ).toBeUndefined();
     expect(getModelSelectionStringOptionValue(selection, "reasoningEffort")).toBe("high");
     expect(getModelSelectionBooleanOptionValue(selection, "fastMode")).toBe(true);
+  });
+
+  it("creates model selections from provider boolean defaults", () => {
+    const selection = createModelSelectionWithProviderDefaults({
+      provider: ProviderDriverKind.make("codex"),
+      model: "gpt-5.4",
+      providers: [
+        codexProviderWithCapabilities(
+          createModelCapabilities({
+            optionDescriptors: [
+              {
+                id: "fastMode",
+                label: "Fast Mode",
+                type: "boolean",
+                currentValue: true,
+              },
+            ],
+          }),
+        ),
+      ],
+    });
+
+    expect(selection).toEqual({
+      instanceId: "codex",
+      model: "gpt-5.4",
+      options: [{ id: "fastMode", value: true }],
+    });
+  });
+
+  it("lets explicit boolean seed options override provider defaults", () => {
+    const selection = createModelSelectionWithProviderDefaults({
+      provider: ProviderDriverKind.make("codex"),
+      model: "gpt-5.4",
+      providers: [
+        codexProviderWithCapabilities(
+          createModelCapabilities({
+            optionDescriptors: [
+              {
+                id: "fastMode",
+                label: "Fast Mode",
+                type: "boolean",
+                currentValue: true,
+              },
+            ],
+          }),
+        ),
+      ],
+      seedOptions: [{ id: "fastMode", value: false }],
+    });
+
+    expect(selection.options).toEqual([{ id: "fastMode", value: false }]);
+  });
+
+  it("preserves explicit seed options when provider capabilities are unavailable", () => {
+    const selection = createModelSelectionWithProviderDefaults({
+      provider: ProviderDriverKind.make("codex"),
+      model: "gpt-5.4",
+      providers: [codexProviderWithCapabilities(null)],
+      seedOptions: [
+        { id: "reasoningEffort", value: "medium" },
+        { id: "fastMode", value: true },
+      ],
+    });
+
+    expect(selection.options).toEqual([
+      { id: "reasoningEffort", value: "medium" },
+      { id: "fastMode", value: true },
+    ]);
+  });
+
+  it("creates model selections from provider select defaults", () => {
+    const selection = createModelSelectionWithProviderDefaults({
+      provider: ProviderDriverKind.make("codex"),
+      model: "gpt-5.4",
+      providers: [codexProviderWithCapabilities(codexCaps)],
+    });
+
+    expect(selection.options).toEqual([{ id: "reasoningEffort", value: "high" }]);
   });
 });

@@ -15,6 +15,8 @@ import {
   ProjectMetaUpdatedPayload,
   OrchestrationProposedPlan,
   OrchestrationSession,
+  OrchestrationShellSnapshot,
+  OrchestrationShellStreamEvent,
   ProjectCreateCommand,
   ThreadMetaUpdatedPayload,
   ThreadTurnStartCommand,
@@ -37,6 +39,10 @@ const decodeThreadTurnStartRequestedPayload = Schema.decodeUnknownEffect(
 const decodeOrchestrationLatestTurn = Schema.decodeUnknownEffect(OrchestrationLatestTurn);
 const decodeOrchestrationProposedPlan = Schema.decodeUnknownEffect(OrchestrationProposedPlan);
 const decodeOrchestrationSession = Schema.decodeUnknownEffect(OrchestrationSession);
+const decodeOrchestrationShellSnapshot = Schema.decodeUnknownEffect(OrchestrationShellSnapshot);
+const decodeOrchestrationShellStreamEvent = Schema.decodeUnknownEffect(
+  OrchestrationShellStreamEvent,
+);
 
 function getOptionValue(
   options: ReadonlyArray<{ id: string; value: unknown }> | undefined,
@@ -48,6 +54,44 @@ const decodeThreadCreatedPayload = Schema.decodeUnknownEffect(ThreadCreatedPaylo
 const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationCommand);
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
 const decodeThreadMetaUpdatedPayload = Schema.decodeUnknownEffect(ThreadMetaUpdatedPayload);
+
+function makeShellSnapshot(overrides: Record<string, unknown> = {}) {
+  return {
+    snapshotSequence: 1,
+    projects: [
+      {
+        id: "project-1",
+        title: "Project",
+        workspaceRoot: "/tmp/project",
+        defaultModelSelection: {
+          instanceId: "codex",
+          model: "gpt-5-codex",
+        },
+        scripts: [],
+        createdAt: "2026-02-27T00:00:00.000Z",
+        updatedAt: "2026-02-27T00:00:00.000Z",
+      },
+    ],
+    threads: [],
+    updatedAt: "2026-02-27T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function makeBaseEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    sequence: 1,
+    eventId: "event-1",
+    aggregateKind: "epicRun",
+    aggregateId: "run-1",
+    occurredAt: "2026-02-27T00:00:00.000Z",
+    commandId: null,
+    causationEventId: null,
+    correlationId: null,
+    metadata: {},
+    ...overrides,
+  };
+}
 
 it.effect("parses turn diff input when fromTurnCount <= toTurnCount", () =>
   Effect.gen(function* () {
@@ -108,6 +152,127 @@ it.effect("rejects thread turn diff when fromTurnCount > toTurnCount", () =>
       }),
     );
     assert.strictEqual(result._tag, "Failure");
+  }),
+);
+
+it.effect("decodes shell snapshots with epic run state", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationShellSnapshot(
+      makeShellSnapshot({
+        epicRuns: [
+          {
+            runId: "run-1",
+            projectId: "project-1",
+            epicIssueId: "EPIC-1",
+            status: "running",
+            provider: "codex",
+            model: "gpt-5-codex",
+            modelOptions: null,
+            providerOptions: null,
+            assistantDeliveryMode: null,
+            runtimeMode: "full-access",
+            failureContext: null,
+            requestedAt: "2026-02-27T00:00:00.000Z",
+            startedAt: "2026-02-27T00:00:01.000Z",
+            stopRequestedAt: null,
+            stoppedAt: null,
+            failedAt: null,
+            completedAt: null,
+            updatedAt: "2026-02-27T00:00:01.000Z",
+          },
+        ],
+        epicIssueExecutions: [
+          {
+            executionId: "execution-1",
+            runId: "run-1",
+            issueId: "TASK-1",
+            workerThreadId: "thread-1",
+            sequenceNumber: 1,
+            status: "running",
+            workspaceKey: "shared",
+            workspacePath: null,
+            failureContext: null,
+            requestedAt: "2026-02-27T00:00:01.000Z",
+            startedAt: "2026-02-27T00:00:02.000Z",
+            stopRequestedAt: null,
+            stoppedAt: null,
+            completedAt: null,
+            failedAt: null,
+            updatedAt: "2026-02-27T00:00:02.000Z",
+          },
+        ],
+      }),
+    );
+
+    assert.strictEqual(parsed.epicRuns[0]?.runId, "run-1");
+    assert.strictEqual(parsed.epicIssueExecutions[0]?.workerThreadId, "thread-1");
+  }),
+);
+
+it.effect("decodes older shell snapshots without epic run fields", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationShellSnapshot(makeShellSnapshot());
+
+    assert.deepStrictEqual(parsed.epicRuns, []);
+    assert.deepStrictEqual(parsed.epicIssueExecutions, []);
+  }),
+);
+
+it.effect("decodes shell epic-run events", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationShellStreamEvent({
+      kind: "epic-run-event",
+      sequence: 2,
+      event: makeBaseEvent({
+        sequence: 2,
+        eventId: "event-2",
+        type: "epic-run.requested",
+        payload: {
+          runId: "run-1",
+          projectId: "project-1",
+          epicIssueId: "EPIC-1",
+          provider: "codex",
+          model: "gpt-5-codex",
+          modelOptions: null,
+          providerOptions: null,
+          assistantDeliveryMode: null,
+          runtimeMode: "full-access",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:00.000Z",
+        },
+      }),
+    });
+
+    assert.strictEqual(parsed.kind, "epic-run-event");
+    assert.strictEqual(parsed.event.type, "epic-run.requested");
+  }),
+);
+
+it.effect("decodes shell epic issue execution events", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationShellStreamEvent({
+      kind: "epic-issue-execution-event",
+      sequence: 3,
+      event: makeBaseEvent({
+        sequence: 3,
+        eventId: "event-3",
+        aggregateKind: "epicIssueExecution",
+        aggregateId: "execution-1",
+        type: "epic-issue-execution.requested",
+        payload: {
+          executionId: "execution-1",
+          runId: "run-1",
+          issueId: "TASK-1",
+          workerThreadId: "thread-1",
+          sequenceNumber: 1,
+          requestedAt: "2026-02-27T00:00:01.000Z",
+          updatedAt: "2026-02-27T00:00:01.000Z",
+        },
+      }),
+    });
+
+    assert.strictEqual(parsed.kind, "epic-issue-execution-event");
+    assert.strictEqual(parsed.event.type, "epic-issue-execution.requested");
   }),
 );
 
@@ -625,12 +790,11 @@ it.effect("defaults proposed plan implementation metadata for historical rows", 
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
-    assert.strictEqual(parsed.implementedAt, null);
-    assert.strictEqual(parsed.implementationThreadId, null);
+    assert.strictEqual(parsed.followUpOutcome, null);
   }),
 );
 
-it.effect("preserves proposed plan implementation metadata when present", () =>
+it.effect("maps legacy proposed plan implementation metadata to follow-up outcome", () =>
   Effect.gen(function* () {
     const parsed = yield* decodeOrchestrationProposedPlan({
       id: "plan-2",
@@ -641,8 +805,11 @@ it.effect("preserves proposed plan implementation metadata when present", () =>
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-02T00:00:00.000Z",
     });
-    assert.strictEqual(parsed.implementedAt, "2026-01-02T00:00:00.000Z");
-    assert.strictEqual(parsed.implementationThreadId, "thread-2");
+    assert.deepStrictEqual(parsed.followUpOutcome, {
+      kind: "implement-code",
+      completedAt: "2026-01-02T00:00:00.000Z",
+      targetThreadId: "thread-2",
+    });
   }),
 );
 
