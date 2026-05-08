@@ -23,3 +23,6 @@ __screenshots__/
 .tanstack
 squashfs-root/
 .vercel
+.dolt/
+*.db
+.beads-credential-key
