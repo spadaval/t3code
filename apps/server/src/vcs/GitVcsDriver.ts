@@ -147,6 +147,12 @@ export interface GitSetBranchUpstreamInput {
   remoteBranch: string;
 }
 
+export interface GitDeleteLocalBranchInput {
+  cwd: string;
+  branch: string;
+  force?: boolean | undefined;
+}
+
 export interface GitVcsDriverShape {
   readonly execute: (input: ExecuteGitInput) => Effect.Effect<ExecuteGitResult, GitCommandError>;
   readonly status: (input: VcsStatusInput) => Effect.Effect<VcsStatusResult, GitCommandError>;
@@ -195,6 +201,9 @@ export interface GitVcsDriverShape {
     input: GitSetBranchUpstreamInput,
   ) => Effect.Effect<void, GitCommandError>;
   readonly removeWorktree: (input: VcsRemoveWorktreeInput) => Effect.Effect<void, GitCommandError>;
+  readonly deleteLocalBranch: (
+    input: GitDeleteLocalBranchInput,
+  ) => Effect.Effect<void, GitCommandError>;
   readonly renameBranch: (
     input: GitRenameBranchInput,
   ) => Effect.Effect<GitRenameBranchResult, GitCommandError>;

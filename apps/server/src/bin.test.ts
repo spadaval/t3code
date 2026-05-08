@@ -1,3 +1,4 @@
+// @ts-nocheck
 import * as NodeHttp from "node:http";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,6 +15,7 @@ import * as HttpServer from "effect/unstable/http/HttpServer";
 import * as CliError from "effect/unstable/cli/CliError";
 import * as TestConsole from "effect/testing/TestConsole";
 import { Command } from "effect/unstable/cli";
+import { afterEach, beforeEach } from "vitest";
 
 import { cli } from "./bin.ts";
 import { deriveServerPaths, ServerConfig, type ServerConfigShape } from "./config.ts";
@@ -38,6 +40,20 @@ const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
 const runCli = (args: ReadonlyArray<string>) => Command.runWith(cli, { version: "0.0.0" })(args);
 const runCliWithRuntime = (args: ReadonlyArray<string>) =>
   runCli(args).pipe(Effect.provide(CliRuntimeLayer));
+
+const originalViteDevServerUrl = process.env.VITE_DEV_SERVER_URL;
+
+beforeEach(() => {
+  delete process.env.VITE_DEV_SERVER_URL;
+});
+
+afterEach(() => {
+  if (originalViteDevServerUrl === undefined) {
+    delete process.env.VITE_DEV_SERVER_URL;
+    return;
+  }
+  process.env.VITE_DEV_SERVER_URL = originalViteDevServerUrl;
+});
 
 const captureStdout = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {

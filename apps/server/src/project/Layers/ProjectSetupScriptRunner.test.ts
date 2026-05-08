@@ -33,6 +33,9 @@ const makeProjectionSnapshotQueryLayer = (project: OrchestrationProject) =>
       Effect.succeed(projectId === project.id ? Option.some(project) : Option.none()),
     getFirstActiveThreadIdByProjectId: () => Effect.die("unused"),
     getThreadCheckpointContext: () => Effect.die("unused"),
+    getEpicWorkflowRuntimeState: () => Effect.die("unused"),
+    listPendingCheckpointCaptures: () => Effect.succeed([]),
+    listProjectLinkedIssueThreads: () => Effect.succeed([]),
     getThreadShellById: () => Effect.die("unused"),
     getThreadDetailById: () => Effect.die("unused"),
   });

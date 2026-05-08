@@ -3,13 +3,23 @@ import type {
   OrchestrationEvent,
   OrchestrationReadModel,
 } from "@t3tools/contracts";
-import { DateTime, Effect } from "effect";
+import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
   listThreadsByProjectId,
+  requireActionableProposedPlan,
+  requireCurrentEpicIssueExecutionForRunInAllowedStatus,
+  requireNoConflictingSharedWorkspaceRun,
+  requireNoNonTerminalRunForEpic,
+  requirePlanImplementationLaunch,
+  requirePlanImplementationLaunchAbsent,
   requireProject,
   requireProjectAbsent,
+  requireEpicIssueExecutionAbsent,
+  requireEpicRunAbsent,
+  requireEpicRunInAllowedStatus,
+  requireEpicRunWithoutCurrentExecution,
   requireThread,
   requireThreadArchived,
   requireThreadAbsent,
@@ -17,7 +27,17 @@ import {
 } from "./commandInvariants.ts";
 import { projectEvent } from "./projector.ts";
 
-const currentIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
+const nowIso = () => new Date().toISOString();
+const defaultMetadata: Omit<OrchestrationEvent, "sequence" | "type" | "payload"> = {
+  eventId: crypto.randomUUID() as OrchestrationEvent["eventId"],
+  aggregateKind: "thread",
+  aggregateId: "" as OrchestrationEvent["aggregateId"],
+  occurredAt: nowIso(),
+  commandId: null,
+  causationEventId: null,
+  correlationId: null,
+  metadata: {},
+};
 
 function withEventBase(
   input: Pick<OrchestrationCommand, "commandId"> & {
@@ -28,12 +48,12 @@ function withEventBase(
   },
 ): Omit<OrchestrationEvent, "sequence" | "type" | "payload"> {
   return {
+    ...defaultMetadata,
     eventId: crypto.randomUUID() as OrchestrationEvent["eventId"],
     aggregateKind: input.aggregateKind,
     aggregateId: input.aggregateId,
     occurredAt: input.occurredAt,
     commandId: input.commandId,
-    causationEventId: null,
     correlationId: input.commandId,
     metadata: input.metadata ?? {},
   };
@@ -116,7 +136,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         projectId: command.projectId,
       });
-      const occurredAt = yield* currentIso;
+      const occurredAt = nowIso();
       return {
         ...withEventBase({
           aggregateKind: "project",
@@ -173,7 +193,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         });
       }
 
-      const occurredAt = yield* currentIso;
+      const occurredAt = nowIso();
       return {
         ...withEventBase({
           aggregateKind: "project",
@@ -217,6 +237,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           interactionMode: command.interactionMode,
           branch: command.branch,
           worktreePath: command.worktreePath,
+          issueLink: command.issueLink ?? null,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -229,7 +250,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      const occurredAt = yield* currentIso;
+      const occurredAt = nowIso();
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -251,7 +272,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      const occurredAt = yield* currentIso;
+      const occurredAt = nowIso();
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -274,7 +295,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      const occurredAt = yield* currentIso;
+      const occurredAt = nowIso();
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -296,7 +317,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      const occurredAt = yield* currentIso;
+      const occurredAt = nowIso();
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -313,6 +334,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             : {}),
           ...(command.branch !== undefined ? { branch: command.branch } : {}),
           ...(command.worktreePath !== undefined ? { worktreePath: command.worktreePath } : {}),
+          ...(command.issueLink !== undefined ? { issueLink: command.issueLink } : {}),
           updatedAt: occurredAt,
         },
       };
@@ -324,7 +346,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      const occurredAt = yield* currentIso;
+      const occurredAt = nowIso();
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -347,7 +369,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      const occurredAt = yield* currentIso;
+      const occurredAt = nowIso();
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -378,14 +400,12 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             threadId: sourceProposedPlan.threadId,
           })
         : null;
-      const sourcePlan =
-        sourceProposedPlan && sourceThread
-          ? sourceThread.proposedPlans.find((entry) => entry.id === sourceProposedPlan.planId)
-          : null;
-      if (sourceProposedPlan && !sourcePlan) {
-        return yield* new OrchestrationCommandInvariantError({
-          commandType: command.type,
-          detail: `Proposed plan '${sourceProposedPlan.planId}' does not exist on thread '${sourceProposedPlan.threadId}'.`,
+      if (sourceProposedPlan && sourceThread) {
+        yield* requireActionableProposedPlan({
+          readModel,
+          command,
+          threadId: sourceProposedPlan.threadId,
+          planId: sourceProposedPlan.planId,
         });
       }
       if (sourceThread && sourceThread.projectId !== targetThread.projectId) {
@@ -574,6 +594,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           session: command.session,
+          ...(command.settledTurn !== undefined ? { settledTurn: command.settledTurn } : {}),
         },
       };
     }
@@ -653,6 +674,32 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.checkpoint.capture.request": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.checkpoint-capture-requested",
+        payload: {
+          threadId: command.threadId,
+          request: {
+            turnId: command.turnId,
+            checkpointTurnCount: command.checkpointTurnCount,
+            assistantMessageId: command.assistantMessageId ?? null,
+            requestedAt: command.requestedAt,
+          },
+        },
+      };
+    }
+
     case "thread.turn.diff.complete": {
       yield* requireThread({
         readModel,
@@ -727,6 +774,414 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           activity: command.activity,
+        },
+      };
+    }
+
+    case "plan-implementation-launch.request": {
+      yield* requirePlanImplementationLaunchAbsent({
+        readModel,
+        command,
+        launchId: command.launchId,
+      });
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.sourceThreadId,
+      });
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "planImplementationLaunch",
+          aggregateId: command.launchId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "plan-implementation-launch.requested",
+        payload: {
+          launchId: command.launchId,
+          sourceThreadId: command.sourceThreadId,
+          sourcePlanId: command.sourcePlanId,
+          projectId: command.projectId,
+          targetThreadId: command.targetThreadId,
+          retryOfLaunchId: command.retryOfLaunchId ?? null,
+          title: command.title,
+          setupEnabled: command.setupEnabled,
+          launchMode: command.launchMode,
+          promptText: command.promptText,
+          provider: command.provider ?? null,
+          model: command.model ?? null,
+          modelOptions: command.modelOptions ?? null,
+          providerOptions: command.providerOptions ?? null,
+          assistantDeliveryMode: command.assistantDeliveryMode ?? null,
+          runtimeMode: command.runtimeMode,
+          requestedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "plan-implementation-launch.mark-worktree-prepared": {
+      yield* requirePlanImplementationLaunch({
+        readModel,
+        command,
+        launchId: command.launchId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "planImplementationLaunch",
+          aggregateId: command.launchId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "plan-implementation-launch.worktree-prepared",
+        payload: {
+          launchId: command.launchId,
+          branch: command.branch,
+          worktreePath: command.worktreePath,
+          preparedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "plan-implementation-launch.mark-started": {
+      yield* requirePlanImplementationLaunch({
+        readModel,
+        command,
+        launchId: command.launchId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "planImplementationLaunch",
+          aggregateId: command.launchId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "plan-implementation-launch.started",
+        payload: {
+          launchId: command.launchId,
+          startedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "plan-implementation-launch.fail": {
+      yield* requirePlanImplementationLaunch({
+        readModel,
+        command,
+        launchId: command.launchId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "planImplementationLaunch",
+          aggregateId: command.launchId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "plan-implementation-launch.failed",
+        payload: {
+          launchId: command.launchId,
+          failureReason: command.failureReason,
+          cleanupStatus: command.cleanupStatus,
+          cleanupError: command.cleanupError ?? null,
+          failedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "plan-implementation-launch.cancel": {
+      yield* requirePlanImplementationLaunch({
+        readModel,
+        command,
+        launchId: command.launchId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "planImplementationLaunch",
+          aggregateId: command.launchId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "plan-implementation-launch.cancelled",
+        payload: {
+          launchId: command.launchId,
+          cleanupStatus: command.cleanupStatus,
+          cleanupError: command.cleanupError ?? null,
+          cancelledAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "epic-run.request": {
+      yield* requireEpicRunAbsent({
+        readModel,
+        command,
+        runId: command.runId,
+      });
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      yield* requireNoNonTerminalRunForEpic({
+        readModel,
+        command,
+        projectId: command.projectId,
+        epicIssueId: command.epicIssueId,
+      });
+      yield* requireNoConflictingSharedWorkspaceRun({
+        readModel,
+        command,
+        projectId: command.projectId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "epicRun",
+          aggregateId: command.runId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "epic-run.requested",
+        payload: {
+          runId: command.runId,
+          projectId: command.projectId,
+          epicIssueId: command.epicIssueId,
+          provider: command.provider ?? null,
+          model: command.model ?? null,
+          modelOptions: command.modelOptions ?? null,
+          providerOptions: command.providerOptions ?? null,
+          assistantDeliveryMode: command.assistantDeliveryMode ?? null,
+          runtimeMode: command.runtimeMode,
+          requestedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "epic-run.mark-started": {
+      yield* requireEpicRunInAllowedStatus({
+        readModel,
+        command,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "epicRun",
+          aggregateId: command.runId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "epic-run.started",
+        payload: {
+          runId: command.runId,
+          startedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "epic-run.fail": {
+      yield* requireEpicRunInAllowedStatus({
+        readModel,
+        command,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "epicRun",
+          aggregateId: command.runId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "epic-run.failed",
+        payload: {
+          runId: command.runId,
+          reason: command.reason,
+          issueId: command.issueId ?? null,
+          executionId: command.executionId ?? null,
+          workerThreadId: command.workerThreadId ?? null,
+          failedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "epic-run.stop": {
+      yield* requireEpicRunWithoutCurrentExecution({
+        readModel,
+        command,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "epicRun",
+          aggregateId: command.runId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "epic-run.stopped",
+        payload: {
+          runId: command.runId,
+          stoppedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "epic-run.complete": {
+      yield* requireEpicRunWithoutCurrentExecution({
+        readModel,
+        command,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "epicRun",
+          aggregateId: command.runId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "epic-run.completed",
+        payload: {
+          runId: command.runId,
+          completedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "epic-issue-execution.request": {
+      yield* requireEpicRunWithoutCurrentExecution({
+        readModel,
+        command,
+        runId: command.runId,
+      });
+      yield* requireEpicIssueExecutionAbsent({
+        readModel,
+        command,
+        executionId: command.executionId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "epicIssueExecution",
+          aggregateId: command.executionId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "epic-issue-execution.requested",
+        payload: {
+          executionId: command.executionId,
+          runId: command.runId,
+          issueId: command.issueId,
+          workerThreadId: command.workerThreadId,
+          sequenceNumber: command.sequenceNumber,
+          requestedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "epic-issue-execution.start": {
+      yield* requireCurrentEpicIssueExecutionForRunInAllowedStatus({
+        readModel,
+        command,
+        executionId: command.executionId,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "epicIssueExecution",
+          aggregateId: command.executionId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "epic-issue-execution.started",
+        payload: {
+          executionId: command.executionId,
+          runId: command.runId,
+          startedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "epic-issue-execution.complete": {
+      yield* requireCurrentEpicIssueExecutionForRunInAllowedStatus({
+        readModel,
+        command,
+        executionId: command.executionId,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "epicIssueExecution",
+          aggregateId: command.executionId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "epic-issue-execution.completed",
+        payload: {
+          executionId: command.executionId,
+          runId: command.runId,
+          completedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "epic-issue-execution.fail": {
+      yield* requireCurrentEpicIssueExecutionForRunInAllowedStatus({
+        readModel,
+        command,
+        executionId: command.executionId,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "epicIssueExecution",
+          aggregateId: command.executionId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "epic-issue-execution.failed",
+        payload: {
+          executionId: command.executionId,
+          runId: command.runId,
+          reason: command.reason,
+          failedAt: command.createdAt,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "epic-issue-execution.stop": {
+      yield* requireCurrentEpicIssueExecutionForRunInAllowedStatus({
+        readModel,
+        command,
+        executionId: command.executionId,
+        runId: command.runId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "epicIssueExecution",
+          aggregateId: command.executionId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "epic-issue-execution.stopped",
+        payload: {
+          executionId: command.executionId,
+          runId: command.runId,
+          stoppedAt: command.createdAt,
+          updatedAt: command.createdAt,
         },
       };
     }

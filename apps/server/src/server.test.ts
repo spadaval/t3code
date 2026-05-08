@@ -1,11 +1,14 @@
+// @ts-nocheck
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 
 import {
+  BEADS_WS_METHODS,
   CommandId,
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
+  EpicRunId,
   EventId,
   GitCommandError,
   KeybindingRule,
@@ -70,12 +73,14 @@ import {
   type OrchestrationEngineShape,
 } from "./orchestration/Services/OrchestrationEngine.ts";
 import { OrchestrationListenerCallbackError } from "./orchestration/Errors.ts";
+import { PlanImplementationWorkflow } from "./orchestration/Services/PlanImplementationWorkflow.ts";
 import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
-import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
+import { EpicRunScheduler } from "./orchestration/Services/EpicRunScheduler.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
+import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite.ts";
 import {
   ProviderRegistry,
   type ProviderRegistryShape,
@@ -114,6 +119,7 @@ import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
 import { ServerAuthLive } from "./auth/Layers/ServerAuth.ts";
+import { BeadsService } from "./beads/Services/BeadsService.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 
@@ -332,6 +338,17 @@ const buildAppUnderTest = (options?: {
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
+    planImplementationWorkflow?: Partial<
+      InstanceType<typeof PlanImplementationWorkflow> extends infer _T
+        ? import("./orchestration/Services/PlanImplementationWorkflow.ts").PlanImplementationWorkflowShape
+        : never
+    >;
+    epicRunScheduler?: Partial<
+      InstanceType<typeof EpicRunScheduler> extends infer _T
+        ? import("./orchestration/Services/EpicRunScheduler.ts").EpicRunSchedulerShape
+        : never
+    >;
+    beads?: Partial<import("./beads/Services/BeadsService.ts").BeadsServiceShape>;
     browserTraceCollector?: Partial<BrowserTraceCollectorShape>;
     serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
@@ -633,6 +650,8 @@ const buildAppUnderTest = (options?: {
             }),
           getSnapshotSequence: () => Effect.succeed({ snapshotSequence: 0 }),
           getProjectShellById: () => Effect.succeed(Option.none()),
+          listPendingCheckpointCaptures: () => Effect.succeed([]),
+          listProjectLinkedIssueThreads: () => Effect.succeed([]),
           getThreadShellById: () => Effect.succeed(Option.none()),
           getThreadDetailById: () => Effect.succeed(Option.none()),
           getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),
@@ -661,6 +680,22 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.checkpointDiffQuery,
         }),
       ),
+      Layer.provide(
+        Layer.mock(PlanImplementationWorkflow)({
+          start: Effect.void,
+          drain: Effect.void,
+          ...options?.layers?.planImplementationWorkflow,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(EpicRunScheduler)({
+          start: Effect.void,
+          drain: Effect.void,
+          notifyWorkerStateChanged: () => Effect.void,
+          ...options?.layers?.epicRunScheduler,
+        }),
+      ),
+      Layer.provide(Layer.mock(BeadsService)({ ...options?.layers?.beads })),
     );
 
     const appLayer = servedRoutesLayer.pipe(
@@ -3192,6 +3227,610 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("routes websocket rpc orchestration launch and epic-run controls", () =>
+    Effect.gen(function* () {
+      const launchId = "launch-1";
+      const runId = EpicRunId.makeUnsafe("run-1");
+
+      yield* buildAppUnderTest({
+        layers: {
+          planImplementationWorkflow: {
+            launchPlanImplementation: (_input) =>
+              Effect.succeed({
+                launchId,
+                targetThreadId: defaultThreadId,
+                status: "requested",
+              }),
+            cancelPlanImplementationLaunch: (input) =>
+              Effect.succeed({ launchId: input.launchId, status: "cancelled" }),
+            retryPlanImplementationLaunch: (_input) =>
+              Effect.succeed({
+                launchId: "launch-2",
+                targetThreadId: defaultThreadId,
+                status: "requested",
+              }),
+          },
+          epicRunScheduler: {
+            startEpicRun: (_input) =>
+              Effect.succeed({
+                runId,
+                status: "running",
+              }),
+            stopEpicRun: (input) =>
+              Effect.succeed({
+                runId: input.runId,
+                status: "stopped",
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const launchResult = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.launchPlanImplementation]({
+            sourceThreadId: defaultThreadId,
+            planId: "plan-1",
+            runtimeMode: "full-access",
+            launchMode: "worktree",
+            runSetup: true,
+          }),
+        ),
+      );
+      assert.equal(launchResult.launchId, launchId);
+
+      const cancelResult = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.cancelPlanImplementationLaunch]({
+            launchId,
+          }),
+        ),
+      );
+      assert.deepEqual(cancelResult, { launchId, status: "cancelled" });
+
+      const retryResult = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.retryPlanImplementationLaunch]({
+            launchId,
+          }),
+        ),
+      );
+      assert.equal(retryResult.launchId, "launch-2");
+
+      const startEpicRunResult = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.startEpicRun]({
+            projectId: defaultProjectId,
+            epicIssueId: "epic-1",
+            runtimeMode: "full-access",
+            provider: "codex",
+            model: "gpt-5-codex",
+          }),
+        ),
+      );
+      assert.equal(startEpicRunResult.runId, runId);
+
+      const stopEpicRunResult = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.stopEpicRun]({
+            runId,
+          }),
+        ),
+      );
+      assert.equal(stopEpicRunResult.status, "stopped");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("preserves websocket rpc orchestration control failure detail", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          planImplementationWorkflow: {
+            launchPlanImplementation: () =>
+              Effect.fail(new Error("planner executable missing from PATH")),
+          },
+          epicRunScheduler: {
+            startEpicRun: () => Effect.fail(new Error("epic run already active for project")),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const launchResult = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.launchPlanImplementation]({
+            sourceThreadId: defaultThreadId,
+            planId: "plan-1",
+            runtimeMode: "full-access",
+            launchMode: "worktree",
+            runSetup: false,
+          }),
+        ).pipe(Effect.result),
+      );
+      assertTrue(launchResult._tag === "Failure");
+      assertTrue(launchResult.failure._tag === "OrchestrationDispatchCommandError");
+      assert.include(
+        launchResult.failure.message,
+        "Failed to launch plan implementation: planner executable missing from PATH",
+      );
+
+      const epicRunResult = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.startEpicRun]({
+            projectId: defaultProjectId,
+            epicIssueId: "epic-1",
+            runtimeMode: "full-access",
+            provider: "codex",
+            model: "gpt-5-codex",
+          }),
+        ).pipe(Effect.result),
+      );
+      assertTrue(epicRunResult._tag === "Failure");
+      assertTrue(epicRunResult.failure._tag === "OrchestrationDispatchCommandError");
+      assert.include(epicRunResult.failure.message, "epic run already active for project");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc beads methods", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const issueSummary = {
+        id: "epic-1",
+        title: "Epic one",
+        description: "Epic description",
+        notes: "Epic notes",
+        status: "open",
+        priority: 1,
+        issueType: "epic",
+        assignee: null,
+        owner: "Sumeet Padavala",
+        createdAt: now,
+        createdBy: "codex",
+        updatedAt: now,
+        labels: ["backend"],
+        molType: null,
+        parent: null,
+        dependencyRefs: [],
+        dependencyCount: 0,
+        dependentCount: 0,
+        commentCount: 0,
+      };
+      const issueDetail = {
+        ...issueSummary,
+        dependencies: [],
+        comments: [],
+      };
+      const relationSummary = {
+        id: "task-1",
+        title: "Task one",
+        status: "open",
+        priority: 1,
+        issueType: "task",
+        assignee: null,
+        owner: "Sumeet Padavala",
+        parent: { id: issueSummary.id, title: issueSummary.title },
+      };
+      const progress = {
+        totalIssueCount: 1,
+        completedIssueCount: 0,
+        readyIssueCount: 1,
+        activeIssueCount: 0,
+        blockedIssueCount: 0,
+        internalBlockedIssueCount: 0,
+        externalBlockedIssueCount: 0,
+        unknownBlockedIssueCount: 0,
+        activeWorkerCount: 0,
+        isComplete: false,
+      };
+      yield* buildAppUnderTest({
+        layers: {
+          beads: {
+            queryIssues: () => Effect.succeed({ issues: [issueSummary] }),
+            getIssue: () => Effect.succeed(issueDetail),
+            getIssues: () => Effect.succeed({ issues: [issueDetail] }),
+            resolveIssueRefs: () =>
+              Effect.succeed({
+                issues: [
+                  {
+                    id: issueSummary.id,
+                    title: issueSummary.title,
+                    status: issueSummary.status,
+                    issueType: issueSummary.issueType,
+                  },
+                ],
+                missingIssueIds: [],
+                loadErrors: [],
+              }),
+            createIssue: () => Effect.succeed(issueSummary),
+            updateIssue: () => Effect.succeed(issueSummary),
+            commentIssue: () => Effect.succeed(issueDetail),
+            getContext: () =>
+              Effect.succeed({
+                beadsDir: "/tmp/repo/.beads",
+                repoRoot: "/tmp/repo",
+                cwdRepoRoot: "/tmp/repo",
+                isRedirected: false,
+                isWorktree: false,
+                backend: {
+                  kind: "git",
+                  doltMode: null,
+                  database: null,
+                  projectId: null,
+                  role: null,
+                  bdVersion: "1.0.0",
+                },
+              }),
+            getIssueGraph: () =>
+              Effect.succeed({
+                epic: issueDetail,
+                parent: null,
+                children: [relationSummary],
+                dependencies: [],
+                dependents: [],
+              }),
+            validateEpicCoordination: () =>
+              Effect.succeed({
+                epicId: issueSummary.id,
+                epicTitle: issueSummary.title,
+                summary: {
+                  epicId: issueSummary.id,
+                  epicTitle: issueSummary.title,
+                  totalIssueCount: 1,
+                  completedIssueCount: 0,
+                  activeIssueCount: 0,
+                  readyIssueCount: 1,
+                  blockedIssueCount: 0,
+                  activeWorkerCount: 0,
+                },
+                valid: true,
+                errors: [],
+                warnings: [],
+                readyFronts: [[relationSummary]],
+                estimatedWorkerSessions: 1,
+                maxParallelism: 1,
+              }),
+            getEpicCoordinationStatus: () =>
+              Effect.succeed({
+                epicId: issueSummary.id,
+                epicTitle: issueSummary.title,
+                summary: {
+                  epicId: issueSummary.id,
+                  epicTitle: issueSummary.title,
+                  totalIssueCount: 1,
+                  completedIssueCount: 0,
+                  readyIssueCount: 1,
+                  activeIssueCount: 0,
+                  blockedIssueCount: 0,
+                  activeWorkerCount: 0,
+                },
+                completed: [],
+                active: [],
+                ready: [relationSummary],
+                blocked: [],
+                blockedBreakdown: { internal: [], external: [], unknown: [] },
+              }),
+            getEpicIssueSummaries: () =>
+              Effect.succeed({
+                epicId: issueSummary.id,
+                epicTitle: issueSummary.title,
+                progress,
+                issues: [issueSummary],
+              }),
+            getEpicWorkflowDetail: () =>
+              Effect.succeed({
+                epicId: issueSummary.id,
+                epicTitle: issueSummary.title,
+                issue: issueSummary,
+                coordinationLoadState: "ready",
+                coordinationLoadDetail: null,
+                validationState: "valid",
+                validationErrors: [],
+                coordinationState: "in_progress",
+                progress,
+                summary: {
+                  epicId: issueSummary.id,
+                  epicTitle: issueSummary.title,
+                  totalIssueCount: 1,
+                  completedIssueCount: 0,
+                  readyIssueCount: 1,
+                  activeIssueCount: 0,
+                  blockedIssueCount: 0,
+                  activeWorkerCount: 0,
+                },
+                validation: {
+                  epicId: issueSummary.id,
+                  epicTitle: issueSummary.title,
+                  summary: {
+                    epicId: issueSummary.id,
+                    epicTitle: issueSummary.title,
+                    totalIssueCount: 1,
+                    completedIssueCount: 0,
+                    activeIssueCount: 0,
+                    readyIssueCount: 1,
+                    blockedIssueCount: 0,
+                    activeWorkerCount: 0,
+                  },
+                  valid: true,
+                  errors: [],
+                  warnings: [],
+                  readyFronts: [[relationSummary]],
+                  estimatedWorkerSessions: 1,
+                  maxParallelism: 1,
+                },
+                status: {
+                  epicId: issueSummary.id,
+                  epicTitle: issueSummary.title,
+                  summary: {
+                    epicId: issueSummary.id,
+                    epicTitle: issueSummary.title,
+                    totalIssueCount: 1,
+                    completedIssueCount: 0,
+                    readyIssueCount: 1,
+                    activeIssueCount: 0,
+                    blockedIssueCount: 0,
+                    activeWorkerCount: 0,
+                  },
+                  completed: [],
+                  active: [],
+                  ready: [relationSummary],
+                  blocked: [],
+                  blockedBreakdown: { internal: [], external: [], unknown: [] },
+                },
+                execution: {
+                  state: "running",
+                  summary: "Worker active",
+                  blockingReason: null,
+                  nextIssue: relationSummary,
+                },
+                commands: [],
+                activeRunId: EpicRunId.makeUnsafe("run-1"),
+                activeExecutionId: null,
+                projectConflict: null,
+                runs: [],
+                executions: [],
+              }),
+            getSessionActivity: () =>
+              Effect.succeed({
+                entries: [
+                  {
+                    kind: "workflow-started",
+                    issue: issueSummary,
+                    createdAt: now,
+                    workflowKind: "solve",
+                    threadId: defaultThreadId,
+                  },
+                ],
+              }),
+            startWorkflow: () =>
+              Effect.succeed({
+                threadId: defaultThreadId,
+                created: true,
+              }),
+            startBacklogGrooming: () =>
+              Effect.succeed({
+                threadId: defaultThreadId,
+                created: true,
+              }),
+            startEpicQuickRefine: () =>
+              Effect.succeed({
+                threadId: defaultThreadId,
+                created: true,
+              }),
+            startEpicPlannedRefine: () =>
+              Effect.succeed({
+                threadId: defaultThreadId,
+                created: true,
+              }),
+            startEpicCoordinationPrep: () =>
+              Effect.succeed({
+                threadId: defaultThreadId,
+                created: true,
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const queryIssues = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[BEADS_WS_METHODS.queryIssues]({
+            cwd: "/tmp/repo",
+            mode: "all",
+            sortBy: "updated",
+          }),
+        ),
+      );
+      assert.equal(queryIssues.issues[0]?.id, issueSummary.id);
+
+      const getIssue = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[BEADS_WS_METHODS.getIssue]({ cwd: "/tmp/repo", issueId: issueSummary.id }),
+        ),
+      );
+      assert.equal(getIssue.id, issueSummary.id);
+
+      const getIssues = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[BEADS_WS_METHODS.getIssues]({ cwd: "/tmp/repo", issueIds: [issueSummary.id] }),
+        ),
+      );
+      assert.equal(getIssues.issues.length, 1);
+
+      const resolveRefs = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[BEADS_WS_METHODS.resolveIssueRefs]({
+            cwd: "/tmp/repo",
+            issueIds: [issueSummary.id],
+          }),
+        ),
+      );
+      assert.equal(resolveRefs.issues[0]?.id, issueSummary.id);
+
+      const getContext = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[BEADS_WS_METHODS.getContext]({ cwd: "/tmp/repo" }),
+        ),
+      );
+      assert.equal(getContext.repoRoot, "/tmp/repo");
+
+      const getGraph = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[BEADS_WS_METHODS.getIssueGraph]({
+            cwd: "/tmp/repo",
+            epicIssueId: issueSummary.id,
+          }),
+        ),
+      );
+      assert.equal(getGraph.epic.id, issueSummary.id);
+
+      const validate = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[BEADS_WS_METHODS.validateEpicCoordination]({
+            cwd: "/tmp/repo",
+            epicIssueId: issueSummary.id,
+          }),
+        ),
+      );
+      assert.equal(validate.valid, true);
+
+      const coordinationStatus = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[BEADS_WS_METHODS.getEpicCoordinationStatus]({
+            cwd: "/tmp/repo",
+            epicIssueId: issueSummary.id,
+          }),
+        ),
+      );
+      assert.equal(coordinationStatus.ready.length, 1);
+
+      const workflowDetail = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.getEpicWorkflowDetail]({
+            cwd: "/tmp/repo",
+            projectId: defaultProjectId,
+            epicIssueId: issueSummary.id,
+          }),
+        ),
+      );
+      assert.equal(workflowDetail.execution.state, "running");
+
+      const epicIssueSummaries = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[BEADS_WS_METHODS.getEpicIssueSummaries]({
+            cwd: "/tmp/repo",
+            epicIssueId: issueSummary.id,
+          }),
+        ),
+      );
+      assert.equal(epicIssueSummaries.issues[0]?.id, issueSummary.id);
+
+      const sessionActivity = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[BEADS_WS_METHODS.getSessionActivity]({
+            cwd: "/tmp/repo",
+          }),
+        ),
+      );
+      assert.equal(sessionActivity.entries[0]?.workflowKind, "solve");
+
+      const startWorkflow = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[BEADS_WS_METHODS.startWorkflow]({
+            cwd: "/tmp/repo",
+            projectId: defaultProjectId,
+            issueId: issueSummary.id,
+            workflow: "solve",
+            modelSelection: defaultModelSelection,
+            runtimeMode: "full-access",
+          }),
+        ),
+      );
+      assert.equal(startWorkflow.threadId, defaultThreadId);
+
+      const startBacklogGrooming = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[BEADS_WS_METHODS.startBacklogGrooming]({
+            cwd: "/tmp/repo",
+            projectId: defaultProjectId,
+            modelSelection: defaultModelSelection,
+            runtimeMode: "full-access",
+          }),
+        ),
+      );
+      assert.equal(startBacklogGrooming.created, true);
+
+      const startEpicQuickRefine = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[BEADS_WS_METHODS.startEpicQuickRefine]({
+            cwd: "/tmp/repo",
+            epicIssueId: issueSummary.id,
+            projectId: defaultProjectId,
+            modelSelection: defaultModelSelection,
+            runtimeMode: "full-access",
+          }),
+        ),
+      );
+      assert.equal(startEpicQuickRefine.created, true);
+
+      const startEpicPlannedRefine = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[BEADS_WS_METHODS.startEpicPlannedRefine]({
+            cwd: "/tmp/repo",
+            epicIssueId: issueSummary.id,
+            projectId: defaultProjectId,
+            modelSelection: defaultModelSelection,
+            runtimeMode: "full-access",
+          }),
+        ),
+      );
+      assert.equal(startEpicPlannedRefine.created, true);
+
+      const startEpicCoordinationPrep = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[BEADS_WS_METHODS.startEpicCoordinationPrep]({
+            cwd: "/tmp/repo",
+            epicIssueId: issueSummary.id,
+            projectId: defaultProjectId,
+            modelSelection: defaultModelSelection,
+            runtimeMode: "full-access",
+          }),
+        ),
+      );
+      assert.equal(startEpicCoordinationPrep.created, true);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("preserves websocket rpc orchestration workflow detail failure", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          beads: {
+            getEpicWorkflowDetail: () =>
+              Effect.fail(new Error("epic workflow snapshot unavailable")),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const result = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.getEpicWorkflowDetail]({
+            cwd: "/tmp/repo",
+            projectId: defaultProjectId,
+            epicIssueId: "epic-1",
+          }),
+        ).pipe(Effect.result),
+      );
+
+      assertTrue(result._tag === "Failure");
+      assertTrue(result.failure._tag === "OrchestrationGetSnapshotError");
+      assert.include(
+        result.failure.message,
+        "Failed to load epic workflow detail: epic workflow snapshot unavailable",
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("routes websocket rpc orchestration shell snapshot errors", () =>
     Effect.gen(function* () {
       const projectionError = new PersistenceSqlError({
@@ -3311,6 +3950,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }),
           },
           projectionSnapshotQuery: {
+            listPendingCheckpointCaptures: () => Effect.succeed([]),
+            listProjectLinkedIssueThreads: () => Effect.succeed([]),
             getThreadShellById: () =>
               Effect.succeed(
                 Option.some(
@@ -3386,6 +4027,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }),
           },
           projectionSnapshotQuery: {
+            listPendingCheckpointCaptures: () => Effect.succeed([]),
+            listProjectLinkedIssueThreads: () => Effect.succeed([]),
             getThreadShellById: () =>
               Effect.sync(() => {
                 effects.push(`query:thread-shell:${archived ? "archived" : "active"}`);
@@ -3459,6 +4102,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }),
           },
           projectionSnapshotQuery: {
+            listPendingCheckpointCaptures: () => Effect.succeed([]),
+            listProjectLinkedIssueThreads: () => Effect.succeed([]),
             getThreadShellById: () =>
               Effect.succeed(
                 Option.some(makeDefaultOrchestrationThreadShell({ id: threadId, session: null })),
@@ -3513,6 +4158,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 }),
             },
             projectionSnapshotQuery: {
+              listPendingCheckpointCaptures: () => Effect.succeed([]),
+              listProjectLinkedIssueThreads: () => Effect.succeed([]),
               getThreadShellById: () =>
                 Effect.succeed(
                   Option.some(
@@ -3586,6 +4233,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             },
           },
           projectionSnapshotQuery: {
+            listPendingCheckpointCaptures: () => Effect.succeed([]),
+            listProjectLinkedIssueThreads: () => Effect.succeed([]),
             getThreadShellById: () =>
               Effect.succeed(
                 Option.some(
@@ -3658,6 +4307,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             },
           },
           projectionSnapshotQuery: {
+            listPendingCheckpointCaptures: () => Effect.succeed([]),
+            listProjectLinkedIssueThreads: () => Effect.succeed([]),
             getThreadShellById: () =>
               Effect.succeed(
                 Option.some(

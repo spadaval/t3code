@@ -79,6 +79,7 @@ export default Effect.gen(function* () {
       pending_message_id TEXT,
       assistant_message_id TEXT,
       state TEXT NOT NULL,
+      terminal_source TEXT,
       requested_at TEXT NOT NULL,
       started_at TEXT,
       completed_at TEXT,

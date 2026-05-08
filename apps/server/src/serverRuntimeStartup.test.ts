@@ -92,6 +92,9 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
           getProjectShellById: () => Effect.succeed(Option.none()),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
           getThreadCheckpointContext: () => Effect.succeed(Option.none()),
+          getEpicWorkflowRuntimeState: () => Effect.die("unused"),
+          listPendingCheckpointCaptures: () => Effect.succeed([]),
+          listProjectLinkedIssueThreads: () => Effect.die("unused"),
           getThreadShellById: () => Effect.succeed(Option.none()),
           getThreadDetailById: () => Effect.succeed(Option.none()),
         }),
@@ -152,10 +155,14 @@ it.effect("resolveAutoBootstrapWelcomeTargets returns existing project and threa
         getProjectShellById: () => Effect.die("unused"),
         getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.some(bootstrapThreadId)),
         getThreadCheckpointContext: () => Effect.succeed(Option.none()),
+        getEpicWorkflowRuntimeState: () => Effect.die("unused"),
+        listPendingCheckpointCaptures: () => Effect.succeed([]),
+        listProjectLinkedIssueThreads: () => Effect.die("unused"),
         getThreadShellById: () => Effect.die("unused"),
         getThreadDetailById: () => Effect.die("unused"),
       }),
       Effect.provideService(OrchestrationEngineService, {
+        getReadModel: () => Effect.die("unused"),
         readEvents: () => Stream.empty,
         dispatch: (command) =>
           Ref.update(dispatchCalls, (calls) => [...calls, command.type]).pipe(
@@ -192,10 +199,14 @@ it.effect("resolveAutoBootstrapWelcomeTargets creates a project and thread when 
         getProjectShellById: () => Effect.die("unused"),
         getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
         getThreadCheckpointContext: () => Effect.succeed(Option.none()),
+        getEpicWorkflowRuntimeState: () => Effect.die("unused"),
+        listPendingCheckpointCaptures: () => Effect.succeed([]),
+        listProjectLinkedIssueThreads: () => Effect.die("unused"),
         getThreadShellById: () => Effect.die("unused"),
         getThreadDetailById: () => Effect.die("unused"),
       }),
       Effect.provideService(OrchestrationEngineService, {
+        getReadModel: () => Effect.die("unused"),
         readEvents: () => Stream.empty,
         dispatch: (command) =>
           Ref.update(dispatchCalls, (calls) => [...calls, command.type]).pipe(

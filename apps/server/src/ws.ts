@@ -2,6 +2,8 @@ import { Cause, Duration, Effect, Layer, Option, Queue, Ref, Schema, Stream } fr
 import {
   type AuthAccessStreamEvent,
   AuthSessionId,
+  BEADS_WS_METHODS,
+  BeadsError,
   CommandId,
   EventId,
   type OrchestrationCommand,
@@ -33,6 +35,8 @@ import { Keybindings } from "./keybindings.ts";
 import { Open, resolveAvailableEditors } from "./open.ts";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer.ts";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine.ts";
+import { PlanImplementationWorkflow } from "./orchestration/Services/PlanImplementationWorkflow.ts";
+import { EpicRunScheduler } from "./orchestration/Services/EpicRunScheduler.ts";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import {
   observeRpcEffect,
@@ -55,6 +59,7 @@ import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptR
 import { RepositoryIdentityResolver } from "./project/Services/RepositoryIdentityResolver.ts";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment.ts";
 import { ServerAuth } from "./auth/Services/ServerAuth.ts";
+import { BeadsService } from "./beads/Services/BeadsService.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as SourceControlDiscoveryLayer from "./sourceControl/SourceControlDiscovery.ts";
@@ -102,6 +107,13 @@ function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
 
 const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
+function describeRpcFailure(prefix: string, cause: unknown): string {
+  if (cause instanceof Error && cause.message.trim().length > 0) {
+    return `${prefix}: ${cause.message}`;
+  }
+  return prefix;
+}
+
 function toAuthAccessStreamEvent(
   change: BootstrapCredentialChange | SessionCredentialChange,
   revision: number,
@@ -147,6 +159,8 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
     Effect.gen(function* () {
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
       const orchestrationEngine = yield* OrchestrationEngineService;
+      const planImplementationWorkflow = yield* PlanImplementationWorkflow;
+      const epicRunScheduler = yield* EpicRunScheduler;
       const checkpointDiffQuery = yield* CheckpointDiffQuery;
       const keybindings = yield* Keybindings;
       const open = yield* Open;
@@ -164,6 +178,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const workspaceFileSystem = yield* WorkspaceFileSystem;
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
       const repositoryIdentityResolver = yield* RepositoryIdentityResolver;
+      const beads = yield* BeadsService;
       const serverEnvironment = yield* ServerEnvironment;
       const serverAuth = yield* ServerAuth;
       const sourceControlDiscovery = yield* SourceControlDiscoveryLayer.SourceControlDiscovery;
@@ -300,6 +315,30 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
                 kind: "thread-removed" as const,
                 sequence: event.sequence,
                 threadId: event.payload.threadId,
+              }),
+            );
+          case "epic-run.requested":
+          case "epic-run.started":
+          case "epic-run.failed":
+          case "epic-run.stopped":
+          case "epic-run.completed":
+            return Effect.succeed(
+              Option.some({
+                kind: "epic-run-event" as const,
+                sequence: event.sequence,
+                event,
+              }),
+            );
+          case "epic-issue-execution.requested":
+          case "epic-issue-execution.started":
+          case "epic-issue-execution.completed":
+          case "epic-issue-execution.failed":
+          case "epic-issue-execution.stopped":
+            return Effect.succeed(
+              Option.some({
+                kind: "epic-issue-execution-event" as const,
+                sequence: event.sequence,
+                event,
               }),
             );
           default:
@@ -684,6 +723,158 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
             ),
             { "rpc.aggregate": "orchestration" },
           ),
+        [ORCHESTRATION_WS_METHODS.launchPlanImplementation]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.launchPlanImplementation,
+            planImplementationWorkflow.launchPlanImplementation(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationDispatchCommandError({
+                    message: describeRpcFailure("Failed to launch plan implementation", cause),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.cancelPlanImplementationLaunch]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.cancelPlanImplementationLaunch,
+            planImplementationWorkflow
+              .cancelPlanImplementationLaunch({
+                launchId: input.launchId,
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestrationDispatchCommandError({
+                      message: describeRpcFailure(
+                        "Failed to cancel plan implementation launch",
+                        cause,
+                      ),
+                      cause,
+                    }),
+                ),
+              ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.retryPlanImplementationLaunch]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.retryPlanImplementationLaunch,
+            planImplementationWorkflow
+              .retryPlanImplementationLaunch({
+                launchId: input.launchId,
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestrationDispatchCommandError({
+                      message: describeRpcFailure(
+                        "Failed to retry plan implementation launch",
+                        cause,
+                      ),
+                      cause,
+                    }),
+                ),
+              ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.startEpicRun]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.startEpicRun,
+            epicRunScheduler.startEpicRun(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationDispatchCommandError({
+                    message: describeRpcFailure("Failed to start epic run", cause),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [ORCHESTRATION_WS_METHODS.stopEpicRun]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.stopEpicRun,
+            epicRunScheduler.stopEpicRun(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationDispatchCommandError({
+                    message: describeRpcFailure("Failed to stop epic run", cause),
+                    cause,
+                  }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [WS_METHODS.subscribeOrchestrationDomainEvents]: (_input) =>
+          observeRpcStreamEffect(
+            WS_METHODS.subscribeOrchestrationDomainEvents,
+            Effect.gen(function* () {
+              const { snapshotSequence } = yield* projectionSnapshotQuery
+                .getSnapshotSequence()
+                .pipe(Effect.catch(() => Effect.succeed({ snapshotSequence: 0 })));
+              const fromSequenceExclusive = snapshotSequence;
+              const replayEvents: Array<OrchestrationEvent> = yield* Stream.runCollect(
+                orchestrationEngine.readEvents(fromSequenceExclusive),
+              ).pipe(
+                Effect.map((events) => Array.from(events)),
+                Effect.flatMap(enrichOrchestrationEvents),
+                Effect.catch(() => Effect.succeed([] as Array<OrchestrationEvent>)),
+              );
+              const replayStream = Stream.fromIterable(replayEvents);
+              const liveStream = orchestrationEngine.streamDomainEvents.pipe(
+                Stream.mapEffect(enrichProjectEvent),
+              );
+              const source = Stream.merge(replayStream, liveStream);
+              type SequenceState = {
+                readonly nextSequence: number;
+                readonly pendingBySequence: Map<number, OrchestrationEvent>;
+              };
+              const state = yield* Ref.make<SequenceState>({
+                nextSequence: fromSequenceExclusive + 1,
+                pendingBySequence: new Map<number, OrchestrationEvent>(),
+              });
+
+              return source.pipe(
+                Stream.mapEffect((event) =>
+                  Ref.modify(state, ({ nextSequence, pendingBySequence }) => {
+                    if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
+                      return [
+                        [] as Array<OrchestrationEvent>,
+                        {
+                          nextSequence,
+                          pendingBySequence,
+                        },
+                      ] as const;
+                    }
+
+                    const updatedPending = new Map(pendingBySequence);
+                    updatedPending.set(event.sequence, event);
+
+                    const emit: Array<OrchestrationEvent> = [];
+                    let expected = nextSequence;
+                    for (;;) {
+                      const expectedEvent = updatedPending.get(expected);
+                      if (!expectedEvent) {
+                        break;
+                      }
+                      emit.push(expectedEvent);
+                      updatedPending.delete(expected);
+                      expected += 1;
+                    }
+
+                    return [
+                      emit,
+                      { nextSequence: expected, pendingBySequence: updatedPending },
+                    ] as const;
+                  }),
+                ),
+                Stream.flatMap((events) => Stream.fromIterable(events)),
+              );
+            }),
+            { "rpc.aggregate": "orchestration" },
+          ),
         [ORCHESTRATION_WS_METHODS.subscribeShell]: (_input) =>
           observeRpcStreamEffect(
             ORCHESTRATION_WS_METHODS.subscribeShell,
@@ -914,6 +1105,294 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
               }),
             ),
             { "rpc.aggregate": "workspace" },
+          ),
+        [BEADS_WS_METHODS.queryIssues]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.queryIssues,
+            beads.queryIssues(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure("Failed to query beads issues", cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
+          ),
+        [BEADS_WS_METHODS.getIssue]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.getIssue,
+            beads.getIssue(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure("Failed to load beads issue", cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
+          ),
+        [BEADS_WS_METHODS.getIssues]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.getIssues,
+            beads.getIssues(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure("Failed to load beads issues batch", cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
+          ),
+        [BEADS_WS_METHODS.resolveIssueRefs]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.resolveIssueRefs,
+            beads.resolveIssueRefs(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure(
+                        "Failed to resolve beads issue references",
+                        cause,
+                      ),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
+          ),
+        [BEADS_WS_METHODS.createIssue]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.createIssue,
+            beads.createIssue(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure("Failed to create beads issue", cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
+          ),
+        [BEADS_WS_METHODS.updateIssue]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.updateIssue,
+            beads.updateIssue(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure("Failed to update beads issue", cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
+          ),
+        [BEADS_WS_METHODS.commentIssue]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.commentIssue,
+            beads.commentIssue(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure("Failed to comment on beads issue", cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
+          ),
+        [BEADS_WS_METHODS.getContext]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.getContext,
+            beads.getContext(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure("Failed to load beads context", cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
+          ),
+        [BEADS_WS_METHODS.getIssueGraph]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.getIssueGraph,
+            beads.getIssueGraph(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure("Failed to load beads issue graph", cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
+          ),
+        [BEADS_WS_METHODS.validateEpicCoordination]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.validateEpicCoordination,
+            beads.validateEpicCoordination(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure("Failed to validate epic workflow", cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
+          ),
+        [BEADS_WS_METHODS.getEpicCoordinationStatus]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.getEpicCoordinationStatus,
+            beads.getEpicCoordinationStatus(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure("Failed to load epic workflow status", cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
+          ),
+        [ORCHESTRATION_WS_METHODS.getEpicWorkflowDetail]: (input) =>
+          observeRpcEffect(
+            ORCHESTRATION_WS_METHODS.getEpicWorkflowDetail,
+            beads.getEpicWorkflowDetail(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(OrchestrationGetSnapshotError)(cause)
+                  ? cause
+                  : new OrchestrationGetSnapshotError({
+                      message: describeRpcFailure("Failed to load epic workflow detail", cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "orchestration" },
+          ),
+        [BEADS_WS_METHODS.getEpicIssueSummaries]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.getEpicIssueSummaries,
+            beads.getEpicIssueSummaries(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure("Failed to load epic issue summaries", cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
+          ),
+        [BEADS_WS_METHODS.getSessionActivity]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.getSessionActivity,
+            beads.getSessionActivity(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure("Failed to load beads session activity", cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
+          ),
+        [BEADS_WS_METHODS.startWorkflow]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.startWorkflow,
+            beads.startWorkflow(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure("Failed to start beads workflow", cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
+          ),
+        [BEADS_WS_METHODS.startBacklogGrooming]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.startBacklogGrooming,
+            beads.startBacklogGrooming(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure("Failed to start backlog grooming", cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
+          ),
+        [BEADS_WS_METHODS.startEpicQuickRefine]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.startEpicQuickRefine,
+            beads.startEpicQuickRefine(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure("Failed to start epic quick refine", cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
+          ),
+        [BEADS_WS_METHODS.startEpicPlannedRefine]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.startEpicPlannedRefine,
+            beads.startEpicPlannedRefine(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure("Failed to start epic planned refine", cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
+          ),
+        [BEADS_WS_METHODS.startEpicCoordinationPrep]: (input) =>
+          observeRpcEffect(
+            BEADS_WS_METHODS.startEpicCoordinationPrep,
+            beads.startEpicCoordinationPrep(input).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(BeadsError)(cause)
+                  ? cause
+                  : new BeadsError({
+                      message: describeRpcFailure("Failed to start epic workflow prep", cause),
+                      cause,
+                    }),
+              ),
+            ),
+            { "rpc.aggregate": "beads" },
           ),
         [WS_METHODS.shellOpenInEditor]: (input) =>
           observeRpcEffect(WS_METHODS.shellOpenInEditor, open.openInEditor(input), {

@@ -1,40 +1,89 @@
-import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@t3tools/contracts";
+import type {
+  OrchestrationEvent,
+  OrchestrationReadModel,
+  OrchestrationEpicRun,
+  OrchestrationEpicIssueExecution,
+  ThreadId,
+} from "@t3tools/contracts";
 import {
   OrchestrationCheckpointSummary,
+  PlanImplementationLaunchCancelledPayload,
+  PlanImplementationLaunchFailedPayload,
+  PlanImplementationLaunchRequestedPayload,
+  PlanImplementationLaunchStartedPayload,
+  PlanImplementationLaunchWorktreePreparedPayload,
+  OrchestrationPlanImplementationLaunch,
   OrchestrationMessage,
   OrchestrationSession,
   OrchestrationThread,
-} from "@t3tools/contracts";
-import { Effect, Schema } from "effect";
-
-import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
-import {
-  MessageSentPayloadSchema,
+  EpicIssueExecutionCompletedPayload,
+  EpicIssueExecutionFailedPayload,
+  EpicIssueExecutionRequestedPayload,
+  EpicIssueExecutionStartedPayload,
+  EpicIssueExecutionStoppedPayload,
+  EpicRunCompletedPayload,
+  EpicRunFailedPayload,
+  EpicRunRequestedPayload,
+  EpicRunStartedPayload,
+  EpicRunStoppedPayload,
   ProjectCreatedPayload,
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
   ThreadActivityAppendedPayload,
   ThreadArchivedPayload,
+  ThreadCheckpointCaptureRequestedPayload,
   ThreadCreatedPayload,
   ThreadDeletedPayload,
   ThreadInteractionModeSetPayload,
   ThreadMetaUpdatedPayload,
   ThreadProposedPlanUpsertedPayload,
-  ThreadRuntimeModeSetPayload,
-  ThreadUnarchivedPayload,
   ThreadRevertedPayload,
+  ThreadRuntimeModeSetPayload,
   ThreadSessionSetPayload,
+  ThreadMessageSentPayload,
   ThreadTurnDiffCompletedPayload,
-} from "./Schemas.ts";
+  ThreadUnarchivedPayload,
+} from "@t3tools/contracts";
+import {
+  applyEpicRunLifecycleEvent,
+  applyEpicIssueExecutionLifecycleEvent,
+  compareEpicRunsByRequestedAt,
+  compareEpicIssueExecutions,
+  createRequestedEpicRun,
+  createRequestedEpicIssueExecution,
+  materializeStartedEpicIssueExecution,
+} from "@t3tools/shared/epicRun";
+import { Effect, Schema } from "effect";
+
+import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
+import { isLegacyMissingCheckpointStatus } from "./checkpointCapture.ts";
 
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
 const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
 
-function checkpointStatusToLatestTurnState(status: "ready" | "missing" | "error") {
+function checkpointStatusToFallbackLatestTurnState(status: "ready" | "missing" | "error") {
   if (status === "error") return "error" as const;
-  if (status === "missing") return "interrupted" as const;
   return "completed" as const;
+}
+
+function upsertPendingCheckpointCapture(
+  pendingCaptures: ReadonlyArray<OrchestrationThread["pendingCheckpointCaptures"][number]>,
+  request: OrchestrationThread["pendingCheckpointCaptures"][number],
+) {
+  return [...pendingCaptures.filter((entry) => entry.turnId !== request.turnId), request].toSorted(
+    (left, right) =>
+      left.checkpointTurnCount - right.checkpointTurnCount ||
+      left.requestedAt.localeCompare(right.requestedAt) ||
+      left.turnId.localeCompare(right.turnId),
+  );
+}
+
+function removePendingCheckpointCapture(
+  pendingCaptures: ReadonlyArray<OrchestrationThread["pendingCheckpointCaptures"][number]>,
+  turnId: string,
+) {
+  return pendingCaptures.filter((entry) => entry.turnId !== turnId);
 }
 
 function updateThread(
@@ -45,6 +94,114 @@ function updateThread(
   return threads.map((thread) => (thread.id === threadId ? { ...thread, ...patch } : thread));
 }
 
+function settleLatestTurnFromSession(input: {
+  thread: OrchestrationThread;
+  session: OrchestrationSession;
+  settledTurn?: {
+    turnId: NonNullable<OrchestrationThread["latestTurn"]>["turnId"];
+    state: NonNullable<OrchestrationThread["latestTurn"]>["state"];
+    completedAt: string;
+  };
+}): OrchestrationThread["latestTurn"] {
+  const previousLatestTurn = input.thread.latestTurn;
+  if (input.session.status === "running" && input.session.activeTurnId !== null) {
+    return {
+      turnId: input.session.activeTurnId,
+      state: "running",
+      requestedAt:
+        previousLatestTurn?.turnId === input.session.activeTurnId
+          ? previousLatestTurn.requestedAt
+          : input.session.updatedAt,
+      startedAt:
+        previousLatestTurn?.turnId === input.session.activeTurnId
+          ? (previousLatestTurn.startedAt ?? input.session.updatedAt)
+          : input.session.updatedAt,
+      completedAt: null,
+      assistantMessageId:
+        previousLatestTurn?.turnId === input.session.activeTurnId
+          ? previousLatestTurn.assistantMessageId
+          : null,
+    };
+  }
+
+  if (input.settledTurn !== undefined) {
+    return {
+      turnId: input.settledTurn.turnId,
+      state: input.settledTurn.state,
+      requestedAt:
+        previousLatestTurn?.turnId === input.settledTurn.turnId
+          ? previousLatestTurn.requestedAt
+          : input.settledTurn.completedAt,
+      startedAt:
+        previousLatestTurn?.turnId === input.settledTurn.turnId
+          ? (previousLatestTurn.startedAt ?? input.settledTurn.completedAt)
+          : input.settledTurn.completedAt,
+      completedAt: input.settledTurn.completedAt,
+      assistantMessageId:
+        previousLatestTurn?.turnId === input.settledTurn.turnId
+          ? previousLatestTurn.assistantMessageId
+          : null,
+      terminalSource: "turn_completed",
+    };
+  }
+
+  if (
+    previousLatestTurn &&
+    previousLatestTurn.completedAt === null &&
+    (input.session.status === "error" ||
+      input.session.status === "interrupted" ||
+      input.session.status === "stopped")
+  ) {
+    return {
+      ...previousLatestTurn,
+      state: input.session.status === "error" ? "error" : "interrupted",
+      completedAt: input.session.updatedAt,
+    };
+  }
+
+  return previousLatestTurn;
+}
+
+function updateLaunch(
+  launches: ReadonlyArray<OrchestrationPlanImplementationLaunch>,
+  launchId: OrchestrationPlanImplementationLaunch["launchId"],
+  patch: Partial<OrchestrationPlanImplementationLaunch>,
+): OrchestrationPlanImplementationLaunch[] {
+  return launches.map((launch) =>
+    launch.launchId === launchId ? { ...launch, ...patch } : launch,
+  );
+}
+
+function updateEpicRun(
+  runs: ReadonlyArray<OrchestrationEpicRun>,
+  runId: OrchestrationEpicRun["runId"],
+  updater: ((run: OrchestrationEpicRun) => OrchestrationEpicRun) | Partial<OrchestrationEpicRun>,
+): OrchestrationEpicRun[] {
+  return runs.map((run) =>
+    run.runId === runId
+      ? typeof updater === "function"
+        ? updater(run)
+        : { ...run, ...updater }
+      : run,
+  );
+}
+
+function updateEpicIssueExecution(
+  executions: ReadonlyArray<OrchestrationEpicIssueExecution>,
+  executionId: OrchestrationEpicIssueExecution["executionId"],
+  updater:
+    | ((execution: OrchestrationEpicIssueExecution) => OrchestrationEpicIssueExecution)
+    | Partial<OrchestrationEpicIssueExecution>,
+): OrchestrationEpicIssueExecution[] {
+  return executions.map((execution) =>
+    execution.executionId === executionId
+      ? typeof updater === "function"
+        ? updater(execution)
+        : { ...execution, ...updater }
+      : execution,
+  );
+}
+
 function decodeForEvent<A>(
   schema: Schema.Schema<A>,
   value: unknown,
@@ -52,6 +209,8 @@ function decodeForEvent<A>(
   field: string,
 ): Effect.Effect<A, OrchestrationProjectorDecodeError> {
   return Effect.try({
+    // Effect Schema currently loses the decoded payload type here unless we
+    // force the schema into decodeUnknownSync's expected shape.
     try: () => Schema.decodeUnknownSync(schema as any)(value),
     catch: (error) => toProjectorDecodeError(`${eventType}:${field}`)(error as Schema.SchemaError),
   });
@@ -160,6 +319,9 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
     snapshotSequence: 0,
     projects: [],
     threads: [],
+    planImplementationLaunches: [],
+    epicRuns: [],
+    epicIssueExecutions: [],
     updatedAt: nowIso,
   };
 }
@@ -259,6 +421,7 @@ export function projectEvent(
             interactionMode: payload.interactionMode,
             branch: payload.branch,
             worktreePath: payload.worktreePath,
+            issueLink: payload.issueLink,
             latestTurn: null,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
@@ -267,6 +430,7 @@ export function projectEvent(
             messages: [],
             activities: [],
             checkpoints: [],
+            pendingCheckpointCaptures: [],
             session: null,
           },
           event.type,
@@ -325,6 +489,7 @@ export function projectEvent(
               : {}),
             ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
             ...(payload.worktreePath !== undefined ? { worktreePath: payload.worktreePath } : {}),
+            ...(payload.issueLink !== undefined ? { issueLink: payload.issueLink } : {}),
             updatedAt: payload.updatedAt,
           }),
         })),
@@ -360,7 +525,7 @@ export function projectEvent(
     case "thread.message-sent":
       return Effect.gen(function* () {
         const payload = yield* decodeForEvent(
-          MessageSentPayloadSchema,
+          ThreadMessageSentPayload,
           event.payload,
           event.type,
           "payload",
@@ -408,11 +573,30 @@ export function projectEvent(
             )
           : [...thread.messages, message];
         const cappedMessages = messages.slice(-MAX_THREAD_MESSAGES);
+        const latestTurn: OrchestrationThread["latestTurn"] =
+          payload.turnId === null || payload.role !== "assistant"
+            ? thread.latestTurn
+            : thread.latestTurn?.turnId === payload.turnId
+              ? {
+                  ...thread.latestTurn,
+                  assistantMessageId: payload.messageId,
+                  startedAt: thread.latestTurn.startedAt ?? payload.createdAt,
+                  requestedAt: thread.latestTurn.requestedAt ?? payload.createdAt,
+                }
+              : {
+                  turnId: payload.turnId,
+                  state: "running",
+                  requestedAt: payload.createdAt,
+                  startedAt: payload.createdAt,
+                  completedAt: null,
+                  assistantMessageId: payload.messageId,
+                };
 
         return {
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             messages: cappedMessages,
+            latestTurn,
             updatedAt: event.occurredAt,
           }),
         };
@@ -442,26 +626,11 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             session,
-            latestTurn:
-              session.status === "running" && session.activeTurnId !== null
-                ? {
-                    turnId: session.activeTurnId,
-                    state: "running",
-                    requestedAt:
-                      thread.latestTurn?.turnId === session.activeTurnId
-                        ? thread.latestTurn.requestedAt
-                        : session.updatedAt,
-                    startedAt:
-                      thread.latestTurn?.turnId === session.activeTurnId
-                        ? (thread.latestTurn.startedAt ?? session.updatedAt)
-                        : session.updatedAt,
-                    completedAt: null,
-                    assistantMessageId:
-                      thread.latestTurn?.turnId === session.activeTurnId
-                        ? thread.latestTurn.assistantMessageId
-                        : null,
-                  }
-                : thread.latestTurn,
+            latestTurn: settleLatestTurnFromSession({
+              thread,
+              session,
+              ...(payload.settledTurn !== undefined ? { settledTurn: payload.settledTurn } : {}),
+            }),
             updatedAt: event.occurredAt,
           }),
         };
@@ -499,6 +668,34 @@ export function projectEvent(
         };
       });
 
+    case "thread.checkpoint-capture-requested":
+      return Effect.gen(function* () {
+        const payload = yield* decodeForEvent(
+          ThreadCheckpointCaptureRequestedPayload,
+          event.payload,
+          event.type,
+          "payload",
+        );
+        const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+        if (!thread) {
+          return nextBase;
+        }
+        if (thread.checkpoints.some((entry) => entry.turnId === payload.request.turnId)) {
+          return nextBase;
+        }
+
+        return {
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            pendingCheckpointCaptures: upsertPendingCheckpointCapture(
+              thread.pendingCheckpointCaptures,
+              payload.request,
+            ),
+            updatedAt: event.occurredAt,
+          }),
+        };
+      });
+
     case "thread.turn-diff-completed":
       return Effect.gen(function* () {
         const payload = yield* decodeForEvent(
@@ -510,6 +707,27 @@ export function projectEvent(
         const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
         if (!thread) {
           return nextBase;
+        }
+
+        if (isLegacyMissingCheckpointStatus(payload.status)) {
+          if (thread.checkpoints.some((entry) => entry.turnId === payload.turnId)) {
+            return nextBase;
+          }
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              pendingCheckpointCaptures: upsertPendingCheckpointCapture(
+                thread.pendingCheckpointCaptures,
+                {
+                  turnId: payload.turnId,
+                  checkpointTurnCount: payload.checkpointTurnCount,
+                  assistantMessageId: payload.assistantMessageId,
+                  requestedAt: payload.completedAt,
+                },
+              ),
+              updatedAt: event.occurredAt,
+            }),
+          };
         }
 
         const checkpoint = yield* decodeForEvent(
@@ -527,16 +745,6 @@ export function projectEvent(
           "checkpoint",
         );
 
-        // Do not let a placeholder (status "missing") overwrite a checkpoint
-        // that has already been captured with a real git ref (status "ready").
-        // ProviderRuntimeIngestion may fire multiple turn.diff.updated events
-        // per turn; without this guard later placeholders would clobber the
-        // real capture dispatched by CheckpointReactor.
-        const existing = thread.checkpoints.find((entry) => entry.turnId === checkpoint.turnId);
-        if (existing && existing.status !== "missing" && checkpoint.status === "missing") {
-          return nextBase;
-        }
-
         const checkpoints = [
           ...thread.checkpoints.filter((entry) => entry.turnId !== checkpoint.turnId),
           checkpoint,
@@ -548,20 +756,10 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             checkpoints,
-            latestTurn: {
-              turnId: payload.turnId,
-              state: checkpointStatusToLatestTurnState(payload.status),
-              requestedAt:
-                thread.latestTurn?.turnId === payload.turnId
-                  ? thread.latestTurn.requestedAt
-                  : payload.completedAt,
-              startedAt:
-                thread.latestTurn?.turnId === payload.turnId
-                  ? (thread.latestTurn.startedAt ?? payload.completedAt)
-                  : payload.completedAt,
-              completedAt: payload.completedAt,
-              assistantMessageId: payload.assistantMessageId,
-            },
+            pendingCheckpointCaptures: removePendingCheckpointCapture(
+              thread.pendingCheckpointCaptures,
+              payload.turnId,
+            ),
             updatedAt: event.occurredAt,
           }),
         };
@@ -593,16 +791,19 @@ export function projectEvent(
 
           const latestCheckpoint = checkpoints.at(-1) ?? null;
           const latestTurn =
-            latestCheckpoint === null
-              ? null
-              : {
-                  turnId: latestCheckpoint.turnId,
-                  state: checkpointStatusToLatestTurnState(latestCheckpoint.status),
-                  requestedAt: latestCheckpoint.completedAt,
-                  startedAt: latestCheckpoint.completedAt,
-                  completedAt: latestCheckpoint.completedAt,
-                  assistantMessageId: latestCheckpoint.assistantMessageId,
-                };
+            thread.latestTurn !== null && retainedTurnIds.has(thread.latestTurn.turnId)
+              ? thread.latestTurn
+              : latestCheckpoint === null
+                ? null
+                : {
+                    turnId: latestCheckpoint.turnId,
+                    state: checkpointStatusToFallbackLatestTurnState(latestCheckpoint.status),
+                    requestedAt: latestCheckpoint.completedAt,
+                    startedAt: latestCheckpoint.completedAt,
+                    completedAt: latestCheckpoint.completedAt,
+                    assistantMessageId: latestCheckpoint.assistantMessageId,
+                    terminalSource: "checkpoint_fallback" as const,
+                  };
 
           return {
             ...nextBase,
@@ -612,6 +813,9 @@ export function projectEvent(
               proposedPlans,
               activities,
               latestTurn,
+              pendingCheckpointCaptures: thread.pendingCheckpointCaptures.filter(
+                (entry) => entry.checkpointTurnCount <= payload.turnCount,
+              ),
               updatedAt: event.occurredAt,
             }),
           };
@@ -646,6 +850,334 @@ export function projectEvent(
             }),
           };
         }),
+      );
+
+    case "plan-implementation-launch.requested":
+      return decodeForEvent(
+        PlanImplementationLaunchRequestedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const launch: OrchestrationPlanImplementationLaunch = {
+            launchId: payload.launchId,
+            sourceThreadId: payload.sourceThreadId,
+            sourcePlanId: payload.sourcePlanId,
+            projectId: payload.projectId,
+            targetThreadId: payload.targetThreadId,
+            retryOfLaunchId: payload.retryOfLaunchId,
+            status: "requested",
+            launchMode: payload.launchMode,
+            branch: null,
+            worktreePath: null,
+            failureReason: null,
+            cleanupStatus: "not-required",
+            cleanupError: null,
+            title: payload.title,
+            setupEnabled: payload.setupEnabled,
+            requestedAt: payload.requestedAt,
+            preparedAt: null,
+            startedAt: null,
+            failedAt: null,
+            cancelledAt: null,
+            updatedAt: payload.updatedAt,
+          };
+
+          return {
+            ...nextBase,
+            planImplementationLaunches: [
+              ...nextBase.planImplementationLaunches.filter(
+                (entry) => entry.launchId !== payload.launchId,
+              ),
+              launch,
+            ].toSorted((left, right) => left.requestedAt.localeCompare(right.requestedAt)),
+          };
+        }),
+      );
+
+    case "plan-implementation-launch.worktree-prepared":
+      return decodeForEvent(
+        PlanImplementationLaunchWorktreePreparedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          planImplementationLaunches: updateLaunch(
+            nextBase.planImplementationLaunches,
+            payload.launchId,
+            {
+              status: "prepared" as const,
+              branch: payload.branch,
+              worktreePath: payload.worktreePath,
+              preparedAt: payload.preparedAt,
+              updatedAt: payload.updatedAt,
+            },
+          ),
+        })),
+      );
+
+    case "plan-implementation-launch.started":
+      return decodeForEvent(
+        PlanImplementationLaunchStartedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          planImplementationLaunches: updateLaunch(
+            nextBase.planImplementationLaunches,
+            payload.launchId,
+            {
+              status: "started" as const,
+              startedAt: payload.startedAt,
+              updatedAt: payload.updatedAt,
+            },
+          ),
+        })),
+      );
+
+    case "plan-implementation-launch.failed":
+      return decodeForEvent(
+        PlanImplementationLaunchFailedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          planImplementationLaunches: updateLaunch(
+            nextBase.planImplementationLaunches,
+            payload.launchId,
+            {
+              status: "failed" as const,
+              failureReason: payload.failureReason,
+              cleanupStatus: payload.cleanupStatus,
+              cleanupError: payload.cleanupError,
+              failedAt: payload.failedAt,
+              updatedAt: payload.updatedAt,
+            },
+          ),
+        })),
+      );
+
+    case "plan-implementation-launch.cancelled":
+      return decodeForEvent(
+        PlanImplementationLaunchCancelledPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          planImplementationLaunches: updateLaunch(
+            nextBase.planImplementationLaunches,
+            payload.launchId,
+            {
+              status: "cancelled" as const,
+              cleanupStatus: payload.cleanupStatus,
+              cleanupError: payload.cleanupError,
+              cancelledAt: payload.cancelledAt,
+              updatedAt: payload.updatedAt,
+            },
+          ),
+        })),
+      );
+
+    case "epic-run.requested":
+      return decodeForEvent(EpicRunRequestedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const run = createRequestedEpicRun(payload);
+
+          return {
+            ...nextBase,
+            epicRuns: [
+              ...nextBase.epicRuns.filter((entry) => entry.runId !== payload.runId),
+              run,
+            ].toSorted(compareEpicRunsByRequestedAt),
+          };
+        }),
+      );
+
+    case "epic-run.started":
+      return decodeForEvent(EpicRunStartedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, (run) =>
+            applyEpicRunLifecycleEvent(run, { ...event, payload }),
+          ),
+        })),
+      );
+
+    case "epic-run.failed":
+      return decodeForEvent(EpicRunFailedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const fallbackExecution =
+            nextBase.epicIssueExecutions
+              .filter(
+                (execution) => execution.runId === payload.runId && execution.status === "failed",
+              )
+              .toSorted(
+                (left, right) =>
+                  right.sequenceNumber - left.sequenceNumber ||
+                  right.updatedAt.localeCompare(left.updatedAt),
+              )
+              .at(0) ?? null;
+
+          const hydratedPayload = {
+            ...payload,
+            issueId: payload.issueId ?? fallbackExecution?.issueId ?? null,
+            executionId: payload.executionId ?? fallbackExecution?.executionId ?? null,
+            workerThreadId: payload.workerThreadId ?? fallbackExecution?.workerThreadId ?? null,
+          };
+
+          return {
+            ...nextBase,
+            epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, (run) =>
+              applyEpicRunLifecycleEvent(run, { ...event, payload: hydratedPayload }),
+            ),
+          };
+        }),
+      );
+
+    case "epic-run.stopped":
+      return decodeForEvent(EpicRunStoppedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, (run) =>
+            applyEpicRunLifecycleEvent(run, { ...event, payload }),
+          ),
+        })),
+      );
+
+    case "epic-run.completed":
+      return decodeForEvent(EpicRunCompletedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, (run) =>
+            applyEpicRunLifecycleEvent(run, { ...event, payload }),
+          ),
+        })),
+      );
+
+    case "epic-issue-execution.requested":
+      return decodeForEvent(
+        EpicIssueExecutionRequestedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const execution = createRequestedEpicIssueExecution(payload);
+
+          return {
+            ...nextBase,
+            epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, {
+              updatedAt: payload.updatedAt,
+            }),
+            epicIssueExecutions: [
+              ...nextBase.epicIssueExecutions.filter(
+                (entry) => entry.executionId !== payload.executionId,
+              ),
+              execution,
+            ].toSorted(compareEpicIssueExecutions),
+          };
+        }),
+      );
+
+    case "epic-issue-execution.started":
+      return decodeForEvent(
+        EpicIssueExecutionStartedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const existingExecution =
+            nextBase.epicIssueExecutions.find(
+              (entry) => entry.executionId === payload.executionId,
+            ) ?? null;
+          const execution = materializeStartedEpicIssueExecution({
+            event: { ...event, payload },
+            existingExecution,
+          });
+
+          return {
+            ...nextBase,
+            epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, {
+              updatedAt: payload.updatedAt,
+            }),
+            epicIssueExecutions: [
+              ...nextBase.epicIssueExecutions.filter(
+                (entry) => entry.executionId !== payload.executionId,
+              ),
+              execution,
+            ].toSorted(compareEpicIssueExecutions),
+          };
+        }),
+      );
+
+    case "epic-issue-execution.completed":
+      return decodeForEvent(
+        EpicIssueExecutionCompletedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, {
+            updatedAt: payload.updatedAt,
+          }),
+          epicIssueExecutions: updateEpicIssueExecution(
+            nextBase.epicIssueExecutions,
+            payload.executionId,
+            (execution) => applyEpicIssueExecutionLifecycleEvent(execution, { ...event, payload }),
+          ),
+        })),
+      );
+
+    case "epic-issue-execution.failed":
+      return decodeForEvent(
+        EpicIssueExecutionFailedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, {
+            updatedAt: payload.updatedAt,
+          }),
+          epicIssueExecutions: updateEpicIssueExecution(
+            nextBase.epicIssueExecutions,
+            payload.executionId,
+            (execution) => applyEpicIssueExecutionLifecycleEvent(execution, { ...event, payload }),
+          ),
+        })),
+      );
+
+    case "epic-issue-execution.stopped":
+      return decodeForEvent(
+        EpicIssueExecutionStoppedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          epicRuns: updateEpicRun(nextBase.epicRuns, payload.runId, {
+            updatedAt: payload.updatedAt,
+          }),
+          epicIssueExecutions: updateEpicIssueExecution(
+            nextBase.epicIssueExecutions,
+            payload.executionId,
+            (execution) => applyEpicIssueExecutionLifecycleEvent(execution, { ...event, payload }),
+          ),
+        })),
       );
 
     default:

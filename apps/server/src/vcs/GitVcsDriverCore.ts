@@ -1992,6 +1992,15 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     },
   );
 
+  const deleteLocalBranch: GitVcsDriver.GitVcsDriverShape["deleteLocalBranch"] = Effect.fn(
+    "deleteLocalBranch",
+  )(function* (input) {
+    const args = ["branch", input.force === false ? "-d" : "-D", input.branch];
+    yield* executeGit("GitVcsDriver.deleteLocalBranch", input.cwd, args, {
+      fallbackErrorMessage: "git branch delete failed",
+    }).pipe(Effect.asVoid);
+  });
+
   const switchRef: GitVcsDriver.GitVcsDriverShape["switchRef"] = Effect.fn("switchRef")(
     function* (input) {
       const [localInputExists, remoteExists] = yield* Effect.all(
@@ -2129,6 +2138,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     fetchRemoteTrackingBranch,
     setBranchUpstream,
     removeWorktree,
+    deleteLocalBranch,
     renameBranch,
     createRef,
     switchRef,

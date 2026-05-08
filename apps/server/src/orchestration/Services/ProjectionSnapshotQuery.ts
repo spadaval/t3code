@@ -8,14 +8,20 @@
  */
 import type {
   OrchestrationCheckpointSummary,
+  OrchestrationEpicIssueExecution,
+  OrchestrationEpicRun,
   OrchestrationProject,
   OrchestrationProjectShell,
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
   OrchestrationThread,
+  OrchestrationThreadIssueLink,
   OrchestrationThreadShell,
   ProjectId,
+  ProviderInteractionMode,
   ThreadId,
+  TurnId,
+  MessageId,
 } from "@t3tools/contracts";
 import { Context } from "effect";
 import type { Option } from "effect";
@@ -38,6 +44,30 @@ export interface ProjectionThreadCheckpointContext {
   readonly workspaceRoot: string;
   readonly worktreePath: string | null;
   readonly checkpoints: ReadonlyArray<OrchestrationCheckpointSummary>;
+}
+
+export interface ProjectionPendingCheckpointCaptureRequest {
+  readonly threadId: ThreadId;
+  readonly turnId: TurnId;
+  readonly checkpointTurnCount: number;
+  readonly assistantMessageId: MessageId | null;
+  readonly requestedAt: string;
+}
+
+export interface ProjectionEpicWorkflowRuntimeState {
+  readonly projectEpicRuns: ReadonlyArray<OrchestrationEpicRun>;
+  readonly epicIssueExecutions: ReadonlyArray<OrchestrationEpicIssueExecution>;
+}
+
+export interface ProjectionLinkedIssueThread {
+  readonly id: ThreadId;
+  readonly projectId: ProjectId;
+  readonly title: string;
+  readonly interactionMode: ProviderInteractionMode;
+  readonly issueLink: OrchestrationThreadIssueLink | null;
+  readonly updatedAt: string;
+  readonly archivedAt: string | null;
+  readonly deletedAt: string | null;
 }
 
 /**
@@ -113,6 +143,31 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThreadCheckpointContext: (
     threadId: ThreadId,
   ) => Effect.Effect<Option.Option<ProjectionThreadCheckpointContext>, ProjectionRepositoryError>;
+
+  /**
+   * Read the narrow runtime state needed for one project's epic workflow detail.
+   */
+  readonly getEpicWorkflowRuntimeState: (input: {
+    projectId: ProjectId;
+    epicIssueId: string;
+  }) => Effect.Effect<ProjectionEpicWorkflowRuntimeState, ProjectionRepositoryError>;
+
+  /**
+   * Read pending checkpoint capture requests without hydrating full thread
+   * bodies.
+   */
+  readonly listPendingCheckpointCaptures: () => Effect.Effect<
+    ReadonlyArray<ProjectionPendingCheckpointCaptureRequest>,
+    ProjectionRepositoryError
+  >;
+
+  /**
+   * Read the linked issue thread shells for one project without hydrating full
+   * thread bodies.
+   */
+  readonly listProjectLinkedIssueThreads: (
+    projectId: ProjectId,
+  ) => Effect.Effect<ReadonlyArray<ProjectionLinkedIssueThread>, ProjectionRepositoryError>;
 
   /**
    * Read a single active thread shell row by id.

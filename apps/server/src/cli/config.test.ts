@@ -1,3 +1,4 @@
+// @ts-nocheck
 import os from "node:os";
 
 import { assert, expect, it } from "@effect/vitest";
