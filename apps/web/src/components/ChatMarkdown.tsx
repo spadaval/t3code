@@ -1,4 +1,6 @@
 import { DiffsHighlighter, getSharedHighlighter, SupportedLanguages } from "@pierre/diffs";
+import type { BeadsIssueReferenceSummary } from "@t3tools/contracts";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import React, {
   Children,
@@ -18,6 +20,7 @@ import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { BeadsIssueSmartLink } from "./chat/BeadsIssueSmartLink";
 import { VscodeEntryIcon } from "./chat/VscodeEntryIcon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -26,6 +29,11 @@ import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
 import { fnv1a32 } from "../lib/diffRendering";
 import { LRUCache } from "../lib/lruCache";
 import { useTheme } from "../hooks/useTheme";
+import { beadsContextOptions, beadsResolveIssueRefsOptions } from "../lib/beadsReactQuery";
+import {
+  extractBeadsIssueRefCandidates,
+  linkifyBeadsIssueRefsInMarkdown,
+} from "../lib/beadsIssueRefs";
 import {
   normalizeMarkdownLinkDestination,
   resolveMarkdownFileLinkMeta,
@@ -59,6 +67,8 @@ interface ChatMarkdownProps {
   text: string;
   cwd: string | undefined;
   isStreaming?: boolean;
+  enableBeadsIssueLinks?: boolean;
+  onOpenBeadsIssue?: (issueId: string) => void;
 }
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
@@ -282,6 +292,7 @@ interface MarkdownFileLinkProps {
 }
 
 const MARKDOWN_LINK_HREF_PATTERN = /\[[^\]]*]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g;
+const BEADS_ISSUE_HREF_PREFIX = "beads://issue/";
 const MARKDOWN_FILE_LINK_CLASS_NAME =
   "chat-markdown-file-link relative top-[2px] max-w-full no-underline";
 const MARKDOWN_FILE_LINK_ICON_CLASS_NAME = "chat-markdown-file-link-icon size-3.5 shrink-0";
@@ -360,6 +371,22 @@ function extractMarkdownLinkHrefs(text: string): string[] {
 function normalizeMarkdownLinkHrefKey(href: string): string {
   const normalizedHref = normalizeMarkdownLinkDestination(href);
   return rewriteMarkdownFileUriHref(normalizedHref) ?? normalizedHref;
+}
+
+function isBeadsIssueHref(href: string | undefined): boolean {
+  return typeof href === "string" && href.startsWith(BEADS_ISSUE_HREF_PREFIX);
+}
+
+function issueIdFromBeadsIssueHref(href: string): string | null {
+  if (!isBeadsIssueHref(href)) {
+    return null;
+  }
+  try {
+    const encoded = href.slice(BEADS_ISSUE_HREF_PREFIX.length);
+    return decodeURIComponent(encoded);
+  } catch {
+    return null;
+  }
 }
 
 const MarkdownFileLink = memo(function MarkdownFileLink({
@@ -507,9 +534,60 @@ function areMarkdownFileLinkPropsEqual(
   );
 }
 
-function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
+function ChatMarkdown({
+  text,
+  cwd,
+  isStreaming = false,
+  enableBeadsIssueLinks = false,
+  onOpenBeadsIssue,
+}: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
+  const queryClient = useQueryClient();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
+  const shouldResolveBeadsIssueLinks =
+    enableBeadsIssueLinks && !isStreaming && typeof cwd === "string" && cwd.length > 0;
+  const beadsContextQuery = useQuery(
+    beadsContextOptions(shouldResolveBeadsIssueLinks && cwd ? { cwd } : null),
+  );
+  const beadsProjectId = beadsContextQuery.data?.backend.projectId ?? null;
+  const beadsIssueIds = useMemo(
+    () =>
+      shouldResolveBeadsIssueLinks
+        ? extractBeadsIssueRefCandidates(text, { projectId: beadsProjectId })
+        : [],
+    [beadsProjectId, shouldResolveBeadsIssueLinks, text],
+  );
+  const beadsIssueRefsQuery = useQuery(
+    beadsResolveIssueRefsOptions(
+      shouldResolveBeadsIssueLinks && cwd && beadsIssueIds.length > 0
+        ? { cwd, issueIds: beadsIssueIds }
+        : null,
+    ),
+  );
+  const cachedBeadsIssueRefs = useMemo(() => {
+    if (!cwd || beadsIssueIds.length === 0) {
+      return [];
+    }
+    return queryClient
+      .getQueryCache()
+      .findAll({ queryKey: ["beads", "issue-refs", cwd], exact: false })
+      .flatMap((query) => {
+        const data = query.state.data as
+          | { readonly issues?: readonly BeadsIssueReferenceSummary[] }
+          | undefined;
+        return data?.issues ?? [];
+      });
+  }, [beadsIssueIds.length, cwd, queryClient]);
+  const beadsIssueById = useMemo((): ReadonlyMap<string, BeadsIssueReferenceSummary> => {
+    const map = new Map<string, BeadsIssueReferenceSummary>();
+    for (const issue of cachedBeadsIssueRefs) {
+      map.set(issue.id, issue);
+    }
+    for (const issue of beadsIssueRefsQuery.data?.issues ?? []) {
+      map.set(issue.id, issue);
+    }
+    return map;
+  }, [beadsIssueRefsQuery.data?.issues, cachedBeadsIssueRefs]);
   const markdownFileLinkMetaByHref = useMemo(() => {
     const metaByHref = new Map<
       string,
@@ -530,11 +608,28 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
     return buildFileLinkParentSuffixByPath(filePaths);
   }, [markdownFileLinkMetaByHref]);
   const markdownUrlTransform = useCallback((href: string) => {
+    if (isBeadsIssueHref(href)) {
+      return href;
+    }
     return rewriteMarkdownFileUriHref(href) ?? defaultUrlTransform(href);
   }, []);
+  const remarkPlugins = useMemo(() => [remarkGfm], []);
+  const renderedMarkdownText = useMemo(
+    () => (beadsIssueIds.length > 0 ? linkifyBeadsIssueRefsInMarkdown(text, beadsIssueIds) : text),
+    [beadsIssueIds, text],
+  );
   const markdownComponents = useMemo<Components>(
     () => ({
       a({ node: _node, href, ...props }) {
+        const issueId = href ? issueIdFromBeadsIssueHref(href) : null;
+        if (issueId) {
+          const issue = beadsIssueById.get(issueId);
+          if (!issue || !onOpenBeadsIssue) {
+            return <>{props.children}</>;
+          }
+          return <BeadsIssueSmartLink issue={issue} onOpenIssue={onOpenBeadsIssue} />;
+        }
+
         const normalizedHref = href ? normalizeMarkdownLinkHrefKey(href) : "";
         const fileLinkMeta = normalizedHref ? markdownFileLinkMetaByHref.get(normalizedHref) : null;
         if (!fileLinkMeta) {
@@ -587,10 +682,12 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
       },
     }),
     [
+      beadsIssueById,
       diffThemeName,
       fileLinkParentSuffixByPath,
       isStreaming,
       markdownFileLinkMetaByHref,
+      onOpenBeadsIssue,
       resolvedTheme,
     ],
   );
@@ -598,11 +695,12 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
   return (
     <div className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        key={beadsIssueIds.join("\0")}
+        remarkPlugins={remarkPlugins}
         components={markdownComponents}
         urlTransform={markdownUrlTransform}
       >
-        {text}
+        {renderedMarkdownText}
       </ReactMarkdown>
     </div>
   );

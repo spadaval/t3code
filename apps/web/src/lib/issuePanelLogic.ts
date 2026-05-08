@@ -1,0 +1,969 @@
+import type {
+  BeadsEpicWorkflowSnapshot,
+  BeadsEpicCoordinationSummary,
+  BeadsIssueSortBy,
+  BeadsIssueSummary,
+  OrchestrationEpicRun,
+} from "@t3tools/contracts";
+import { topologicallySortByDependencies } from "@t3tools/shared/dependencyOrder";
+import type { IssueTreeForest, IssueTreeNode } from "~/lib/issueTree";
+import { buildIssueTree } from "~/lib/issueTree";
+import {
+  partitionEpicWorkflowTrackerSummaries,
+  type EpicWorkflowTrackerSections,
+} from "~/issuePanel";
+
+// ── Issue Filtering and Sorting ─────────────────────────────────────────
+
+export interface IssueFilterOptions {
+  searchQuery?: string;
+  showClosed?: boolean;
+  selectedLabels?: readonly string[];
+  sortBy?: BeadsIssueSortBy;
+  groupBy?: "none" | "status" | "labels" | "epic" | "assignee";
+}
+
+export interface FilteredIssuesResult {
+  issues: readonly BeadsIssueSummary[];
+  totalCount: number;
+  filteredCount: number;
+  issueTree: IssueTreeForest;
+  groupedIssues: Map<string, readonly BeadsIssueSummary[]>;
+}
+
+/**
+ * Pure function to filter and sort issues based on provided criteria.
+ * Fully testable business logic extracted from components.
+ */
+export function filterAndSortIssues(
+  issues: readonly BeadsIssueSummary[],
+  options: IssueFilterOptions = {},
+): FilteredIssuesResult {
+  const {
+    searchQuery = "",
+    showClosed = false,
+    selectedLabels = [],
+    sortBy = "updated",
+    groupBy = "none",
+  } = options;
+
+  const originalCount = issues.length;
+  const normalizedQuery = normalizeSearchValue(searchQuery);
+  const entriesByIssueId = new Map(
+    issues.map((issue, index) => [
+      issue.id,
+      {
+        issue,
+        originalIndex: index,
+      },
+    ]),
+  );
+
+  let filtered = issues.filter((issue) => matchesIssueListVisibility(issue, showClosed));
+
+  if (selectedLabels.length > 0) {
+    filtered = filtered.filter((issue) => {
+      if (!issue.labels || issue.labels.length === 0) {
+        return false;
+      }
+
+      return selectedLabels.every((selectedLabel) =>
+        issue.labels!.some((label) => label === selectedLabel),
+      );
+    });
+  }
+
+  const scoredEntries = filtered
+    .map((issue) => {
+      const score =
+        normalizedQuery.length > 0 ? rankIssueAgainstQuery(issue, normalizedQuery) : null;
+      return {
+        issue,
+        originalIndex: entriesByIssueId.get(issue.id)?.originalIndex ?? Number.MAX_SAFE_INTEGER,
+        score,
+      };
+    })
+    .filter(
+      (entry): entry is { issue: BeadsIssueSummary; originalIndex: number; score: number | null } =>
+        normalizedQuery.length === 0 || entry.score !== null,
+    );
+
+  const scoreByIssueId = new Map(
+    scoredEntries.map((entry) => [entry.issue.id, entry.score ?? Number.NEGATIVE_INFINITY]),
+  );
+  const indexByIssueId = new Map(
+    scoredEntries.map((entry) => [entry.issue.id, entry.originalIndex]),
+  );
+  const compareIssues = (left: BeadsIssueSummary, right: BeadsIssueSummary) => {
+    if (normalizedQuery.length > 0) {
+      const scoreDelta =
+        (scoreByIssueId.get(right.id) ?? Number.NEGATIVE_INFINITY) -
+        (scoreByIssueId.get(left.id) ?? Number.NEGATIVE_INFINITY);
+      if (scoreDelta !== 0) {
+        return scoreDelta;
+      }
+    }
+
+    const sortDelta = compareIssuesForListSort(left, right, sortBy);
+    if (sortDelta !== 0) {
+      return sortDelta;
+    }
+
+    return (
+      (indexByIssueId.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+      (indexByIssueId.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+    );
+  };
+
+  const issueTree = sortIssueTree(
+    buildIssueTree(scoredEntries.map((entry) => entry.issue)),
+    compareIssues,
+  );
+  const sorted = issueTree.visibleOrder;
+  const groupedIssues = createIssueGroups(sorted, groupBy);
+
+  return {
+    issues: sorted,
+    totalCount: originalCount,
+    filteredCount: sorted.length,
+    issueTree,
+    groupedIssues,
+  };
+}
+
+/**
+ * Creates issue groups based on the specified grouping strategy.
+ */
+function createIssueGroups(
+  issues: readonly BeadsIssueSummary[],
+  groupBy: NonNullable<IssueFilterOptions["groupBy"]>,
+): Map<string, readonly BeadsIssueSummary[]> {
+  const groups = new Map<string, BeadsIssueSummary[]>();
+
+  switch (groupBy) {
+    case "status":
+      for (const issue of issues) {
+        const key = issue.status || "unknown";
+        const existing = groups.get(key) || [];
+        groups.set(key, [...existing, issue]);
+      }
+      break;
+
+    case "labels":
+      for (const issue of issues) {
+        const labels = issue.labels || [];
+        if (labels.length === 0) {
+          const key = "no-labels";
+          const existing = groups.get(key) || [];
+          groups.set(key, [...existing, issue]);
+        } else {
+          for (const label of labels) {
+            const key = label; // labels are strings in BeadsIssueSummary
+            const existing = groups.get(key) || [];
+            groups.set(key, [...existing, issue]);
+          }
+        }
+      }
+      break;
+
+    case "epic":
+      for (const issue of issues) {
+        const key = issue.parent?.id || "no-epic";
+        const existing = groups.get(key) || [];
+        groups.set(key, [...existing, issue]);
+      }
+      break;
+
+    case "assignee":
+      for (const issue of issues) {
+        const key = issue.assignee || "unassigned"; // assignee is string | null in BeadsIssueSummary
+        const existing = groups.get(key) || [];
+        groups.set(key, [...existing, issue]);
+      }
+      break;
+
+    case "none":
+    default:
+      groups.set("all", [...issues]);
+      break;
+  }
+
+  // Convert to readonly
+  const readonlyGroups = new Map<string, readonly BeadsIssueSummary[]>();
+  for (const [key, value] of groups) {
+    readonlyGroups.set(key, value);
+  }
+
+  return readonlyGroups;
+}
+
+// ── Coordinator State Analysis ──────────────────────────────────────────
+
+export interface EpicWorkflowAnalysisOptions {
+  showOnlyActive?: boolean;
+  selectedEpicId?: string | null;
+}
+
+export interface EpicWorkflowAnalysisResult {
+  sections: EpicWorkflowTrackerSections;
+  metrics: {
+    totalTrackerSummaries: number;
+    activeTrackerSummaries: number;
+    readyTrackerSummaries: number;
+    totalActiveWorkers: number;
+    totalReadyIssues: number;
+    totalCompletedIssues: number;
+    totalIssues: number;
+  };
+  filteredEpicSummaries: readonly BeadsEpicCoordinationSummary[];
+  selectedEpicSummary: BeadsEpicCoordinationSummary | null;
+  hasActivity: boolean;
+  needsAttention: readonly BeadsEpicCoordinationSummary[];
+}
+
+/**
+ * Analyzes coordinator state and provides structured insights.
+ * Pure function for testable coordinator logic.
+ */
+export function analyzeEpicWorkflowState(
+  trackerSummaries: readonly BeadsEpicCoordinationSummary[],
+  options: EpicWorkflowAnalysisOptions = {},
+): EpicWorkflowAnalysisResult {
+  const { showOnlyActive = false, selectedEpicId = null } = options;
+
+  // Filter tracker summaries based on options
+  let filteredEpicSummaries = [...trackerSummaries];
+  if (showOnlyActive) {
+    filteredEpicSummaries = filteredEpicSummaries.filter(
+      (trackerSummary) => trackerSummary.activeWorkerCount > 0,
+    );
+  }
+
+  // Find selected epic summary
+  const selectedEpicSummary = selectedEpicId
+    ? trackerSummaries.find((trackerSummary) => trackerSummary.epicId === selectedEpicId) || null
+    : null;
+
+  // Partition into sections
+  const sections = partitionEpicWorkflowTrackerSummaries(filteredEpicSummaries);
+
+  // Calculate metrics
+  const metrics = {
+    totalTrackerSummaries: trackerSummaries.length,
+    activeTrackerSummaries: trackerSummaries.filter((summary) => summary.activeWorkerCount > 0)
+      .length,
+    readyTrackerSummaries: trackerSummaries.filter(
+      (summary) => summary.activeWorkerCount === 0 && summary.readyIssueCount > 0,
+    ).length,
+    totalActiveWorkers: trackerSummaries.reduce((sum, s) => sum + s.activeWorkerCount, 0),
+    totalReadyIssues: trackerSummaries.reduce((sum, s) => sum + s.readyIssueCount, 0),
+    totalCompletedIssues: trackerSummaries.reduce((sum, s) => sum + s.completedIssueCount, 0),
+    totalIssues: trackerSummaries.reduce((sum, s) => sum + s.totalIssueCount, 0),
+  };
+
+  // Identify tracker summaries needing attention.
+  const needsAttention = trackerSummaries.filter((trackerSummary) => {
+    // Add logic for identifying problematic tracker summaries.
+    const hasStallWarnings =
+      trackerSummary.totalIssueCount > 0 &&
+      trackerSummary.readyIssueCount === 0 &&
+      trackerSummary.activeWorkerCount === 0;
+    const hasHighFailureRate =
+      trackerSummary.completedIssueCount > 0 &&
+      trackerSummary.completedIssueCount / trackerSummary.totalIssueCount < 0.5;
+
+    return hasStallWarnings || hasHighFailureRate;
+  });
+
+  const hasActivity = metrics.totalActiveWorkers > 0 || metrics.totalReadyIssues > 0;
+
+  return {
+    sections,
+    metrics,
+    filteredEpicSummaries,
+    selectedEpicSummary,
+    hasActivity,
+    needsAttention,
+  };
+}
+
+// ── Epic Coordination Logic ─────────────────────────────────────────────
+
+export interface EpicCoordinationResult {
+  epics: readonly BeadsEpicWorkflowSnapshot[];
+  prioritizedEpics: readonly BeadsEpicWorkflowSnapshot[];
+  epicById: Map<string, BeadsEpicWorkflowSnapshot>;
+  epicSummaryById: Map<string, BeadsEpicCoordinationSummary>;
+  runsByEpic: Map<string, readonly OrchestrationEpicRun[]>;
+}
+
+/**
+ * Analyzes epic coordination state and provides structured data.
+ * Combines epics, tracker summaries, and runs for comprehensive coordination view.
+ */
+export function analyzeEpicCoordination(
+  epics: readonly BeadsEpicWorkflowSnapshot[],
+  trackerSummaries: readonly BeadsEpicCoordinationSummary[],
+  epicRuns: readonly OrchestrationEpicRun[],
+): EpicCoordinationResult {
+  // Create lookup maps
+  const epicById = new Map<string, BeadsEpicWorkflowSnapshot>();
+  for (const epic of epics) {
+    epicById.set(epic.epicId, epic);
+  }
+
+  const epicSummaryById = new Map<string, BeadsEpicCoordinationSummary>();
+  for (const trackerSummary of trackerSummaries) {
+    epicSummaryById.set(trackerSummary.epicId, trackerSummary);
+  }
+
+  // Group runs by epic
+  const runsByEpic = new Map<string, OrchestrationEpicRun[]>();
+  for (const run of epicRuns) {
+    const epicId = run.epicIssueId;
+    const existing = runsByEpic.get(epicId) || [];
+    runsByEpic.set(epicId, [...existing, run]);
+  }
+
+  // Convert to readonly maps
+  const readonlyRunsByEpic = new Map<string, readonly OrchestrationEpicRun[]>();
+  for (const [key, value] of runsByEpic) {
+    readonlyRunsByEpic.set(key, value);
+  }
+
+  // Prioritize epics based on activity and state
+  const prioritizedEpics = [...epics].toSorted((a, b) => {
+    // Epics with active runs first.
+    if (a.activeRunId !== null && b.activeRunId === null) return -1;
+    if (b.activeRunId !== null && a.activeRunId === null) return 1;
+
+    // Then tracker work already in progress.
+    if (a.coordinationState === "in_progress" && b.coordinationState !== "in_progress") return -1;
+    if (b.coordinationState === "in_progress" && a.coordinationState !== "in_progress") return 1;
+
+    // Then epics that are valid to start.
+    const aReady =
+      a.validationState === "valid" &&
+      a.coordinationState !== "completed" &&
+      a.activeRunId === null;
+    const bReady =
+      b.validationState === "valid" &&
+      b.coordinationState !== "completed" &&
+      b.activeRunId === null;
+    if (aReady && !bReady) return -1;
+    if (bReady && !aReady) return 1;
+
+    // Then by title alphabetically
+    return a.epicTitle.localeCompare(b.epicTitle);
+  });
+
+  return {
+    epics,
+    prioritizedEpics,
+    epicById,
+    epicSummaryById,
+    runsByEpic: readonlyRunsByEpic,
+  };
+}
+
+// ── Search and Filter Utilities ─────────────────────────────────────────
+
+const ACTIVE_ISSUE_LIST_STATUSES = new Set(["open", "in_progress", "blocked", "deferred"]);
+
+export function matchesIssueListVisibility(issue: BeadsIssueSummary, showClosed: boolean): boolean {
+  return showClosed || ACTIVE_ISSUE_LIST_STATUSES.has(issue.status);
+}
+
+export function issueStatusesForVisibility(showClosed: boolean): string[] {
+  return showClosed ? [...ACTIVE_ISSUE_LIST_STATUSES, "closed"] : [...ACTIVE_ISSUE_LIST_STATUSES];
+}
+
+const ISSUE_SEARCH_FIELD_WEIGHTS = {
+  id: 1000,
+  title: 700,
+  labels: 450,
+  parentTitle: 450,
+  description: 220,
+  notes: 200,
+} as const;
+
+type IssueSearchField = keyof typeof ISSUE_SEARCH_FIELD_WEIGHTS;
+
+interface SearchableIssueField {
+  readonly key: IssueSearchField;
+  readonly value: string;
+  readonly normalized: string;
+  readonly words: readonly string[];
+}
+
+export interface IssueListSearchOptions {
+  searchQuery?: string;
+  showClosed?: boolean;
+  sortBy?: BeadsIssueSortBy;
+}
+
+function normalizeSearchValue(value: string | null | undefined): string {
+  return value?.toLowerCase().trim() ?? "";
+}
+
+function tokenizeSearchValue(value: string): readonly string[] {
+  return value.split(/\s+/).filter((token) => token.length > 0);
+}
+
+function splitSearchWords(value: string): readonly string[] {
+  return value.split(/[^a-z0-9]+/).filter((token) => token.length > 0);
+}
+
+function isSubsequenceMatch(query: string, candidate: string): boolean {
+  if (query.length === 0) {
+    return true;
+  }
+
+  let queryIndex = 0;
+  for (let index = 0; index < candidate.length && queryIndex < query.length; index += 1) {
+    if (candidate[index] === query[queryIndex]) {
+      queryIndex += 1;
+    }
+  }
+
+  return queryIndex === query.length;
+}
+
+function computeBoundedEditDistance(left: string, right: string, maxDistance: number): number {
+  if (left === right) {
+    return 0;
+  }
+
+  if (Math.abs(left.length - right.length) > maxDistance) {
+    return maxDistance + 1;
+  }
+
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    let rowMinimum = current[0]!;
+
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const substitutionCost = left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
+      const value = Math.min(
+        previous[rightIndex]! + 1,
+        current[rightIndex - 1]! + 1,
+        previous[rightIndex - 1]! + substitutionCost,
+      );
+      current.push(value);
+      rowMinimum = Math.min(rowMinimum, value);
+    }
+
+    if (rowMinimum > maxDistance) {
+      return maxDistance + 1;
+    }
+
+    previous = current;
+  }
+
+  return previous[right.length]!;
+}
+
+function rankSearchTokenAgainstField(token: string, field: SearchableIssueField): number {
+  if (field.normalized.length === 0) {
+    return 0;
+  }
+
+  const fieldWeight = ISSUE_SEARCH_FIELD_WEIGHTS[field.key];
+
+  if (field.normalized === token) {
+    return fieldWeight + 800;
+  }
+
+  if (field.words.some((word) => word === token)) {
+    return fieldWeight + 700;
+  }
+
+  if (field.normalized.startsWith(token)) {
+    return fieldWeight + 520;
+  }
+
+  if (field.words.some((word) => word.startsWith(token))) {
+    return fieldWeight + 460;
+  }
+
+  if (field.normalized.includes(token)) {
+    return fieldWeight + 380;
+  }
+
+  if (field.words.some((word) => word.includes(token))) {
+    return fieldWeight + 320;
+  }
+
+  for (const word of field.words) {
+    const maxDistance = token.length >= 6 ? 2 : 1;
+    const editDistance = computeBoundedEditDistance(token, word, maxDistance);
+    if (editDistance <= maxDistance) {
+      return fieldWeight + 220 - editDistance * 40;
+    }
+  }
+
+  if (isSubsequenceMatch(token, field.normalized)) {
+    return fieldWeight + 120;
+  }
+
+  return 0;
+}
+
+function buildSearchableIssueFields(issue: BeadsIssueSummary): readonly SearchableIssueField[] {
+  const fields: Array<SearchableIssueField | null> = [
+    {
+      key: "id",
+      value: issue.id,
+      normalized: normalizeSearchValue(issue.id),
+      words: splitSearchWords(normalizeSearchValue(issue.id)),
+    },
+    {
+      key: "title",
+      value: issue.title,
+      normalized: normalizeSearchValue(issue.title),
+      words: splitSearchWords(normalizeSearchValue(issue.title)),
+    },
+    {
+      key: "labels",
+      value: issue.labels.join(" "),
+      normalized: normalizeSearchValue(issue.labels.join(" ")),
+      words: splitSearchWords(normalizeSearchValue(issue.labels.join(" "))),
+    },
+    {
+      key: "parentTitle",
+      value: issue.parent?.title ?? "",
+      normalized: normalizeSearchValue(issue.parent?.title),
+      words: splitSearchWords(normalizeSearchValue(issue.parent?.title)),
+    },
+    {
+      key: "description",
+      value: issue.description ?? "",
+      normalized: normalizeSearchValue(issue.description),
+      words: splitSearchWords(normalizeSearchValue(issue.description)),
+    },
+    {
+      key: "notes",
+      value: issue.notes ?? "",
+      normalized: normalizeSearchValue(issue.notes),
+      words: splitSearchWords(normalizeSearchValue(issue.notes)),
+    },
+  ];
+
+  return fields.filter((field): field is SearchableIssueField => field !== null);
+}
+
+export function compareIssuesForListSort(
+  left: BeadsIssueSummary,
+  right: BeadsIssueSummary,
+  sortBy: BeadsIssueSortBy,
+): number {
+  if (sortBy === "priority") {
+    const leftPriority = left.priority ?? Number.MAX_SAFE_INTEGER;
+    const rightPriority = right.priority ?? Number.MAX_SAFE_INTEGER;
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
+    }
+
+    const updatedAtDelta = right.updatedAt.localeCompare(left.updatedAt);
+    if (updatedAtDelta !== 0) {
+      return updatedAtDelta;
+    }
+
+    return left.id.localeCompare(right.id);
+  }
+
+  if (sortBy === "created") {
+    const createdAtDelta = right.createdAt.localeCompare(left.createdAt);
+    if (createdAtDelta !== 0) {
+      return createdAtDelta;
+    }
+
+    const titleDelta = left.title.localeCompare(right.title, undefined, { sensitivity: "base" });
+    if (titleDelta !== 0) {
+      return titleDelta;
+    }
+
+    return left.id.localeCompare(right.id);
+  }
+
+  if (sortBy === "title") {
+    const titleDelta = left.title.localeCompare(right.title, undefined, { sensitivity: "base" });
+    if (titleDelta !== 0) {
+      return titleDelta;
+    }
+
+    const updatedAtDelta = right.updatedAt.localeCompare(left.updatedAt);
+    if (updatedAtDelta !== 0) {
+      return updatedAtDelta;
+    }
+
+    return left.id.localeCompare(right.id);
+  }
+
+  const updatedAtDelta = right.updatedAt.localeCompare(left.updatedAt);
+  if (updatedAtDelta !== 0) {
+    return updatedAtDelta;
+  }
+
+  const titleDelta = left.title.localeCompare(right.title, undefined, { sensitivity: "base" });
+  if (titleDelta !== 0) {
+    return titleDelta;
+  }
+
+  return left.id.localeCompare(right.id);
+}
+
+function sortIssueTree(
+  issueTree: IssueTreeForest,
+  compareIssues: (left: BeadsIssueSummary, right: BeadsIssueSummary) => number,
+): IssueTreeForest {
+  const sortedRoots = sortIssueTreeNodes(issueTree.roots, compareIssues, false);
+  const roots = [
+    ...sortedRoots.filter((node) => node.isEpic),
+    ...sortedRoots.filter((node) => !node.isEpic),
+  ];
+  return {
+    roots,
+    visibleOrder: flattenIssueTreeNodes(roots),
+  };
+}
+
+function sortIssueTreeNodes(
+  nodes: readonly IssueTreeNode[],
+  compareIssues: (left: BeadsIssueSummary, right: BeadsIssueSummary) => number,
+  useDependencyOrder: boolean,
+): IssueTreeNode[] {
+  const sortedNodes = nodes.map((node) => {
+    const children = sortIssueTreeNodes(node.children, compareIssues, true);
+    return {
+      ...node,
+      children,
+      hasVisibleChildren: children.length > 0,
+    };
+  });
+
+  if (!useDependencyOrder) {
+    return sortedNodes.toSorted((left, right) => compareIssues(left.issue, right.issue));
+  }
+
+  return topologicallySortByDependencies({
+    items: sortedNodes,
+    getId: (node) => node.issue.id,
+    getCreatedAt: (node) => node.issue.createdAt,
+    getTitle: (node) => node.issue.title,
+    getPredecessorIds: (node, siblingIds) =>
+      node.issue.dependencyRefs.flatMap((dependencyRef) => {
+        if (!siblingIds.has(dependencyRef.dependsOnId)) {
+          return [];
+        }
+
+        switch (dependencyRef.dependencyType) {
+          case "blocked_by":
+          case "depends_on":
+          case "blocks":
+            return [dependencyRef.dependsOnId];
+          default:
+            return [];
+        }
+      }),
+  });
+}
+
+function flattenIssueTreeNodes(roots: readonly IssueTreeNode[]): BeadsIssueSummary[] {
+  const issues: BeadsIssueSummary[] = [];
+
+  const visitNode = (node: IssueTreeNode) => {
+    issues.push(node.issue);
+    for (const child of node.children) {
+      visitNode(child);
+    }
+  };
+
+  for (const root of roots) {
+    visitNode(root);
+  }
+
+  return issues;
+}
+
+function rankIssueAgainstQuery(issue: BeadsIssueSummary, normalizedQuery: string): number | null {
+  if (normalizedQuery.length === 0) {
+    return 0;
+  }
+
+  const tokens = tokenizeSearchValue(normalizedQuery);
+  if (tokens.length === 0) {
+    return 0;
+  }
+
+  const fields = buildSearchableIssueFields(issue);
+  let score = 0;
+
+  if (normalizeSearchValue(issue.id) === normalizedQuery) {
+    score += 20_000;
+  }
+
+  for (const token of tokens) {
+    let bestTokenScore = 0;
+    for (const field of fields) {
+      bestTokenScore = Math.max(bestTokenScore, rankSearchTokenAgainstField(token, field));
+    }
+
+    if (bestTokenScore <= 0) {
+      return null;
+    }
+
+    score += bestTokenScore;
+  }
+
+  return score;
+}
+
+export function filterIssuesForList(
+  issues: readonly BeadsIssueSummary[],
+  options: IssueListSearchOptions = {},
+): readonly BeadsIssueSummary[] {
+  return filterAndSortIssues(issues, {
+    ...(options.searchQuery !== undefined ? { searchQuery: options.searchQuery } : {}),
+    ...(options.showClosed !== undefined ? { showClosed: options.showClosed } : {}),
+    ...(options.sortBy !== undefined ? { sortBy: options.sortBy } : {}),
+  }).issues;
+}
+
+export interface SearchResult<T> {
+  items: readonly T[];
+  query: string;
+  highlightRanges: Map<string, Array<{ start: number; end: number }>>;
+}
+
+/**
+ * Performs search across multiple fields with highlighting support.
+ */
+export function searchItems<T>(
+  items: readonly T[],
+  query: string,
+  searchFields: Array<keyof T & string>,
+): SearchResult<T> {
+  if (!query.trim()) {
+    return {
+      items,
+      query: "",
+      highlightRanges: new Map(),
+    };
+  }
+
+  const normalizedQuery = query.toLowerCase().trim();
+  const highlightRanges = new Map<string, Array<{ start: number; end: number }>>();
+
+  const filteredItems = items.filter((item, index) => {
+    let hasMatch = false;
+    const itemId = String(index);
+
+    for (const field of searchFields) {
+      const value = String(item[field] || "").toLowerCase();
+      if (value.includes(normalizedQuery)) {
+        hasMatch = true;
+
+        // Find all match positions for highlighting
+        const matches: Array<{ start: number; end: number }> = [];
+        let searchStart = 0;
+        let matchIndex = value.indexOf(normalizedQuery, searchStart);
+
+        while (matchIndex !== -1) {
+          matches.push({
+            start: matchIndex,
+            end: matchIndex + normalizedQuery.length,
+          });
+          searchStart = matchIndex + 1;
+          matchIndex = value.indexOf(normalizedQuery, searchStart);
+        }
+
+        if (matches.length > 0) {
+          highlightRanges.set(`${itemId}-${field}`, matches);
+        }
+      }
+    }
+
+    return hasMatch;
+  });
+
+  return {
+    items: filteredItems,
+    query,
+    highlightRanges,
+  };
+}
+
+// ── Performance Optimization Utilities ──────────────────────────────────
+
+/**
+ * Debounces function calls to improve performance during rapid updates.
+ */
+export function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number,
+): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout | null = null;
+
+  return (...args: Parameters<T>) => {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+
+    timeout = setTimeout(() => {
+      func(...args);
+    }, wait);
+  };
+}
+
+/**
+ * Throttles function calls to limit execution frequency.
+ */
+export function throttle<T extends (...args: any[]) => any>(
+  func: T,
+  limit: number,
+): (...args: Parameters<T>) => void {
+  let inThrottle = false;
+
+  return (...args: Parameters<T>) => {
+    if (!inThrottle) {
+      func(...args);
+      inThrottle = true;
+      setTimeout(() => (inThrottle = false), limit);
+    }
+  };
+}
+
+// Move defaultKeyGenerator to outer scope to avoid recreation on every call
+const _defaultKeyGenerator = <T extends any[]>(...args: T) => JSON.stringify(args);
+
+/**
+ * Creates a memoized version of a function for expensive computations.
+ */
+export function memoize<T extends (...args: any[]) => any>(
+  func: T,
+  keyGenerator?: (...args: Parameters<T>) => string,
+): T {
+  const cache = new Map<string, ReturnType<T>>();
+
+  const getKey = keyGenerator || (_defaultKeyGenerator as (...args: Parameters<T>) => string);
+
+  return ((...args: Parameters<T>): ReturnType<T> => {
+    const key = getKey(...args);
+
+    if (cache.has(key)) {
+      return cache.get(key)!;
+    }
+
+    const result = func(...args);
+    cache.set(key, result);
+    return result;
+  }) as T;
+}
+
+// ── Validation and Error Handling ───────────────────────────────────────
+
+export interface ValidationResult {
+  isValid: boolean;
+  errors: readonly string[];
+  warnings: readonly string[];
+}
+
+/**
+ * Validates issue panel state for consistency and completeness.
+ */
+export function validateIssueState(
+  issues: readonly BeadsIssueSummary[],
+  options: IssueFilterOptions,
+): ValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  // Validate search query
+  if (options.searchQuery && options.searchQuery.length > 1000) {
+    errors.push("Search query is too long");
+  }
+
+  // Validate selected labels
+  if (options.selectedLabels && options.selectedLabels.length > 50) {
+    warnings.push("Too many labels selected may impact performance");
+  }
+
+  // Validate issue data consistency
+  const duplicateIds = new Set<string>();
+  const seenIds = new Set<string>();
+  for (const issue of issues) {
+    if (seenIds.has(issue.id)) {
+      duplicateIds.add(issue.id);
+    } else {
+      seenIds.add(issue.id);
+    }
+  }
+
+  if (duplicateIds.size > 0) {
+    errors.push(`Duplicate issue IDs found: ${Array.from(duplicateIds).join(", ")}`);
+  }
+
+  // Validate parent-child relationships
+  for (const issue of issues) {
+    if (issue.parent && !seenIds.has(issue.parent.id)) {
+      warnings.push(`Issue ${issue.id} references missing parent ${issue.parent.id}`);
+    }
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    warnings,
+  };
+}
+
+/**
+ * Validates coordinator state for operational readiness.
+ */
+export function validateEpicWorkflowState(
+  trackerSummaries: readonly BeadsEpicCoordinationSummary[],
+  epics: readonly BeadsEpicWorkflowSnapshot[],
+  runs: readonly OrchestrationEpicRun[],
+): ValidationResult {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  // Check for orphaned tracker summaries.
+  const epicIds = new Set(epics.map((e) => e.epicId));
+  for (const trackerSummary of trackerSummaries) {
+    if (!epicIds.has(trackerSummary.epicId)) {
+      warnings.push(`Epic coordination summary references missing epic ${trackerSummary.epicId}`);
+    }
+  }
+
+  // Check for inconsistent run data - OrchestrationEpicRun uses epicIssueId instead of trackerId
+  const trackerEpicIds = new Set(trackerSummaries.map((summary) => summary.epicId));
+  for (const run of runs) {
+    if (!trackerEpicIds.has(run.epicIssueId)) {
+      warnings.push(`Run ${run.runId} references missing epic ${run.epicIssueId}`);
+    }
+  }
+
+  // Check for resource conflicts
+  const activeWorkerCount = trackerSummaries.reduce(
+    (sum, summary) => sum + summary.activeWorkerCount,
+    0,
+  );
+  if (activeWorkerCount > 100) {
+    warnings.push("High number of active workers may impact system performance");
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    warnings,
+  };
+}
+
+export type CoordinatorAnalysisOptions = EpicWorkflowAnalysisOptions;
+export type CoordinatorAnalysisResult = EpicWorkflowAnalysisResult;
+export const analyzeCoordinatorState = analyzeEpicWorkflowState;
+export const validateCoordinatorState = validateEpicWorkflowState;

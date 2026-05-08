@@ -77,6 +77,7 @@ interface TimelineRowSharedState {
   workspaceRoot: string | undefined;
   activeThreadEnvironmentId: EnvironmentId;
   onRevertUserMessage: (messageId: MessageId) => void;
+  onOpenBeadsIssue: (issueId: string) => void;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
 }
@@ -112,6 +113,7 @@ interface MessagesTimelineProps {
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   revertTurnCountByUserMessageId: Map<MessageId, number>;
   onRevertUserMessage: (messageId: MessageId) => void;
+  onOpenBeadsIssue: (issueId: string) => void;
   isRevertingCheckpoint: boolean;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   activeThreadEnvironmentId: EnvironmentId;
@@ -140,6 +142,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onOpenTurnDiff,
   revertTurnCountByUserMessageId,
   onRevertUserMessage,
+  onOpenBeadsIssue,
   isRevertingCheckpoint,
   onImageExpand,
   activeThreadEnvironmentId,
@@ -204,6 +207,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       workspaceRoot,
       activeThreadEnvironmentId,
       onRevertUserMessage,
+      onOpenBeadsIssue,
       onImageExpand,
       onOpenTurnDiff,
     }),
@@ -215,6 +219,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       workspaceRoot,
       activeThreadEnvironmentId,
       onRevertUserMessage,
+      onOpenBeadsIssue,
       onImageExpand,
       onOpenTurnDiff,
     ],
@@ -405,6 +410,8 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
           text={messageText}
           cwd={ctx.markdownCwd}
           isStreaming={Boolean(row.message.streaming)}
+          enableBeadsIssueLinks={!row.message.streaming}
+          onOpenBeadsIssue={ctx.onOpenBeadsIssue}
         />
         <AssistantChangedFilesSection
           turnSummary={row.assistantTurnDiffSummary}
@@ -520,27 +527,19 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
 }
 
 // ---------------------------------------------------------------------------
-// Self-ticking labels — update their own text nodes so elapsed-time display
-// does not create a React commit every second while a response is streaming.
+// Self-ticking components — bypass LegendList memoisation entirely.
+// Each owns a `nowMs` state value consumed in the render output so the
+// React Compiler cannot elide the re-render as a no-op.
 // ---------------------------------------------------------------------------
 
 /** Live "Working for Xs" label. */
 function WorkingTimer({ createdAt }: { createdAt: string }) {
-  const textRef = useRef<HTMLSpanElement>(null);
-  const initialText = formatWorkingTimerNow(createdAt);
-
+  const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
-    const updateText = () => {
-      if (textRef.current) {
-        textRef.current.textContent = formatWorkingTimerNow(createdAt);
-      }
-    };
-    updateText();
-    const id = setInterval(updateText, 1000);
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(id);
   }, [createdAt]);
-
-  return <span ref={textRef}>{initialText}</span>;
+  return <>{formatWorkingTimer(createdAt, new Date(nowMs).toISOString()) ?? "0s"}</>;
 }
 
 /** Live timestamp + elapsed duration for a streaming assistant message. */
@@ -553,28 +552,15 @@ function LiveMessageMeta({
   durationStart: string | null | undefined;
   timestampFormat: TimestampFormat;
 }) {
-  const textRef = useRef<HTMLSpanElement>(null);
-  const initialText = formatLiveMessageMetaNow(createdAt, durationStart, timestampFormat);
-
+  const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
-    const updateText = () => {
-      if (textRef.current) {
-        textRef.current.textContent = formatLiveMessageMetaNow(
-          createdAt,
-          durationStart,
-          timestampFormat,
-        );
-      }
-    };
-    updateText();
-    if (!durationStart) {
-      return;
-    }
-    const id = setInterval(updateText, 1000);
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [createdAt, durationStart, timestampFormat]);
-
-  return <span ref={textRef}>{initialText}</span>;
+  }, [durationStart]);
+  const elapsed = durationStart
+    ? formatElapsed(durationStart, new Date(nowMs).toISOString())
+    : null;
+  return <>{formatMessageMeta(createdAt, elapsed, timestampFormat)}</>;
 }
 
 // ---------------------------------------------------------------------------
@@ -879,19 +865,6 @@ function formatWorkingTimer(startIso: string, endIso: string): string | null {
   }
 
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
-}
-
-function formatWorkingTimerNow(startIso: string): string {
-  return formatWorkingTimer(startIso, new Date().toISOString()) ?? "0s";
-}
-
-function formatLiveMessageMetaNow(
-  createdAt: string,
-  durationStart: string | null | undefined,
-  timestampFormat: TimestampFormat,
-): string {
-  const elapsed = durationStart ? formatElapsed(durationStart, new Date().toISOString()) : null;
-  return formatMessageMeta(createdAt, elapsed, timestampFormat);
 }
 
 function formatMessageMeta(

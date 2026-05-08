@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PairRouteImport } from './routes/pair'
+import { Route as IssuesRouteImport } from './routes/issues'
 import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
 import { Route as SettingsSourceControlRouteImport } from './routes/settings.source-control'
@@ -20,6 +21,7 @@ import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
 import { Route as SettingsDiagnosticsRouteImport } from './routes/settings.diagnostics'
 import { Route as SettingsConnectionsRouteImport } from './routes/settings.connections'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
+import { Route as ProjectsProjectIdIssuesRouteImport } from './routes/projects.$projectId.issues'
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
 
@@ -31,6 +33,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const PairRoute = PairRouteImport.update({
   id: '/pair',
   path: '/pair',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IssuesRoute = IssuesRouteImport.update({
+  id: '/issues',
+  path: '/issues',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChatRoute = ChatRouteImport.update({
@@ -77,6 +84,11 @@ const SettingsArchivedRoute = SettingsArchivedRouteImport.update({
   path: '/archived',
   getParentRoute: () => SettingsRoute,
 } as any)
+const ProjectsProjectIdIssuesRoute = ProjectsProjectIdIssuesRouteImport.update({
+  id: '/projects/$projectId/issues',
+  path: '/projects/$projectId/issues',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ChatDraftDraftIdRoute = ChatDraftDraftIdRouteImport.update({
   id: '/draft/$draftId',
   path: '/draft/$draftId',
@@ -91,6 +103,7 @@ const ChatEnvironmentIdThreadIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
+  '/issues': typeof IssuesRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/settings/archived': typeof SettingsArchivedRoute
@@ -102,8 +115,10 @@ export interface FileRoutesByFullPath {
   '/settings/source-control': typeof SettingsSourceControlRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/projects/$projectId/issues': typeof ProjectsProjectIdIssuesRoute
 }
 export interface FileRoutesByTo {
+  '/issues': typeof IssuesRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/settings/archived': typeof SettingsArchivedRoute
@@ -116,10 +131,12 @@ export interface FileRoutesByTo {
   '/': typeof ChatIndexRoute
   '/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/projects/$projectId/issues': typeof ProjectsProjectIdIssuesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_chat': typeof ChatRouteWithChildren
+  '/issues': typeof IssuesRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
   '/settings/archived': typeof SettingsArchivedRoute
@@ -132,11 +149,13 @@ export interface FileRoutesById {
   '/_chat/': typeof ChatIndexRoute
   '/_chat/$environmentId/$threadId': typeof ChatEnvironmentIdThreadIdRoute
   '/_chat/draft/$draftId': typeof ChatDraftDraftIdRoute
+  '/projects/$projectId/issues': typeof ProjectsProjectIdIssuesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/issues'
     | '/pair'
     | '/settings'
     | '/settings/archived'
@@ -148,8 +167,10 @@ export interface FileRouteTypes {
     | '/settings/source-control'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
+    | '/projects/$projectId/issues'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/issues'
     | '/pair'
     | '/settings'
     | '/settings/archived'
@@ -162,9 +183,11 @@ export interface FileRouteTypes {
     | '/'
     | '/$environmentId/$threadId'
     | '/draft/$draftId'
+    | '/projects/$projectId/issues'
   id:
     | '__root__'
     | '/_chat'
+    | '/issues'
     | '/pair'
     | '/settings'
     | '/settings/archived'
@@ -177,12 +200,15 @@ export interface FileRouteTypes {
     | '/_chat/'
     | '/_chat/$environmentId/$threadId'
     | '/_chat/draft/$draftId'
+    | '/projects/$projectId/issues'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   ChatRoute: typeof ChatRouteWithChildren
+  IssuesRoute: typeof IssuesRoute
   PairRoute: typeof PairRoute
   SettingsRoute: typeof SettingsRouteWithChildren
+  ProjectsProjectIdIssuesRoute: typeof ProjectsProjectIdIssuesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -199,6 +225,13 @@ declare module '@tanstack/react-router' {
       path: '/pair'
       fullPath: '/pair'
       preLoaderRoute: typeof PairRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/issues': {
+      id: '/issues'
+      path: '/issues'
+      fullPath: '/issues'
+      preLoaderRoute: typeof IssuesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_chat': {
@@ -264,6 +297,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsArchivedRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/projects/$projectId/issues': {
+      id: '/projects/$projectId/issues'
+      path: '/projects/$projectId/issues'
+      fullPath: '/projects/$projectId/issues'
+      preLoaderRoute: typeof ProjectsProjectIdIssuesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_chat/draft/$draftId': {
       id: '/_chat/draft/$draftId'
       path: '/draft/$draftId'
@@ -321,8 +361,10 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRouteWithChildren,
+  IssuesRoute: IssuesRoute,
   PairRoute: PairRoute,
   SettingsRoute: SettingsRouteWithChildren,
+  ProjectsProjectIdIssuesRoute: ProjectsProjectIdIssuesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

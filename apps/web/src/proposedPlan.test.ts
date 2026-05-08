@@ -4,6 +4,8 @@ import {
   buildCollapsedProposedPlanPreviewMarkdown,
   buildPlanImplementationThreadTitle,
   buildPlanImplementationPrompt,
+  buildPlanToBeadsPrompt,
+  buildPlanToBeadsThreadTitle,
   buildProposedPlanMarkdownFilename,
   proposedPlanTitle,
   resolvePlanFollowUpSubmission,
@@ -24,6 +26,18 @@ describe("buildPlanImplementationPrompt", () => {
   it("formats the plan exactly like the Codex follow-up handoff prompt", () => {
     expect(buildPlanImplementationPrompt("## Ship it\n\n- step 1\n")).toBe(
       "PLEASE IMPLEMENT THIS PLAN:\n## Ship it\n\n- step 1",
+    );
+  });
+});
+
+describe("buildPlanToBeadsPrompt", () => {
+  it("asks the agent to create beads issues instead of implementing the plan", () => {
+    expect(buildPlanToBeadsPrompt("## Ship it\n\n- step 1\n")).toBe(
+      [
+        "PLEASE CONVERT THIS PLAN INTO BEADS ISSUES.",
+        "Generate the necessary beads issues with `bd` for this plan instead of implementing it.",
+        "## Ship it\n\n- step 1",
+      ].join("\n\n"),
     );
   });
 });
@@ -98,6 +112,18 @@ describe("buildPlanImplementationThreadTitle", () => {
 
   it("falls back when the plan has no markdown heading", () => {
     expect(buildPlanImplementationThreadTitle("- step 1")).toBe("Implement plan");
+  });
+});
+
+describe("buildPlanToBeadsThreadTitle", () => {
+  it("uses the plan heading when building the beads thread title", () => {
+    expect(buildPlanToBeadsThreadTitle("# Integrate RPC\n\nBody")).toBe(
+      "Convert Integrate RPC to beads",
+    );
+  });
+
+  it("falls back when the plan has no markdown heading", () => {
+    expect(buildPlanToBeadsThreadTitle("- step 1")).toBe("Convert plan to beads");
   });
 });
 

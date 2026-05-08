@@ -65,7 +65,7 @@ import { ProviderModelPicker } from "./ProviderModelPicker";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
-import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
+import { ComposerPrimaryActions, type PlanFollowUpMenuAction } from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
@@ -306,7 +306,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   preserveComposerFocusOnPointerDown?: boolean;
   onPreviousPendingQuestion: () => void;
   onInterrupt: () => void;
-  onImplementPlanInNewThread: () => void;
+  planFollowUpMenuActions: ReadonlyArray<PlanFollowUpMenuAction>;
 }) {
   return (
     <>
@@ -328,7 +328,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         preserveComposerFocusOnPointerDown={props.preserveComposerFocusOnPointerDown ?? false}
         onPreviousPendingQuestion={props.onPreviousPendingQuestion}
         onInterrupt={props.onInterrupt}
-        onImplementPlanInNewThread={props.onImplementPlanInNewThread}
+        planFollowUpMenuActions={props.planFollowUpMenuActions}
       />
     </>
   );
@@ -457,7 +457,7 @@ export interface ChatComposerProps {
   // Callbacks
   onSend: (e?: { preventDefault: () => void }) => void;
   onInterrupt: () => void;
-  onImplementPlanInNewThread: () => void;
+  planFollowUpMenuActions: ReadonlyArray<PlanFollowUpMenuAction>;
   onRespondToApproval: (
     requestId: ApprovalRequestId,
     decision: ProviderApprovalDecision,
@@ -541,7 +541,7 @@ export const ChatComposer = memo(
       scheduleStickToBottom,
       onSend,
       onInterrupt,
-      onImplementPlanInNewThread,
+      planFollowUpMenuActions,
       onRespondToApproval,
       onSelectActivePendingUserInputOption,
       onAdvanceActivePendingUserInput,
@@ -1786,9 +1786,6 @@ export const ChatComposer = memo(
     const handleInterruptPrimaryAction = useCallback(() => {
       void onInterrupt();
     }, [onInterrupt]);
-    const handleImplementPlanInNewThreadPrimaryAction = useCallback(() => {
-      void onImplementPlanInNewThread();
-    }, [onImplementPlanInNewThread]);
     const scheduleComposerCollapseCheck = useCallback(() => {
       if (!isMobileViewport) {
         return;
@@ -2084,7 +2081,7 @@ export const ChatComposer = memo(
                         preserveComposerFocusOnPointerDown
                         onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                         onInterrupt={handleInterruptPrimaryAction}
-                        onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
+                        planFollowUpMenuActions={planFollowUpMenuActions}
                       />
                     ) : null}
                   </div>
@@ -2267,7 +2264,7 @@ export const ChatComposer = memo(
                               }`
                             : phase === "disconnected"
                               ? "Ask for follow-up changes or attach images"
-                              : "Ask anything, @tag files/folders, $use skills, or / for commands"
+                              : "Ask anything, @tag files/folders, or use / to show available commands"
                   }
                   disabled={
                     isConnecting ||
@@ -2294,7 +2291,7 @@ export const ChatComposer = memo(
                       preserveComposerFocusOnPointerDown
                       onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                       onInterrupt={handleInterruptPrimaryAction}
-                      onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
+                      planFollowUpMenuActions={planFollowUpMenuActions}
                     />
                   </div>
                 ) : null}
@@ -2410,7 +2407,7 @@ export const ChatComposer = memo(
                     preserveComposerFocusOnPointerDown={isMobileViewport}
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                     onInterrupt={handleInterruptPrimaryAction}
-                    onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryAction}
+                    planFollowUpMenuActions={planFollowUpMenuActions}
                   />
                 </div>
               </div>

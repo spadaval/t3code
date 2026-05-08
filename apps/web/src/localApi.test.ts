@@ -3,6 +3,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   type DesktopBridge,
   EnvironmentId,
+  type OrchestrationEvent,
   type VcsStatusResult,
   ProjectId,
   type OrchestrationShellStreamItem,
@@ -34,6 +35,7 @@ function registerListener<T>(listeners: Set<(event: T) => void>, listener: (even
 
 const terminalEventListeners = new Set<(event: TerminalEvent) => void>();
 const shellStreamListeners = new Set<(event: OrchestrationShellStreamItem) => void>();
+const orchestrationEventListeners = new Set<(event: OrchestrationEvent) => void>();
 const gitStatusListeners = new Set<(event: VcsStatusResult) => void>();
 
 const rpcClientMock = {
@@ -100,7 +102,36 @@ const rpcClientMock = {
     subscribeShell: vi.fn((listener: (event: OrchestrationShellStreamItem) => void) =>
       registerListener(shellStreamListeners, listener),
     ),
+    replayEvents: vi.fn(),
+    launchPlanImplementation: vi.fn(),
+    cancelPlanImplementationLaunch: vi.fn(),
+    retryPlanImplementationLaunch: vi.fn(),
+    startEpicRun: vi.fn(),
+    stopEpicRun: vi.fn(),
+    onDomainEvent: vi.fn((listener: (event: OrchestrationEvent) => void) =>
+      registerListener(orchestrationEventListeners, listener),
+    ),
     subscribeThread: vi.fn(() => () => undefined),
+  },
+  beads: {
+    queryIssues: vi.fn(),
+    getIssue: vi.fn(),
+    getIssues: vi.fn(),
+    resolveIssueRefs: vi.fn(),
+    createIssue: vi.fn(),
+    updateIssue: vi.fn(),
+    commentIssue: vi.fn(),
+    getContext: vi.fn(),
+    getIssueGraph: vi.fn(),
+    validateEpicCoordination: vi.fn(),
+    getEpicCoordinationStatus: vi.fn(),
+    getEpicIssueSummaries: vi.fn(),
+    getSessionActivity: vi.fn(),
+    startWorkflow: vi.fn(),
+    startBacklogGrooming: vi.fn(),
+    startEpicQuickRefine: vi.fn(),
+    startEpicPlannedRefine: vi.fn(),
+    startEpicCoordinationPrep: vi.fn(),
   },
 };
 

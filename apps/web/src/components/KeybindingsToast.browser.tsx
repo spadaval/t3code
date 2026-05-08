@@ -161,6 +161,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         runtimeMode: "full-access",
         branch: "main",
         worktreePath: null,
+        issueLink: null,
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
@@ -180,6 +181,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         activities: [],
         proposedPlans: [],
         checkpoints: [],
+        pendingCheckpointCaptures: [],
         session: {
           threadId: THREAD_ID,
           status: "ready",
@@ -191,6 +193,9 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         },
       },
     ],
+    planImplementationLaunches: [],
+    epicRuns: [],
+    epicIssueExecutions: [],
     updatedAt: NOW_ISO,
   };
 }
@@ -228,6 +233,8 @@ function toShellSnapshot(snapshot: OrchestrationReadModel) {
       hasPendingUserInput: false,
       hasActionableProposedPlan: false,
     })),
+    epicRuns: snapshot.epicRuns,
+    epicIssueExecutions: snapshot.epicIssueExecutions,
     updatedAt: snapshot.updatedAt,
   };
 }

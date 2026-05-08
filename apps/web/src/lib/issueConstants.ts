@@ -1,0 +1,286 @@
+/**
+ * Shared constants and utilities for issue display across the UI.
+ *
+ * Consolidates status/type definitions, variant resolution, and display formatting
+ * that were previously duplicated across IssuesTab, IssueCard, and IssueList.
+ */
+
+import type { StatusIndicatorProps } from "~/components/shared/StatusIndicator";
+
+// ---------------------------------------------------------------------------
+// Status variant type (matches StatusIndicator's variant prop)
+// ---------------------------------------------------------------------------
+
+export type IssueStatusVariant = NonNullable<StatusIndicatorProps["variant"]>;
+
+// ---------------------------------------------------------------------------
+// Issue statuses — sourced from `bd statuses`
+// ---------------------------------------------------------------------------
+
+export interface IssueStatusDef {
+  readonly value: string;
+  readonly label: string;
+  readonly variant: IssueStatusVariant;
+  readonly category: "active" | "wip" | "done" | "frozen";
+}
+
+export const ISSUE_STATUSES: readonly IssueStatusDef[] = [
+  { value: "open", label: "Open", variant: "info", category: "active" },
+  { value: "in_progress", label: "In Progress", variant: "warning", category: "wip" },
+  { value: "blocked", label: "Blocked", variant: "error", category: "wip" },
+  { value: "deferred", label: "Deferred", variant: "secondary", category: "frozen" },
+  { value: "pinned", label: "Pinned", variant: "primary", category: "frozen" },
+  { value: "hooked", label: "Hooked", variant: "warning", category: "wip" },
+  { value: "closed", label: "Closed", variant: "success", category: "done" },
+] as const;
+
+/** The subset of statuses that appear most commonly and are shown in the status selector. */
+export const CORE_ISSUE_STATUSES = ISSUE_STATUSES.filter(
+  (s) => s.value !== "pinned" && s.value !== "hooked",
+);
+
+const STATUS_VARIANT_MAP = new Map<string, IssueStatusVariant>(
+  ISSUE_STATUSES.map((s) => [s.value, s.variant]),
+);
+
+const STATUS_LABEL_MAP = new Map<string, string>(ISSUE_STATUSES.map((s) => [s.value, s.label]));
+const DONE_ISSUE_STATUS_SET = new Set(
+  ISSUE_STATUSES.filter((status) => status.category === "done").map((status) => status.value),
+);
+
+// ---------------------------------------------------------------------------
+// Issue types — sourced from `bd types`
+// ---------------------------------------------------------------------------
+
+export interface IssueTypeDef {
+  readonly value: string;
+  readonly label: string;
+}
+
+export const ISSUE_TYPES: readonly IssueTypeDef[] = [
+  { value: "task", label: "Task" },
+  { value: "bug", label: "Bug" },
+  { value: "feature", label: "Feature" },
+  { value: "chore", label: "Chore" },
+  { value: "epic", label: "Epic" },
+  { value: "decision", label: "Decision" },
+  { value: "spike", label: "Spike" },
+  { value: "story", label: "Story" },
+  { value: "milestone", label: "Milestone" },
+] as const;
+
+/** Issue types suitable for creation (excludes milestone which is structural). */
+export const CREATABLE_ISSUE_TYPES = ISSUE_TYPES.filter((t) => t.value !== "milestone");
+
+const ISSUE_TYPE_LABEL_MAP = new Map<string, string>(
+  ISSUE_TYPES.map((type) => [type.value, type.label] as const),
+);
+
+// ---------------------------------------------------------------------------
+// Priority definitions
+// ---------------------------------------------------------------------------
+
+export interface IssuePriorityDef {
+  readonly value: number;
+  readonly label: string;
+  readonly variant: IssueStatusVariant;
+}
+
+export const ISSUE_PRIORITIES: readonly IssuePriorityDef[] = [
+  { value: 0, label: "P0 — Critical", variant: "error" },
+  { value: 1, label: "P1 — High", variant: "error" },
+  { value: 2, label: "P2 — Medium", variant: "warning" },
+  { value: 3, label: "P3 — Low", variant: "secondary" },
+  { value: 4, label: "P4 — Minimal", variant: "secondary" },
+] as const;
+
+// ---------------------------------------------------------------------------
+// Variant resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the StatusIndicator variant for a given issue status string.
+ * Falls back to "secondary" for unknown statuses.
+ */
+export function getStatusVariant(status: string): IssueStatusVariant {
+  return STATUS_VARIANT_MAP.get(status) ?? "secondary";
+}
+
+/**
+ * Resolve the StatusIndicator variant for a given priority number.
+ */
+export function getPriorityVariant(priority: number | null): IssueStatusVariant {
+  if (priority === null) return "secondary";
+  if (priority <= 1) return "error";
+  if (priority === 2) return "warning";
+  return "secondary";
+}
+
+// ---------------------------------------------------------------------------
+// Display formatting
+// ---------------------------------------------------------------------------
+
+/**
+ * Format a status string for display (e.g. "in_progress" → "In Progress").
+ * Uses the canonical label if known, otherwise replaces underscores with spaces
+ * and capitalizes.
+ */
+export function formatStatusDisplay(status: string): string {
+  const known = STATUS_LABEL_MAP.get(status);
+  if (known) return known;
+  return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * Returns whether a tracker-backed issue status should be rendered as done.
+ */
+export function isIssueDoneStatus(status: string | null | undefined): boolean {
+  return status !== null && status !== undefined && DONE_ISSUE_STATUS_SET.has(status);
+}
+
+/**
+ * Format a priority number for display (e.g. 1 → "P1").
+ */
+export function formatPriorityDisplay(priority: number | null): string | null {
+  if (priority === null) return null;
+  return `P${priority}`;
+}
+
+/**
+ * Format an issue type string for display using the tracker label when known.
+ */
+export function formatIssueTypeDisplay(issueType: string): string {
+  const normalized = issueType.trim().toLowerCase();
+  const known = ISSUE_TYPE_LABEL_MAP.get(normalized);
+  if (known) return known;
+  return issueType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// ---------------------------------------------------------------------------
+// Dependency type classification
+// ---------------------------------------------------------------------------
+
+/** Dependency relationship categories — beads uses these dependency_type values */
+export type DependencyCategory = "parent" | "blocker" | "other";
+
+export interface DependencyTypeDef {
+  readonly label: string;
+  readonly category: DependencyCategory;
+  readonly directionLabel: string;
+  readonly colorClass: string;
+  readonly iconHint: "hierarchy" | "block" | "link";
+}
+
+const DEPENDENCY_TYPE_MAP: Record<string, DependencyTypeDef> = {
+  "parent-child": {
+    label: "Parent",
+    category: "parent",
+    directionLabel: "Parent of",
+    colorClass: "text-purple-500",
+    iconHint: "hierarchy",
+  },
+  blocks: {
+    label: "Blocks",
+    category: "blocker",
+    directionLabel: "Blocks",
+    colorClass: "text-red-500",
+    iconHint: "block",
+  },
+  blocked_by: {
+    label: "Blocked by",
+    category: "blocker",
+    directionLabel: "Blocked by",
+    colorClass: "text-red-500",
+    iconHint: "block",
+  },
+  depends_on: {
+    label: "Depends on",
+    category: "blocker",
+    directionLabel: "Depends on",
+    colorClass: "text-orange-500",
+    iconHint: "block",
+  },
+};
+
+const DEFAULT_DEPENDENCY_TYPE: DependencyTypeDef = {
+  label: "Related",
+  category: "other",
+  directionLabel: "Related to",
+  colorClass: "text-muted-foreground",
+  iconHint: "link",
+};
+
+/**
+ * Resolve display metadata for a beads dependency type string.
+ */
+export function getDependencyTypeDef(dependencyType: string): DependencyTypeDef {
+  return DEPENDENCY_TYPE_MAP[dependencyType] ?? DEFAULT_DEPENDENCY_TYPE;
+}
+
+/**
+ * Group dependencies by category for structured display.
+ */
+export function groupDependenciesByCategory<T extends { dependencyType: string }>(
+  dependencies: readonly T[],
+): { parents: T[]; blockers: T[]; other: T[] } {
+  const parents: T[] = [];
+  const blockers: T[] = [];
+  const other: T[] = [];
+  for (const dep of dependencies) {
+    const def = getDependencyTypeDef(dep.dependencyType);
+    switch (def.category) {
+      case "parent":
+        parents.push(dep);
+        break;
+      case "blocker":
+        blockers.push(dep);
+        break;
+      default:
+        other.push(dep);
+    }
+  }
+  return { parents, blockers, other };
+}
+
+/**
+ * Group dependencies by their exact beads dependency_type value so the UI can
+ * preserve the semantic differences between prerequisites, blockers, and
+ * downstream impact.
+ */
+export function groupDependenciesByType<T extends { dependencyType: string }>(
+  dependencies: readonly T[],
+): {
+  parentChild: T[];
+  blockedBy: T[];
+  dependsOn: T[];
+  blocks: T[];
+  other: T[];
+} {
+  const parentChild: T[] = [];
+  const blockedBy: T[] = [];
+  const dependsOn: T[] = [];
+  const blocks: T[] = [];
+  const other: T[] = [];
+
+  for (const dependency of dependencies) {
+    switch (dependency.dependencyType) {
+      case "parent-child":
+        parentChild.push(dependency);
+        break;
+      case "blocked_by":
+        blockedBy.push(dependency);
+        break;
+      case "depends_on":
+        dependsOn.push(dependency);
+        break;
+      case "blocks":
+        blocks.push(dependency);
+        break;
+      default:
+        other.push(dependency);
+        break;
+    }
+  }
+
+  return { parentChild, blockedBy, dependsOn, blocks, other };
+}

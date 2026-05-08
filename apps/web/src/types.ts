@@ -3,6 +3,7 @@ import type {
   ModelSelection,
   OrchestrationLatestTurn,
   OrchestrationProposedPlanId,
+  OrchestrationThreadIssueLink,
   RepositoryIdentity,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
@@ -113,6 +114,7 @@ export interface Thread {
   pendingSourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"];
   branch: string | null;
   worktreePath: string | null;
+  issueLink?: OrchestrationThreadIssueLink | null;
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
 }
@@ -132,6 +134,7 @@ export interface ThreadShell {
   updatedAt?: string | undefined;
   branch: string | null;
   worktreePath: string | null;
+  issueLink?: OrchestrationThreadIssueLink | null;
 }
 
 export interface ThreadTurnState {
@@ -156,6 +159,7 @@ export interface SidebarThreadSummary {
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;
   hasActionableProposedPlan: boolean;
+  issueLink?: OrchestrationThreadIssueLink | null;
 }
 
 export interface ThreadSession {

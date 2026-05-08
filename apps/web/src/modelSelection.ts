@@ -67,6 +67,23 @@ function readInstanceCustomModels(
   return legacyProviders[driverKind]?.customModels ?? [];
 }
 
+export function resolveDefaultModelSelection(
+  modelSelection: ModelSelection | null | undefined,
+): ModelSelection {
+  if (modelSelection) {
+    return modelSelection;
+  }
+
+  return createModelSelection(DEFAULT_TEXT_GENERATION_INSTANCE_ID, "codex-mini-latest");
+}
+
+export type ProviderCustomModelConfig = {
+  provider: ProviderDriverKind;
+  title: string;
+  description: string;
+  placeholder: string;
+  example: string;
+};
 export interface AppModelOption {
   slug: string;
   name: string;
@@ -319,6 +336,33 @@ export function resolveAppModelSelectionState(
     models: getProviderModels(providers, provider),
     prompt: "",
     modelOptions: keptSelectedProvider ? selection.options : undefined,
+  });
+
+  return createModelSelection(defaultInstanceIdForDriver(provider), model, modelOptionsForDispatch);
+}
+
+export function resolvePlanLaunchModelSelection(input: {
+  preset: "current" | "smaller";
+  modelSelection: ModelSelection;
+  settings: UnifiedSettings;
+  providers: ReadonlyArray<ServerProvider>;
+}): ModelSelection {
+  const selectedInstanceId = input.modelSelection.instanceId;
+  const provider = resolveSelectableProvider(input.providers, selectedInstanceId);
+  const requestedModel =
+    input.preset === "smaller"
+      ? DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[provider]
+      : input.modelSelection.model;
+  const model = resolveAppModelSelection(provider, input.settings, input.providers, requestedModel);
+  const { modelOptionsForDispatch } = getComposerProviderState({
+    provider,
+    model,
+    models: getProviderModels(input.providers, provider),
+    prompt: "",
+    modelOptions:
+      selectedInstanceId === defaultInstanceIdForDriver(provider)
+        ? input.modelSelection.options
+        : undefined,
   });
 
   return createModelSelection(defaultInstanceIdForDriver(provider), model, modelOptionsForDispatch);

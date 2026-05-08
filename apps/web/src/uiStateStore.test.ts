@@ -10,11 +10,13 @@ import {
   type PersistedUiState,
   persistState,
   reorderProjects,
+  setEpicGroupExpanded,
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
   setThreadChangedFilesExpanded,
   syncProjects,
   syncThreads,
+  toggleEpicGroupExpanded,
   type UiState,
 } from "./uiStateStore";
 
@@ -22,6 +24,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
     projectOrder: [],
+    epicGroupExpandedById: {},
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -395,6 +398,40 @@ describe("uiStateStore pure functions", () => {
 
     expect(next.projectExpandedById[project1]).toBe(false);
     expect(next.projectOrder).toEqual([project1]);
+  });
+
+  it("toggleEpicGroupExpanded flips persisted epic expansion state", () => {
+    const initialState = makeUiState({
+      epicGroupExpandedById: {
+        "project-1:EPIC-1": false,
+      },
+    });
+
+    const next = toggleEpicGroupExpanded(initialState, "project-1:EPIC-1");
+
+    expect(next.epicGroupExpandedById["project-1:EPIC-1"]).toBe(true);
+  });
+
+  it("setEpicGroupExpanded is a no-op when the requested state is already stored", () => {
+    const initialState = makeUiState({
+      epicGroupExpandedById: {
+        "project-1:EPIC-1": true,
+      },
+    });
+
+    const next = setEpicGroupExpanded(initialState, "project-1:EPIC-1", true);
+
+    expect(next).toBe(initialState);
+  });
+
+  it("setEpicGroupExpanded stores explicit epic expansion overrides", () => {
+    const initialState = makeUiState();
+
+    const next = setEpicGroupExpanded(initialState, "project-1:EPIC-1", false);
+
+    expect(next.epicGroupExpandedById).toEqual({
+      "project-1:EPIC-1": false,
+    });
   });
 
   it("clearThreadUi removes visit state for deleted threads", () => {
