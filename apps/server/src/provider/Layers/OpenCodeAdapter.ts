@@ -1025,6 +1025,9 @@ export function makeOpenCodeAdapter(
           sessions.delete(input.threadId);
         }
 
+        const resumeCursor =
+          typeof input.resumeCursor === "string" ? input.resumeCursor : undefined;
+
         const started = yield* Effect.gen(function* () {
           const sessionScope = yield* Scope.make();
           const startedExit = yield* Effect.exit(
@@ -1042,23 +1045,56 @@ export function makeOpenCodeAdapter(
                 directory,
                 ...(server.external && serverPassword ? { serverPassword } : {}),
               });
-              const openCodeSession = yield* runOpenCodeSdk("session.create", () =>
-                client.session.create({
-                  title: `T3 Code ${input.threadId}`,
-                  permission: buildOpenCodePermissionRules(input.runtimeMode),
-                }),
-              );
-              if (!openCodeSession.data) {
-                return yield* new OpenCodeRuntimeError({
-                  operation: "session.create",
-                  detail: "OpenCode session.create returned no session payload.",
-                });
+
+              let openCodeSessionId: string;
+              let isResumed = false;
+
+              if (resumeCursor) {
+                const resumeExit = yield* Effect.exit(
+                  runOpenCodeSdk("session.get", () =>
+                    client.session.get({ sessionID: resumeCursor }),
+                  ),
+                );
+                if (Exit.isSuccess(resumeExit) && resumeExit.value.data) {
+                  openCodeSessionId = resumeExit.value.data.id;
+                  isResumed = true;
+                } else {
+                  const createResult = yield* runOpenCodeSdk("session.create", () =>
+                    client.session.create({
+                      title: `T3 Code ${input.threadId}`,
+                      permission: buildOpenCodePermissionRules(input.runtimeMode),
+                    }),
+                  );
+                  if (!createResult.data) {
+                    return yield* new OpenCodeRuntimeError({
+                      operation: "session.create",
+                      detail: "OpenCode session.create returned no session payload.",
+                    });
+                  }
+                  openCodeSessionId = createResult.data.id;
+                }
+              } else {
+                const createResult = yield* runOpenCodeSdk("session.create", () =>
+                  client.session.create({
+                    title: `T3 Code ${input.threadId}`,
+                    permission: buildOpenCodePermissionRules(input.runtimeMode),
+                  }),
+                );
+                if (!createResult.data) {
+                  return yield* new OpenCodeRuntimeError({
+                    operation: "session.create",
+                    detail: "OpenCode session.create returned no session payload.",
+                  });
+                }
+                openCodeSessionId = createResult.data.id;
               }
+
               return {
                 sessionScope,
                 server,
                 client,
-                openCodeSession: openCodeSession.data,
+                openCodeSessionId,
+                isResumed,
               };
             }).pipe(Effect.provideService(Scope.Scope, sessionScope)),
           );
@@ -1075,11 +1111,15 @@ export function makeOpenCodeAdapter(
         if (raceWinner) {
           // Another call won the race – clean up the session we just created
           // (including the remote SDK session) and return the existing one.
-          yield* runOpenCodeSdk("session.abort", () =>
-            started.client.session.abort({
-              sessionID: started.openCodeSession.id,
-            }),
-          ).pipe(Effect.ignore);
+          // If we resumed an existing session, don't abort it; the winner may
+          // be using the same session.
+          if (!started.isResumed) {
+            yield* runOpenCodeSdk("session.abort", () =>
+              started.client.session.abort({
+                sessionID: started.openCodeSessionId,
+              }),
+            ).pipe(Effect.ignore);
+          }
           yield* Scope.close(started.sessionScope, Exit.void).pipe(Effect.ignore);
           return raceWinner.session;
         }
@@ -1093,6 +1133,7 @@ export function makeOpenCodeAdapter(
           cwd: directory,
           ...(input.modelSelection ? { model: input.modelSelection.model } : {}),
           threadId: input.threadId,
+          resumeCursor: started.openCodeSessionId,
           createdAt,
           updatedAt: createdAt,
         };
@@ -1102,7 +1143,7 @@ export function makeOpenCodeAdapter(
           client: started.client,
           server: started.server,
           directory,
-          openCodeSessionId: started.openCodeSession.id,
+          openCodeSessionId: started.openCodeSessionId,
           pendingPermissions: new Map(),
           pendingQuestions: new Map(),
           partById: new Map(),
@@ -1123,14 +1164,17 @@ export function makeOpenCodeAdapter(
           ...(yield* buildEventBase({ threadId: input.threadId })),
           type: "session.started",
           payload: {
-            message: "OpenCode session started",
+            message:
+              resumeCursor && started.isResumed
+                ? "OpenCode session resumed"
+                : "OpenCode session started",
           },
         });
         yield* emit({
           ...(yield* buildEventBase({ threadId: input.threadId })),
           type: "thread.started",
           payload: {
-            providerThreadId: started.openCodeSession.id,
+            providerThreadId: started.openCodeSessionId,
           },
         });
 

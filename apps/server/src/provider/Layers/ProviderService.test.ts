@@ -796,7 +796,9 @@ routing.layer("ProviderServiceLive routing", (it) => {
       assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
 
       yield* provider.interruptTurn({ threadId: session.threadId });
-      assert.deepEqual(routing.codex.interruptTurn.mock.calls, [[session.threadId, undefined]]);
+      assert.deepEqual(routing.codex.interruptTurn.mock.calls, [
+        [session.threadId, asTurnId(`turn-${String(session.threadId)}`)],
+      ]);
 
       yield* provider.respondToRequest({
         threadId: session.threadId,
@@ -948,6 +950,50 @@ routing.layer("ProviderServiceLive routing", (it) => {
         assert.equal(startPayload.threadId, initial.threadId);
       }
       assert.equal(routing.codex.sendTurn.mock.calls.length, 1);
+    }),
+  );
+
+  it.effect("persists a stopped binding even when adapter stopSession fails", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const runtimeRepository = yield* ProviderSessionRuntimeRepository;
+
+      const session = yield* provider.startSession(asThreadId("thread-stop-fails"), {
+        provider: ProviderDriverKind.make("codex"),
+        providerInstanceId: codexInstanceId,
+        threadId: asThreadId("thread-stop-fails"),
+        cwd: "/tmp/project-stop-fails",
+        runtimeMode: "full-access",
+      });
+
+      routing.codex.stopSession.mockImplementationOnce(() =>
+        Effect.fail(
+          new ProviderAdapterRequestError({
+            provider: ProviderDriverKind.make("codex"),
+            method: "stopSession",
+            detail: "simulated stop failure",
+          }),
+        ),
+      );
+
+      const failure = yield* Effect.flip(provider.stopSession({ threadId: session.threadId }));
+      assert.instanceOf(failure, ProviderAdapterRequestError);
+      assert.equal(failure.detail, "simulated stop failure");
+
+      const persistedAfterStop = yield* runtimeRepository.getByThreadId({
+        threadId: session.threadId,
+      });
+      assert.equal(Option.isSome(persistedAfterStop), true);
+      if (Option.isSome(persistedAfterStop)) {
+        assert.equal(persistedAfterStop.value.status, "stopped");
+        const runtimePayload =
+          persistedAfterStop.value.runtimePayload &&
+          typeof persistedAfterStop.value.runtimePayload === "object" &&
+          !Array.isArray(persistedAfterStop.value.runtimePayload)
+            ? (persistedAfterStop.value.runtimePayload as { activeTurnId?: unknown })
+            : null;
+        assert.equal(runtimePayload?.activeTurnId ?? null, null);
+      }
     }),
   );
 

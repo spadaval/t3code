@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const APP_DISPLAY_NAME = isDevelopment ? "T3 Code (Dev)" : "T3 Code (Alpha)";
 const APP_BUNDLE_ID = isDevelopment ? "com.t3tools.t3code.dev" : "com.t3tools.t3code";
-const LAUNCHER_VERSION = 2;
+const LAUNCHER_VERSION = 3;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const desktopDir = resolve(__dirname, "..");
@@ -128,6 +128,77 @@ function readJson(path) {
   }
 }
 
+function getRequiredElectronResourcePaths(electronPackageDir) {
+  if (process.platform === "darwin") {
+    return [
+      join(
+        electronPackageDir,
+        "dist",
+        "Electron.app",
+        "Contents",
+        "Frameworks",
+        "Electron Framework.framework",
+        "Versions",
+        "A",
+        "Resources",
+        "icudtl.dat",
+      ),
+      join(
+        electronPackageDir,
+        "dist",
+        "Electron.app",
+        "Contents",
+        "Frameworks",
+        "Electron Helper (Renderer).app",
+        "Contents",
+        "MacOS",
+        "Electron Helper (Renderer)",
+      ),
+    ];
+  }
+
+  return [join(electronPackageDir, "dist", "icudtl.dat")];
+}
+
+function findMissingRequiredElectronResources(electronPackageDir) {
+  return getRequiredElectronResourcePaths(electronPackageDir).filter((path) => !existsSync(path));
+}
+
+function ensureElectronInstallComplete(electronPackageDir) {
+  const missingResources = findMissingRequiredElectronResources(electronPackageDir);
+  if (missingResources.length === 0) {
+    return;
+  }
+
+  console.warn(
+    `[desktop-launcher] Electron install is missing runtime resources; reinstalling ${electronPackageDir}.`,
+  );
+  rmSync(join(electronPackageDir, "dist"), { recursive: true, force: true });
+
+  const result = spawnSync(process.execPath, [join(electronPackageDir, "install.js")], {
+    cwd: electronPackageDir,
+    env: process.env,
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
+    const details = [result.stdout, result.stderr].filter(Boolean).join("\n");
+    throw new Error(`Failed to reinstall Electron runtime resources: ${details}`.trim());
+  }
+
+  const remainingMissingResources = findMissingRequiredElectronResources(electronPackageDir);
+  if (remainingMissingResources.length > 0) {
+    throw new Error(
+      [
+        "Electron install is incomplete after reinstall.",
+        "Missing required runtime resources:",
+        ...remainingMissingResources.map((path) => `- ${path}`),
+      ].join("\n"),
+    );
+  }
+
+  rmSync(join(desktopDir, ".electron-runtime"), { recursive: true, force: true });
+}
+
 function buildMacLauncher(electronBinaryPath) {
   const sourceAppBundlePath = resolve(electronBinaryPath, "../../..");
   const runtimeDir = join(desktopDir, ".electron-runtime");
@@ -155,7 +226,7 @@ function buildMacLauncher(electronBinaryPath) {
   }
 
   rmSync(targetAppBundlePath, { recursive: true, force: true });
-  cpSync(sourceAppBundlePath, targetAppBundlePath, { recursive: true });
+  cpSync(sourceAppBundlePath, targetAppBundlePath, { recursive: true, verbatimSymlinks: true });
   patchMainBundleInfoPlist(targetAppBundlePath, iconPath);
   writeFileSync(metadataPath, `${JSON.stringify(expectedMetadata, null, 2)}\n`);
 
@@ -164,6 +235,9 @@ function buildMacLauncher(electronBinaryPath) {
 
 export function resolveElectronPath() {
   const require = createRequire(import.meta.url);
+  const electronPackageDir = dirname(require.resolve("electron/package.json"));
+  ensureElectronInstallComplete(electronPackageDir);
+
   const electronBinaryPath = require("electron");
 
   if (process.platform !== "darwin") {

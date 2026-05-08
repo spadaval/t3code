@@ -2,20 +2,20 @@ import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { desktopDir, resolveElectronPath } from "./electron-launcher.mjs";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const desktopDir = resolve(__dirname, "..");
-const electronBin = resolve(desktopDir, "node_modules/.bin/electron");
 const mainJs = resolve(desktopDir, "dist-electron/main.cjs");
 
 console.log("\nLaunching Electron smoke test...");
 
-const child = spawn(electronBin, [mainJs], {
+const childEnv = { ...process.env, VITE_DEV_SERVER_URL: "", ELECTRON_ENABLE_LOGGING: "1" };
+delete childEnv.ELECTRON_RUN_AS_NODE;
+
+const child = spawn(resolveElectronPath(), [mainJs], {
   stdio: ["pipe", "pipe", "pipe"],
-  env: {
-    ...process.env,
-    VITE_DEV_SERVER_URL: "",
-    ELECTRON_ENABLE_LOGGING: "1",
-  },
+  cwd: desktopDir,
+  env: childEnv,
 });
 
 let output = "";
@@ -40,6 +40,8 @@ child.on("exit", () => {
     "Uncaught Error",
     "Uncaught TypeError",
     "Uncaught ReferenceError",
+    "icudtl.dat not found",
+    "GPU process isn't usable",
   ];
   const failures = fatalPatterns.filter((pattern) => output.includes(pattern));
 

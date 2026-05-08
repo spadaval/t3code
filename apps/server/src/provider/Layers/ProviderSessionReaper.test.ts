@@ -189,6 +189,9 @@ describe("ProviderSessionReaper", () => {
           getProjectShellById: () => Effect.die("unused"),
           getFirstActiveThreadIdByProjectId: () => Effect.die("unused"),
           getThreadCheckpointContext: () => Effect.die("unused"),
+          getEpicWorkflowRuntimeState: () => Effect.die("unused"),
+          listPendingCheckpointCaptures: () => Effect.succeed([]),
+          listProjectLinkedIssueThreads: () => Effect.die("unused"),
           getThreadShellById: (threadId) =>
             Effect.succeed(
               input.readModel.threads.find((thread) => thread.id === threadId)

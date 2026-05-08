@@ -223,16 +223,45 @@ export function createWsRpcProtocolLayer(
         retryPolicy,
         retryTransientErrors: true,
       }),
-      (protocol) => ({
-        ...protocol,
-        run: (clientId, writeResponse) =>
-          protocol.run(clientId, (response) => {
-            if (response._tag === "ClientProtocolError" || response._tag === "Defect") {
-              clearAllTrackedRpcRequests();
+      (protocol) => {
+        const trackedProtocol = protocol as unknown as {
+          run: (
+            clientId: unknown,
+            writeResponse: (response: {
+              _tag: string;
+              requestId?: string;
+            }) => Effect.Effect<void, never, never>,
+          ) => Effect.Effect<never, never, never>;
+          send: (
+            clientId: unknown,
+            request: { _tag: string; id?: string; tag?: string },
+            transferables?: readonly Transferable[],
+          ) => typeof protocol.send extends (...args: any[]) => infer TResult ? TResult : never;
+        };
+        return {
+          ...protocol,
+          run: ((
+            clientId: unknown,
+            writeResponse: (response: any) => Effect.Effect<void, never, never>,
+          ) =>
+            trackedProtocol.run(clientId, (response) => {
+              if (response._tag === "Chunk" || response._tag === "Exit") {
+                if (response.requestId) {
+                  acknowledgeRpcRequest(response.requestId);
+                }
+              } else if (response._tag === "ClientProtocolError" || response._tag === "Defect") {
+                clearAllTrackedRpcRequests();
+              }
+              return writeResponse(response);
+            })) as typeof protocol.run,
+          send: ((clientId: unknown, request: any, transferables?: readonly Transferable[]) => {
+            if (request._tag === "Request") {
+              trackRpcRequestSent(request.id, request.tag);
             }
-            return writeResponse(response);
-          }),
-      }),
+            return trackedProtocol.send(clientId, request, transferables);
+          }) as typeof protocol.send,
+        };
+      },
     ),
   );
   const requestHooksLayer = Layer.succeed(
