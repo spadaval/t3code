@@ -34,6 +34,11 @@ T3 Code runs as a **Node.js WebSocket server** that wraps `codex app-server` (JS
 - **Provider runtime**: `codex app-server` does the actual provider/session work. The server talks to it over JSON-RPC on stdio and translates those runtime events into the app's orchestration model.
 
 - **Background workers**: Long-running async flows such as runtime ingestion, command reaction, and checkpoint processing run as queue-backed workers. This keeps work ordered, reduces timing races, and gives tests a deterministic way to wait for the system to go idle.
+- **Epic-run policy**: Current epic coordination is intentionally serial. The rebuild keeps worktree metadata and background worker infrastructure for isolated execution and future integration flows, but shipped epic runs should be described as one assigned issue at a time.
+- **Issue-state freshness**: Beads owns mutable issue metadata and status. The
+  browser may cache and refetch for responsiveness, but the server should not
+  serve mutable issue reads from a long-lived cache because direct external
+  `bd` writes can happen outside the server process.
 
 - **Runtime signals**: The server emits lightweight typed receipts when important async milestones finish, such as checkpoint capture, diff finalization, or a turn becoming fully quiescent. Tests and orchestration code wait on these signals instead of polling internal state.
 

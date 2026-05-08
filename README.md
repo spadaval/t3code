@@ -60,4 +60,6 @@ bun install .
 
 Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening an issue or PR.
 
+Local DB reset note: the current persistence migrations intentionally target upstream plus the rebuilt beads schema and do not preserve compatibility with unreleased broken intermediate branch databases. If your local state DB is from that branch era, stop the app and delete `<T3CODE_HOME>/<dev|userdata>/state.sqlite`, then restart so migrations can rebuild from a clean file.
+
 Need support? Join the [Discord](https://discord.gg/jn4EGJjrvv).

@@ -7,6 +7,7 @@ This is a living glossary for T3 Code. It explains what common terms mean in thi
 - [Project and workspace](#project-and-workspace)
 - [Thread timeline](#thread-timeline)
 - [Orchestration](#orchestration)
+- [Beads workflows](#beads-workflows)
 - [Provider runtime](#provider-runtime)
 - [Checkpointing](#checkpointing)
 
@@ -25,6 +26,8 @@ The root filesystem path for a project. In [the orchestration model][1], it is t
 #### Worktree
 
 A Git worktree used as an isolated workspace for a thread. If a thread has a `worktreePath` in [the contracts][1], it runs there instead of in the main working tree. Git operations live in [GitCore.ts][3].
+The current rebuild keeps this infrastructure even though epic runs are still
+scheduled serially today.
 
 ### Thread timeline
 
@@ -86,6 +89,46 @@ Examples include `checkpoint.baseline.captured`, `checkpoint.diff.finalized`, an
 #### Quiesced
 
 "Quiesced" means a turn has gone quiet and stable. In [the receipt schema][13], it means the follow-up work has settled, including work in [CheckpointReactor.ts][6].
+
+### Beads workflows
+
+These terms describe rebuilt branch workflow concepts and should be read as
+current-state language unless a definition explicitly says it is future work.
+
+#### Epic Run
+
+A server-tracked workflow that coordinates work for a beads epic issue. The
+projection model stores one run plus its ordered issue executions in
+[the orchestration contracts][1] and [epicRun.ts][24]. The rebuilt branch runs
+epic issues serially today, even though the worktree and worker infrastructure
+remain in place for isolation and future expansion.
+
+#### Issue Execution
+
+One assigned issue inside an epic run. Each execution records its sequence
+number, workspace identity, worker thread, and lifecycle state in
+[the orchestration contracts][1] and [epicRun.ts][24]. Current epic policy is
+one active assigned issue at a time per run.
+
+#### Backlog Grooming
+
+A beads workflow that opens a thread for triage and backlog maintenance without
+targeting a single issue. The start input lives in [beads.ts][25] as
+`BeadsStartBacklogGroomingInput`.
+
+#### Plan Implementation Launch
+
+A projected record describing how an approved proposed plan was launched into
+execution. Rebuilt persistence stores launch metadata in
+`projection_plan_implementation_launches`, including `launch_mode`, as shown in
+[032_ProjectionPlanMetadata.ts][26].
+
+#### Supervised Execution
+
+Planning term for a broader guided execution model beyond the currently shipped
+runtime-mode toggle. The rebuilt branch does support thread runtime modes such
+as `Supervised`, `Auto-accept edits`, and `Full access`, but docs should avoid
+claiming that a larger supervised orchestration workflow is already complete.
 
 ### Provider runtime
 
@@ -149,7 +192,7 @@ The file patch and changed-file summary for one turn. It is usually computed in 
 
 ## Related Docs
 
-- [architecture.md][24]
+- [architecture.md][27]
 - [provider-architecture.md][16]
 - [runtime-modes.md][18]
 - [workspace-layout.md][2]
@@ -177,4 +220,7 @@ The file patch and changed-file summary for one turn. It is usually computed in 
 [21]: ../apps/server/src/persistence/Services/ProjectionCheckpoints.ts
 [22]: ../apps/server/src/checkpointing/Utils.ts
 [23]: ../apps/server/src/checkpointing/Diffs.ts
-[24]: ./architecture.md
+[24]: ../packages/shared/src/epicRun.ts
+[25]: ../packages/contracts/src/beads.ts
+[26]: ../apps/server/src/persistence/Migrations/032_ProjectionPlanMetadata.ts
+[27]: ./architecture.md

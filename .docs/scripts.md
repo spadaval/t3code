@@ -8,6 +8,8 @@
   `bun run dev -- --base-dir ~/.t3-2`
 - `bun run start` — Runs the production server (serves built web app as static files).
 - `bun run build` — Builds contracts, web app, and server through Turbo.
+- `bun fmt` — Formats the repo.
+- `bun lint` — Runs the lint suite used for local completion checks.
 - `bun run typecheck` — Strict TypeScript checks for all packages.
 - `bun run test` — Runs workspace tests.
 - `bun run dist:desktop:artifact -- --platform <mac|linux|win> --target <target> --arch <arch>` — Builds a desktop artifact for a specific platform/target/arch.
@@ -15,6 +17,17 @@
 - `bun run dist:desktop:dmg:x64` — Builds an Intel macOS `.dmg`.
 - `bun run dist:desktop:linux` — Builds a Linux AppImage into `./release`.
 - `bun run dist:desktop:win` — Builds a Windows NSIS installer into `./release`.
+
+## Local verification
+
+For task completion on this rebuilt branch, run:
+
+```bash
+bun fmt
+bun lint
+bun typecheck
+bun run test
+```
 
 ## Desktop `.dmg` packaging notes
 
