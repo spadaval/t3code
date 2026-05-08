@@ -1,6 +1,19 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, it, assert, live } from "@effect/vitest";
-import { Effect, Exit, Layer, PubSub, Ref, Schema, Scope, Sink, Stream } from "effect";
+import {
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  PubSub,
+  Ref,
+  Schema,
+  Scope,
+  Sink,
+  Stream,
+} from "effect";
+import { TestClock } from "effect/testing";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import {
   ClaudeSettings,
@@ -21,6 +34,7 @@ import { createModelCapabilities } from "@t3tools/shared/model";
 
 import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from "./CodexProvider.ts";
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
+import { expandHomePath } from "../../pathExpansion.ts";
 import { OpenCodeRuntimeLive } from "../opencodeRuntime.ts";
 import { NoOpProviderEventLoggers, ProviderEventLoggers } from "./ProviderEventLoggers.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./ProviderInstanceRegistryHydration.ts";
@@ -370,10 +384,11 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest(), T
 
       it.effect("returns unavailable when codex is missing", () =>
         Effect.gen(function* () {
+          const missingBinary = "missing-codex";
           const status = yield* checkCodexProviderStatus(defaultCodexSettings, () =>
             Effect.fail(
               new CodexErrors.CodexAppServerSpawnError({
-                command: "codex app-server",
+                command: `${missingBinary} app-server`,
                 cause: new Error("spawn codex ENOENT"),
               }),
             ),
@@ -381,9 +396,34 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest(), T
           assert.strictEqual(status.status, "error");
           assert.strictEqual(status.installed, false);
           assert.strictEqual(status.auth.status, "unknown");
+          assert.match(
+            status.message ?? "",
+            /^Codex CLI \(`codex`\) is not installed or not on PATH:/,
+          );
+          assert.match(status.message ?? "", /missing-codex app-server/);
+          assert.match(status.message ?? "", /spawn codex ENOENT/);
+        }),
+      );
+
+      it.effect("includes actionable timeout diagnostics when the codex probe hangs", () =>
+        Effect.gen(function* () {
+          const expandedHomePath = expandHomePath("~/.codex-test");
+          const statusEffect = checkCodexProviderStatus(
+            Schema.decodeSync(CodexSettings)({
+              binaryPath: "codex-alt",
+              homePath: "~/.codex-test",
+            }),
+            () => Effect.never,
+          );
+          const fiber = yield* statusEffect.pipe(Effect.forkScoped);
+          yield* TestClock.adjust(Duration.millis(8_001));
+          const status = yield* Fiber.join(fiber);
+
+          assert.strictEqual(status.status, "error");
+          assert.strictEqual(status.installed, true);
           assert.strictEqual(
             status.message,
-            "Codex CLI (`codex`) is not installed or not on PATH.",
+            `Timed out after 8s while checking Codex app-server provider status. T3 Code started \`codex-alt app-server\` from \`${process.cwd()}\` and waited for initialize, account, model, and skill responses, but the app-server did not finish the check. Try running \`codex-alt app-server\` from that directory, run \`codex-alt login\` if auth is stale, or restart T3 Code to clear a stuck provider process. CODEX_HOME was \`${expandedHomePath}\`.`,
           );
         }),
       );
@@ -976,9 +1016,10 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest(), T
               "Real Codex probe against a missing binary should surface as 'error' in the aggregator",
             );
             assert.strictEqual(codexPersonal?.installed, false);
-            assert.strictEqual(
-              codexPersonal?.message,
-              "Codex CLI (`codex`) is not installed or not on PATH.",
+            assert.match(codexPersonal?.message ?? "", /is not installed or not on PATH:/);
+            assert.match(
+              codexPersonal?.message ?? "",
+              new RegExp(missingBinary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
             );
           }).pipe(Effect.provide(runtimeServices));
         }),

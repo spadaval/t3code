@@ -757,6 +757,29 @@ export const makeCodexSessionRuntime = (
         message,
       });
 
+    const logCodexRuntime = (
+      level: "debug" | "info" | "warning" | "error",
+      message: string,
+      details: Record<string, unknown>,
+    ) => {
+      const payload = {
+        provider: PROVIDER,
+        threadId: options.threadId,
+        ...details,
+      };
+      switch (level) {
+        case "debug":
+          return Effect.logDebug(message, payload);
+        case "warning":
+          return Effect.logWarning(message, payload);
+        case "error":
+          return Effect.logError(message, payload);
+        case "info":
+        default:
+          return Effect.logInfo(message, payload);
+      }
+    };
+
     const settlePendingApprovals = (decision: ProviderApprovalDecision) =>
       Ref.get(pendingApprovalsRef).pipe(
         Effect.flatMap((pendingApprovals) =>
@@ -1110,12 +1133,18 @@ export const makeCodexSessionRuntime = (
                 if (!classified) {
                   return Effect.void;
                 }
-                return emitEvent({
-                  kind: "notification",
-                  threadId: options.threadId,
-                  method: "process/stderr",
+                return logCodexRuntime("warning", "codex app-server stderr", {
                   message: classified.message,
-                });
+                }).pipe(
+                  Effect.andThen(
+                    emitEvent({
+                      kind: "notification",
+                      threadId: options.threadId,
+                      method: "process/stderr",
+                      message: classified.message,
+                    }),
+                  ),
+                );
               },
               { discard: true },
             ),
@@ -1133,16 +1162,30 @@ export const makeCodexSessionRuntime = (
               return Effect.void;
             }
             const nextStatus = exitCode === 0 ? "closed" : "error";
-            return updateSession(sessionRef, {
-              status: nextStatus,
-              activeTurnId: undefined,
-            }).pipe(
-              Effect.andThen(
-                emitSessionEvent(
-                  "session/exited",
-                  exitCode === 0
-                    ? "Codex App Server exited."
-                    : `Codex App Server exited with code ${exitCode}.`,
+            return Ref.get(stderrRemainderRef).pipe(
+              Effect.flatMap((stderrRemainder) =>
+                logCodexRuntime(exitCode === 0 ? "info" : "warning", "codex app-server exited", {
+                  exitCode,
+                  sessionStatus: nextStatus,
+                  hadTrailingStderrFragment: stderrRemainder.trim().length > 0,
+                  ...(stderrRemainder.trim().length > 0
+                    ? { trailingStderrFragment: stderrRemainder.trim() }
+                    : {}),
+                }).pipe(
+                  Effect.andThen(
+                    updateSession(sessionRef, {
+                      status: nextStatus,
+                      activeTurnId: undefined,
+                    }),
+                  ),
+                  Effect.andThen(
+                    emitSessionEvent(
+                      "session/exited",
+                      exitCode === 0
+                        ? "Codex App Server exited."
+                        : `Codex App Server exited with code ${exitCode}.`,
+                    ),
+                  ),
                 ),
               ),
             );
@@ -1153,6 +1196,13 @@ export const makeCodexSessionRuntime = (
     );
 
     const start = Effect.fn("CodexSessionRuntime.start")(function* () {
+      yield* logCodexRuntime("info", "starting codex app-server session", {
+        binaryPath: options.binaryPath,
+        cwd: options.cwd,
+        runtimeMode: options.runtimeMode,
+        requestedModel: options.model,
+        resumeThreadId: readResumeCursorThreadId(options.resumeCursor),
+      });
       yield* emitSessionEvent("session/connecting", "Starting Codex App Server session.");
       yield* client.request("initialize", buildCodexInitializeParams());
       yield* client.notify("initialized", undefined);
@@ -1179,6 +1229,12 @@ export const makeCodexSessionRuntime = (
         updatedAt: new Date().toISOString(),
       } satisfies ProviderSession;
       yield* Ref.set(sessionRef, session);
+      yield* logCodexRuntime("info", "codex app-server session ready", {
+        providerThreadId,
+        cwd: opened.cwd,
+        model: opened.model,
+        resumed: readResumeCursorThreadId(options.resumeCursor) !== undefined,
+      });
       yield* emitSessionEvent("session/ready", "Codex App Server session ready.");
       return session;
     });
@@ -1219,6 +1275,15 @@ export const makeCodexSessionRuntime = (
           const normalizedModel = normalizeCodexModelSlug(
             input.model ?? (yield* Ref.get(sessionRef)).model,
           );
+          yield* logCodexRuntime("info", "sending codex turn/start request", {
+            providerThreadId,
+            model: normalizedModel,
+            interactionMode: input.interactionMode,
+            serviceTier: input.serviceTier,
+            effort: input.effort,
+            attachmentCount: input.attachments?.length ?? 0,
+            promptLength: input.input?.length ?? 0,
+          });
           const params = yield* buildTurnStartParams({
             threadId: providerThreadId,
             runtimeMode: options.runtimeMode,
@@ -1242,6 +1307,11 @@ export const makeCodexSessionRuntime = (
             status: "running",
             activeTurnId: turnId,
             ...(normalizedModel ? { model: normalizedModel } : {}),
+          });
+          yield* logCodexRuntime("info", "codex turn/start accepted", {
+            providerThreadId,
+            turnId,
+            model: normalizedModel,
           });
           const resumedProviderThreadId = currentProviderThreadId(yield* Ref.get(sessionRef));
           return {
