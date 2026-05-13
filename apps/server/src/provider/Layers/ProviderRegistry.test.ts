@@ -1,18 +1,18 @@
+// @effect-diagnostics globalDateInEffect:off
+// @effect-diagnostics globalTimers:off
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, it, assert, live } from "@effect/vitest";
-import {
-  Duration,
-  Effect,
-  Exit,
-  Fiber,
-  Layer,
-  PubSub,
-  Ref,
-  Schema,
-  Scope,
-  Sink,
-  Stream,
-} from "effect";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
+import * as PubSub from "effect/PubSub";
+import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
+import * as Sink from "effect/Sink";
+import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 import * as CodexErrors from "effect-codex-app-server/errors";
 import {
@@ -31,6 +31,7 @@ import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { deepMerge } from "@t3tools/shared/Struct";
 import { createModelCapabilities } from "@t3tools/shared/model";
+import { applyServerSettingsPatch } from "@t3tools/shared/serverSettings";
 
 import { checkCodexProviderStatus, type CodexAppServerProviderSnapshot } from "./CodexProvider.ts";
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
@@ -260,7 +261,7 @@ function makeMutableServerSettingsService(
       updateSettings: (patch) =>
         Effect.gen(function* () {
           const current = yield* Ref.get(settingsRef);
-          const next = Schema.decodeSync(ServerSettings)(deepMerge(current, patch));
+          const next = applyServerSettingsPatch(current, patch);
           yield* Ref.set(settingsRef, next);
           yield* PubSub.publish(changes, next);
           return next;
@@ -939,40 +940,33 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest(), T
         Effect.gen(function* () {
           const missingBinary = `t3code_codex_missing_${process.pid}_${Date.now()}`;
           const serverSettings = yield* makeMutableServerSettingsService(
-            Schema.decodeSync(ServerSettings)(
-              deepMerge(DEFAULT_SERVER_SETTINGS, {
-                providers: {
-                  // Disable every built-in probe that would otherwise spawn
-                  // on the CI host. `enabled: false` short-circuits each
-                  // driver's probe *before* it touches the spawner, so the
-                  // test environment stays isolated from the dev
-                  // machine's PATH.
-                  codex: { enabled: false },
-                  claudeAgent: { enabled: false },
-                  cursor: { enabled: false },
-                  opencode: { enabled: false },
-                },
-                // `providerInstances` keys are branded `ProviderInstanceId`;
-                // the branded index signature rejects plain string literals
-                // at the TS level even though the runtime schema happily
-                // accepts + decodes them. Cast the patch to `unknown` so
-                // the `Schema.decodeSync` below does the real validation.
-                providerInstances: {
-                  // Matches the shape the user had in `.t3/dev/settings.json`
-                  // when the bug was reported: a custom enabled Codex instance
-                  // pointing at a binary the server has to actually spawn.
-                  codex_personal: {
-                    driver: "codex",
-                    displayName: "Codex Personal",
-                    enabled: true,
-                    config: {
-                      binaryPath: missingBinary,
-                      homePath: `/tmp/${missingBinary}_home`,
-                    },
+            applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+              providers: {
+                // Disable every built-in probe that would otherwise spawn
+                // on the CI host. `enabled: false` short-circuits each
+                // driver's probe *before* it touches the spawner, so the
+                // test environment stays isolated from the dev
+                // machine's PATH.
+                codex: { enabled: false },
+                claudeAgent: { enabled: false },
+                cursor: { enabled: false },
+                opencode: { enabled: false },
+              },
+              providerInstances: {
+                // Matches the shape the user had in `.t3/dev/settings.json`
+                // when the bug was reported: a custom enabled Codex instance
+                // pointing at a binary the server has to actually spawn.
+                codex_personal: {
+                  driver: "codex",
+                  displayName: "Codex Personal",
+                  enabled: true,
+                  config: {
+                    binaryPath: missingBinary,
+                    homePath: `/tmp/${missingBinary}_home`,
                   },
-                } as unknown as ContractServerSettings["providerInstances"],
-              }),
-            ),
+                },
+              } as unknown as ContractServerSettings["providerInstances"],
+            }),
           );
           const scope = yield* Scope.make();
           yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
@@ -1049,16 +1043,14 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest(), T
           const firstMissing = `t3code_codex_first_${process.pid}_${Date.now()}`;
           const secondMissing = `t3code_codex_second_${process.pid}_${Date.now()}`;
           const serverSettings = yield* makeMutableServerSettingsService(
-            Schema.decodeSync(ServerSettings)(
-              deepMerge(DEFAULT_SERVER_SETTINGS, {
-                providers: {
-                  codex: { enabled: true, binaryPath: firstMissing },
-                  claudeAgent: { enabled: false },
-                  cursor: { enabled: false },
-                  opencode: { enabled: false },
-                },
-              }),
-            ),
+            applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+              providers: {
+                codex: { enabled: true, binaryPath: firstMissing },
+                claudeAgent: { enabled: false },
+                cursor: { enabled: false },
+                opencode: { enabled: false },
+              },
+            }),
           );
           const scope = yield* Scope.make();
           yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
@@ -1146,24 +1138,22 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest(), T
       it.effect("includes unavailable instance snapshots in getProviders", () =>
         Effect.gen(function* () {
           const serverSettings = yield* makeMutableServerSettingsService(
-            Schema.decodeSync(ServerSettings)(
-              deepMerge(DEFAULT_SERVER_SETTINGS, {
-                providers: {
-                  codex: { enabled: false },
-                  claudeAgent: { enabled: false },
-                  cursor: { enabled: false },
-                  opencode: { enabled: false },
+            applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+              providers: {
+                codex: { enabled: false },
+                claudeAgent: { enabled: false },
+                cursor: { enabled: false },
+                opencode: { enabled: false },
+              },
+              providerInstances: {
+                ghost_main: {
+                  driver: "ghostDriver",
+                  displayName: "A fork-only driver we don't ship",
+                  enabled: false,
+                  config: { arbitrary: "payload" },
                 },
-                providerInstances: {
-                  ghost_main: {
-                    driver: "ghostDriver",
-                    displayName: "A fork-only driver we don't ship",
-                    enabled: false,
-                    config: { arbitrary: "payload" },
-                  },
-                } as unknown as ContractServerSettings["providerInstances"],
-              }),
-            ),
+              } as unknown as ContractServerSettings["providerInstances"],
+            }),
           );
           const scope = yield* Scope.make();
           yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
@@ -1202,18 +1192,16 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest(), T
         () =>
           Effect.gen(function* () {
             const serverSettings = yield* makeMutableServerSettingsService(
-              Schema.decodeSync(ServerSettings)(
-                deepMerge(DEFAULT_SERVER_SETTINGS, {
-                  providers: {
-                    codex: {
-                      enabled: false,
-                    },
-                    cursor: {
-                      enabled: false,
-                    },
+              applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+                providers: {
+                  codex: {
+                    enabled: false,
                   },
-                }),
-              ),
+                  cursor: {
+                    enabled: false,
+                  },
+                },
+              }),
             );
             let cursorSpawned = false;
             const scope = yield* Scope.make();

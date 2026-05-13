@@ -26,3 +26,5 @@ squashfs-root/
 .dolt/
 *.db
 .beads-credential-key
+dist-electron/
+.electron-runtime/

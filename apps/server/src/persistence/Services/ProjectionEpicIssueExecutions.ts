@@ -9,7 +9,10 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
-import { Context, Effect, Option, Schema } from "effect";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
 

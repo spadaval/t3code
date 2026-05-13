@@ -1,3 +1,5 @@
+// @effect-diagnostics globalDate:off
+// @effect-diagnostics globalTimers:off
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ProjectId,
@@ -6,7 +8,13 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
 } from "@t3tools/contracts";
-import { Effect, Exit, Layer, ManagedRuntime, Option, Scope, Stream } from "effect";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Layer from "effect/Layer";
+import * as ManagedRuntime from "effect/ManagedRuntime";
+import * as Option from "effect/Option";
+import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -182,6 +190,8 @@ describe("ProviderSessionReaper", () => {
           getCommandReadModel: () => Effect.die("unused"),
           getSnapshot: () => Effect.die("unused"),
           getShellSnapshot: () => Effect.die("unused"),
+          getArchivedShellSnapshot: () => Effect.die("unused"),
+          getFullThreadDiffContext: () => Effect.die("unused"),
           getSnapshotSequence: () =>
             Effect.succeed({ snapshotSequence: input.readModel.snapshotSequence }),
           getCounts: () => Effect.die("unused"),

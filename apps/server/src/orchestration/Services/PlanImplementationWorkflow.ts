@@ -5,8 +5,9 @@ import type {
   OrchestrationLaunchPlanImplementationResult,
   OrchestrationRetryPlanImplementationLaunchInput,
 } from "@t3tools/contracts";
-import { Context } from "effect";
-import type { Effect, Scope } from "effect";
+import * as Context from "effect/Context";
+import type * as Effect from "effect/Effect";
+import type * as Scope from "effect/Scope";
 
 import type { PlanImplementationWorkflowError } from "../Errors.ts";
 

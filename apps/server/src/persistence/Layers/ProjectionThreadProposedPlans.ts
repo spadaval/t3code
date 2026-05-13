@@ -1,4 +1,7 @@
-import { Effect, Layer, Schema, Struct } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+import * as Struct from "effect/Struct";
 import { OrchestrationProposedPlanFollowUpOutcome } from "@t3tools/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";

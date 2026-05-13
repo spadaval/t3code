@@ -23,7 +23,13 @@ import {
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
-import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Layer from "effect/Layer";
+import * as ManagedRuntime from "effect/ManagedRuntime";
+import * as PubSub from "effect/PubSub";
+import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";

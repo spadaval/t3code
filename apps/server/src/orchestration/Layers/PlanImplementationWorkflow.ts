@@ -1,3 +1,5 @@
+// @effect-diagnostics globalDate:off
+// @effect-diagnostics globalDateInEffect:off
 import {
   CommandId,
   DEFAULT_MODEL,
@@ -22,7 +24,12 @@ import {
   buildPlanImplementationThreadTitle,
 } from "@t3tools/shared/plan";
 import { projectScriptRuntimeEnv, setupProjectScript } from "@t3tools/shared/projectScripts";
-import { Cause, Duration, Effect, Fiber, Layer, Option } from "effect";
+import * as Cause from "effect/Cause";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 
 import { GitVcsDriver } from "../../vcs/GitVcsDriver.ts";
 import type { ProjectionPlanImplementationLaunch } from "../../persistence/Services/ProjectionPlanImplementationLaunches.ts";

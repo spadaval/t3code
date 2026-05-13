@@ -8,7 +8,13 @@ import {
   type OrchestrationReadModel,
   type OrchestrationThread,
 } from "@t3tools/contracts";
-import { Cause, Effect, Exit, Layer, Option, Schema, Stream } from "effect";
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import { afterEach, expect, vi } from "vitest";
 
 vi.mock("../../processRunner", () => ({

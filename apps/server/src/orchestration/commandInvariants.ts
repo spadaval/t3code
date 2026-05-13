@@ -18,7 +18,7 @@ import {
   isNonTerminalSharedWorkspaceRun,
   isNonTerminalEpicRunStatus,
 } from "@t3tools/shared/epicRun";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 

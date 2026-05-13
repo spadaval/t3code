@@ -13,7 +13,8 @@ import {
 } from "@t3tools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { layerConfig } from "../../persistence/Layers/Sqlite.ts";

@@ -1,3 +1,5 @@
+// @effect-diagnostics globalDate:off
+// @effect-diagnostics globalDateInEffect:off
 import {
   ChatAttachment,
   IsoDateTime,
@@ -35,7 +37,11 @@ import {
   type RepositoryIdentity,
   ThreadId,
 } from "@t3tools/contracts";
-import { Effect, Layer, Option, Schema, Struct } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import * as Struct from "effect/Struct";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
@@ -64,6 +70,7 @@ import {
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import {
   ProjectionSnapshotQuery,
+  type ProjectionFullThreadDiffContext,
   type ProjectionSnapshotCounts,
   type ProjectionThreadCheckpointContext,
   type ProjectionSnapshotQueryShape,
@@ -1910,6 +1917,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         }),
       );
 
+  const getArchivedShellSnapshot: ProjectionSnapshotQueryShape["getArchivedShellSnapshot"] = () =>
+    getShellSnapshot().pipe(
+      Effect.map((snapshot) => ({
+        ...snapshot,
+        threads: snapshot.threads.filter((thread) => thread.archivedAt !== null),
+      })),
+    );
+
   const getSnapshotSequence: ProjectionSnapshotQueryShape["getSnapshotSequence"] = () =>
     listProjectionStateRows(undefined).pipe(
       Effect.mapError(
@@ -2034,6 +2049,37 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         ),
       });
     });
+
+  const getFullThreadDiffContext: ProjectionSnapshotQueryShape["getFullThreadDiffContext"] = (
+    threadId,
+    toTurnCount,
+  ) =>
+    getThreadCheckpointContext(threadId).pipe(
+      Effect.map(
+        Option.map((context): ProjectionFullThreadDiffContext => {
+          let latestCheckpointTurnCount = 0;
+          let toCheckpointRef = null;
+          for (const checkpoint of context.checkpoints) {
+            latestCheckpointTurnCount = Math.max(
+              latestCheckpointTurnCount,
+              checkpoint.checkpointTurnCount,
+            );
+            if (checkpoint.checkpointTurnCount === toTurnCount) {
+              toCheckpointRef = checkpoint.checkpointRef;
+            }
+          }
+
+          return {
+            threadId: context.threadId,
+            projectId: context.projectId,
+            workspaceRoot: context.workspaceRoot,
+            worktreePath: context.worktreePath,
+            latestCheckpointTurnCount,
+            toCheckpointRef,
+          };
+        }),
+      ),
+    );
 
   const getEpicWorkflowRuntimeState: ProjectionSnapshotQueryShape["getEpicWorkflowRuntimeState"] = (
     input,
@@ -2306,12 +2352,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getCommandReadModel,
     getSnapshot,
     getShellSnapshot,
+    getArchivedShellSnapshot,
     getSnapshotSequence,
     getCounts,
     getActiveProjectByWorkspaceRoot,
     getProjectShellById,
     getFirstActiveThreadIdByProjectId,
     getThreadCheckpointContext,
+    getFullThreadDiffContext,
     getEpicWorkflowRuntimeState,
     listPendingCheckpointCaptures,
     listProjectLinkedIssueThreads,

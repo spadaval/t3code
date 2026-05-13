@@ -1,4 +1,49 @@
+// @effect-diagnostics nodeBuiltinImport:off
+// @effect-diagnostics globalTimers:off
 import { type ChildProcess as ChildProcessHandle, spawn, spawnSync } from "node:child_process";
+import * as Data from "effect/Data";
+import * as Context from "effect/Context";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as PlatformError from "effect/PlatformError";
+import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import {
+  collectUint8StreamText,
+  type CollectedUint8StreamText,
+} from "./stream/collectUint8StreamText.ts";
+
+export interface ProcessRunInput {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly cwd?: string | undefined;
+  readonly spawnCwd?: string | undefined;
+  readonly timeout?: Duration.Input | undefined;
+  readonly env?: NodeJS.ProcessEnv | undefined;
+  readonly stdin?: string | undefined;
+  readonly maxOutputBytes?: number | undefined;
+  readonly outputMode?: "error" | "truncate" | undefined;
+  readonly truncatedMarker?: string | undefined;
+  readonly shell?: boolean | string | undefined;
+  /**
+   * On timeout, return a synthetic timedOut result.
+   * Partial stdout/stderr are not preserved.
+   */
+  readonly timeoutBehavior?: "error" | "timedOutResult" | undefined;
+}
+
+export interface ProcessRunOutput {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly code: ChildProcessSpawner.ExitCode | null;
+  readonly signal?: NodeJS.Signals | null;
+  readonly timedOut: boolean;
+  readonly stdoutTruncated: boolean;
+  readonly stderrTruncated: boolean;
+}
 
 export interface ProcessRunOptions {
   cwd?: string | undefined;
@@ -10,32 +55,60 @@ export interface ProcessRunOptions {
   outputMode?: "error" | "truncate" | undefined;
 }
 
-export interface ProcessRunResult {
-  stdout: string;
-  stderr: string;
-  code: number | null;
-  signal: NodeJS.Signals | null;
-  timedOut: boolean;
-  stdoutTruncated?: boolean | undefined;
-  stderrTruncated?: boolean | undefined;
+export class ProcessSpawnError extends Data.TaggedError("ProcessSpawnError")<{
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly cwd?: string | undefined;
+  readonly cause: unknown;
+}> {}
+
+export class ProcessStdinError extends Data.TaggedError("ProcessStdinError")<{
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly cwd?: string | undefined;
+  readonly cause: unknown;
+}> {}
+
+export class ProcessOutputLimitError extends Data.TaggedError("ProcessOutputLimitError")<{
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly cwd?: string | undefined;
+  readonly stream: "stdout" | "stderr";
+  readonly maxBytes: number;
+}> {}
+
+export class ProcessReadError extends Data.TaggedError("ProcessReadError")<{
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly cwd?: string | undefined;
+  readonly stream: "stdout" | "stderr" | "exitCode";
+  readonly cause: unknown;
+}> {}
+
+export class ProcessTimeoutError extends Data.TaggedError("ProcessTimeoutError")<{
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly cwd?: string | undefined;
+  readonly timeoutMs: number;
+}> {}
+
+export type ProcessRunError =
+  | ProcessSpawnError
+  | ProcessStdinError
+  | ProcessOutputLimitError
+  | ProcessReadError
+  | ProcessTimeoutError;
+
+export interface ProcessRunnerShape {
+  readonly run: (input: ProcessRunInput) => Effect.Effect<ProcessRunOutput, ProcessRunError>;
 }
 
-function commandLabel(command: string, args: readonly string[]): string {
-  return [command, ...args].join(" ");
-}
+export class ProcessRunner extends Context.Service<ProcessRunner, ProcessRunnerShape>()(
+  "t3/process/ProcessRunner",
+) {}
 
-function normalizeSpawnError(command: string, args: readonly string[], error: unknown): Error {
-  if (!(error instanceof Error)) {
-    return new Error(`Failed to run ${commandLabel(command, args)}.`);
-  }
-
-  const maybeCode = (error as NodeJS.ErrnoException).code;
-  if (maybeCode === "ENOENT") {
-    return new Error(`Command not found: ${command}`);
-  }
-
-  return new Error(`Failed to run ${commandLabel(command, args)}: ${error.message}`);
-}
+const DEFAULT_TIMEOUT = "60 seconds";
+const DEFAULT_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 
 const WINDOWS_COMMAND_NOT_FOUND_PATTERNS = [
   /is not recognized as an internal or external command/i,
@@ -56,10 +129,27 @@ export function isWindowsCommandNotFound(code: number | null, stderr: string): b
   return hasWindowsCommandNotFoundMessage(stderr);
 }
 
+function commandLabel(command: string, args: readonly string[]): string {
+  return [command, ...args].join(" ");
+}
+
+function normalizeSpawnError(command: string, args: readonly string[], error: unknown): Error {
+  if (!(error instanceof Error)) {
+    return new Error(`Failed to run ${commandLabel(command, args)}.`);
+  }
+
+  const maybeCode = (error as NodeJS.ErrnoException).code;
+  if (maybeCode === "ENOENT") {
+    return new Error(`Command not found: ${command}`);
+  }
+
+  return new Error(`Failed to run ${commandLabel(command, args)}: ${error.message}`);
+}
+
 function normalizeExitError(
   command: string,
   args: readonly string[],
-  result: ProcessRunResult,
+  result: ProcessRunOutput,
 ): Error {
   if (isWindowsCommandNotFound(result.code, result.stderr)) {
     return new Error(`Command not found: ${command}`);
@@ -78,36 +168,6 @@ function normalizeStdinError(command: string, args: readonly string[], error: un
     return new Error(`Failed to write stdin for ${commandLabel(command, args)}.`);
   }
   return new Error(`Failed to write stdin for ${commandLabel(command, args)}: ${error.message}`);
-}
-
-function normalizeBufferError(
-  command: string,
-  args: readonly string[],
-  stream: "stdout" | "stderr",
-  maxBufferBytes: number,
-): Error {
-  return new Error(
-    `${commandLabel(command, args)} exceeded ${stream} buffer limit (${maxBufferBytes} bytes).`,
-  );
-}
-
-const DEFAULT_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
-
-/**
- * On Windows with `shell: true`, `child.kill()` only terminates the `cmd.exe`
- * wrapper, leaving the actual command running. Use `taskkill /T` to kill the
- * entire process tree instead.
- */
-function killChild(child: ChildProcessHandle, signal: NodeJS.Signals = "SIGTERM"): void {
-  if (process.platform === "win32" && child.pid !== undefined) {
-    try {
-      spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
-      return;
-    } catch {
-      // fallback to direct kill
-    }
-  }
-  child.kill(signal);
 }
 
 function appendChunkWithinLimit(
@@ -138,146 +198,347 @@ function appendChunkWithinLimit(
   };
 }
 
+function killChild(child: ChildProcessHandle, signal: NodeJS.Signals = "SIGTERM"): void {
+  if (process.platform === "win32" && child.pid !== undefined) {
+    try {
+      spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+      return;
+    } catch {
+      // Fall back to direct kill below.
+    }
+  }
+  child.kill(signal);
+}
+
+const collectText = Effect.fn("processRunner.collectText")(function* (input: {
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly cwd?: string | undefined;
+  readonly streamName: "stdout" | "stderr";
+  readonly stream: Stream.Stream<Uint8Array, PlatformError.PlatformError>;
+  readonly maxOutputBytes: number;
+  readonly outputMode: "error" | "truncate";
+  readonly truncatedMarker: string;
+}) {
+  const stream = input.stream.pipe(
+    Stream.mapError(
+      (cause) =>
+        new ProcessReadError({
+          command: input.command,
+          args: input.args,
+          cwd: input.cwd,
+          stream: input.streamName,
+          cause,
+        }),
+    ),
+  );
+
+  if (input.outputMode === "truncate") {
+    return yield* collectUint8StreamText({
+      stream,
+      maxBytes: input.maxOutputBytes,
+      truncatedMarker: input.truncatedMarker,
+    });
+  }
+
+  return yield* stream.pipe(
+    Stream.runFoldEffect<
+      {
+        readonly chunks: Uint8Array<ArrayBufferLike>[];
+        readonly bytes: number;
+      },
+      Uint8Array<ArrayBufferLike>,
+      ProcessOutputLimitError | ProcessReadError,
+      never
+    >(
+      () => ({ chunks: [], bytes: 0 }),
+      (state, chunk) => {
+        const remainingBytes = input.maxOutputBytes - state.bytes;
+        if (remainingBytes <= 0 || chunk.byteLength > remainingBytes) {
+          return Effect.fail(
+            new ProcessOutputLimitError({
+              command: input.command,
+              args: input.args,
+              cwd: input.cwd,
+              stream: input.streamName,
+              maxBytes: input.maxOutputBytes,
+            }),
+          );
+        }
+
+        state.chunks.push(chunk);
+        return Effect.succeed({
+          chunks: state.chunks,
+          bytes: state.bytes + chunk.byteLength,
+        });
+      },
+    ),
+    Effect.map(
+      (state): CollectedUint8StreamText => ({
+        text: Buffer.concat(state.chunks, state.bytes).toString("utf8"),
+        bytes: state.bytes,
+        truncated: false,
+      }),
+    ),
+  );
+});
+
+function finalizeRunProcess<R>(
+  effect: Effect.Effect<ProcessRunOutput, ProcessRunError, R | Scope.Scope>,
+  input: ProcessRunInput,
+): Effect.Effect<ProcessRunOutput, ProcessRunError, Exclude<R, Scope.Scope>> {
+  const timeout = Duration.fromInputUnsafe(input.timeout ?? DEFAULT_TIMEOUT);
+  const timeoutBehavior = input.timeoutBehavior ?? "error";
+
+  return effect.pipe(
+    Effect.scoped,
+    Effect.timeoutOption(timeout),
+    Effect.flatMap((result) => {
+      if (Option.isSome(result)) {
+        return Effect.succeed(result.value);
+      }
+      if (timeoutBehavior === "timedOutResult") {
+        return Effect.succeed({
+          stdout: "",
+          stderr: "",
+          code: null,
+          timedOut: true,
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        } satisfies ProcessRunOutput);
+      }
+      return Effect.fail(
+        new ProcessTimeoutError({
+          command: input.command,
+          args: input.args,
+          cwd: input.cwd,
+          timeoutMs: Duration.toMillis(timeout),
+        }),
+      );
+    }),
+  );
+}
+
+const runProcessCore = Effect.fn("processRunner.runProcessCore")(function* (
+  spawner: ChildProcessSpawner.ChildProcessSpawner["Service"],
+  input: ProcessRunInput,
+): Effect.fn.Return<ProcessRunOutput, ProcessRunError, Scope.Scope> {
+  const maxOutputBytes = input.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
+  const outputMode = input.outputMode ?? "error";
+  const truncatedMarker = input.truncatedMarker ?? "";
+
+  const child = yield* spawner
+    .spawn(
+      ChildProcess.make(input.command, [...input.args], {
+        ...((input.spawnCwd ?? input.cwd) ? { cwd: input.spawnCwd ?? input.cwd } : {}),
+        ...(input.env !== undefined
+          ? {
+              env: input.env,
+              extendEnv: true,
+            }
+          : {}),
+        ...(input.shell !== undefined ? { shell: input.shell } : {}),
+      }),
+    )
+    .pipe(
+      Effect.mapError(
+        (cause) =>
+          new ProcessSpawnError({
+            command: input.command,
+            args: input.args,
+            cwd: input.cwd,
+            cause,
+          }),
+      ),
+    );
+
+  const writeStdin =
+    input.stdin === undefined
+      ? Effect.void
+      : Stream.run(Stream.encodeText(Stream.make(input.stdin)), child.stdin).pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProcessStdinError({
+                command: input.command,
+                args: input.args,
+                cwd: input.cwd,
+                cause,
+              }),
+          ),
+        );
+
+  const [stdout, stderr] = yield* Effect.all(
+    [
+      collectText({
+        command: input.command,
+        args: input.args,
+        cwd: input.cwd,
+        streamName: "stdout",
+        stream: child.stdout,
+        maxOutputBytes,
+        outputMode,
+        truncatedMarker,
+      }),
+      collectText({
+        command: input.command,
+        args: input.args,
+        cwd: input.cwd,
+        streamName: "stderr",
+        stream: child.stderr,
+        maxOutputBytes,
+        outputMode,
+        truncatedMarker,
+      }),
+      writeStdin,
+    ],
+    { concurrency: "unbounded" },
+  );
+
+  const exitCode = yield* child.exitCode.pipe(
+    Effect.mapError(
+      (cause) =>
+        new ProcessReadError({
+          command: input.command,
+          args: input.args,
+          cwd: input.cwd,
+          stream: "exitCode",
+          cause,
+        }),
+    ),
+  );
+
+  return {
+    stdout: stdout.text,
+    stderr: stderr.text,
+    code: exitCode,
+    timedOut: false,
+    stdoutTruncated: stdout.truncated,
+    stderrTruncated: stderr.truncated,
+  } satisfies ProcessRunOutput;
+});
+
+export const make = Effect.fn("makeProcessRunner")(function* () {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+
+  const run: ProcessRunnerShape["run"] = (input) =>
+    finalizeRunProcess(runProcessCore(spawner, input), input);
+
+  return ProcessRunner.of({
+    run,
+  });
+});
+
+export const layer = Layer.effect(ProcessRunner, make());
+
 export async function runProcess(
   command: string,
   args: readonly string[],
   options: ProcessRunOptions = {},
-): Promise<ProcessRunResult> {
-  const timeoutMs = options.timeoutMs ?? 60_000;
-  const maxBufferBytes = options.maxBufferBytes ?? DEFAULT_MAX_BUFFER_BYTES;
-  const outputMode = options.outputMode ?? "error";
+): Promise<ProcessRunOutput> {
+  const maxOutputBytes = options.maxBufferBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
+  const child = spawn(command, [...args], {
+    cwd: options.cwd,
+    env: options.env,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
 
-  return new Promise<ProcessRunResult>((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd,
-      env: options.env,
-      stdio: "pipe",
-      shell: process.platform === "win32",
-    });
+  let stdout = "";
+  let stderr = "";
+  let stdoutBytes = 0;
+  let stderrBytes = 0;
+  let stdoutTruncated = false;
+  let stderrTruncated = false;
+  const outputMode = options.outputMode ?? "truncate";
 
-    let stdout = "";
-    let stderr = "";
-    let stdoutBytes = 0;
-    let stderrBytes = 0;
-    let stdoutTruncated = false;
-    let stderrTruncated = false;
-    let timedOut = false;
+  return await new Promise<ProcessRunOutput>((resolve, reject) => {
     let settled = false;
-    let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
+    let timedOut = false;
+    let timeoutHandle: NodeJS.Timeout | undefined;
 
-    const timeoutTimer = setTimeout(() => {
-      timedOut = true;
-      killChild(child, "SIGTERM");
-      forceKillTimer = setTimeout(() => {
-        killChild(child, "SIGKILL");
-      }, 1_000);
-    }, timeoutMs);
-
-    const finalize = (callback: () => void): void => {
+    const settle = (callback: () => void) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeoutTimer);
-      if (forceKillTimer) {
-        clearTimeout(forceKillTimer);
+      if (timeoutHandle !== undefined) {
+        clearTimeout(timeoutHandle);
       }
       callback();
     };
 
-    const fail = (error: Error): void => {
-      killChild(child, "SIGTERM");
-      finalize(() => {
-        reject(error);
-      });
-    };
-
-    const appendOutput = (stream: "stdout" | "stderr", chunk: Buffer | string): Error | null => {
-      const chunkBuffer = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
-      const text = chunkBuffer.toString();
-      const byteLength = chunkBuffer.length;
-      if (stream === "stdout") {
-        if (outputMode === "truncate") {
-          const appended = appendChunkWithinLimit(stdout, stdoutBytes, chunkBuffer, maxBufferBytes);
-          stdout = appended.next;
-          stdoutBytes = appended.nextBytes;
-          stdoutTruncated = stdoutTruncated || appended.truncated;
-          return null;
-        }
-        stdout += text;
-        stdoutBytes += byteLength;
-        if (stdoutBytes > maxBufferBytes) {
-          return normalizeBufferError(command, args, "stdout", maxBufferBytes);
-        }
-      } else {
-        if (outputMode === "truncate") {
-          const appended = appendChunkWithinLimit(stderr, stderrBytes, chunkBuffer, maxBufferBytes);
-          stderr = appended.next;
-          stderrBytes = appended.nextBytes;
-          stderrTruncated = stderrTruncated || appended.truncated;
-          return null;
-        }
-        stderr += text;
-        stderrBytes += byteLength;
-        if (stderrBytes > maxBufferBytes) {
-          return normalizeBufferError(command, args, "stderr", maxBufferBytes);
-        }
-      }
-      return null;
-    };
-
-    child.stdout.on("data", (chunk: Buffer | string) => {
-      const error = appendOutput("stdout", chunk);
-      if (error) {
-        fail(error);
-      }
-    });
-
-    child.stderr.on("data", (chunk: Buffer | string) => {
-      const error = appendOutput("stderr", chunk);
-      if (error) {
-        fail(error);
-      }
-    });
+    if (options.timeoutMs !== undefined) {
+      timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        killChild(child);
+      }, options.timeoutMs);
+    }
 
     child.once("error", (error) => {
-      finalize(() => {
-        reject(normalizeSpawnError(command, args, error));
-      });
+      settle(() => reject(normalizeSpawnError(command, args, error)));
+    });
+
+    child.stdout?.on("data", (chunk: Buffer) => {
+      const appended = appendChunkWithinLimit(stdout, stdoutBytes, chunk, maxOutputBytes);
+      stdout = appended.next;
+      stdoutBytes = appended.nextBytes;
+      stdoutTruncated = stdoutTruncated || appended.truncated;
+      if (appended.truncated && outputMode === "error") {
+        settle(() => {
+          killChild(child);
+          reject(
+            new Error(
+              `Process stdout exceeded ${maxOutputBytes} bytes while running ${commandLabel(command, args)}.`,
+            ),
+          );
+        });
+      }
+    });
+
+    child.stderr?.on("data", (chunk: Buffer) => {
+      const appended = appendChunkWithinLimit(stderr, stderrBytes, chunk, maxOutputBytes);
+      stderr = appended.next;
+      stderrBytes = appended.nextBytes;
+      stderrTruncated = stderrTruncated || appended.truncated;
+      if (appended.truncated && outputMode === "error") {
+        settle(() => {
+          killChild(child);
+          reject(
+            new Error(
+              `Process stderr exceeded ${maxOutputBytes} bytes while running ${commandLabel(command, args)}.`,
+            ),
+          );
+        });
+      }
     });
 
     child.once("close", (code, signal) => {
-      const result: ProcessRunResult = {
+      const result: ProcessRunOutput = {
         stdout,
         stderr,
-        code,
+        code: code as ChildProcessSpawner.ExitCode | null,
         signal,
         timedOut,
         stdoutTruncated,
         stderrTruncated,
       };
 
-      finalize(() => {
-        if (!options.allowNonZeroExit && (timedOut || (code !== null && code !== 0))) {
-          reject(normalizeExitError(command, args, result));
-          return;
-        }
-        resolve(result);
-      });
+      if (!options.allowNonZeroExit && (timedOut || code !== 0)) {
+        settle(() => reject(normalizeExitError(command, args, result)));
+        return;
+      }
+
+      settle(() => resolve(result));
     });
 
-    child.stdin.once("error", (error) => {
-      fail(normalizeStdinError(command, args, error));
-    });
-
-    if (options.stdin !== undefined) {
-      child.stdin.write(options.stdin, (error) => {
-        if (error) {
-          fail(normalizeStdinError(command, args, error));
-          return;
-        }
-        child.stdin.end();
-      });
+    if (options.stdin === undefined) {
+      child.stdin?.end();
       return;
     }
-    child.stdin.end();
+
+    child.stdin?.write(options.stdin, (error) => {
+      if (error !== null && error !== undefined) {
+        settle(() => reject(normalizeStdinError(command, args, error)));
+        return;
+      }
+      child.stdin?.end();
+    });
   });
 }

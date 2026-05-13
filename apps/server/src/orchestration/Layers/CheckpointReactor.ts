@@ -1,3 +1,5 @@
+// @effect-diagnostics globalDate:off
+// @effect-diagnostics globalDateInEffect:off
 import {
   type CheckpointRef,
   CommandId,
@@ -9,7 +11,11 @@ import {
   type OrchestrationEvent,
   type ProviderRuntimeEvent,
 } from "@t3tools/contracts";
-import { Cause, Effect, Layer, Option, Stream } from "effect";
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 
 import { parseTurnDiffFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";

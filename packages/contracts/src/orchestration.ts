@@ -1,12 +1,10 @@
-import {
-  Effect,
-  Option,
-  Schema,
-  SchemaGetter,
-  SchemaIssue,
-  SchemaTransformation,
-  Struct,
-} from "effect";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import * as SchemaGetter from "effect/SchemaGetter";
+import * as SchemaIssue from "effect/SchemaIssue";
+import * as SchemaTransformation from "effect/SchemaTransformation";
+import * as Struct from "effect/Struct";
 import { ProviderOptionSelections } from "./model.ts";
 import { RepositoryIdentity } from "./environment.ts";
 import {
@@ -33,6 +31,7 @@ export const ORCHESTRATION_WS_METHODS = {
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
   replayEvents: "orchestration.replayEvents",
+  getArchivedShellSnapshot: "orchestration.getArchivedShellSnapshot",
   subscribeShell: "orchestration.subscribeShell",
   subscribeThread: "orchestration.subscribeThread",
   getEpicWorkflowDetail: "orchestration.getEpicWorkflowDetail",
@@ -2106,6 +2105,10 @@ export const OrchestrationRpcSchemas = {
   replayEvents: {
     input: OrchestrationReplayEventsInput,
     output: OrchestrationReplayEventsResult,
+  },
+  getArchivedShellSnapshot: {
+    input: Schema.Struct({}),
+    output: OrchestrationShellSnapshot,
   },
   subscribeThread: {
     input: OrchestrationSubscribeThreadInput,

@@ -53,7 +53,8 @@ import {
   createRequestedEpicIssueExecution,
   materializeStartedEpicIssueExecution,
 } from "@t3tools/shared/epicRun";
-import { Effect, Schema } from "effect";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
 import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
 import { isLegacyMissingCheckpointStatus } from "./checkpointCapture.ts";

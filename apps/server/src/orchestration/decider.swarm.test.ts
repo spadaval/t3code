@@ -6,7 +6,7 @@ import {
   EpicIssueExecutionId,
   type OrchestrationReadModel,
 } from "@t3tools/contracts";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import { describe, expect, it } from "vitest";
 
 import { decideOrchestrationCommand } from "./decider.ts";

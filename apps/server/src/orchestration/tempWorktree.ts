@@ -1,5 +1,5 @@
 import type { GitVcsDriverShape } from "../vcs/GitVcsDriver.ts";
-import { Effect } from "effect";
+import * as Effect from "effect/Effect";
 import {
   buildTemporaryWorktreeBranchName,
   isTemporaryWorktreeBranchName,

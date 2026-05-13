@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off
+// @effect-diagnostics globalDate:off
+// @effect-diagnostics globalDateInEffect:off
 import path from "node:path";
 
 import {
@@ -33,19 +36,17 @@ import {
   type BeadsStartWorkflowInput,
   type BeadsStartWorkflowResult,
 } from "@t3tools/contracts";
-import {
-  Cause,
-  Deferred,
-  Duration,
-  Effect,
-  Layer,
-  Metric,
-  Option,
-  Ref,
-  Schema,
-  Semaphore,
-  SynchronizedRef,
-} from "effect";
+import * as Cause from "effect/Cause";
+import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Metric from "effect/Metric";
+import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
+import * as SynchronizedRef from "effect/SynchronizedRef";
 import { topologicallySortByDependencies } from "@t3tools/shared/dependencyOrder";
 import {
   buildEpicCoordinationGraph,

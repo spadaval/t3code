@@ -1,5 +1,9 @@
 // @ts-nocheck
-import { Effect, Fiber, Layer, ManagedRuntime, Stream } from "effect";
+import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
+import * as ManagedRuntime from "effect/ManagedRuntime";
+import * as Stream from "effect/Stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 

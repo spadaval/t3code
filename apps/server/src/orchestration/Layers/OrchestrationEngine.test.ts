@@ -10,7 +10,13 @@ import {
   type OrchestrationEvent,
   ProviderInstanceId,
 } from "@t3tools/contracts";
-import { Effect, Layer, ManagedRuntime, Metric, Option, Queue, Stream } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as ManagedRuntime from "effect/ManagedRuntime";
+import * as Metric from "effect/Metric";
+import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
+import * as Stream from "effect/Stream";
 import { describe, expect, it } from "vitest";
 
 import { PersistenceSqlError } from "../../persistence/Errors.ts";

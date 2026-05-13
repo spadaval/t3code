@@ -1,7 +1,8 @@
 // @ts-nocheck
 import { MessageId, ThreadId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 
 import { ProjectionThreadMessageRepository } from "../Services/ProjectionThreadMessages.ts";
 import { ProjectionThreadMessageRepositoryLive } from "./ProjectionThreadMessages.ts";

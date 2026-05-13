@@ -7,6 +7,7 @@
  * @module ProjectionSnapshotQuery
  */
 import type {
+  CheckpointRef,
   OrchestrationCheckpointSummary,
   OrchestrationEpicIssueExecution,
   OrchestrationEpicRun,
@@ -23,9 +24,9 @@ import type {
   TurnId,
   MessageId,
 } from "@t3tools/contracts";
-import { Context } from "effect";
-import type { Option } from "effect";
-import type { Effect } from "effect";
+import * as Context from "effect/Context";
+import type * as Option from "effect/Option";
+import type * as Effect from "effect/Effect";
 
 import type { ProjectionRepositoryError } from "../../persistence/Errors.ts";
 
@@ -44,6 +45,15 @@ export interface ProjectionThreadCheckpointContext {
   readonly workspaceRoot: string;
   readonly worktreePath: string | null;
   readonly checkpoints: ReadonlyArray<OrchestrationCheckpointSummary>;
+}
+
+export interface ProjectionFullThreadDiffContext {
+  readonly threadId: ThreadId;
+  readonly projectId: ProjectId;
+  readonly workspaceRoot: string;
+  readonly worktreePath: string | null;
+  readonly latestCheckpointTurnCount: number;
+  readonly toCheckpointRef: CheckpointRef | null;
 }
 
 export interface ProjectionPendingCheckpointCaptureRequest {
@@ -103,6 +113,14 @@ export interface ProjectionSnapshotQueryShape {
   >;
 
   /**
+   * Read archived thread shell summaries for the archive page.
+   */
+  readonly getArchivedShellSnapshot: () => Effect.Effect<
+    OrchestrationShellSnapshot,
+    ProjectionRepositoryError
+  >;
+
+  /**
    * Read the latest projection snapshot sequence without hydrating read-model
    * entities.
    */
@@ -143,6 +161,15 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThreadCheckpointContext: (
     threadId: ThreadId,
   ) => Effect.Effect<Option.Option<ProjectionThreadCheckpointContext>, ProjectionRepositoryError>;
+
+  /**
+   * Read only the narrow context needed to compute a full-thread diff from
+   * checkpoint 0 to a specific turn count.
+   */
+  readonly getFullThreadDiffContext: (
+    threadId: ThreadId,
+    toTurnCount: number,
+  ) => Effect.Effect<Option.Option<ProjectionFullThreadDiffContext>, ProjectionRepositoryError>;
 
   /**
    * Read the narrow runtime state needed for one project's epic workflow detail.

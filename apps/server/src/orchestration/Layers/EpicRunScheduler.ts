@@ -1,3 +1,5 @@
+// @effect-diagnostics globalDate:off
+// @effect-diagnostics globalDateInEffect:off
 import {
   type BeadsIssueRelationSummary,
   type BeadsEpicCoordinationStatus,
@@ -26,8 +28,14 @@ import {
   describeExecutionBlockingReason,
 } from "@t3tools/shared/epicRun";
 import { createModelSelectionWithProviderDefaults } from "@t3tools/shared/model";
-import { Cause, Deferred, Duration, Effect, Fiber, Layer, Stream } from "effect";
-import type { Scope } from "effect";
+import * as Cause from "effect/Cause";
+import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
+import type * as Scope from "effect/Scope";
 
 import { BeadsTrackerService } from "../../beads/Services/BeadsTrackerService.ts";
 import { GitManager } from "../../git/GitManager.ts";

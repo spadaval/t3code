@@ -1,5 +1,7 @@
 // @ts-nocheck
-import { Duration, Effect, ManagedRuntime } from "effect";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as ManagedRuntime from "effect/ManagedRuntime";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {

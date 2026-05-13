@@ -1,4 +1,7 @@
-import { Effect, Layer, ManagedRuntime, Stream } from "effect";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as ManagedRuntime from "effect/ManagedRuntime";
+import * as Stream from "effect/Stream";
 
 import {
   BeadsError,
@@ -1095,6 +1098,8 @@ export async function createEpicRunSchedulerHarness(
         getCommandReadModel: getReadModel,
         getSnapshot: getReadModel,
         getShellSnapshot: () => Effect.die("unused"),
+        getArchivedShellSnapshot: () => Effect.die("unused"),
+        getFullThreadDiffContext: () => Effect.die("unused"),
         getSnapshotSequence: () => Effect.succeed({ snapshotSequence: readModel.snapshotSequence }),
         getCounts: () => Effect.die("unused"),
         getActiveProjectByWorkspaceRoot: () => Effect.die("unused"),
