@@ -199,9 +199,9 @@ function buildCodexProviderProbeTimeoutMessage(input: {
   const command = `${input.binaryPath} app-server`;
   const codexHome = input.homePath ? expandHomePath(input.homePath) : null;
   return [
-    `Timed out after ${PROVIDER_PROBE_TIMEOUT_SECONDS}s while checking Codex app-server provider status.`,
-    `T3 Code started \`${command}\` from \`${input.cwd}\` and waited for initialize, account, model, and skill responses, but the app-server did not finish the check.`,
-    `Try running \`${command}\` from that directory, run \`${input.binaryPath} login\` if auth is stale, or restart T3 Code to clear a stuck provider process.`,
+    `${command} timed out during initialization. Is Codex authenticated?`,
+    `T3 Code started \`${command}\` from \`${input.cwd}\` and did not receive initialize, account, model, and skill responses within ${PROVIDER_PROBE_TIMEOUT_SECONDS}s.`,
+    `Run \`${input.binaryPath} login\`, then try \`${command}\` from that directory.`,
     ...(codexHome ? [`CODEX_HOME was \`${codexHome}\`.`] : []),
   ].join(" ");
 }

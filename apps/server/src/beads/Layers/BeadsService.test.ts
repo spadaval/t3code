@@ -561,7 +561,7 @@ layer("BeadsServiceLive", (it) => {
     }),
   );
 
-  it.effect("loads issue batches without reading comments", () =>
+  it.effect("loads issue batches as summaries", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
       installBdJsonMock({
@@ -578,7 +578,7 @@ layer("BeadsServiceLive", (it) => {
           role: "maintainer",
           bd_version: "1.0.0",
         },
-        "show TASK-1 --long": [
+        "show TASK-1": [
           {
             id: "TASK-1",
             title: "Batched issue",
@@ -616,8 +616,8 @@ layer("BeadsServiceLive", (it) => {
       const result = yield* beads.getIssues({ cwd: "/repo", issueIds: ["TASK-1"] });
 
       assert.equal(result.issues[0]?.id, "TASK-1");
-      assert.equal(result.issues[0]?.dependencies[0]?.dependencyType, "blocks");
       expect(countBdCommandCalls("comments TASK-1")).toBe(0);
+      expect(countBdCommandCalls("show TASK-1 --long")).toBe(0);
     }),
   );
 
@@ -674,7 +674,8 @@ layer("BeadsServiceLive", (it) => {
       ]);
       expect(result.missingIssueIds).toEqual(["MISSING-1"]);
       expect(result.loadErrors).toEqual([]);
-      expect(countBdCommandCalls("show TASK-1 MISSING-1 --long")).toBe(1);
+      expect(countBdCommandCalls("show TASK-1 MISSING-1")).toBe(1);
+      expect(countBdCommandCalls("show TASK-1 MISSING-1 --long")).toBe(0);
     }),
   );
 
@@ -1152,7 +1153,7 @@ layer("BeadsServiceLive", (it) => {
           ]);
         }
 
-        if (key === "show CHILD-1 --long") {
+        if (key === "show CHILD-1") {
           return successJson([
             {
               id: "CHILD-1",
@@ -1187,7 +1188,8 @@ layer("BeadsServiceLive", (it) => {
       assert.equal(first.children[0]?.title, "First child");
       assert.equal(second.children[0]?.title, "Updated child");
       expect(countBdCommandCalls("show EPIC-1 --long")).toBe(2);
-      expect(countBdCommandCalls("show CHILD-1 --long")).toBe(2);
+      expect(countBdCommandCalls("show CHILD-1")).toBe(2);
+      expect(countBdCommandCalls("show CHILD-1 --long")).toBe(0);
     }),
   );
 

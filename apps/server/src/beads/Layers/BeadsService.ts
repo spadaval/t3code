@@ -1654,7 +1654,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
         name: "raw-issues",
         params: { issueIds: uniqueIssueIds.toSorted() },
       },
-      runBdJson(cwd, ["show", ...makeBdShowIssueArgs(uniqueIssueIds), "--long"], (json) => {
+      runBdJson(cwd, ["show", ...makeBdShowIssueArgs(uniqueIssueIds)], (json) => {
         const issues = asRecordArray(json);
         return new Map(
           issues.flatMap((issue) => {
@@ -1755,18 +1755,18 @@ const makeBeadsTrackerService = Effect.gen(function* () {
   const getIssueWithoutComments: BeadsTrackerServiceShape["getIssueWithoutComments"] = (input) =>
     getIssueDetailWithoutComments(input.cwd, input.issueId);
 
-  const getIssuesWithoutComments: BeadsTrackerServiceShape["getIssuesWithoutComments"] = (input) =>
+  const getIssueSummaries: BeadsTrackerServiceShape["getIssueSummaries"] = (input) =>
     getOrLoadCoalescedRead(
       {
         cwd: input.cwd,
-        name: "issues-without-comments",
+        name: "issue-summaries",
         params: { issueIds: [...new Set(input.issueIds)].toSorted() },
       },
       getRawIssues(input.cwd, input.issueIds).pipe(
         Effect.map((rawIssuesById) =>
           input.issueIds.flatMap((issueId) => {
             const rawIssue = rawIssuesById.get(issueId);
-            return rawIssue ? [mapIssueDetail(rawIssue, [])] : [];
+            return rawIssue ? [mapIssueSummary(rawIssue)] : [];
           }),
         ),
       ),
@@ -2214,7 +2214,7 @@ const makeBeadsTrackerService = Effect.gen(function* () {
     getIssueSummary,
     resolveIssueRefs,
     getIssueWithoutComments,
-    getIssuesWithoutComments,
+    getIssueSummaries,
     getIssue,
     getEpicIssueSummaries,
     createIssue,
@@ -2437,7 +2437,7 @@ const makeBeadsService = Effect.gen(function* () {
   const resolveIssueRefs: BeadsServiceShape["resolveIssueRefs"] = (input) =>
     beadsTracker.resolveIssueRefs(input);
   const getIssues: BeadsServiceShape["getIssues"] = (input) =>
-    beadsTracker.getIssuesWithoutComments(input).pipe(
+    beadsTracker.getIssueSummaries(input).pipe(
       Effect.map((issues) => ({ issues })),
       Effect.mapError((error) =>
         Schema.is(BeadsError)(error) ? error : toBeadsError("Failed to load issues batch.", error),

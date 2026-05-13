@@ -176,7 +176,7 @@ import {
   useThreadJumpHintVisibility,
   ThreadStatusPill,
 } from "./Sidebar.logic";
-import { beadsIssuesBatchOptions } from "../lib/beadsReactQuery";
+import { beadsResolveIssueRefsOptions } from "../lib/beadsReactQuery";
 import { stripRightPaneSearchParams } from "../chatRouteSearch";
 import { isActiveExecutionStatus, isActiveRunStatus } from "../lib/epicRunPresentation";
 import { resolveFallbackModelSelection } from "../lib/modelSelection";
@@ -3798,7 +3798,7 @@ export default function Sidebar() {
           (epicRunsByProjectKey.get(project.projectKey) ?? []).map((run) => run.epicIssueId),
         ),
       ];
-      return beadsIssuesBatchOptions(
+      return beadsResolveIssueRefsOptions(
         epicIssueIds.length > 0 ? { cwd: project.cwd, issueIds: epicIssueIds } : null,
       );
     }),

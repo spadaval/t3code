@@ -1,12 +1,12 @@
 import type {
-  BeadsIssueDetail,
+  BeadsIssueReferenceSummary,
   OrchestrationEpicIssueExecution,
   OrchestrationEpicRun,
 } from "@t3tools/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-import { beadsIssuesBatchOptions } from "~/lib/beadsReactQuery";
+import { beadsResolveIssueRefsOptions } from "~/lib/beadsReactQuery";
 
 export function useSidebarEpicData(input: {
   cwd: string;
@@ -30,7 +30,7 @@ export function useSidebarEpicData(input: {
   );
 
   const issueMetadataQuery = useQuery(
-    beadsIssuesBatchOptions(
+    beadsResolveIssueRefsOptions(
       input.projectExpanded && visibleIssueIds.length > 0
         ? { cwd: input.cwd, issueIds: visibleIssueIds }
         : null,
@@ -41,7 +41,7 @@ export function useSidebarEpicData(input: {
     () =>
       new Map(
         (issueMetadataQuery.data?.issues ?? []).map((issue) => [issue.id, issue] as const),
-      ) as ReadonlyMap<string, BeadsIssueDetail>,
+      ) as ReadonlyMap<string, BeadsIssueReferenceSummary>,
     [issueMetadataQuery.data?.issues],
   );
 

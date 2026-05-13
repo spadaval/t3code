@@ -869,7 +869,7 @@ export async function createEpicRunSchedulerHarness(
           comments: [],
         });
       }),
-    getIssuesWithoutComments: ({ issueIds }) =>
+    getIssueSummaries: ({ issueIds }) =>
       Effect.gen(function* () {
         const result = [];
         for (const issueId of issueIds) {
@@ -877,10 +877,7 @@ export async function createEpicRunSchedulerHarness(
           if (!issue) {
             return yield* beadsError(`Unknown issue '${issueId}'.`);
           }
-          result.push({
-            ...issue,
-            comments: [],
-          });
+          result.push(issue);
         }
         return result;
       }),

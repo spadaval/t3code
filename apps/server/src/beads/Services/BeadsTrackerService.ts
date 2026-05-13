@@ -41,10 +41,10 @@ export interface BeadsTrackerServiceShape {
   readonly getIssueWithoutComments: (
     input: BeadsGetIssueInput,
   ) => Effect.Effect<BeadsIssueDetail, BeadsError>;
-  readonly getIssuesWithoutComments: (input: {
+  readonly getIssueSummaries: (input: {
     readonly cwd: string;
     readonly issueIds: ReadonlyArray<string>;
-  }) => Effect.Effect<ReadonlyArray<BeadsIssueDetail>, BeadsError>;
+  }) => Effect.Effect<ReadonlyArray<BeadsIssueSummary>, BeadsError>;
   readonly getIssue: (input: BeadsGetIssueInput) => Effect.Effect<BeadsIssueDetail, BeadsError>;
   readonly getEpicIssueSummaries: (
     input: BeadsEpicIssueInput,

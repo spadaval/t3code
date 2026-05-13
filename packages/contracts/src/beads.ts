@@ -448,7 +448,7 @@ export const BeadsGetIssuesInput = Schema.Struct({
 export type BeadsGetIssuesInput = typeof BeadsGetIssuesInput.Type;
 
 export const BeadsGetIssuesResult = Schema.Struct({
-  issues: Schema.Array(BeadsIssueDetail),
+  issues: Schema.Array(BeadsIssueSummary),
 });
 export type BeadsGetIssuesResult = typeof BeadsGetIssuesResult.Type;
 

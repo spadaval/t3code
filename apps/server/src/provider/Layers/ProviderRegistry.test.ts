@@ -423,7 +423,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest(), T
           assert.strictEqual(status.installed, true);
           assert.strictEqual(
             status.message,
-            `Timed out after 8s while checking Codex app-server provider status. T3 Code started \`codex-alt app-server\` from \`${process.cwd()}\` and waited for initialize, account, model, and skill responses, but the app-server did not finish the check. Try running \`codex-alt app-server\` from that directory, run \`codex-alt login\` if auth is stale, or restart T3 Code to clear a stuck provider process. CODEX_HOME was \`${expandedHomePath}\`.`,
+            `codex-alt app-server timed out during initialization. Is Codex authenticated? T3 Code started \`codex-alt app-server\` from \`${process.cwd()}\` and did not receive initialize, account, model, and skill responses within 8s. Run \`codex-alt login\`, then try \`codex-alt app-server\` from that directory. CODEX_HOME was \`${expandedHomePath}\`.`,
           );
         }),
       );
