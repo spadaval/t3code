@@ -457,13 +457,14 @@ export const openCodexThread = (input: {
     })
     .pipe(
       Effect.catchIf(isRecoverableThreadResumeError, (error) =>
-        Effect.logWarning("codex app-server thread resume fell back to fresh start", {
+        Effect.logError("codex app-server thread resume failed", {
           threadId: input.threadId,
           requestedRuntimeMode: input.runtimeMode,
           resumeThreadId,
-          recoverable: true,
+          recoverable: false,
           cause: error.message,
-        }).pipe(Effect.andThen(input.client.request("thread/start", startParams))),
+          action: "refusing fresh start because that would discard provider history",
+        }).pipe(Effect.andThen(Effect.fail(error))),
       ),
     );
 };

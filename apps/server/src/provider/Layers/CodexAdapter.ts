@@ -1374,10 +1374,6 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         }
 
         const existing = sessions.get(input.threadId);
-        if (existing && !existing.stopped) {
-          yield* Effect.suspend(() => stopSessionInternal(existing));
-        }
-
         const runtimeInput: CodexSessionRuntimeOptions = {
           threadId: input.threadId,
           providerInstanceId: boundInstanceId,
@@ -1452,6 +1448,18 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             ),
           ),
         );
+
+        const raceWinner = sessions.get(input.threadId);
+        if (raceWinner && raceWinner !== existing && !raceWinner.stopped) {
+          yield* runtime.close.pipe(Effect.ignore);
+          yield* Scope.close(sessionScope, Exit.void).pipe(Effect.ignore);
+          yield* Fiber.interrupt(eventFiber).pipe(Effect.ignore);
+          return yield* raceWinner.runtime.getSession;
+        }
+
+        if (existing && !existing.stopped) {
+          yield* Effect.suspend(() => stopSessionInternal(existing));
+        }
 
         sessions.set(input.threadId, {
           threadId: input.threadId,

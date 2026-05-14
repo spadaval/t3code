@@ -197,9 +197,8 @@ describe("isRecoverableThreadResumeError", () => {
 });
 
 describe("openCodexThread", () => {
-  it("falls back to thread/start when resume fails recoverably", async () => {
+  it("fails instead of replacing history when resume fails recoverably", async () => {
     const calls: Array<{ method: "thread/start" | "thread/resume"; payload: unknown }> = [];
-    const started = makeThreadOpenResponse("fresh-thread");
     const client = {
       request: <M extends "thread/start" | "thread/resume">(
         method: M,
@@ -214,26 +213,30 @@ describe("openCodexThread", () => {
             }),
           );
         }
-        return Effect.succeed(started as CodexRpc.ClientRequestResponsesByMethod[M]);
+        return Effect.succeed(
+          makeThreadOpenResponse("fresh-thread") as CodexRpc.ClientRequestResponsesByMethod[M],
+        );
       },
     };
 
-    const opened = await Effect.runPromise(
-      openCodexThread({
-        client,
-        threadId: ThreadId.make("thread-1"),
-        runtimeMode: "full-access",
-        cwd: "/tmp/project",
-        requestedModel: "gpt-5.3-codex",
-        serviceTier: undefined,
-        resumeThreadId: "stale-thread",
-      }),
+    await assert.rejects(
+      Effect.runPromise(
+        openCodexThread({
+          client,
+          threadId: ThreadId.make("thread-1"),
+          runtimeMode: "full-access",
+          cwd: "/tmp/project",
+          requestedModel: "gpt-5.3-codex",
+          serviceTier: undefined,
+          resumeThreadId: "stale-thread",
+        }),
+      ),
+      (error: unknown) =>
+        isCodexAppServerRequestError(error) && error.errorMessage === "thread not found",
     );
-
-    assert.equal(opened.thread.id, "fresh-thread");
     assert.deepStrictEqual(
       calls.map((call) => call.method),
-      ["thread/resume", "thread/start"],
+      ["thread/resume"],
     );
   });
 

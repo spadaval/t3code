@@ -283,25 +283,25 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
     }),
   );
 
-  it.effect("falls back to creating a new session when resumeCursor is stale", () =>
+  it.effect("fails instead of replacing history when resumeCursor is stale", () =>
     Effect.gen(function* () {
       const adapter = yield* OpenCodeAdapter;
       runtimeMock.state.sessionGetResult = null;
 
-      const session = yield* adapter.startSession({
-        provider: ProviderDriverKind.make("opencode"),
-        threadId: asThreadId("thread-stale-resume"),
-        runtimeMode: "full-access",
-        resumeCursor: "stale-session-id",
-      });
+      const error = yield* adapter
+        .startSession({
+          provider: ProviderDriverKind.make("opencode"),
+          threadId: asThreadId("thread-stale-resume"),
+          runtimeMode: "full-access",
+          resumeCursor: "stale-session-id",
+        })
+        .pipe(Effect.flip);
 
-      assert.equal(session.provider, "opencode");
-      assert.equal(session.threadId, "thread-stale-resume");
-      assert.equal(session.resumeCursor, "http://127.0.0.1:9999/session");
+      assert.equal(error._tag, "ProviderAdapterProcessError");
+      assert.match(error.detail, /Cannot resume OpenCode session 'stale-session-id'/);
+      assert.match(error.detail, /Refusing to create a replacement session/);
       assert.deepEqual(runtimeMock.state.sessionGetCalls, ["stale-session-id"]);
-      assert.deepEqual(runtimeMock.state.sessionCreateUrls, ["http://127.0.0.1:9999"]);
-
-      yield* adapter.stopSession(asThreadId("thread-stale-resume"));
+      assert.deepEqual(runtimeMock.state.sessionCreateUrls, []);
     }),
   );
 
@@ -449,6 +449,40 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
       assert.equal(sessions[0]?.status, "ready");
       assert.equal(sessions[0]?.activeTurnId, undefined);
       assert.equal(sessions[0]?.lastError, "prompt failed");
+    }),
+  );
+
+  it.effect("marks an interrupted OpenCode turn ready without dropping the session", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      const threadId = asThreadId("thread-interrupt-turn");
+      const session = yield* adapter.startSession({
+        provider: ProviderDriverKind.make("opencode"),
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.threadId === threadId && event.type === "turn.aborted"),
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      const turn = yield* adapter.sendTurn({
+        threadId,
+        input: "Fix it",
+        modelSelection: createModelSelection(ProviderInstanceId.make("opencode"), "openai/gpt-5"),
+      });
+      yield* adapter.interruptTurn(threadId);
+
+      const sessions = yield* adapter.listSessions();
+      const events = Array.from(yield* Fiber.join(eventsFiber).pipe(Effect.timeout("1 second")));
+      const interruptedSession = sessions.find((entry) => entry.threadId === threadId);
+      assert.deepEqual(runtimeMock.state.abortCalls, [session.resumeCursor]);
+      assert.equal(interruptedSession?.status, "ready");
+      assert.equal(interruptedSession?.activeTurnId, undefined);
+      assert.equal(events[0]?.turnId, turn.turnId);
+      assert.deepEqual(events[0]?.payload, { reason: "Interrupted by user." });
     }),
   );
 
@@ -708,6 +742,104 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
       if (completed?.type === "item.completed") {
         assert.equal(completed.payload.detail, "A BBonus");
       }
+    }),
+  );
+
+  it.effect("maps OpenCode sync message events before session filtering", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      const threadId = asThreadId("thread-opencode-sync-events");
+      const sessionID = "http://127.0.0.1:9999/session";
+      runtimeMock.state.subscribedEvents = [
+        {
+          type: "sync",
+          name: "message.updated.1",
+          id: "event-message-updated",
+          seq: 1,
+          aggregateID: "sessionID",
+          data: {
+            sessionID,
+            info: {
+              id: "msg-sync",
+              role: "assistant",
+            },
+          },
+        },
+        {
+          type: "sync",
+          name: "message.part.updated.1",
+          id: "event-text-updated",
+          seq: 2,
+          aggregateID: "sessionID",
+          data: {
+            sessionID,
+            part: {
+              id: "part-sync-text",
+              sessionID,
+              messageID: "msg-sync",
+              type: "text",
+              text: "Rendered from sync",
+              time: { start: 1, end: 2 },
+            },
+            time: 2,
+          },
+        },
+        {
+          type: "sync",
+          name: "message.part.updated.1",
+          id: "event-tool-updated",
+          seq: 3,
+          aggregateID: "sessionID",
+          data: {
+            sessionID,
+            part: {
+              id: "part-sync-tool",
+              sessionID,
+              messageID: "msg-sync",
+              type: "tool",
+              tool: "edit",
+              callID: "edit:1",
+              state: {
+                status: "completed",
+                input: { filePath: "/tmp/example.ts" },
+                output: "updated",
+                time: { start: 3, end: 4 },
+              },
+            },
+            time: 4,
+          },
+        },
+      ];
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.threadId === threadId),
+        Stream.take(5),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("opencode"),
+        threadId,
+        runtimeMode: "full-access",
+      });
+
+      const events = Array.from(yield* Fiber.join(eventsFiber).pipe(Effect.timeout("1 second")));
+      const textDelta = events.find((event) => event.type === "content.delta");
+      assert.equal(
+        textDelta?.type === "content.delta" ? textDelta.payload.delta : undefined,
+        "Rendered from sync",
+      );
+      assert.ok(
+        events.some(
+          (event) =>
+            event.type === "item.completed" && event.payload.itemType === "assistant_message",
+        ),
+      );
+      assert.ok(
+        events.some(
+          (event) => event.type === "item.completed" && event.payload.itemType === "file_change",
+        ),
+      );
     }),
   );
 

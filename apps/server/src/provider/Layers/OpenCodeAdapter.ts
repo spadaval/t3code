@@ -64,6 +64,12 @@ type OpenCodeSubscribedEvent =
     ? TEvent
     : never;
 
+type OpenCodeSyncEvent = {
+  readonly type: "sync";
+  readonly name: string;
+  readonly data: unknown;
+};
+
 interface OpenCodeSessionContext {
   session: ProviderSession;
   readonly client: OpencodeClient;
@@ -389,6 +395,59 @@ function toolStateCreatedAt(part: Extract<Part, { type: "tool" }>): string | und
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
+}
+
+function sessionIdFromOpenCodeEvent(event: OpenCodeSubscribedEvent): string | undefined {
+  const record = event as unknown;
+  if (!isRecord(record)) {
+    return undefined;
+  }
+  const properties = record.properties;
+  if (isRecord(properties) && typeof properties.sessionID === "string") {
+    return properties.sessionID;
+  }
+  const data = record.data;
+  if (isRecord(data) && typeof data.sessionID === "string") {
+    return data.sessionID;
+  }
+  return undefined;
+}
+
+function normalizeOpenCodeSubscribedEvent(
+  event: OpenCodeSubscribedEvent,
+): OpenCodeSubscribedEvent | undefined {
+  if ((event as { readonly type?: unknown }).type !== "sync") {
+    return event;
+  }
+
+  const syncEvent = event as unknown as OpenCodeSyncEvent;
+  if (!isRecord(syncEvent.data)) {
+    return undefined;
+  }
+
+  switch (syncEvent.name) {
+    case "message.updated.1":
+      return {
+        type: "message.updated",
+        properties: syncEvent.data,
+      } as unknown as OpenCodeSubscribedEvent;
+    case "message.removed.1":
+      return {
+        type: "message.removed",
+        properties: syncEvent.data,
+      } as unknown as OpenCodeSubscribedEvent;
+    case "message.part.updated.1":
+      return {
+        type: "message.part.updated",
+        properties: syncEvent.data,
+      } as unknown as OpenCodeSubscribedEvent;
+    default:
+      return undefined;
+  }
+}
+
 function sessionErrorMessage(error: unknown): string {
   if (!error || typeof error !== "object") {
     return "OpenCode session failed.";
@@ -636,9 +695,13 @@ export function makeOpenCodeAdapter(
       context: OpenCodeSessionContext,
       event: OpenCodeSubscribedEvent,
     ) {
-      const payloadSessionId =
-        "properties" in event ? (event.properties as { sessionID?: unknown }).sessionID : undefined;
+      const payloadSessionId = sessionIdFromOpenCodeEvent(event);
       if (payloadSessionId !== context.openCodeSessionId) {
+        return;
+      }
+
+      const normalizedEvent = normalizeOpenCodeSubscribedEvent(event);
+      if (normalizedEvent === undefined) {
         return;
       }
 
@@ -649,18 +712,21 @@ export function makeOpenCodeAdapter(
           provider: PROVIDER,
           threadId: context.session.threadId,
           providerThreadId: context.openCodeSessionId,
-          type: event.type,
+          type: normalizedEvent.type,
           ...(turnId ? { turnId } : {}),
           payload: event,
         },
       });
 
-      switch (event.type) {
+      switch (normalizedEvent.type) {
         case "message.updated": {
-          context.messageRoleById.set(event.properties.info.id, event.properties.info.role);
-          if (event.properties.info.role === "assistant") {
+          context.messageRoleById.set(
+            normalizedEvent.properties.info.id,
+            normalizedEvent.properties.info.role,
+          );
+          if (normalizedEvent.properties.info.role === "assistant") {
             for (const part of context.partById.values()) {
-              if (part.messageID !== event.properties.info.id) {
+              if (part.messageID !== normalizedEvent.properties.info.id) {
                 continue;
               }
               yield* emitAssistantTextDelta(context, part, turnId, event);
@@ -670,12 +736,12 @@ export function makeOpenCodeAdapter(
         }
 
         case "message.removed": {
-          context.messageRoleById.delete(event.properties.messageID);
+          context.messageRoleById.delete(normalizedEvent.properties.messageID);
           break;
         }
 
         case "message.part.delta": {
-          const existingPart = context.partById.get(event.properties.partID);
+          const existingPart = context.partById.get(normalizedEvent.properties.partID);
           if (!existingPart) {
             break;
           }
@@ -684,21 +750,21 @@ export function makeOpenCodeAdapter(
             break;
           }
           const streamKind = resolveTextStreamKind(existingPart);
-          const delta = event.properties.delta;
+          const delta = normalizedEvent.properties.delta;
           if (delta.length === 0) {
             break;
           }
           const previousText =
-            context.emittedTextByPartId.get(event.properties.partID) ??
+            context.emittedTextByPartId.get(normalizedEvent.properties.partID) ??
             textFromPart(existingPart) ??
             "";
           const { nextText, deltaToEmit } = appendOpenCodeAssistantTextDelta(previousText, delta);
           if (deltaToEmit.length === 0) {
             break;
           }
-          context.emittedTextByPartId.set(event.properties.partID, nextText);
+          context.emittedTextByPartId.set(normalizedEvent.properties.partID, nextText);
           if (existingPart.type === "text" || existingPart.type === "reasoning") {
-            context.partById.set(event.properties.partID, {
+            context.partById.set(normalizedEvent.properties.partID, {
               ...existingPart,
               text: nextText,
             });
@@ -707,7 +773,7 @@ export function makeOpenCodeAdapter(
             ...(yield* buildEventBase({
               threadId: context.session.threadId,
               turnId,
-              itemId: event.properties.partID,
+              itemId: normalizedEvent.properties.partID,
               raw: event,
             })),
             type: "content.delta",
@@ -720,7 +786,7 @@ export function makeOpenCodeAdapter(
         }
 
         case "message.part.updated": {
-          const part = event.properties.part;
+          const part = normalizedEvent.properties.part;
           context.partById.set(part.id, part);
           const messageRole = messageRoleForPart(context, part);
 
@@ -770,76 +836,76 @@ export function makeOpenCodeAdapter(
         }
 
         case "permission.asked": {
-          context.pendingPermissions.set(event.properties.id, event.properties);
+          context.pendingPermissions.set(normalizedEvent.properties.id, normalizedEvent.properties);
           yield* emit({
             ...(yield* buildEventBase({
               threadId: context.session.threadId,
               turnId,
-              requestId: event.properties.id,
+              requestId: normalizedEvent.properties.id,
               raw: event,
             })),
             type: "request.opened",
             payload: {
-              requestType: mapPermissionToRequestType(event.properties.permission),
+              requestType: mapPermissionToRequestType(normalizedEvent.properties.permission),
               detail:
-                event.properties.patterns.length > 0
-                  ? event.properties.patterns.join("\n")
-                  : event.properties.permission,
-              args: event.properties.metadata,
+                normalizedEvent.properties.patterns.length > 0
+                  ? normalizedEvent.properties.patterns.join("\n")
+                  : normalizedEvent.properties.permission,
+              args: normalizedEvent.properties.metadata,
             },
           });
           break;
         }
 
         case "permission.replied": {
-          context.pendingPermissions.delete(event.properties.requestID);
+          context.pendingPermissions.delete(normalizedEvent.properties.requestID);
           yield* emit({
             ...(yield* buildEventBase({
               threadId: context.session.threadId,
               turnId,
-              requestId: event.properties.requestID,
+              requestId: normalizedEvent.properties.requestID,
               raw: event,
             })),
             type: "request.resolved",
             payload: {
               requestType: "unknown",
-              decision: mapPermissionDecision(event.properties.reply),
+              decision: mapPermissionDecision(normalizedEvent.properties.reply),
             },
           });
           break;
         }
 
         case "question.asked": {
-          context.pendingQuestions.set(event.properties.id, event.properties);
+          context.pendingQuestions.set(normalizedEvent.properties.id, normalizedEvent.properties);
           yield* emit({
             ...(yield* buildEventBase({
               threadId: context.session.threadId,
               turnId,
-              requestId: event.properties.id,
+              requestId: normalizedEvent.properties.id,
               raw: event,
             })),
             type: "user-input.requested",
             payload: {
-              questions: normalizeQuestionRequest(event.properties),
+              questions: normalizeQuestionRequest(normalizedEvent.properties),
             },
           });
           break;
         }
 
         case "question.replied": {
-          const request = context.pendingQuestions.get(event.properties.requestID);
-          context.pendingQuestions.delete(event.properties.requestID);
+          const request = context.pendingQuestions.get(normalizedEvent.properties.requestID);
+          context.pendingQuestions.delete(normalizedEvent.properties.requestID);
           const answers = Object.fromEntries(
             (request?.questions ?? []).map((question, index) => [
               openCodeQuestionId(index, question),
-              event.properties.answers[index]?.join(", ") ?? "",
+              normalizedEvent.properties.answers[index]?.join(", ") ?? "",
             ]),
           );
           yield* emit({
             ...(yield* buildEventBase({
               threadId: context.session.threadId,
               turnId,
-              requestId: event.properties.requestID,
+              requestId: normalizedEvent.properties.requestID,
               raw: event,
             })),
             type: "user-input.resolved",
@@ -849,12 +915,12 @@ export function makeOpenCodeAdapter(
         }
 
         case "question.rejected": {
-          context.pendingQuestions.delete(event.properties.requestID);
+          context.pendingQuestions.delete(normalizedEvent.properties.requestID);
           yield* emit({
             ...(yield* buildEventBase({
               threadId: context.session.threadId,
               turnId,
-              requestId: event.properties.requestID,
+              requestId: normalizedEvent.properties.requestID,
               raw: event,
             })),
             type: "user-input.resolved",
@@ -864,14 +930,14 @@ export function makeOpenCodeAdapter(
         }
 
         case "session.status": {
-          if (event.properties.status.type === "busy") {
+          if (normalizedEvent.properties.status.type === "busy") {
             yield* updateProviderSession(context, {
               status: "running",
               activeTurnId: turnId,
             });
           }
 
-          if (event.properties.status.type === "retry") {
+          if (normalizedEvent.properties.status.type === "retry") {
             yield* emit({
               ...(yield* buildEventBase({
                 threadId: context.session.threadId,
@@ -880,14 +946,14 @@ export function makeOpenCodeAdapter(
               })),
               type: "runtime.warning",
               payload: {
-                message: event.properties.status.message,
-                detail: event.properties.status,
+                message: normalizedEvent.properties.status.message,
+                detail: normalizedEvent.properties.status,
               },
             });
             break;
           }
 
-          if (event.properties.status.type === "idle" && turnId) {
+          if (normalizedEvent.properties.status.type === "idle" && turnId) {
             context.activeTurnId = undefined;
             yield* updateProviderSession(context, { status: "ready" }, { clearActiveTurnId: true });
             yield* emit({
@@ -906,7 +972,7 @@ export function makeOpenCodeAdapter(
         }
 
         case "session.error": {
-          const message = sessionErrorMessage(event.properties.error);
+          const message = sessionErrorMessage(normalizedEvent.properties.error);
           const activeTurnId = context.activeTurnId;
           context.activeTurnId = undefined;
           yield* updateProviderSession(
@@ -940,7 +1006,7 @@ export function makeOpenCodeAdapter(
             payload: {
               message,
               class: "provider_error",
-              detail: event.properties.error,
+              detail: normalizedEvent.properties.error,
             },
           });
           break;
@@ -1022,10 +1088,6 @@ export function makeOpenCodeAdapter(
         const serverPassword = openCodeSettings.serverPassword;
         const directory = input.cwd ?? serverConfig.cwd;
         const existing = sessions.get(input.threadId);
-        if (existing) {
-          yield* stopOpenCodeContext(existing);
-          sessions.delete(input.threadId);
-        }
 
         const resumeCursor =
           typeof input.resumeCursor === "string" ? input.resumeCursor : undefined;
@@ -1052,29 +1114,26 @@ export function makeOpenCodeAdapter(
               let isResumed = false;
 
               if (resumeCursor) {
-                const resumeExit = yield* Effect.exit(
-                  runOpenCodeSdk("session.get", () =>
-                    client.session.get({ sessionID: resumeCursor }),
+                const resumeResult = yield* runOpenCodeSdk("session.get", () =>
+                  client.session.get({ sessionID: resumeCursor }),
+                ).pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new OpenCodeRuntimeError({
+                        operation: "session.get",
+                        detail: `Cannot resume OpenCode session '${resumeCursor}' for thread '${input.threadId}': ${cause.detail}. Refusing to create a replacement session because that would discard provider history.`,
+                        cause: cause.cause,
+                      }),
                   ),
                 );
-                if (Exit.isSuccess(resumeExit) && resumeExit.value.data) {
-                  openCodeSessionId = resumeExit.value.data.id;
-                  isResumed = true;
-                } else {
-                  const createResult = yield* runOpenCodeSdk("session.create", () =>
-                    client.session.create({
-                      title: `T3 Code ${input.threadId}`,
-                      permission: buildOpenCodePermissionRules(input.runtimeMode),
-                    }),
-                  );
-                  if (!createResult.data) {
-                    return yield* new OpenCodeRuntimeError({
-                      operation: "session.create",
-                      detail: "OpenCode session.create returned no session payload.",
-                    });
-                  }
-                  openCodeSessionId = createResult.data.id;
+                if (!resumeResult.data) {
+                  return yield* new OpenCodeRuntimeError({
+                    operation: "session.get",
+                    detail: `Cannot resume OpenCode session '${resumeCursor}' for thread '${input.threadId}': session.get returned no session payload. Refusing to create a replacement session because that would discard provider history.`,
+                  });
                 }
+                openCodeSessionId = resumeResult.data.id;
+                isResumed = true;
               } else {
                 const createResult = yield* runOpenCodeSdk("session.create", () =>
                   client.session.create({
@@ -1110,7 +1169,7 @@ export function makeOpenCodeAdapter(
         // Guard against a concurrent startSession call that may have raced
         // and already inserted a session while we were awaiting async work.
         const raceWinner = sessions.get(input.threadId);
-        if (raceWinner) {
+        if (raceWinner && raceWinner !== existing) {
           // Another call won the race – clean up the session we just created
           // (including the remote SDK session) and return the existing one.
           // If we resumed an existing session, don't abort it; the winner may
@@ -1124,6 +1183,13 @@ export function makeOpenCodeAdapter(
           }
           yield* Scope.close(started.sessionScope, Exit.void).pipe(Effect.ignore);
           return raceWinner.session;
+        }
+
+        if (existing) {
+          yield* stopOpenCodeContext(existing);
+          if (sessions.get(input.threadId) === existing) {
+            sessions.delete(input.threadId);
+          }
         }
 
         const createdAt = yield* nowIso;
@@ -1301,14 +1367,19 @@ export function makeOpenCodeAdapter(
     const interruptTurn: OpenCodeAdapterShape["interruptTurn"] = Effect.fn("interruptTurn")(
       function* (threadId, turnId) {
         const context = ensureSessionContext(sessions, threadId);
+        const effectiveTurnId = turnId ?? context.activeTurnId;
         yield* runOpenCodeSdk("session.abort", () =>
           context.client.session.abort({ sessionID: context.openCodeSessionId }),
         ).pipe(Effect.mapError(toRequestError));
-        if (turnId ?? context.activeTurnId) {
+        context.activeTurnId = undefined;
+        context.activeAgent = undefined;
+        context.activeVariant = undefined;
+        yield* updateProviderSession(context, { status: "ready" }, { clearActiveTurnId: true });
+        if (effectiveTurnId) {
           yield* emit({
             ...(yield* buildEventBase({
               threadId,
-              turnId: turnId ?? context.activeTurnId,
+              turnId: effectiveTurnId,
             })),
             type: "turn.aborted",
             payload: {
