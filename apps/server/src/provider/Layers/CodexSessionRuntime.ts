@@ -41,6 +41,7 @@ import {
   CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
   CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
 } from "../CodexDeveloperInstructions.ts";
+import { buildSubagentRunId } from "@t3tools/shared/subagentAttribution";
 const decodeV2TurnStartResponse = Schema.decodeUnknownEffect(EffectCodexSchema.V2TurnStartResponse);
 
 const PROVIDER = ProviderDriverKind.make("codex");
@@ -576,12 +577,36 @@ function readRouteFields(notification: CodexServerNotification): {
   }
 }
 
-function rememberCollabReceiverTurns(
-  collabReceiverTurns: Map<string, TurnId>,
+interface CollabReceiverRoute {
+  readonly parentTurnId: TurnId;
+  readonly parentItemId: ProviderItemId;
+  readonly runId: string;
+}
+
+function withSubagentRoutePayload(
+  payload: unknown,
+  route: CollabReceiverRoute | undefined,
+): unknown {
+  if (!route || payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    return payload;
+  }
+  return {
+    ...payload,
+    t3SubagentAttribution: {
+      parentTurnId: route.parentTurnId,
+      parentItemId: route.parentItemId,
+      runId: route.runId,
+    },
+  };
+}
+
+function rememberCollabReceiverRoutes(
+  collabReceiverRoutes: Map<string, CollabReceiverRoute>,
   notification: CodexServerNotification,
   parentTurnId: TurnId | undefined,
 ): void {
-  if (!parentTurnId) {
+  const route = readRouteFields(notification);
+  if (!parentTurnId || !route.itemId) {
     return;
   }
 
@@ -593,8 +618,13 @@ function rememberCollabReceiverTurns(
     return;
   }
 
+  const runId = buildSubagentRunId(notification.params.threadId, parentTurnId, route.itemId);
   for (const receiverThreadId of notification.params.item.receiverThreadIds) {
-    collabReceiverTurns.set(receiverThreadId, parentTurnId);
+    collabReceiverRoutes.set(receiverThreadId, {
+      parentTurnId,
+      parentItemId: route.itemId,
+      runId,
+    });
   }
 }
 
@@ -707,7 +737,7 @@ export const makeCodexSessionRuntime = (
     const pendingApprovalsRef = yield* Ref.make(new Map<ApprovalRequestId, PendingApproval>());
     const approvalCorrelationsRef = yield* Ref.make(new Map<string, ApprovalCorrelation>());
     const pendingUserInputsRef = yield* Ref.make(new Map<ApprovalRequestId, PendingUserInput>());
-    const collabReceiverTurnsRef = yield* Ref.make(new Map<string, TurnId>());
+    const collabReceiverRoutesRef = yield* Ref.make(new Map<string, CollabReceiverRoute>());
     const closedRef = yield* Ref.make(false);
 
     // `~` is not shell-expanded when env vars are set via
@@ -834,23 +864,23 @@ export const makeCodexSessionRuntime = (
       Effect.gen(function* () {
         const payload = notification.params;
         const route = readRouteFields(notification);
-        const collabReceiverTurns = yield* Ref.get(collabReceiverTurnsRef);
-        const childParentTurnId = (() => {
+        const collabReceiverRoutes = yield* Ref.get(collabReceiverRoutesRef);
+        const childRoute = (() => {
           const providerConversationId = readNotificationThreadId(notification);
           return providerConversationId
-            ? collabReceiverTurns.get(providerConversationId)
+            ? collabReceiverRoutes.get(providerConversationId)
             : undefined;
         })();
 
-        rememberCollabReceiverTurns(collabReceiverTurns, notification, route.turnId);
-        if (childParentTurnId && shouldSuppressChildConversationNotification(notification.method)) {
-          yield* Ref.set(collabReceiverTurnsRef, collabReceiverTurns);
+        rememberCollabReceiverRoutes(collabReceiverRoutes, notification, route.turnId);
+        if (childRoute && shouldSuppressChildConversationNotification(notification.method)) {
+          yield* Ref.set(collabReceiverRoutesRef, collabReceiverRoutes);
           return;
         }
 
         let requestId: ApprovalRequestId | undefined;
         let requestKind: ProviderRequestKind | undefined;
-        let turnId = childParentTurnId ?? route.turnId;
+        let turnId = childRoute?.parentTurnId ?? route.turnId;
         let itemId = route.itemId;
 
         if (notification.method === "serverRequest/resolved") {
@@ -874,7 +904,7 @@ export const makeCodexSessionRuntime = (
           }
         }
 
-        yield* Ref.set(collabReceiverTurnsRef, collabReceiverTurns);
+        yield* Ref.set(collabReceiverRoutesRef, collabReceiverRoutes);
         yield* emitEvent({
           kind: "notification",
           threadId: options.threadId,
@@ -886,7 +916,9 @@ export const makeCodexSessionRuntime = (
           ...(notification.method === "item/agentMessage/delta"
             ? { textDelta: notification.params.delta }
             : {}),
-          ...(payload !== undefined ? { payload } : {}),
+          ...(payload !== undefined
+            ? { payload: withSubagentRoutePayload(payload, childRoute) }
+            : {}),
         });
       });
 

@@ -16,6 +16,7 @@ import {
   type OrchestrationThread,
   type OrchestrationThreadActivity,
   type ProviderRuntimeEvent,
+  ProviderItemId,
 } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Cause from "effect/Cause";
@@ -25,6 +26,14 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import {
+  buildSubagentRunId,
+  extractCodexSubagentLaunch,
+  extractOpenCodeSubagentLaunch,
+  extractProviderErrorText,
+  extractProviderResultText,
+  type SubagentLaunchAttribution,
+} from "@t3tools/shared/subagentAttribution";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
@@ -177,6 +186,178 @@ function normalizeProposedPlanMarkdown(planMarkdown: string | undefined): string
 
 function hasRenderableAssistantText(text: string | undefined): boolean {
   return (text?.trim().length ?? 0) > 0;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function asTrimmedString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function readSubagentRouteAttribution(event: ProviderRuntimeEvent):
+  | {
+      readonly parentTurnId: TurnId;
+      readonly parentItemId: ProviderItemId;
+      readonly runId: string;
+    }
+  | undefined {
+  const payload = asRecord(event.payload);
+  const payloadData = asRecord(payload?.data);
+  const raw = asRecord(event.raw);
+  const rawPayload = asRecord(raw?.payload);
+  const candidates = [
+    asRecord(payload?.t3SubagentAttribution),
+    asRecord(payloadData?.t3SubagentAttribution),
+    asRecord(rawPayload?.t3SubagentAttribution),
+  ];
+  for (const candidate of candidates) {
+    if (
+      typeof candidate?.parentTurnId === "string" &&
+      typeof candidate.parentItemId === "string" &&
+      typeof candidate.runId === "string"
+    ) {
+      return {
+        parentTurnId: TurnId.makeUnsafe(candidate.parentTurnId),
+        parentItemId: ProviderItemId.makeUnsafe(candidate.parentItemId),
+        runId: candidate.runId,
+      };
+    }
+  }
+  return undefined;
+}
+
+function readSubagentLaunch(event: ProviderRuntimeEvent): SubagentLaunchAttribution {
+  const payload = asRecord(event.payload);
+  const data = asRecord(payload?.data);
+  const codexItem = asRecord(data?.item);
+  const normalizedOpenCodeLaunch = data ? asRecord(data.subagentLaunch) : undefined;
+  if (normalizedOpenCodeLaunch) {
+    return {
+      title: asTrimmedString(normalizedOpenCodeLaunch.title),
+      description: asTrimmedString(normalizedOpenCodeLaunch.description),
+      prompt: asTrimmedString(normalizedOpenCodeLaunch.prompt),
+      agentType: asTrimmedString(normalizedOpenCodeLaunch.agentType),
+      model: asTrimmedString(normalizedOpenCodeLaunch.model),
+      reasoningEffort: asTrimmedString(normalizedOpenCodeLaunch.reasoningEffort),
+      config: asRecord(normalizedOpenCodeLaunch.config),
+    };
+  }
+  const extracted =
+    event.provider === "opencode"
+      ? extractOpenCodeSubagentLaunch(data ?? payload)
+      : extractCodexSubagentLaunch(codexItem ?? data ?? payload);
+  if (extracted.ok) {
+    return extracted.value;
+  }
+  return {
+    title: typeof payload?.title === "string" ? payload.title : null,
+    description: null,
+    prompt: null,
+    agentType: null,
+    model: null,
+    reasoningEffort: null,
+    config: normalizedOpenCodeLaunch ?? null,
+  };
+}
+
+function subagentStatusFromItemLifecycle(
+  event: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >,
+): "running" | "completed" | "failed" | "cancelled" {
+  const data = asRecord(event.payload.data);
+  const item = asRecord(data?.item);
+  const state = asRecord(data?.state);
+  const rawStatus =
+    typeof event.payload.status === "string"
+      ? event.payload.status
+      : typeof item?.status === "string"
+        ? item.status
+        : typeof state?.status === "string"
+          ? state.status
+          : undefined;
+  const normalizedStatus = rawStatus?.toLowerCase();
+  if (normalizedStatus === "failed" || normalizedStatus === "error") {
+    return "failed";
+  }
+  if (normalizedStatus === "cancelled" || normalizedStatus === "canceled") {
+    return "cancelled";
+  }
+  if (normalizedStatus === "declined") {
+    return "cancelled";
+  }
+  if (normalizedStatus === "completed") {
+    return "completed";
+  }
+  if (event.payload.status === "failed") {
+    return "failed";
+  }
+  if (event.payload.status === "completed") {
+    return "completed";
+  }
+  return "running";
+}
+
+function subagentEntryKindFromRuntimeEvent(
+  event: ProviderRuntimeEvent,
+): "assistant" | "tool" | "result" | "error" | "system" | undefined {
+  if (event.type === "content.delta") {
+    return event.payload.streamKind === "assistant_text" ? "assistant" : "system";
+  }
+  if (event.type === "runtime.error") {
+    return "error";
+  }
+  if (
+    event.type !== "item.started" &&
+    event.type !== "item.updated" &&
+    event.type !== "item.completed"
+  ) {
+    return undefined;
+  }
+  if (event.payload.status === "failed" || event.payload.itemType === "error") {
+    return "error";
+  }
+  if (event.payload.itemType === "assistant_message") {
+    return "assistant";
+  }
+  if (event.payload.itemType === "reasoning" || event.payload.itemType === "plan") {
+    return "system";
+  }
+  return event.type === "item.completed" ? "result" : "tool";
+}
+
+function subagentEntryTextFromRuntimeEvent(event: ProviderRuntimeEvent): string {
+  if (event.type === "content.delta") {
+    return event.payload.delta;
+  }
+  if (event.type === "runtime.error") {
+    return event.payload.message;
+  }
+  if (
+    event.type !== "item.started" &&
+    event.type !== "item.updated" &&
+    event.type !== "item.completed"
+  ) {
+    return "";
+  }
+  if (event.payload.status === "failed") {
+    const errorText = extractProviderErrorText(event.payload.data);
+    return errorText.ok ? errorText.value : (event.payload.detail ?? "");
+  }
+  if (event.type === "item.completed") {
+    const resultText = extractProviderResultText(event.payload.data);
+    return resultText.ok ? resultText.value : (event.payload.detail ?? "");
+  }
+  return event.payload.detail ?? event.payload.title ?? "";
 }
 
 function proposedPlanIdForTurn(threadId: ThreadId, turnId: TurnId): string {
@@ -794,6 +975,7 @@ const make = Effect.gen(function* () {
     timeToLive: BUFFERED_PROPOSED_PLAN_BY_ID_TTL,
     lookup: () => Effect.succeed({ text: "", createdAt: "" }),
   });
+  const subagentRunStartedAtByRunId = new Map<string, string>();
 
   const resolveThreadDetail = Effect.fn("resolveThreadDetail")(function* (threadId: ThreadId) {
     return yield* projectionSnapshotQuery
@@ -1382,6 +1564,116 @@ const make = Effect.gen(function* () {
         interactionMode: thread.interactionMode,
         hasIssueLink: (detailedThreadForIntent?.issueLink ?? null) !== null,
       });
+
+      const subagentRoute = readSubagentRouteAttribution(event);
+      if (subagentRoute) {
+        const kind = subagentEntryKindFromRuntimeEvent(event);
+        if (kind) {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.subagent-entry.append",
+            commandId: providerCommandId(event, "thread-subagent-entry-append"),
+            threadId: thread.id,
+            runId: subagentRoute.runId,
+            entry: {
+              id: `subagent-entry:${event.eventId}`,
+              runId: subagentRoute.runId,
+              kind,
+              title:
+                event.type === "item.started" ||
+                event.type === "item.updated" ||
+                event.type === "item.completed"
+                  ? (event.payload.title ?? null)
+                  : null,
+              text: subagentEntryTextFromRuntimeEvent(event),
+              payload: event.payload,
+              createdAt: now,
+            },
+            createdAt: now,
+          });
+        }
+        return;
+      }
+
+      if (
+        (event.type === "item.started" ||
+          event.type === "item.updated" ||
+          event.type === "item.completed") &&
+        event.payload.itemType === "collab_agent_tool_call"
+      ) {
+        const parentTurnId = eventTurnId;
+        const parentItemId =
+          event.itemId !== undefined ? ProviderItemId.makeUnsafe(String(event.itemId)) : undefined;
+        if (parentTurnId && parentItemId) {
+          const launch = readSubagentLaunch(event);
+          const data = asRecord(event.payload.data);
+          const subagentLaunch = asRecord(data?.subagentLaunch);
+          const providerRunId =
+            typeof subagentLaunch?.providerCallId === "string"
+              ? subagentLaunch.providerCallId
+              : undefined;
+          const agentType =
+            launch.agentType ??
+            (typeof subagentLaunch?.activeAgent === "string" ? subagentLaunch.activeAgent : null);
+          const status = subagentStatusFromItemLifecycle(event);
+          const runId = buildSubagentRunId(thread.id, parentTurnId, parentItemId);
+          const existingRun = detailedThreadForIntent?.subagentRuns.find(
+            (entry) => entry.id === runId,
+          );
+          const startedAt = existingRun?.startedAt ?? subagentRunStartedAtByRunId.get(runId) ?? now;
+          subagentRunStartedAtByRunId.set(runId, startedAt);
+          yield* orchestrationEngine.dispatch({
+            type: "thread.subagent-run.upsert",
+            commandId: providerCommandId(event, "thread-subagent-run-upsert"),
+            threadId: thread.id,
+            run: {
+              id: runId,
+              threadId: thread.id,
+              turnId: parentTurnId,
+              parentItemId,
+              provider: event.provider,
+              ...(event.providerInstanceId ? { providerInstanceId: event.providerInstanceId } : {}),
+              ...(providerRunId ? { providerRunId } : {}),
+              title: event.payload.title ?? launch.title,
+              description: launch.description,
+              prompt: launch.prompt,
+              agentType,
+              model: launch.model,
+              reasoningEffort: launch.reasoningEffort,
+              config: launch.config,
+              status,
+              startedAt,
+              completedAt: status === "running" ? null : now,
+              updatedAt: now,
+              entries: [],
+            },
+            createdAt: now,
+          });
+
+          if (event.type === "item.completed" && status !== "running") {
+            const kind = status === "failed" ? "error" : "result";
+            const text = subagentEntryTextFromRuntimeEvent(event);
+            if (text.trim().length > 0) {
+              yield* orchestrationEngine.dispatch({
+                type: "thread.subagent-entry.append",
+                commandId: providerCommandId(event, "thread-subagent-entry-append"),
+                threadId: thread.id,
+                runId,
+                entry: {
+                  id: `subagent-entry:${event.eventId}`,
+                  runId,
+                  kind,
+                  title: event.payload.title ?? null,
+                  text,
+                  payload: event.payload,
+                  createdAt: now,
+                },
+                createdAt: now,
+              });
+            }
+          }
+        }
+        return;
+      }
 
       const conflictsWithActiveTurn =
         activeTurnId !== null && eventTurnId !== undefined && !sameId(activeTurnId, eventTurnId);

@@ -23,6 +23,7 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import type { OpencodeClient, Part, PermissionRequest, QuestionRequest } from "@opencode-ai/sdk/v2";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
+import { extractOpenCodeSubagentLaunch } from "@t3tools/shared/subagentAttribution";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
@@ -85,6 +86,7 @@ interface OpenCodeSessionContext {
   readonly turns: Array<OpenCodeTurnSnapshot>;
   activeTurnId: TurnId | undefined;
   activeAgent: string | undefined;
+  activeModel: string | undefined;
   activeVariant: string | undefined;
   /**
    * One-shot guard flipped by `stopOpenCodeContext` / `emitUnexpectedExit`.
@@ -393,6 +395,40 @@ function toolStateCreatedAt(part: Extract<Part, { type: "tool" }>): string | und
     default:
       return undefined;
   }
+}
+
+function openCodeSubagentLaunchData(
+  context: OpenCodeSessionContext,
+  part: Extract<Part, { type: "tool" }>,
+): Record<string, unknown> | undefined {
+  if (toToolLifecycleItemType(part.tool) !== "collab_agent_tool_call") {
+    return undefined;
+  }
+
+  const extracted = extractOpenCodeSubagentLaunch({
+    ...part,
+    input: "input" in part.state ? part.state.input : undefined,
+  });
+  const launch = extracted.ok
+    ? extracted.value
+    : {
+        title: null,
+        description: null,
+        prompt: null,
+        agentType: null,
+        model: null,
+        reasoningEffort: null,
+        config: null,
+      };
+  return {
+    ...launch,
+    model: launch.model ?? context.activeModel ?? context.session.model ?? null,
+    output: part.state.status === "completed" ? part.state.output : null,
+    activeAgent: context.activeAgent ?? null,
+    provider: PROVIDER,
+    providerCallId: part.callID,
+    toolCallId: part.callID,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -799,6 +835,7 @@ export function makeOpenCodeAdapter(
             const title =
               part.state.status === "running" ? (part.state.title ?? part.tool) : part.tool;
             const detail = detailFromToolPart(part);
+            const subagentLaunch = openCodeSubagentLaunchData(context, part);
             const payload = {
               itemType,
               ...(part.state.status === "error"
@@ -810,7 +847,9 @@ export function makeOpenCodeAdapter(
               ...(detail ? { detail } : {}),
               data: {
                 tool: part.tool,
+                toolCallId: part.callID,
                 state: part.state,
+                ...(subagentLaunch ? { subagentLaunch } : {}),
               },
             };
             const runtimeEvent: ProviderRuntimeEvent = {
@@ -955,6 +994,9 @@ export function makeOpenCodeAdapter(
 
           if (normalizedEvent.properties.status.type === "idle" && turnId) {
             context.activeTurnId = undefined;
+            context.activeAgent = undefined;
+            context.activeModel = undefined;
+            context.activeVariant = undefined;
             yield* updateProviderSession(context, { status: "ready" }, { clearActiveTurnId: true });
             yield* emit({
               ...(yield* buildEventBase({
@@ -975,6 +1017,9 @@ export function makeOpenCodeAdapter(
           const message = sessionErrorMessage(normalizedEvent.properties.error);
           const activeTurnId = context.activeTurnId;
           context.activeTurnId = undefined;
+          context.activeAgent = undefined;
+          context.activeModel = undefined;
+          context.activeVariant = undefined;
           yield* updateProviderSession(
             context,
             {
@@ -1221,6 +1266,7 @@ export function makeOpenCodeAdapter(
           turns: [],
           activeTurnId: undefined,
           activeAgent: undefined,
+          activeModel: undefined,
           activeVariant: undefined,
           stopped: yield* Ref.make(false),
           sessionScope: started.sessionScope,
@@ -1296,6 +1342,7 @@ export function makeOpenCodeAdapter(
 
       context.activeTurnId = turnId;
       context.activeAgent = agent ?? (input.interactionMode === "plan" ? "plan" : undefined);
+      context.activeModel = modelSelection?.model ?? context.session.model;
       context.activeVariant = variant;
       yield* updateProviderSession(
         context,
@@ -1334,6 +1381,7 @@ export function makeOpenCodeAdapter(
           Effect.gen(function* () {
             context.activeTurnId = undefined;
             context.activeAgent = undefined;
+            context.activeModel = undefined;
             context.activeVariant = undefined;
             yield* updateProviderSession(
               context,
@@ -1373,6 +1421,7 @@ export function makeOpenCodeAdapter(
         ).pipe(Effect.mapError(toRequestError));
         context.activeTurnId = undefined;
         context.activeAgent = undefined;
+        context.activeModel = undefined;
         context.activeVariant = undefined;
         yield* updateProviderSession(context, { status: "ready" }, { clearActiveTurnId: true });
         if (effectiveTurnId) {

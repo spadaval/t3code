@@ -36,6 +36,10 @@ import { OrchestrationEventStoreLive } from "../../persistence/Layers/Orchestrat
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import {
+  ProjectionThreadSubagentEntryRepositoryLive,
+  ProjectionThreadSubagentRunRepositoryLive,
+} from "../../persistence/Layers/ProjectionThreadSubagents.ts";
+import {
   ProviderService,
   type ProviderServiceShape,
 } from "../../provider/Services/ProviderService.ts";
@@ -242,6 +246,8 @@ describe("ProviderRuntimeIngestion", () => {
     });
     const projectionSnapshotQueryLayer = OrchestrationProjectionSnapshotQueryLive.pipe(
       Layer.provide(repositoryIdentityResolverLayer),
+      Layer.provide(ProjectionThreadSubagentEntryRepositoryLive),
+      Layer.provide(ProjectionThreadSubagentRunRepositoryLive),
       Layer.provide(SqlitePersistenceMemory),
     );
     const orchestrationLayer = OrchestrationEngineLive.pipe(
@@ -1051,6 +1057,321 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(message?.text).toBe("hello world");
     expect(message?.streaming).toBe(false);
+  });
+
+  it("converts collab tool lifecycle into subagent run upserts", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-collab-started"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-subagent-parent"),
+      itemId: asItemId("item-collab-parent"),
+      payload: {
+        itemType: "collab_agent_tool_call",
+        status: "inProgress",
+        title: "Implementation Agent",
+        data: {
+          item: {
+            type: "collabAgentToolCall",
+            name: "agent",
+            prompt: "Implement the parser",
+            model: "gpt-5-codex",
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.subagentRuns.some(
+        (run) => run.id === "subagent:thread-1:turn-subagent-parent:item-collab-parent",
+      ),
+    );
+    const run = thread.subagentRuns.find(
+      (entry) => entry.id === "subagent:thread-1:turn-subagent-parent:item-collab-parent",
+    );
+    expect(run?.status).toBe("running");
+    expect(run?.turnId).toBe("turn-subagent-parent");
+    expect(run?.parentItemId).toBe("item-collab-parent");
+    expect(run?.title).toBe("Implementation Agent");
+    expect(run?.prompt).toBe("Implement the parser");
+    expect(run?.model).toBe("gpt-5-codex");
+  });
+
+  it("preserves OpenCode subagent launch metadata and matching tool call id", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.updated",
+      eventId: asEventId("evt-opencode-subagent-updated"),
+      provider: ProviderDriverKind.make("opencode"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-opencode-parent"),
+      itemId: asItemId("call-opencode-task-1"),
+      payload: {
+        itemType: "collab_agent_tool_call",
+        status: "inProgress",
+        title: "Task",
+        data: {
+          tool: "task",
+          toolCallId: "call-opencode-task-1",
+          state: { status: "running", title: "Task" },
+          subagentLaunch: {
+            title: "Implementation worker",
+            description: "Fix provider attribution",
+            prompt: "Wire the launch metadata",
+            agentType: "build",
+            model: "gpt-5",
+            reasoningEffort: "high",
+            config: { sandbox: "workspace-write" },
+            activeAgent: "build",
+            providerCallId: "call-opencode-task-1",
+            toolCallId: "call-opencode-task-1",
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.subagentRuns.some(
+        (run) => run.id === "subagent:thread-1:turn-opencode-parent:call-opencode-task-1",
+      ),
+    );
+    const run = thread.subagentRuns.find(
+      (entry) => entry.id === "subagent:thread-1:turn-opencode-parent:call-opencode-task-1",
+    );
+
+    expect(run).toMatchObject({
+      providerRunId: "call-opencode-task-1",
+      title: "Task",
+      description: "Fix provider attribution",
+      prompt: "Wire the launch metadata",
+      agentType: "build",
+      model: "gpt-5",
+      reasoningEffort: "high",
+      config: { sandbox: "workspace-write" },
+      status: "running",
+    });
+    expect(run?.parentItemId).toBe("call-opencode-task-1");
+    expect(
+      thread.activities.some(
+        (entry: ProviderRuntimeTestActivity) => entry.id === "evt-opencode-subagent-updated",
+      ),
+    ).toBe(false);
+  });
+
+  it("maps terminal collab lifecycle states from provider payload data", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-collab-declined"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-subagent-declined"),
+      itemId: asItemId("item-collab-declined"),
+      payload: {
+        itemType: "collab_agent_tool_call",
+        status: "declined",
+        title: "Implementation Agent",
+        detail: "User declined the launch",
+        data: {
+          item: {
+            type: "collabAgentToolCall",
+            status: "declined",
+            prompt: "Do work",
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.subagentRuns.some(
+        (run) => run.id === "subagent:thread-1:turn-subagent-declined:item-collab-declined",
+      ),
+    );
+    const run = thread.subagentRuns.find(
+      (entry) => entry.id === "subagent:thread-1:turn-subagent-declined:item-collab-declined",
+    );
+    expect(run?.status).toBe("cancelled");
+    expect(run?.completedAt).toBe(now);
+  });
+
+  it("routes receiver child output into subagent entries instead of assistant messages", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const attribution = {
+      parentTurnId: "turn-subagent-parent",
+      parentItemId: "item-collab-parent",
+      runId: "subagent:thread-1:turn-subagent-parent:item-collab-parent",
+    };
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-collab-started-for-child"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-subagent-parent"),
+      itemId: asItemId("item-collab-parent"),
+      payload: {
+        itemType: "collab_agent_tool_call",
+        status: "inProgress",
+        title: "Implementation Agent",
+        data: { item: { type: "collabAgentToolCall", prompt: "Do work" } },
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-child-assistant-delta"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-subagent-parent"),
+      itemId: asItemId("child-message"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "child assistant output",
+        t3SubagentAttribution: attribution,
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-child-tool-completed"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-subagent-parent"),
+      itemId: asItemId("child-tool"),
+      payload: {
+        itemType: "command_execution",
+        status: "completed",
+        title: "Ran command",
+        detail: "done",
+        data: {
+          output: "tool result",
+          t3SubagentAttribution: attribution,
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) => {
+      const run = entry.subagentRuns.find((candidate) => candidate.id === attribution.runId);
+      return (run?.entries.length ?? 0) >= 2;
+    });
+    const run = thread.subagentRuns.find((entry) => entry.id === attribution.runId);
+    expect(run?.entries.map((entry) => entry.kind)).toEqual(["assistant", "result"]);
+    expect(run?.entries.map((entry) => entry.text)).toEqual([
+      "child assistant output",
+      "tool result",
+    ]);
+    expect(thread.messages.some((message) => message.text.includes("child assistant output"))).toBe(
+      false,
+    );
+  });
+
+  it("routes attributed non-assistant text deltas into subagent system entries", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const attribution = {
+      parentTurnId: "turn-subagent-parent",
+      parentItemId: "item-collab-parent",
+      runId: "subagent:thread-1:turn-subagent-parent:item-collab-parent",
+    };
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-collab-started-for-reasoning"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-subagent-parent"),
+      itemId: asItemId("item-collab-parent"),
+      payload: {
+        itemType: "collab_agent_tool_call",
+        status: "inProgress",
+        title: "Implementation Agent",
+        data: { item: { type: "collabAgentToolCall", prompt: "Do work" } },
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-child-reasoning-delta"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-subagent-parent"),
+      itemId: asItemId("child-reasoning"),
+      payload: {
+        streamKind: "reasoning_text",
+        delta: "child reasoning output",
+        t3SubagentAttribution: attribution,
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) => {
+      const run = entry.subagentRuns.find((candidate) => candidate.id === attribution.runId);
+      return (run?.entries.length ?? 0) >= 1;
+    });
+    const run = thread.subagentRuns.find((entry) => entry.id === attribution.runId);
+    expect(run?.entries.map((entry) => [entry.kind, entry.text])).toEqual([
+      ["system", "child reasoning output"],
+    ]);
+  });
+
+  it("preserves the first subagent run start time across lifecycle updates", async () => {
+    const harness = await createHarness();
+    const startedAt = "2026-03-28T06:00:00.000Z";
+    const completedAt = "2026-03-28T06:00:05.000Z";
+    const runId = "subagent:thread-1:turn-subagent-start:item-collab-start";
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-collab-started-preserve-start"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: startedAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-subagent-start"),
+      itemId: asItemId("item-collab-start"),
+      payload: {
+        itemType: "collab_agent_tool_call",
+        status: "inProgress",
+        title: "Implementation Agent",
+        data: { item: { type: "collabAgentToolCall", prompt: "Do work" } },
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-collab-completed-preserve-start"),
+      provider: ProviderDriverKind.make("codex"),
+      createdAt: completedAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-subagent-start"),
+      itemId: asItemId("item-collab-start"),
+      payload: {
+        itemType: "collab_agent_tool_call",
+        status: "completed",
+        title: "Implementation Agent",
+        detail: "done",
+        data: { output: "done" },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) => {
+      const run = entry.subagentRuns.find((candidate) => candidate.id === runId);
+      return run?.status === "completed";
+    });
+    const run = thread.subagentRuns.find((entry) => entry.id === runId);
+    expect(run?.startedAt).toBe(startedAt);
+    expect(run?.completedAt).toBe(completedAt);
   });
 
   it("uses assistant item completion detail when no assistant deltas were streamed", async () => {

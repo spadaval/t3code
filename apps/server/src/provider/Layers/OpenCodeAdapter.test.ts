@@ -50,6 +50,25 @@ type MessageEntry = {
   parts: Array<unknown>;
 };
 
+type SubscribedEventEntry =
+  | unknown
+  | {
+      delayMs: number;
+      event: unknown;
+    };
+
+function isDelayedSubscribedEvent(
+  entry: SubscribedEventEntry,
+): entry is { delayMs: number; event: unknown } {
+  return (
+    typeof entry === "object" &&
+    entry !== null &&
+    "delayMs" in entry &&
+    typeof entry.delayMs === "number" &&
+    "event" in entry
+  );
+}
+
 const runtimeMock = {
   state: {
     startCalls: [] as string[],
@@ -64,7 +83,7 @@ const runtimeMock = {
     promptAsyncError: null as Error | null,
     closeError: null as Error | null,
     messages: [] as MessageEntry[],
-    subscribedEvents: [] as unknown[],
+    subscribedEvents: [] as SubscribedEventEntry[],
   },
   reset() {
     this.state.startCalls.length = 0;
@@ -172,8 +191,13 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
       event: {
         subscribe: async () => ({
           stream: (async function* () {
-            for (const event of runtimeMock.state.subscribedEvents) {
-              yield event;
+            for (const entry of runtimeMock.state.subscribedEvents) {
+              if (isDelayedSubscribedEvent(entry)) {
+                await Effect.runPromise(Effect.sleep(`${entry.delayMs} millis`));
+                yield entry.event;
+              } else {
+                yield entry;
+              }
             }
           })(),
         }),
@@ -840,6 +864,105 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
           (event) => event.type === "item.completed" && event.payload.itemType === "file_change",
         ),
       );
+      const fileChange = events.find(
+        (event) => event.type === "item.completed" && event.payload.itemType === "file_change",
+      );
+      assert.equal(
+        fileChange?.type === "item.completed" &&
+          typeof fileChange.payload.data === "object" &&
+          fileChange.payload.data !== null
+          ? (fileChange.payload.data as Record<string, unknown>).toolCallId
+          : undefined,
+        "edit:1",
+      );
+    }),
+  );
+
+  it.effect("emits OpenCode task subagent launch metadata with active model fallback", () =>
+    Effect.gen(function* () {
+      const adapter = yield* OpenCodeAdapter;
+      const threadId = asThreadId("thread-opencode-subagent-launch");
+      const sessionID = "http://127.0.0.1:9999/session";
+      runtimeMock.state.subscribedEvents = [
+        {
+          delayMs: 25,
+          event: {
+            type: "message.part.updated",
+            properties: {
+              sessionID,
+              part: {
+                id: "part-task-launch",
+                sessionID,
+                messageID: "msg-task-launch",
+                type: "tool",
+                tool: "task",
+                callID: "call-opencode-task-1",
+                state: {
+                  status: "running",
+                  title: "Task",
+                  input: {
+                    description: "Fix provider attribution",
+                    instructions: "Wire the launch metadata",
+                    agent: "worker",
+                  },
+                  time: { start: 3 },
+                },
+              },
+            },
+          },
+        },
+      ];
+      const eventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter(
+          (event) =>
+            event.threadId === threadId &&
+            event.type === "item.updated" &&
+            event.payload.itemType === "collab_agent_tool_call",
+        ),
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("opencode"),
+        threadId,
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId,
+        input: "Launch the worker",
+        interactionMode: "default",
+        modelSelection: createModelSelection(
+          ProviderInstanceId.make("opencode"),
+          "anthropic/claude-sonnet-4-5",
+          [{ id: "agent", value: "build" }],
+        ),
+      });
+
+      const events = Array.from(yield* Fiber.join(eventsFiber).pipe(Effect.timeout("1 second")));
+      const event = events[0];
+      assert.equal(event?.type, "item.updated");
+      assert.equal(event?.payload.itemType, "collab_agent_tool_call");
+      const data =
+        event?.type === "item.updated" &&
+        typeof event.payload.data === "object" &&
+        event.payload.data !== null
+          ? (event.payload.data as Record<string, unknown>)
+          : undefined;
+      const subagentLaunch =
+        data?.subagentLaunch &&
+        typeof data.subagentLaunch === "object" &&
+        data.subagentLaunch !== null
+          ? (data.subagentLaunch as Record<string, unknown>)
+          : undefined;
+
+      assert.equal(subagentLaunch?.providerCallId, "call-opencode-task-1");
+      assert.equal(subagentLaunch?.toolCallId, "call-opencode-task-1");
+      assert.equal(subagentLaunch?.activeAgent, "build");
+      assert.equal(subagentLaunch?.model, "anthropic/claude-sonnet-4-5");
+      assert.equal(subagentLaunch?.agentType, "worker");
+      assert.equal(subagentLaunch?.prompt, "Wire the launch metadata");
     }),
   );
 
