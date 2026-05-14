@@ -40,6 +40,8 @@ import {
   ThreadRevertedPayload,
   ThreadRuntimeModeSetPayload,
   ThreadSessionSetPayload,
+  ThreadSubagentEntryAppendedPayload,
+  ThreadSubagentRunUpsertedPayload,
   ThreadMessageSentPayload,
   ThreadTurnDiffCompletedPayload,
   ThreadUnarchivedPayload,
@@ -62,6 +64,8 @@ import { isLegacyMissingCheckpointStatus } from "./checkpointCapture.ts";
 type ThreadPatch = Partial<Omit<OrchestrationThread, "id" | "projectId">>;
 const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
+const MAX_THREAD_SUBAGENT_RUNS = 300;
+const MAX_SUBAGENT_RUN_ENTRIES = 500;
 
 function checkpointStatusToFallbackLatestTurnState(status: "ready" | "missing" | "error") {
   if (status === "error") return "error" as const;
@@ -315,6 +319,20 @@ function compareThreadActivities(
   return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
 }
 
+function compareSubagentRuns(
+  left: OrchestrationThread["subagentRuns"][number],
+  right: OrchestrationThread["subagentRuns"][number],
+): number {
+  return left.startedAt.localeCompare(right.startedAt) || left.id.localeCompare(right.id);
+}
+
+function compareSubagentEntries(
+  left: OrchestrationThread["subagentRuns"][number]["entries"][number],
+  right: OrchestrationThread["subagentRuns"][number]["entries"][number],
+): number {
+  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+}
+
 export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
   return {
     snapshotSequence: 0,
@@ -429,6 +447,7 @@ export function projectEvent(
             archivedAt: null,
             deletedAt: null,
             messages: [],
+            subagentRuns: [],
             activities: [],
             checkpoints: [],
             pendingCheckpointCaptures: [],
@@ -788,6 +807,10 @@ export function projectEvent(
             thread.proposedPlans,
             retainedTurnIds,
           ).slice(-200);
+          const subagentRuns = thread.subagentRuns
+            .filter((run) => retainedTurnIds.has(run.turnId))
+            .toSorted(compareSubagentRuns)
+            .slice(-MAX_THREAD_SUBAGENT_RUNS);
           const activities = retainThreadActivitiesAfterRevert(thread.activities, retainedTurnIds);
 
           const latestCheckpoint = checkpoints.at(-1) ?? null;
@@ -812,11 +835,91 @@ export function projectEvent(
               checkpoints,
               messages,
               proposedPlans,
+              subagentRuns,
               activities,
               latestTurn,
               pendingCheckpointCaptures: thread.pendingCheckpointCaptures.filter(
                 (entry) => entry.checkpointTurnCount <= payload.turnCount,
               ),
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.subagent-run-upserted":
+      return decodeForEvent(
+        ThreadSubagentRunUpsertedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) {
+            return nextBase;
+          }
+
+          const existingRun = thread.subagentRuns.find((entry) => entry.id === payload.run.id);
+          const nextRun = {
+            ...payload.run,
+            entries:
+              payload.run.entries.length > 0
+                ? [...payload.run.entries]
+                    .toSorted(compareSubagentEntries)
+                    .slice(-MAX_SUBAGENT_RUN_ENTRIES)
+                : (existingRun?.entries ?? []),
+          };
+          const subagentRuns = [
+            ...thread.subagentRuns.filter((entry) => entry.id !== payload.run.id),
+            nextRun,
+          ]
+            .toSorted(compareSubagentRuns)
+            .slice(-MAX_THREAD_SUBAGENT_RUNS);
+
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              subagentRuns,
+              updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.subagent-entry-appended":
+      return decodeForEvent(
+        ThreadSubagentEntryAppendedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+          if (!thread) {
+            return nextBase;
+          }
+
+          const run = thread.subagentRuns.find((entry) => entry.id === payload.runId);
+          if (!run) {
+            return nextBase;
+          }
+
+          const entries = [
+            ...run.entries.filter((entry) => entry.id !== payload.entry.id),
+            payload.entry,
+          ]
+            .toSorted(compareSubagentEntries)
+            .slice(-MAX_SUBAGENT_RUN_ENTRIES);
+          const subagentRuns = thread.subagentRuns
+            .map((entry) => (entry.id === payload.runId ? { ...entry, entries } : entry))
+            .toSorted(compareSubagentRuns)
+            .slice(-MAX_THREAD_SUBAGENT_RUNS);
+
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              subagentRuns,
               updatedAt: event.occurredAt,
             }),
           };

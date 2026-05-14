@@ -142,6 +142,64 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         },
       });
 
+      yield* eventStore.append({
+        type: "thread.subagent-run-upserted",
+        eventId: EventId.makeUnsafe("evt-4"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-1"),
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-4"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-4"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          run: {
+            id: "subagent-run-1",
+            threadId: ThreadId.makeUnsafe("thread-1"),
+            turnId: TurnId.makeUnsafe("turn-1"),
+            parentItemId: "item-1",
+            provider: "codex",
+            description: null,
+            prompt: "inspect",
+            agentType: "explorer",
+            model: "gpt-5-codex",
+            reasoningEffort: null,
+            config: { depth: 1 },
+            status: "running",
+            startedAt: now,
+            completedAt: null,
+            updatedAt: now,
+            entries: [],
+          },
+        },
+      });
+
+      yield* eventStore.append({
+        type: "thread.subagent-entry-appended",
+        eventId: EventId.makeUnsafe("evt-5"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-1"),
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-5"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-5"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          runId: "subagent-run-1",
+          entry: {
+            id: "subagent-entry-1",
+            runId: "subagent-run-1",
+            kind: "assistant",
+            title: null,
+            text: "done",
+            payload: { ok: true },
+            createdAt: now,
+          },
+        },
+      });
+
       yield* projectionPipeline.bootstrap;
 
       const projectRows = yield* sql<{
@@ -170,6 +228,36 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       `;
       assert.deepEqual(messageRows, [{ messageId: "message-1", text: "hello" }]);
 
+      const subagentRunRows = yield* sql<{
+        readonly runId: string;
+        readonly threadId: string;
+        readonly turnId: string;
+      }>`
+        SELECT
+          run_id AS "runId",
+          thread_id AS "threadId",
+          turn_id AS "turnId"
+        FROM projection_thread_subagent_runs
+      `;
+      assert.deepEqual(subagentRunRows, [
+        { runId: "subagent-run-1", threadId: "thread-1", turnId: "turn-1" },
+      ]);
+
+      const subagentEntryRows = yield* sql<{
+        readonly entryId: string;
+        readonly runId: string;
+        readonly text: string;
+      }>`
+        SELECT
+          entry_id AS "entryId",
+          run_id AS "runId",
+          text
+        FROM projection_thread_subagent_entries
+      `;
+      assert.deepEqual(subagentEntryRows, [
+        { entryId: "subagent-entry-1", runId: "subagent-run-1", text: "done" },
+      ]);
+
       const stateRows = yield* sql<{
         readonly projector: string;
         readonly lastAppliedSequence: number;
@@ -182,7 +270,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       `;
       assert.equal(stateRows.length, Object.keys(ORCHESTRATION_PROJECTOR_NAMES).length);
       for (const row of stateRows) {
-        assert.equal(row.lastAppliedSequence, 3);
+        assert.equal(row.lastAppliedSequence, 5);
       }
     }),
   );
@@ -338,6 +426,149 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           requestedAt,
           failureMessage: "worker crashed",
         },
+      ]);
+    }),
+  );
+
+  it.effect("cleans up subagent runs and entries after thread.reverted", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.makeUnsafe("thread-subagent-revert");
+      const now = "2026-05-14T15:00:00.000Z";
+
+      const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+        eventStore
+          .append(event)
+          .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+
+      yield* appendAndProject({
+        type: "thread.turn-diff-completed",
+        eventId: EventId.makeUnsafe("evt-subagent-revert-turn-keep"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-subagent-revert-turn-keep"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-subagent-revert-turn-keep"),
+        metadata: {},
+        payload: {
+          threadId,
+          turnId: TurnId.makeUnsafe("turn-subagent-keep"),
+          checkpointTurnCount: 1,
+          checkpointRef: CheckpointRef.makeUnsafe("refs/t3/checkpoints/thread-subagent-revert/1"),
+          status: "ready",
+          files: [],
+          assistantMessageId: null,
+          completedAt: now,
+        },
+      });
+
+      yield* appendAndProject({
+        type: "thread.turn-diff-completed",
+        eventId: EventId.makeUnsafe("evt-subagent-revert-turn-remove"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-subagent-revert-turn-remove"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-subagent-revert-turn-remove"),
+        metadata: {},
+        payload: {
+          threadId,
+          turnId: TurnId.makeUnsafe("turn-subagent-remove"),
+          checkpointTurnCount: 2,
+          checkpointRef: CheckpointRef.makeUnsafe("refs/t3/checkpoints/thread-subagent-revert/2"),
+          status: "ready",
+          files: [],
+          assistantMessageId: null,
+          completedAt: now,
+        },
+      });
+
+      for (const [runId, turnId] of [
+        ["run-subagent-keep", "turn-subagent-keep"],
+        ["run-subagent-remove", "turn-subagent-remove"],
+      ] as const) {
+        yield* appendAndProject({
+          type: "thread.subagent-run-upserted",
+          eventId: EventId.makeUnsafe(`evt-${runId}`),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: now,
+          commandId: CommandId.makeUnsafe(`cmd-${runId}`),
+          causationEventId: null,
+          correlationId: CommandId.makeUnsafe(`cmd-${runId}`),
+          metadata: {},
+          payload: {
+            threadId,
+            run: {
+              id: runId,
+              threadId,
+              turnId: TurnId.makeUnsafe(turnId),
+              parentItemId: `item-${runId}`,
+              provider: "codex",
+              description: null,
+              prompt: "inspect",
+              agentType: "explorer",
+              model: "gpt-5-codex",
+              reasoningEffort: null,
+              config: {},
+              status: "completed",
+              startedAt: now,
+              completedAt: now,
+              updatedAt: now,
+              entries: [
+                {
+                  id: `entry-${runId}`,
+                  runId,
+                  kind: "assistant",
+                  title: null,
+                  text: runId,
+                  payload: {},
+                  createdAt: now,
+                },
+              ],
+            },
+          },
+        });
+      }
+
+      yield* appendAndProject({
+        type: "thread.reverted",
+        eventId: EventId.makeUnsafe("evt-subagent-revert"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-subagent-revert"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-subagent-revert"),
+        metadata: {},
+        payload: {
+          threadId,
+          turnCount: 1,
+        },
+      });
+
+      const runRows = yield* sql<{ readonly runId: string }>`
+        SELECT run_id AS "runId"
+        FROM projection_thread_subagent_runs
+        WHERE thread_id = 'thread-subagent-revert'
+        ORDER BY run_id ASC
+      `;
+      assert.deepEqual(runRows, [{ runId: "run-subagent-keep" }]);
+
+      const entryRows = yield* sql<{ readonly entryId: string; readonly runId: string }>`
+        SELECT
+          entry_id AS "entryId",
+          run_id AS "runId"
+        FROM projection_thread_subagent_entries
+        WHERE run_id IN ('run-subagent-keep', 'run-subagent-remove')
+        ORDER BY entry_id ASC
+      `;
+      assert.deepEqual(entryRows, [
+        { entryId: "entry-run-subagent-keep", runId: "run-subagent-keep" },
       ]);
     }),
   );

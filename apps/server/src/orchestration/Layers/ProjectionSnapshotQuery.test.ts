@@ -202,6 +202,70 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
 
       yield* sql`
+        INSERT INTO projection_thread_subagent_runs (
+          run_id,
+          thread_id,
+          turn_id,
+          parent_item_id,
+          provider,
+          provider_instance_id,
+          provider_run_id,
+          title,
+          description,
+          prompt,
+          agent_type,
+          model,
+          reasoning_effort,
+          config_json,
+          status,
+          started_at,
+          completed_at,
+          updated_at
+        )
+        VALUES (
+          'subagent-run-1',
+          'thread-1',
+          'turn-1',
+          'item-1',
+          'codex',
+          'codex',
+          'provider-run-1',
+          'Explorer',
+          'Inspect files',
+          'inspect',
+          'explorer',
+          'gpt-5-codex',
+          NULL,
+          '{"depth":1}',
+          'running',
+          '2026-02-24T00:00:06.250Z',
+          NULL,
+          '2026-02-24T00:00:06.500Z'
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_thread_subagent_entries (
+          entry_id,
+          run_id,
+          kind,
+          title,
+          text,
+          payload_json,
+          created_at
+        )
+        VALUES (
+          'subagent-entry-1',
+          'subagent-run-1',
+          'assistant',
+          NULL,
+          'done',
+          '{"ok":true}',
+          '2026-02-24T00:00:06.750Z'
+        )
+      `;
+
+      yield* sql`
         INSERT INTO projection_thread_sessions (
           thread_id,
           status,
@@ -511,6 +575,39 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               },
               createdAt: "2026-02-24T00:00:05.000Z",
               updatedAt: "2026-02-24T00:00:05.500Z",
+            },
+          ],
+          subagentRuns: [
+            {
+              id: "subagent-run-1",
+              threadId: ThreadId.makeUnsafe("thread-1"),
+              turnId: asTurnId("turn-1"),
+              parentItemId: "item-1",
+              provider: "codex",
+              providerInstanceId: ProviderInstanceId.make("codex"),
+              providerRunId: "provider-run-1",
+              title: "Explorer",
+              description: "Inspect files",
+              prompt: "inspect",
+              agentType: "explorer",
+              model: "gpt-5-codex",
+              reasoningEffort: null,
+              config: { depth: 1 },
+              status: "running",
+              startedAt: "2026-02-24T00:00:06.250Z",
+              completedAt: null,
+              updatedAt: "2026-02-24T00:00:06.500Z",
+              entries: [
+                {
+                  id: "subagent-entry-1",
+                  runId: "subagent-run-1",
+                  kind: "assistant",
+                  title: null,
+                  text: "done",
+                  payload: { ok: true },
+                  createdAt: "2026-02-24T00:00:06.750Z",
+                },
+              ],
             },
           ],
           activities: [
@@ -900,6 +997,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           },
           messages: [],
           proposedPlans: [],
+          subagentRuns: [],
           activities: [],
           pendingCheckpointCaptures: [
             {
@@ -1506,6 +1604,343 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.equal(threadDetail.value.latestTurn?.state, "running");
         assert.equal(threadDetail.value.latestTurn?.startedAt, "2026-04-02T00:00:30.000Z");
       }
+    }),
+  );
+
+  it.effect("hydrates thread detail subagent runs and nested entries in stable order", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_thread_subagent_entries`;
+      yield* sql`DELETE FROM projection_thread_subagent_runs`;
+      yield* sql`DELETE FROM projection_threads`;
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model_selection_json,
+          runtime_mode,
+          interaction_mode,
+          branch,
+          worktree_path,
+          latest_turn_id,
+          latest_user_message_at,
+          pending_approval_count,
+          pending_user_input_count,
+          has_actionable_proposed_plan,
+          created_at,
+          updated_at,
+          archived_at,
+          deleted_at
+        )
+        VALUES (
+          'thread-subagent-order',
+          'project-subagent-order',
+          'Thread Subagent Order',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          'full-access',
+          'default',
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          0,
+          0,
+          0,
+          '2026-05-14T12:00:00.000Z',
+          '2026-05-14T12:00:00.000Z',
+          NULL,
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_thread_subagent_runs (
+          run_id,
+          thread_id,
+          turn_id,
+          parent_item_id,
+          provider,
+          provider_instance_id,
+          provider_run_id,
+          title,
+          description,
+          prompt,
+          agent_type,
+          model,
+          reasoning_effort,
+          config_json,
+          status,
+          started_at,
+          completed_at,
+          updated_at
+        )
+        VALUES
+          (
+            'run-b',
+            'thread-subagent-order',
+            'turn-2',
+            'item-b',
+            'codex',
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            'inspect b',
+            'explorer',
+            'gpt-5-codex',
+            NULL,
+            '{}',
+            'running',
+            '2026-05-14T12:00:02.000Z',
+            NULL,
+            '2026-05-14T12:00:02.000Z'
+          ),
+          (
+            'run-a',
+            'thread-subagent-order',
+            'turn-1',
+            'item-a',
+            'codex',
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            'inspect a',
+            'explorer',
+            'gpt-5-codex',
+            NULL,
+            '{}',
+            'completed',
+            '2026-05-14T12:00:01.000Z',
+            '2026-05-14T12:00:03.000Z',
+            '2026-05-14T12:00:03.000Z'
+          )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_thread_subagent_entries (
+          entry_id,
+          run_id,
+          kind,
+          title,
+          text,
+          payload_json,
+          created_at
+        )
+        VALUES
+          (
+            'entry-b',
+            'run-a',
+            'assistant',
+            NULL,
+            'second',
+            '{"order":2}',
+            '2026-05-14T12:01:02.000Z'
+          ),
+          (
+            'entry-a',
+            'run-a',
+            'assistant',
+            NULL,
+            'first',
+            '{"order":1}',
+            '2026-05-14T12:01:01.000Z'
+          )
+      `;
+
+      const detail = yield* snapshotQuery.getThreadDetailById(
+        ThreadId.make("thread-subagent-order"),
+      );
+
+      assert.equal(detail._tag, "Some");
+      if (detail._tag === "Some") {
+        assert.deepEqual(
+          detail.value.subagentRuns.map((run) => run.id),
+          ["run-a", "run-b"],
+        );
+        assert.deepEqual(
+          detail.value.subagentRuns[0]?.entries.map((entry) => entry.id),
+          ["entry-a", "entry-b"],
+        );
+      }
+    }),
+  );
+
+  it.effect("caps hydrated thread detail subagent runs and nested entries", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_thread_subagent_entries`;
+      yield* sql`DELETE FROM projection_thread_subagent_runs`;
+      yield* sql`DELETE FROM projection_threads`;
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model_selection_json,
+          runtime_mode,
+          interaction_mode,
+          branch,
+          worktree_path,
+          latest_turn_id,
+          latest_user_message_at,
+          pending_approval_count,
+          pending_user_input_count,
+          has_actionable_proposed_plan,
+          created_at,
+          updated_at,
+          archived_at,
+          deleted_at
+        )
+        VALUES (
+          'thread-subagent-cap',
+          'project-subagent-cap',
+          'Thread Subagent Cap',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          'full-access',
+          'default',
+          NULL,
+          NULL,
+          NULL,
+          NULL,
+          0,
+          0,
+          0,
+          '2026-05-14T13:00:00.000Z',
+          '2026-05-14T13:00:00.000Z',
+          NULL,
+          NULL
+        )
+      `;
+
+      yield* Effect.forEach(
+        Array.from({ length: 301 }, (_, index) => index),
+        (index) => {
+          const runId = `run-${String(index).padStart(3, "0")}`;
+          const timestamp = `2026-05-14T13:${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.000Z`;
+          return sql`
+            INSERT INTO projection_thread_subagent_runs (
+              run_id,
+              thread_id,
+              turn_id,
+              parent_item_id,
+              provider,
+              provider_instance_id,
+              provider_run_id,
+              title,
+              description,
+              prompt,
+              agent_type,
+              model,
+              reasoning_effort,
+              config_json,
+              status,
+              started_at,
+              completed_at,
+              updated_at
+            )
+            VALUES (
+              ${runId},
+              'thread-subagent-cap',
+              'turn-subagent-cap',
+              ${`item-${index}`},
+              'codex',
+              NULL,
+              NULL,
+              NULL,
+              NULL,
+              'inspect',
+              'explorer',
+              'gpt-5-codex',
+              NULL,
+              '{}',
+              'running',
+              ${timestamp},
+              NULL,
+              ${timestamp}
+            )
+          `;
+        },
+        { concurrency: 1 },
+      );
+
+      yield* Effect.forEach(
+        Array.from({ length: 501 }, (_, index) => index),
+        (index) => {
+          const entryId = `entry-${String(index).padStart(3, "0")}`;
+          const timestamp = `2026-05-14T14:${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.000Z`;
+          return sql`
+            INSERT INTO projection_thread_subagent_entries (
+              entry_id,
+              run_id,
+              kind,
+              title,
+              text,
+              payload_json,
+              created_at
+            )
+            VALUES (
+              ${entryId},
+              'run-300',
+              'assistant',
+              NULL,
+              ${`entry ${index}`},
+              '{}',
+              ${timestamp}
+            )
+          `;
+        },
+        { concurrency: 1 },
+      );
+
+      const detail = yield* snapshotQuery.getThreadDetailById(ThreadId.make("thread-subagent-cap"));
+      const snapshot = yield* snapshotQuery.getSnapshot();
+
+      assert.equal(detail._tag, "Some");
+      if (detail._tag === "Some") {
+        assert.equal(detail.value.subagentRuns.length, 300);
+        assert.deepEqual(
+          detail.value.subagentRuns.slice(0, 2).map((run) => run.id),
+          ["run-001", "run-002"],
+        );
+        assert.equal(detail.value.subagentRuns.at(-1)?.id, "run-300");
+        assert.equal(detail.value.subagentRuns.at(-1)?.entries.length, 500);
+        assert.deepEqual(
+          detail.value.subagentRuns
+            .at(-1)
+            ?.entries.slice(0, 2)
+            .map((entry) => entry.id),
+          ["entry-001", "entry-002"],
+        );
+        assert.equal(detail.value.subagentRuns.at(-1)?.entries.at(-1)?.id, "entry-500");
+      }
+
+      const snapshotThread = snapshot.threads.find(
+        (thread) => thread.id === ThreadId.make("thread-subagent-cap"),
+      );
+      assert.ok(snapshotThread);
+      assert.equal(snapshotThread.subagentRuns.length, 300);
+      assert.deepEqual(
+        snapshotThread.subagentRuns.slice(0, 2).map((run) => run.id),
+        ["run-001", "run-002"],
+      );
+      assert.equal(snapshotThread.subagentRuns.at(-1)?.id, "run-300");
+      assert.equal(snapshotThread.subagentRuns.at(-1)?.entries.length, 500);
+      assert.deepEqual(
+        snapshotThread.subagentRuns
+          .at(-1)
+          ?.entries.slice(0, 2)
+          .map((entry) => entry.id),
+        ["entry-001", "entry-002"],
+      );
+      assert.equal(snapshotThread.subagentRuns.at(-1)?.entries.at(-1)?.id, "entry-500");
     }),
   );
 });

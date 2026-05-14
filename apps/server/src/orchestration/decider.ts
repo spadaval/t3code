@@ -779,6 +779,49 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.subagent-run.upsert": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.subagent-run-upserted",
+        payload: {
+          threadId: command.threadId,
+          run: command.run,
+        },
+      };
+    }
+
+    case "thread.subagent-entry.append": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.subagent-entry-appended",
+        payload: {
+          threadId: command.threadId,
+          runId: command.runId,
+          entry: command.entry,
+        },
+      };
+    }
+
     case "plan-implementation-launch.request": {
       yield* requirePlanImplementationLaunchAbsent({
         readModel,

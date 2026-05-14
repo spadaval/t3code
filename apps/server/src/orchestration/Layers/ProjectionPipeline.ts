@@ -35,6 +35,11 @@ import {
 } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSessionRepository } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import {
+  ProjectionThreadSubagentEntryRepository,
+  ProjectionThreadSubagentRunRepository,
+  type ProjectionThreadSubagentRun,
+} from "../../persistence/Services/ProjectionThreadSubagents.ts";
+import {
   type ProjectionTurn,
   ProjectionTurnRepository,
 } from "../../persistence/Services/ProjectionTurns.ts";
@@ -50,6 +55,10 @@ import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers
 import { ProjectionThreadMessageRepositoryLive } from "../../persistence/Layers/ProjectionThreadMessages.ts";
 import { ProjectionThreadProposedPlanRepositoryLive } from "../../persistence/Layers/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSessionRepositoryLive } from "../../persistence/Layers/ProjectionThreadSessions.ts";
+import {
+  ProjectionThreadSubagentEntryRepositoryLive,
+  ProjectionThreadSubagentRunRepositoryLive,
+} from "../../persistence/Layers/ProjectionThreadSubagents.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
 import { ProjectionThreadRepositoryLive } from "../../persistence/Layers/ProjectionThreads.ts";
 import { ServerConfig } from "../../config.ts";
@@ -74,6 +83,7 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   threadMessages: "projection.thread-messages",
   threadProposedPlans: "projection.thread-proposed-plans",
   threadActivities: "projection.thread-activities",
+  threadSubagents: "projection.thread-subagents",
   threadSessions: "projection.thread-sessions",
   threadTurns: "projection.thread-turns",
   checkpoints: "projection.checkpoints",
@@ -330,6 +340,24 @@ function retainProjectionProposedPlansAfterRevert(
   );
 }
 
+function retainProjectionSubagentRunsAfterRevert(
+  runs: ReadonlyArray<ProjectionThreadSubagentRun>,
+  turns: ReadonlyArray<ProjectionTurn>,
+  turnCount: number,
+): ReadonlyArray<ProjectionThreadSubagentRun> {
+  const retainedTurnIds = new Set<string>(
+    turns
+      .filter(
+        (turn) =>
+          turn.turnId !== null &&
+          turn.checkpointTurnCount !== null &&
+          turn.checkpointTurnCount <= turnCount,
+      )
+      .flatMap((turn) => (turn.turnId === null ? [] : [turn.turnId])),
+  );
+  return runs.filter((run) => retainedTurnIds.has(run.turnId));
+}
+
 function collectThreadAttachmentRelativePaths(
   threadId: string,
   messages: ReadonlyArray<ProjectionThreadMessage>,
@@ -490,6 +518,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
     const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
     const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
+    const projectionThreadSubagentRunRepository = yield* ProjectionThreadSubagentRunRepository;
+    const projectionThreadSubagentEntryRepository = yield* ProjectionThreadSubagentEntryRepository;
     const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
     const projectionTurnRepository = yield* ProjectionTurnRepository;
     const projectionPendingCheckpointCaptureRepository =
@@ -732,6 +762,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         case "thread.message-sent":
         case "thread.proposed-plan-upserted":
         case "thread.activity-appended":
+        case "thread.subagent-run-upserted":
+        case "thread.subagent-entry-appended":
         case "thread.approval-response-requested":
         case "thread.checkpoint-capture-requested":
         case "thread.user-input-response-requested": {
@@ -1373,6 +1405,103 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       }
     });
 
+    const applyThreadSubagentsProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyThreadSubagentsProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "thread.subagent-run-upserted":
+          yield* projectionThreadSubagentRunRepository.upsert({
+            runId: event.payload.run.id,
+            threadId: event.payload.threadId,
+            turnId: event.payload.run.turnId,
+            parentItemId: event.payload.run.parentItemId,
+            provider: event.payload.run.provider,
+            providerInstanceId: event.payload.run.providerInstanceId ?? null,
+            providerRunId: event.payload.run.providerRunId ?? null,
+            title: event.payload.run.title ?? null,
+            description: event.payload.run.description,
+            prompt: event.payload.run.prompt,
+            agentType: event.payload.run.agentType,
+            model: event.payload.run.model,
+            reasoningEffort: event.payload.run.reasoningEffort,
+            config: event.payload.run.config,
+            status: event.payload.run.status,
+            startedAt: event.payload.run.startedAt,
+            completedAt: event.payload.run.completedAt,
+            updatedAt: event.payload.run.updatedAt,
+          });
+          yield* Effect.forEach(
+            event.payload.run.entries,
+            (entry) =>
+              projectionThreadSubagentEntryRepository.upsert({
+                entryId: entry.id,
+                runId: event.payload.run.id,
+                kind: entry.kind,
+                title: entry.title,
+                text: entry.text,
+                payload: entry.payload,
+                createdAt: entry.createdAt,
+              }),
+            { concurrency: 1 },
+          ).pipe(Effect.asVoid);
+          return;
+
+        case "thread.subagent-entry-appended":
+          yield* projectionThreadSubagentEntryRepository.upsert({
+            entryId: event.payload.entry.id,
+            runId: event.payload.runId,
+            kind: event.payload.entry.kind,
+            title: event.payload.entry.title,
+            text: event.payload.entry.text,
+            payload: event.payload.entry.payload,
+            createdAt: event.payload.entry.createdAt,
+          });
+          return;
+
+        case "thread.reverted": {
+          const existingRows = yield* projectionThreadSubagentRunRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          if (existingRows.length === 0) {
+            return;
+          }
+          const existingTurns = yield* projectionTurnRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          const keptRows = retainProjectionSubagentRunsAfterRevert(
+            existingRows,
+            existingTurns,
+            event.payload.turnCount,
+          );
+          if (keptRows.length === existingRows.length) {
+            return;
+          }
+
+          const keptEntries = yield* Effect.forEach(
+            keptRows,
+            (run) => projectionThreadSubagentEntryRepository.listByRunId({ runId: run.runId }),
+            { concurrency: 1 },
+          ).pipe(Effect.map((entriesByRun) => entriesByRun.flat()));
+          yield* projectionThreadSubagentEntryRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
+          yield* projectionThreadSubagentRunRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
+          yield* Effect.forEach(keptRows, projectionThreadSubagentRunRepository.upsert, {
+            concurrency: 1,
+          }).pipe(Effect.asVoid);
+          yield* Effect.forEach(keptEntries, projectionThreadSubagentEntryRepository.upsert, {
+            concurrency: 1,
+          }).pipe(Effect.asVoid);
+          return;
+        }
+
+        default:
+          return;
+      }
+    });
+
     const applyThreadSessionsProjection: ProjectorDefinition["apply"] = Effect.fn(
       "applyThreadSessionsProjection",
     )(function* (event, _attachmentSideEffects) {
@@ -1958,6 +2087,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         apply: applyThreadActivitiesProjection,
       },
       {
+        name: ORCHESTRATION_PROJECTOR_NAMES.threadSubagents,
+        apply: applyThreadSubagentsProjection,
+      },
+      {
         name: ORCHESTRATION_PROJECTOR_NAMES.threadSessions,
         apply: applyThreadSessionsProjection,
       },
@@ -2084,6 +2217,8 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),
   Layer.provideMerge(ProjectionThreadActivityRepositoryLive),
+  Layer.provideMerge(ProjectionThreadSubagentRunRepositoryLive),
+  Layer.provideMerge(ProjectionThreadSubagentEntryRepositoryLive),
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),
   Layer.provideMerge(ProjectionTurnRepositoryLive),
   Layer.provideMerge(ProjectionPendingCheckpointCaptureRepositoryLive),

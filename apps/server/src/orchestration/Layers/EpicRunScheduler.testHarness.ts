@@ -359,6 +359,7 @@ export function applyCommand(
             deletedAt: null,
             messages: [],
             proposedPlans: [],
+            subagentRuns: [],
             activities: [],
             checkpoints: [],
             pendingCheckpointCaptures: [],

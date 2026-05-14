@@ -47,6 +47,87 @@ function makeEvent(input: {
   } as OrchestrationEvent;
 }
 
+async function projectEvents(
+  model: ReturnType<typeof createEmptyReadModel>,
+  events: ReadonlyArray<OrchestrationEvent>,
+) {
+  let current = model;
+  for (const event of events) {
+    current = await Effect.runPromise(projectEvent(current, event));
+  }
+  return current;
+}
+
+function makeThreadCreatedEvent(input: {
+  sequence: number;
+  threadId: string;
+  projectId?: string;
+  occurredAt: string;
+}): OrchestrationEvent {
+  return makeEvent({
+    sequence: input.sequence,
+    type: "thread.created",
+    aggregateKind: "thread",
+    aggregateId: input.threadId,
+    occurredAt: input.occurredAt,
+    commandId: `cmd-thread-create-${input.threadId}`,
+    payload: {
+      threadId: input.threadId,
+      projectId: input.projectId ?? "project-1",
+      title: "demo",
+      modelSelection: {
+        provider: ProviderDriverKind.make("codex"),
+        model: "gpt-5-codex",
+      },
+      runtimeMode: "full-access",
+      branch: null,
+      worktreePath: null,
+      createdAt: input.occurredAt,
+      updatedAt: input.occurredAt,
+    },
+  });
+}
+
+function makeSubagentRun(input: {
+  id: string;
+  threadId: string;
+  turnId: string;
+  startedAt: string;
+  entries?: ReadonlyArray<{
+    readonly id: string;
+    readonly runId: string;
+    readonly createdAt: string;
+    readonly text?: string;
+  }>;
+}) {
+  return {
+    id: input.id,
+    threadId: input.threadId,
+    turnId: input.turnId,
+    parentItemId: `item-${input.id}`,
+    provider: ProviderDriverKind.make("codex"),
+    description: null,
+    prompt: "inspect",
+    agentType: "explorer",
+    model: "gpt-5-codex",
+    reasoningEffort: null,
+    config: {},
+    status: "running",
+    startedAt: input.startedAt,
+    completedAt: null,
+    updatedAt: input.startedAt,
+    entries: (input.entries ?? []).map((entry) => ({
+      id: entry.id,
+      runId: entry.runId,
+      kind: "assistant",
+      title: null,
+      text: entry.text ?? entry.id,
+      payload: { id: entry.id },
+      createdAt: entry.createdAt,
+    })),
+  };
+}
+
 describe("orchestration projector", () => {
   it("applies thread.created events", async () => {
     const now = "2026-01-01T00:00:00.000Z";
@@ -102,11 +183,341 @@ describe("orchestration projector", () => {
         deletedAt: null,
         messages: [],
         proposedPlans: [],
+        subagentRuns: [],
         activities: [],
         checkpoints: [],
         pendingCheckpointCaptures: [],
         session: null,
       },
+    ]);
+  });
+
+  it("projects subagent runs and entries in deterministic order", async () => {
+    const now = "2026-01-01T00:00:00.000Z";
+    const model = createEmptyReadModel(now);
+    const thread = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: now,
+          commandId: "cmd-thread-create",
+          payload: {
+            threadId: "thread-1",
+            projectId: "project-1",
+            title: "demo",
+            modelSelection: { provider: ProviderDriverKind.make("codex"), model: "gpt-5-codex" },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      ),
+    );
+
+    const withRun = await Effect.runPromise(
+      projectEvent(
+        thread,
+        makeEvent({
+          sequence: 2,
+          type: "thread.subagent-run-upserted",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: "2026-01-01T00:00:01.000Z",
+          commandId: "cmd-run",
+          payload: {
+            threadId: "thread-1",
+            run: {
+              id: "run-1",
+              threadId: "thread-1",
+              turnId: "turn-1",
+              parentItemId: "item-1",
+              provider: ProviderDriverKind.make("codex"),
+              description: null,
+              prompt: "inspect",
+              agentType: "explorer",
+              model: "gpt-5-codex",
+              reasoningEffort: null,
+              config: { depth: 1 },
+              status: "running",
+              startedAt: "2026-01-01T00:00:01.000Z",
+              completedAt: null,
+              updatedAt: "2026-01-01T00:00:01.000Z",
+              entries: [],
+            },
+          },
+        }),
+      ),
+    );
+
+    const withEntry = await Effect.runPromise(
+      projectEvent(
+        withRun,
+        makeEvent({
+          sequence: 3,
+          type: "thread.subagent-entry-appended",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: "2026-01-01T00:00:02.000Z",
+          commandId: "cmd-entry",
+          payload: {
+            threadId: "thread-1",
+            runId: "run-1",
+            entry: {
+              id: "entry-1",
+              runId: "run-1",
+              kind: "assistant",
+              title: null,
+              text: "done",
+              payload: { ok: true },
+              createdAt: "2026-01-01T00:00:02.000Z",
+            },
+          },
+        }),
+      ),
+    );
+
+    expect(withEntry.threads[0]?.subagentRuns).toEqual([
+      {
+        id: "run-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        parentItemId: "item-1",
+        provider: "codex",
+        description: null,
+        prompt: "inspect",
+        agentType: "explorer",
+        model: "gpt-5-codex",
+        reasoningEffort: null,
+        config: { depth: 1 },
+        status: "running",
+        startedAt: "2026-01-01T00:00:01.000Z",
+        completedAt: null,
+        updatedAt: "2026-01-01T00:00:01.000Z",
+        entries: [
+          {
+            id: "entry-1",
+            runId: "run-1",
+            kind: "assistant",
+            title: null,
+            text: "done",
+            payload: { ok: true },
+            createdAt: "2026-01-01T00:00:02.000Z",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("caps projected subagent runs at the latest 300 in deterministic order", async () => {
+    const now = "2026-01-01T00:00:00.000Z";
+    const threadId = "thread-run-cap";
+    const events: OrchestrationEvent[] = [
+      makeThreadCreatedEvent({ sequence: 1, threadId, occurredAt: now }),
+    ];
+
+    for (let index = 0; index < 301; index += 1) {
+      const runId = `run-${String(index).padStart(3, "0")}`;
+      const startedAt = new Date(
+        Date.parse("2026-01-01T00:00:01.000Z") + index * 1_000,
+      ).toISOString();
+      events.push(
+        makeEvent({
+          sequence: index + 2,
+          type: "thread.subagent-run-upserted",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: startedAt,
+          commandId: `cmd-${runId}`,
+          payload: {
+            threadId,
+            run: makeSubagentRun({
+              id: runId,
+              threadId,
+              turnId: `turn-${index}`,
+              startedAt,
+            }),
+          },
+        }),
+      );
+    }
+
+    const finalState = await projectEvents(createEmptyReadModel(now), events);
+    const runIds = finalState.threads[0]?.subagentRuns.map((run) => run.id);
+
+    expect(runIds).toHaveLength(300);
+    expect(runIds?.[0]).toBe("run-001");
+    expect(runIds?.at(-1)).toBe("run-300");
+  });
+
+  it("caps projected subagent entries at the latest 500 and upserts by entry id", async () => {
+    const now = "2026-01-01T00:00:00.000Z";
+    const threadId = "thread-entry-cap";
+    const runId = "run-entry-cap";
+    const events: OrchestrationEvent[] = [
+      makeThreadCreatedEvent({ sequence: 1, threadId, occurredAt: now }),
+      makeEvent({
+        sequence: 2,
+        type: "thread.subagent-run-upserted",
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-01-01T00:00:01.000Z",
+        commandId: "cmd-run-entry-cap",
+        payload: {
+          threadId,
+          run: makeSubagentRun({
+            id: runId,
+            threadId,
+            turnId: "turn-entry-cap",
+            startedAt: "2026-01-01T00:00:01.000Z",
+          }),
+        },
+      }),
+    ];
+
+    for (let index = 0; index < 501; index += 1) {
+      const entryId = `entry-${String(index).padStart(3, "0")}`;
+      const createdAt = new Date(
+        Date.parse("2026-01-01T00:00:02.000Z") + index * 1_000,
+      ).toISOString();
+      events.push(
+        makeEvent({
+          sequence: index + 3,
+          type: "thread.subagent-entry-appended",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: createdAt,
+          commandId: `cmd-${entryId}`,
+          payload: {
+            threadId,
+            runId,
+            entry: {
+              id: entryId,
+              runId,
+              kind: "assistant",
+              title: null,
+              text: entryId,
+              payload: { index },
+              createdAt,
+            },
+          },
+        }),
+      );
+    }
+
+    events.push(
+      makeEvent({
+        sequence: 504,
+        type: "thread.subagent-entry-appended",
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-01-01T00:10:00.000Z",
+        commandId: "cmd-entry-250-updated",
+        payload: {
+          threadId,
+          runId,
+          entry: {
+            id: "entry-250",
+            runId,
+            kind: "assistant",
+            title: "Updated",
+            text: "updated text",
+            payload: { updated: true },
+            createdAt: "2026-01-01T00:10:00.000Z",
+          },
+        },
+      }),
+    );
+
+    const finalState = await projectEvents(createEmptyReadModel(now), events);
+    const entries = finalState.threads[0]?.subagentRuns[0]?.entries ?? [];
+
+    expect(entries).toHaveLength(500);
+    expect(entries[0]?.id).toBe("entry-001");
+    expect(entries.at(-1)).toEqual(
+      expect.objectContaining({
+        id: "entry-250",
+        text: "updated text",
+        payload: { updated: true },
+      }),
+    );
+    expect(entries.filter((entry) => entry.id === "entry-250")).toHaveLength(1);
+  });
+
+  it("retains only subagent runs for retained turns after revert", async () => {
+    const now = "2026-01-01T00:00:00.000Z";
+    const threadId = "thread-revert-subagents";
+    const events: OrchestrationEvent[] = [
+      makeThreadCreatedEvent({ sequence: 1, threadId, occurredAt: now }),
+    ];
+
+    for (let turn = 1; turn <= 3; turn += 1) {
+      events.push(
+        makeEvent({
+          sequence: turn + 1,
+          type: "thread.turn-diff-completed",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: `2026-01-01T00:00:0${turn}.000Z`,
+          commandId: `cmd-checkpoint-${turn}`,
+          payload: {
+            threadId,
+            turnId: `turn-${turn}`,
+            checkpointTurnCount: turn,
+            checkpointRef: `refs/t3/checkpoints/${threadId}/turn/${turn}`,
+            status: "ready",
+            files: [],
+            assistantMessageId: `assistant-${turn}`,
+            completedAt: `2026-01-01T00:00:0${turn}.000Z`,
+          },
+        }),
+        makeEvent({
+          sequence: turn + 10,
+          type: "thread.subagent-run-upserted",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: `2026-01-01T00:01:0${turn}.000Z`,
+          commandId: `cmd-run-${turn}`,
+          payload: {
+            threadId,
+            run: makeSubagentRun({
+              id: `run-${turn}`,
+              threadId,
+              turnId: `turn-${turn}`,
+              startedAt: `2026-01-01T00:01:0${turn}.000Z`,
+            }),
+          },
+        }),
+      );
+    }
+
+    events.push(
+      makeEvent({
+        sequence: 20,
+        type: "thread.reverted",
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: "2026-01-01T00:02:00.000Z",
+        commandId: "cmd-revert",
+        payload: {
+          threadId,
+          turnCount: 2,
+          revertedAt: "2026-01-01T00:02:00.000Z",
+        },
+      }),
+    );
+
+    const finalState = await projectEvents(createEmptyReadModel(now), events);
+
+    expect(finalState.threads[0]?.subagentRuns.map((run) => run.id)).toEqual(["run-1", "run-2"]);
+    expect(finalState.threads[0]?.checkpoints.map((checkpoint) => checkpoint.turnId)).toEqual([
+      "turn-1",
+      "turn-2",
     ]);
   });
 
