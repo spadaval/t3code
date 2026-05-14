@@ -13,6 +13,8 @@ import type {
   OrchestrationShellStreamEvent,
   OrchestrationSession,
   OrchestrationSessionStatus,
+  OrchestrationSubagentEntry,
+  OrchestrationSubagentRun,
   OrchestrationThread,
   OrchestrationThreadShell,
   OrchestrationThreadActivity,
@@ -45,6 +47,7 @@ import {
   type Project,
   type ProposedPlan,
   type SidebarThreadSummary,
+  type SubagentRun,
   type Thread,
   type ThreadSession,
   type ThreadShell,
@@ -91,6 +94,8 @@ export interface EnvironmentState {
   activityByThreadId: Record<ThreadId, Record<string, OrchestrationThreadActivity>>;
   proposedPlanIdsByThreadId: Record<ThreadId, string[]>;
   proposedPlanByThreadId: Record<ThreadId, Record<string, ProposedPlan>>;
+  subagentRunIdsByThreadId: Record<ThreadId, string[]>;
+  subagentRunByThreadId: Record<ThreadId, Record<string, SubagentRun>>;
   turnDiffIdsByThreadId: Record<ThreadId, TurnId[]>;
   turnDiffSummaryByThreadId: Record<ThreadId, Record<TurnId, TurnDiffSummary>>;
 
@@ -136,6 +141,8 @@ const initialEnvironmentState: EnvironmentState = {
   activityByThreadId: {},
   proposedPlanIdsByThreadId: {},
   proposedPlanByThreadId: {},
+  subagentRunIdsByThreadId: {},
+  subagentRunByThreadId: {},
   turnDiffIdsByThreadId: {},
   turnDiffSummaryByThreadId: {},
   sidebarThreadSummaryById: {},
@@ -156,6 +163,7 @@ const initialState: AppState = {
 const MAX_THREAD_MESSAGES = 2_000;
 const MAX_THREAD_CHECKPOINTS = 500;
 const MAX_THREAD_PROPOSED_PLANS = 200;
+const MAX_THREAD_SUBAGENT_RUNS = 300;
 const MAX_THREAD_ACTIVITIES = 500;
 const EMPTY_THREAD_IDS: ThreadId[] = [];
 const EMPTY_EPIC_RUN_IDS: OrchestrationEpicRun["runId"][] = [];
@@ -232,6 +240,30 @@ function mapProposedPlan(proposedPlan: OrchestrationProposedPlan): ProposedPlan 
   };
 }
 
+function mapSubagentEntry(entry: OrchestrationSubagentEntry): SubagentRun["entries"][number] {
+  return { ...entry };
+}
+
+function mapSubagentRun(run: OrchestrationSubagentRun): SubagentRun {
+  return {
+    ...run,
+    entries: run.entries.map(mapSubagentEntry),
+  };
+}
+
+function mergeSubagentRun(
+  incomingRun: SubagentRun,
+  existingRun: SubagentRun | undefined,
+): SubagentRun {
+  if (!existingRun || incomingRun.entries.length > 0) {
+    return incomingRun;
+  }
+  return {
+    ...incomingRun,
+    entries: existingRun.entries,
+  };
+}
+
 function mapTurnDiffSummary(checkpoint: OrchestrationCheckpointSummary): TurnDiffSummary {
   return {
     turnId: checkpoint.turnId,
@@ -278,6 +310,7 @@ function mapThread(thread: OrchestrationThread, environmentId: EnvironmentId): T
     session: thread.session ? mapSession(thread.session) : null,
     messages: thread.messages.map((message) => mapMessage(environmentId, message)),
     proposedPlans: thread.proposedPlans.map(mapProposedPlan),
+    subagentRuns: thread.subagentRuns.map(mapSubagentRun),
     error: sanitizeThreadErrorMessage(thread.session?.lastError),
     createdAt: thread.createdAt,
     archivedAt: thread.archivedAt,
@@ -552,6 +585,19 @@ function buildProposedPlanSlice(thread: Thread): {
     byId: Object.fromEntries(
       thread.proposedPlans.map((plan) => [plan.id, plan] as const),
     ) as Record<string, ProposedPlan>,
+  };
+}
+
+function buildSubagentRunSlice(thread: Thread): {
+  ids: string[];
+  byId: Record<string, SubagentRun>;
+} {
+  return {
+    ids: thread.subagentRuns.map((run) => run.id),
+    byId: Object.fromEntries(thread.subagentRuns.map((run) => [run.id, run] as const)) as Record<
+      string,
+      SubagentRun
+    >,
   };
 }
 
@@ -967,6 +1013,21 @@ function writeThreadState(
     };
   }
 
+  if (previousThread?.subagentRuns !== nextThread.subagentRuns) {
+    const nextSubagentRunSlice = buildSubagentRunSlice(nextThread);
+    nextState = {
+      ...nextState,
+      subagentRunIdsByThreadId: {
+        ...nextState.subagentRunIdsByThreadId,
+        [nextThread.id]: nextSubagentRunSlice.ids,
+      },
+      subagentRunByThreadId: {
+        ...nextState.subagentRunByThreadId,
+        [nextThread.id]: nextSubagentRunSlice.byId,
+      },
+    };
+  }
+
   if (previousThread?.turnDiffSummaries !== nextThread.turnDiffSummaries) {
     const nextTurnDiffSlice = buildTurnDiffSlice(nextThread);
     nextState = {
@@ -1107,6 +1168,10 @@ function removeThreadState(state: EnvironmentState, threadId: ThreadId): Environ
   const { [threadId]: _removedPlanIds, ...proposedPlanIdsByThreadId } =
     state.proposedPlanIdsByThreadId;
   const { [threadId]: _removedPlans, ...proposedPlanByThreadId } = state.proposedPlanByThreadId;
+  const { [threadId]: _removedSubagentRunIds, ...subagentRunIdsByThreadId } =
+    state.subagentRunIdsByThreadId;
+  const { [threadId]: _removedSubagentRuns, ...subagentRunByThreadId } =
+    state.subagentRunByThreadId;
   const { [threadId]: _removedTurnDiffIds, ...turnDiffIdsByThreadId } = state.turnDiffIdsByThreadId;
   const { [threadId]: _removedTurnDiffs, ...turnDiffSummaryByThreadId } =
     state.turnDiffSummaryByThreadId;
@@ -1126,6 +1191,8 @@ function removeThreadState(state: EnvironmentState, threadId: ThreadId): Environ
     activityByThreadId,
     proposedPlanIdsByThreadId,
     proposedPlanByThreadId,
+    subagentRunIdsByThreadId,
+    subagentRunByThreadId,
     turnDiffIdsByThreadId,
     turnDiffSummaryByThreadId,
     sidebarThreadSummaryById,
@@ -1438,6 +1505,8 @@ function buildThreadState(
   | "activityByThreadId"
   | "proposedPlanIdsByThreadId"
   | "proposedPlanByThreadId"
+  | "subagentRunIdsByThreadId"
+  | "subagentRunByThreadId"
   | "turnDiffIdsByThreadId"
   | "turnDiffSummaryByThreadId"
   | "sidebarThreadSummaryById"
@@ -1453,6 +1522,8 @@ function buildThreadState(
   const activityByThreadId: Record<ThreadId, Record<string, OrchestrationThreadActivity>> = {};
   const proposedPlanIdsByThreadId: Record<ThreadId, string[]> = {};
   const proposedPlanByThreadId: Record<ThreadId, Record<string, ProposedPlan>> = {};
+  const subagentRunIdsByThreadId: Record<ThreadId, string[]> = {};
+  const subagentRunByThreadId: Record<ThreadId, Record<string, SubagentRun>> = {};
   const turnDiffIdsByThreadId: Record<ThreadId, TurnId[]> = {};
   const turnDiffSummaryByThreadId: Record<ThreadId, Record<TurnId, TurnDiffSummary>> = {};
   const sidebarThreadSummaryById: Record<ThreadId, SidebarThreadSummary> = {};
@@ -1475,6 +1546,9 @@ function buildThreadState(
     const proposedPlanSlice = buildProposedPlanSlice(thread);
     proposedPlanIdsByThreadId[thread.id] = proposedPlanSlice.ids;
     proposedPlanByThreadId[thread.id] = proposedPlanSlice.byId;
+    const subagentRunSlice = buildSubagentRunSlice(thread);
+    subagentRunIdsByThreadId[thread.id] = subagentRunSlice.ids;
+    subagentRunByThreadId[thread.id] = subagentRunSlice.byId;
     const turnDiffSlice = buildTurnDiffSlice(thread);
     turnDiffIdsByThreadId[thread.id] = turnDiffSlice.ids;
     turnDiffSummaryByThreadId[thread.id] = turnDiffSlice.byId;
@@ -1493,6 +1567,8 @@ function buildThreadState(
     activityByThreadId,
     proposedPlanIdsByThreadId,
     proposedPlanByThreadId,
+    subagentRunIdsByThreadId,
+    subagentRunByThreadId,
     turnDiffIdsByThreadId,
     turnDiffSummaryByThreadId,
     sidebarThreadSummaryById,
@@ -1644,6 +1720,11 @@ function syncEnvironmentShellSnapshot(
       nextThreadIds,
     ),
     proposedPlanByThreadId: retainThreadScopedRecord(state.proposedPlanByThreadId, nextThreadIds),
+    subagentRunIdsByThreadId: retainThreadScopedRecord(
+      state.subagentRunIdsByThreadId,
+      nextThreadIds,
+    ),
+    subagentRunByThreadId: retainThreadScopedRecord(state.subagentRunByThreadId, nextThreadIds),
     turnDiffIdsByThreadId: retainThreadScopedRecord(state.turnDiffIdsByThreadId, nextThreadIds),
     turnDiffSummaryByThreadId: retainThreadScopedRecord(
       state.turnDiffSummaryByThreadId,
@@ -1827,6 +1908,7 @@ function applyEnvironmentOrchestrationEvent(
           deletedAt: null,
           messages: [],
           proposedPlans: [],
+          subagentRuns: [],
           activities: [],
           checkpoints: [],
           pendingCheckpointCaptures: [],
@@ -2075,6 +2157,56 @@ function applyEnvironmentOrchestrationEvent(
         return {
           ...thread,
           proposedPlans,
+          updatedAt: event.occurredAt,
+        };
+      });
+
+    case "thread.subagent-run-upserted":
+      return updateThreadState(state, event.payload.threadId, (thread) => {
+        const incomingSubagentRun = mapSubagentRun(event.payload.run);
+        const subagentRun = mergeSubagentRun(
+          incomingSubagentRun,
+          thread.subagentRuns.find((entry) => entry.id === incomingSubagentRun.id),
+        );
+        const subagentRuns = [
+          ...thread.subagentRuns.filter((entry) => entry.id !== subagentRun.id),
+          subagentRun,
+        ]
+          .toSorted(
+            (left, right) =>
+              left.startedAt.localeCompare(right.startedAt) || left.id.localeCompare(right.id),
+          )
+          .slice(-MAX_THREAD_SUBAGENT_RUNS);
+        return {
+          ...thread,
+          subagentRuns,
+          updatedAt: event.occurredAt,
+        };
+      });
+
+    case "thread.subagent-entry-appended":
+      return updateThreadState(state, event.payload.threadId, (thread) => {
+        const entry = mapSubagentEntry(event.payload.entry);
+        const subagentRuns = thread.subagentRuns.map((run) => {
+          if (run.id !== event.payload.runId) {
+            return run;
+          }
+          return {
+            ...run,
+            entries: [
+              ...run.entries.filter((candidate) => candidate.id !== entry.id),
+              entry,
+            ].toSorted(
+              (left, right) =>
+                left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+            ),
+            updatedAt:
+              run.updatedAt.localeCompare(entry.createdAt) >= 0 ? run.updatedAt : entry.createdAt,
+          };
+        });
+        return {
+          ...thread,
+          subagentRuns,
           updatedAt: event.occurredAt,
         };
       });

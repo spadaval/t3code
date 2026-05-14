@@ -4,6 +4,8 @@ import type {
   OrchestrationLatestTurn,
   OrchestrationProposedPlanId,
   OrchestrationThreadIssueLink,
+  OrchestrationSubagentEntry as ContractSubagentEntry,
+  OrchestrationSubagentRun as ContractSubagentRun,
   RepositoryIdentity,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
@@ -65,6 +67,11 @@ export interface ProposedPlan {
   updatedAt: string;
 }
 
+export type SubagentEntry = ContractSubagentEntry;
+export type SubagentRun = Omit<ContractSubagentRun, "entries"> & {
+  entries: SubagentEntry[];
+};
+
 export interface TurnDiffFileChange {
   path: string;
   kind?: string | undefined;
@@ -106,6 +113,7 @@ export interface Thread {
   session: ThreadSession | null;
   messages: ChatMessage[];
   proposedPlans: ProposedPlan[];
+  subagentRuns: SubagentRun[];
   error: string | null;
   createdAt: string;
   archivedAt: string | null;

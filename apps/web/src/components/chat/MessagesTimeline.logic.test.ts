@@ -205,6 +205,49 @@ describe("resolveAssistantMessageCopyState", () => {
 });
 
 describe("deriveMessagesTimelineRows", () => {
+  it("creates stable subagent run rows in timeline order", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        {
+          id: "subagent-run-1",
+          kind: "subagent-run",
+          createdAt: "2026-01-01T00:00:10Z",
+          subagentRun: {
+            id: "subagent-run-1",
+            threadId: "thread-1" as never,
+            turnId: "turn-1" as never,
+            parentItemId: "tool-call-1" as never,
+            provider: "codex" as never,
+            description: "Implement helper",
+            prompt: "Add tests",
+            agentType: "implementation",
+            model: "gpt-5-codex",
+            reasoningEffort: "high",
+            config: null,
+            status: "running",
+            startedAt: "2026-01-01T00:00:10Z",
+            completedAt: null,
+            updatedAt: "2026-01-01T00:00:10Z",
+            entries: [],
+          },
+        },
+      ],
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    });
+
+    expect(rows).toMatchObject([
+      {
+        kind: "subagent-run",
+        id: "subagent-run:subagent-run-1",
+        createdAt: "2026-01-01T00:00:10Z",
+      },
+    ]);
+  });
+
   it("only enables assistant copy for the terminal assistant message in a turn", () => {
     const rows = deriveMessagesTimelineRows({
       timelineEntries: [
@@ -538,5 +581,51 @@ describe("computeStableMessagesTimelineRows", () => {
 
     expect(reordered).not.toBe(initial);
     expect(reordered.result).toEqual([initial.result[1], initial.result[0]]);
+  });
+
+  it("reuses subagent rows when the run reference is unchanged", () => {
+    const subagentRun = {
+      id: "subagent-run-1",
+      threadId: "thread-1" as never,
+      turnId: "turn-1" as never,
+      parentItemId: "tool-call-1" as never,
+      provider: "codex" as never,
+      description: null,
+      prompt: null,
+      agentType: null,
+      model: null,
+      reasoningEffort: null,
+      config: null,
+      status: "running" as const,
+      startedAt: "2026-01-01T00:00:10Z",
+      completedAt: null,
+      updatedAt: "2026-01-01T00:00:10Z",
+      entries: [],
+    };
+    const createRows = () =>
+      deriveMessagesTimelineRows({
+        timelineEntries: [
+          {
+            id: subagentRun.id,
+            kind: "subagent-run",
+            createdAt: subagentRun.startedAt,
+            subagentRun,
+          },
+        ],
+        completionDividerBeforeEntryId: null,
+        isWorking: false,
+        activeTurnStartedAt: null,
+        turnDiffSummaryByAssistantMessageId: new Map(),
+        revertTurnCountByUserMessageId: new Map(),
+      });
+
+    const initial = computeStableMessagesTimelineRows(createRows(), {
+      byId: new Map(),
+      result: [],
+    });
+    const repeated = computeStableMessagesTimelineRows(createRows(), initial);
+
+    expect(repeated).toBe(initial);
+    expect(repeated.result[0]).toBe(initial.result[0]);
   });
 });

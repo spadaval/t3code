@@ -45,6 +45,7 @@ vi.mock("@legendapp/list/react", async () => {
 });
 
 import { MessagesTimeline } from "./MessagesTimeline";
+import { useUiStateStore } from "~/uiStateStore";
 
 const MESSAGE_CREATED_AT = "2026-04-13T12:00:00.000Z";
 
@@ -95,10 +96,61 @@ function buildUserTimelineEntry(text: string) {
   };
 }
 
+function buildSubagentTimelineEntry(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "subagent-run-1",
+    kind: "subagent-run" as const,
+    createdAt: MESSAGE_CREATED_AT,
+    subagentRun: {
+      id: "subagent-run-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      parentItemId: "item-1",
+      provider: "codex",
+      title: "Implement nested panel",
+      description: "Subagent implementation task",
+      prompt: "Please inspect the current timeline and add the panel.",
+      agentType: "implementation",
+      model: "gpt-5-codex",
+      reasoningEffort: "high",
+      config: { sandboxMode: "workspace-write" },
+      status: "completed",
+      startedAt: "2026-04-13T12:00:00.000Z",
+      completedAt: "2026-04-13T12:00:10.000Z",
+      updatedAt: "2026-04-13T12:00:10.000Z",
+      entries: [
+        {
+          id: "entry-a",
+          runId: "subagent-run-1",
+          kind: "assistant",
+          title: "Analysis",
+          text: "Found the timeline row shape.",
+          payload: null,
+          createdAt: "2026-04-13T12:00:02.000Z",
+        },
+        {
+          id: "entry-b",
+          runId: "subagent-run-1",
+          kind: "result",
+          title: "Result",
+          text: "A very long result ".repeat(30),
+          payload: null,
+          createdAt: "2026-04-13T12:00:03.000Z",
+        },
+      ],
+      ...overrides,
+    } as never,
+  };
+}
+
 describe("MessagesTimeline", () => {
   afterEach(() => {
     scrollToEndSpy.mockReset();
     getStateSpy.mockClear();
+    useUiStateStore.setState({
+      ...useUiStateStore.getState(),
+      threadSubagentExpandedById: {},
+    });
     vi.restoreAllMocks();
     document.body.innerHTML = "";
   });
@@ -258,6 +310,83 @@ describe("MessagesTimeline", () => {
 
       const messageBody = document.querySelector("[data-user-message-body='true']");
       expect(messageBody?.getAttribute("data-user-message-collapsed")).toBe("true");
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("collapses completed subagent panels by default and expands from the header button", async () => {
+    const screen = await render(
+      <MessagesTimeline {...buildProps()} timelineEntries={[buildSubagentTimelineEntry()]} />,
+    );
+
+    try {
+      const expandButton = page.getByRole("button", { name: "Expand subagent subagent-run-1" });
+      await expect.element(expandButton).toBeVisible();
+      await expect.element(expandButton).toHaveAttribute("aria-expanded", "false");
+      await expect.element(page.getByText("Found the timeline row shape.")).not.toBeInTheDocument();
+
+      await expandButton.click();
+
+      await expect
+        .element(page.getByRole("button", { name: "Collapse subagent subagent-run-1" }))
+        .toHaveAttribute("aria-expanded", "true");
+      await expect
+        .element(page.getByText("Please inspect the current timeline and add the panel."))
+        .toBeVisible();
+      await expect.element(page.getByText("Found the timeline row shape.")).toBeVisible();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("uses persisted subagent toggles instead of status defaults", async () => {
+    useUiStateStore
+      .getState()
+      .setThreadSubagentExpanded("environment-local:thread-1", "subagent-run-1", true);
+
+    const screen = await render(
+      <MessagesTimeline {...buildProps()} timelineEntries={[buildSubagentTimelineEntry()]} />,
+    );
+
+    try {
+      await expect
+        .element(page.getByRole("button", { name: "Collapse subagent subagent-run-1" }))
+        .toHaveAttribute("aria-expanded", "true");
+      await expect.element(page.getByText("Found the timeline row shape.")).toBeVisible();
+
+      await page.getByRole("button", { name: "Collapse subagent subagent-run-1" }).click();
+      expect(
+        useUiStateStore.getState().threadSubagentExpandedById["environment-local:thread-1"]?.[
+          "subagent-run-1"
+        ],
+      ).toBe(false);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("defaults active empty subagent panels open with an empty-state row", async () => {
+    const screen = await render(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          buildSubagentTimelineEntry({
+            status: "running",
+            completedAt: null,
+            entries: [],
+          }),
+        ]}
+      />,
+    );
+
+    try {
+      await expect
+        .element(page.getByRole("button", { name: "Collapse subagent subagent-run-1" }))
+        .toHaveAttribute("aria-expanded", "true");
+      await expect
+        .element(page.getByText("Waiting for attributed subagent output..."))
+        .toBeVisible();
     } finally {
       await screen.unmount();
     }

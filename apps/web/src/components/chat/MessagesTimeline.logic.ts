@@ -1,6 +1,11 @@
 import * as Equal from "effect/Equal";
 import { type TimelineEntry, type WorkLogEntry } from "../../session-logic";
-import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
+import {
+  type ChatMessage,
+  type ProposedPlan,
+  type SubagentRun,
+  type TurnDiffSummary,
+} from "../../types";
 import { type MessageId, type TurnId } from "@t3tools/contracts";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
@@ -37,6 +42,12 @@ export type MessagesTimelineRow =
       id: string;
       createdAt: string;
       proposedPlan: ProposedPlan;
+    }
+  | {
+      kind: "subagent-run";
+      id: string;
+      createdAt: string;
+      subagentRun: SubagentRun;
     }
   | { kind: "working"; id: string; createdAt: string | null };
 
@@ -162,6 +173,16 @@ export function deriveMessagesTimelineRows(input: {
       continue;
     }
 
+    if (timelineEntry.kind === "subagent-run") {
+      nextRows.push({
+        kind: "subagent-run",
+        id: `subagent-run:${timelineEntry.id}`,
+        createdAt: timelineEntry.createdAt,
+        subagentRun: timelineEntry.subagentRun,
+      });
+      continue;
+    }
+
     const assistantTurnStillInProgress =
       timelineEntry.message.role === "assistant" &&
       input.activeTurnInProgress === true &&
@@ -237,6 +258,11 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
     case "proposed-plan":
       return a.proposedPlan === (b as typeof a).proposedPlan;
+
+    case "subagent-run":
+      return (
+        a.createdAt === (b as typeof a).createdAt && a.subagentRun === (b as typeof a).subagentRun
+      );
 
     case "work":
       return Equal.equals(a.groupedEntries, (b as typeof a).groupedEntries);

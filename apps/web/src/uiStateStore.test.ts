@@ -14,6 +14,7 @@ import {
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
   setThreadChangedFilesExpanded,
+  setThreadSubagentExpanded,
   syncProjects,
   syncThreads,
   toggleEpicGroupExpanded,
@@ -27,6 +28,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     epicGroupExpandedById: {},
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
+    threadSubagentExpandedById: {},
     defaultAdvertisedEndpointKey: null,
     ...overrides,
   };
@@ -355,6 +357,14 @@ describe("uiStateStore pure functions", () => {
           "turn-2": true,
         },
       },
+      threadSubagentExpandedById: {
+        [thread1]: {
+          "run-1": false,
+        },
+        [thread2]: {
+          "run-2": true,
+        },
+      },
     });
 
     const next = syncThreads(initialState, [{ key: thread1 }]);
@@ -365,6 +375,11 @@ describe("uiStateStore pure functions", () => {
     expect(next.threadChangedFilesExpandedById).toEqual({
       [thread1]: {
         "turn-1": true,
+      },
+    });
+    expect(next.threadSubagentExpandedById).toEqual({
+      [thread1]: {
+        "run-1": false,
       },
     });
   });
@@ -445,12 +460,18 @@ describe("uiStateStore pure functions", () => {
           "turn-1": true,
         },
       },
+      threadSubagentExpandedById: {
+        [thread1]: {
+          "run-1": false,
+        },
+      },
     });
 
     const next = clearThreadUi(initialState, thread1);
 
     expect(next.threadLastVisitedAtById).toEqual({});
     expect(next.threadChangedFilesExpandedById).toEqual({});
+    expect(next.threadSubagentExpandedById).toEqual({});
   });
 
   it("setThreadChangedFilesExpanded stores expanded turns per thread", () => {
@@ -479,6 +500,21 @@ describe("uiStateStore pure functions", () => {
     const next = setThreadChangedFilesExpanded(initialState, thread1, "turn-1", false);
 
     expect(next.threadChangedFilesExpandedById).toEqual({});
+  });
+
+  it("setThreadSubagentExpanded stores explicit open and closed toggles per thread", () => {
+    const thread1 = ThreadId.make("thread-1");
+    const initialState = makeUiState();
+
+    const expanded = setThreadSubagentExpanded(initialState, thread1, "run-1", true);
+    const collapsed = setThreadSubagentExpanded(expanded, thread1, "run-2", false);
+
+    expect(collapsed.threadSubagentExpandedById).toEqual({
+      [thread1]: {
+        "run-1": true,
+        "run-2": false,
+      },
+    });
   });
 });
 
@@ -614,6 +650,28 @@ describe("uiStateStore persistence round-trip", () => {
       localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
     ) as PersistedUiState;
     expect(persisted.defaultAdvertisedEndpointKey).toBe("desktop-core:lan:http");
+  });
+
+  it("persists explicit subagent expansion toggles including collapsed overrides", () => {
+    const threadId = ThreadId.make("thread-1");
+    const state = setThreadSubagentExpanded(
+      setThreadSubagentExpanded(makeUiState(), threadId, "run-open", true),
+      threadId,
+      "run-closed",
+      false,
+    );
+
+    persistState(state);
+
+    const persisted = JSON.parse(
+      localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
+    ) as PersistedUiState;
+    expect(persisted.threadSubagentExpandedById).toEqual({
+      [threadId]: {
+        "run-open": true,
+        "run-closed": false,
+      },
+    });
   });
 
   it("preserves expand state across restart when project's logical key changes", () => {

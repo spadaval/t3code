@@ -15,6 +15,7 @@ import type {
   ChatMessage,
   ProposedPlan,
   SessionPhase,
+  SubagentRun,
   Thread,
   ThreadSession,
   TurnDiffSummary,
@@ -57,6 +58,9 @@ export interface WorkLogEntry {
   toolTitle?: string;
   itemType?: ToolLifecycleItemType;
   requestKind?: PendingApproval["requestKind"];
+  toolCallId?: string;
+  parentItemId?: string;
+  providerRunId?: string;
 }
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
@@ -134,6 +138,12 @@ export type TimelineEntry =
       kind: "work";
       createdAt: string;
       entry: WorkLogEntry;
+    }
+  | {
+      id: string;
+      kind: "subagent-run";
+      createdAt: string;
+      subagentRun: SubagentRun;
     };
 
 export function formatDuration(durationMs: number): string {
@@ -1308,7 +1318,18 @@ export function deriveTimelineEntries(
   messages: ChatMessage[],
   proposedPlans: ProposedPlan[],
   workEntries: WorkLogEntry[],
+  subagentRuns: SubagentRun[] = [],
 ): TimelineEntry[] {
+  const representedSubagentLaunches = new Set(
+    subagentRuns.flatMap((run) => [
+      `entry:${run.id}`,
+      `tool:${run.id}`,
+      `parent:${run.parentItemId}`,
+      `entry:${run.parentItemId}`,
+      `tool:${run.parentItemId}`,
+      ...(run.providerRunId ? [`provider-run:${run.providerRunId}`] : []),
+    ]),
+  );
   const messageRows: TimelineEntry[] = messages.map((message) => ({
     id: message.id,
     kind: "message",
@@ -1321,14 +1342,38 @@ export function deriveTimelineEntries(
     createdAt: proposedPlan.createdAt,
     proposedPlan,
   }));
-  const workRows: TimelineEntry[] = workEntries.map((entry) => ({
-    id: entry.id,
-    kind: "work",
-    createdAt: entry.createdAt,
-    entry,
+  const workRows: TimelineEntry[] = workEntries
+    .filter((entry) => !isRepresentedSubagentLaunchWorkEntry(entry, representedSubagentLaunches))
+    .map((entry) => ({
+      id: entry.id,
+      kind: "work",
+      createdAt: entry.createdAt,
+      entry,
+    }));
+  const subagentRunRows: TimelineEntry[] = subagentRuns.map((subagentRun) => ({
+    id: subagentRun.id,
+    kind: "subagent-run",
+    createdAt: subagentRun.startedAt,
+    subagentRun,
   }));
-  return [...messageRows, ...proposedPlanRows, ...workRows].toSorted((a, b) =>
-    a.createdAt.localeCompare(b.createdAt),
+  return [...messageRows, ...proposedPlanRows, ...workRows, ...subagentRunRows].toSorted(
+    (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+  );
+}
+
+function isRepresentedSubagentLaunchWorkEntry(
+  entry: WorkLogEntry,
+  representedSubagentLaunches: ReadonlySet<string>,
+): boolean {
+  return (
+    entry.itemType === "collab_agent_tool_call" &&
+    ((entry.toolCallId !== undefined &&
+      representedSubagentLaunches.has(`tool:${entry.toolCallId}`)) ||
+      (entry.parentItemId !== undefined &&
+        representedSubagentLaunches.has(`parent:${entry.parentItemId}`)) ||
+      (entry.providerRunId !== undefined &&
+        representedSubagentLaunches.has(`provider-run:${entry.providerRunId}`)) ||
+      representedSubagentLaunches.has(`entry:${entry.id}`))
   );
 }
 

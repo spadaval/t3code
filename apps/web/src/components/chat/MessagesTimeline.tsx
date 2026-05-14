@@ -35,6 +35,7 @@ import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesTree } from "./ChangedFilesTree";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
 import { MessageCopyButton } from "./MessageCopyButton";
+import { SubagentPanel } from "./SubagentPanel";
 import {
   computeStableMessagesTimelineRows,
   MAX_VISIBLE_WORK_LOG_ENTRIES,
@@ -310,6 +311,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
         <AssistantTimelineRow row={row} />
       ) : null}
       {row.kind === "proposed-plan" ? <ProposedPlanTimelineRow row={row} /> : null}
+      {row.kind === "subagent-run" ? <SubagentTimelineRow row={row} /> : null}
       {row.kind === "working" ? <WorkingTimelineRow row={row} /> : null}
     </div>
   );
@@ -499,6 +501,16 @@ function ProposedPlanTimelineRow({
         cwd={ctx.markdownCwd}
         workspaceRoot={ctx.workspaceRoot}
       />
+    </div>
+  );
+}
+
+function SubagentTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "subagent-run" }> }) {
+  const ctx = use(TimelineRowCtx);
+
+  return (
+    <div className="min-w-0 px-1 py-0.5">
+      <SubagentPanel routeThreadKey={ctx.routeThreadKey} run={row.subagentRun} />
     </div>
   );
 }
@@ -738,94 +750,145 @@ const UserMessageBody = memo(function UserMessageBody(props: {
   text: string;
   terminalContexts: ParsedTerminalContextEntry[];
 }) {
-  if (props.terminalContexts.length > 0) {
-    const hasEmbeddedInlineLabels = textContainsInlineTerminalContextLabels(
-      props.text,
-      props.terminalContexts,
-    );
-    const inlinePrefix = buildInlineTerminalContextText(props.terminalContexts);
-    const inlineNodes: ReactNode[] = [];
+  const [isExpanded, setIsExpanded] = useState(false);
+  const isCollapsible = isUserMessageCollapsible(props.text);
+  const isCollapsed = isCollapsible && !isExpanded;
+  const collapseMask = isCollapsed
+    ? "linear-gradient(to bottom, black 72%, transparent 100%)"
+    : undefined;
+  const bodyClassName = cn("relative", isCollapsed ? "max-h-44 overflow-hidden" : null);
+  const bodyStyle = collapseMask
+    ? {
+        maskImage: collapseMask,
+        WebkitMaskImage: collapseMask,
+      }
+    : undefined;
 
-    if (hasEmbeddedInlineLabels) {
-      let cursor = 0;
+  const content = (() => {
+    if (props.terminalContexts.length > 0) {
+      const hasEmbeddedInlineLabels = textContainsInlineTerminalContextLabels(
+        props.text,
+        props.terminalContexts,
+      );
+      const inlinePrefix = buildInlineTerminalContextText(props.terminalContexts);
+      const inlineNodes: ReactNode[] = [];
 
-      for (const context of props.terminalContexts) {
-        const label = formatInlineTerminalContextLabel(context.header);
-        const matchIndex = props.text.indexOf(label, cursor);
-        if (matchIndex === -1) {
-          inlineNodes.length = 0;
-          break;
-        }
-        if (matchIndex > cursor) {
+      if (hasEmbeddedInlineLabels) {
+        let cursor = 0;
+
+        for (const context of props.terminalContexts) {
+          const label = formatInlineTerminalContextLabel(context.header);
+          const matchIndex = props.text.indexOf(label, cursor);
+          if (matchIndex === -1) {
+            inlineNodes.length = 0;
+            break;
+          }
+          if (matchIndex > cursor) {
+            inlineNodes.push(
+              <span key={`user-terminal-context-inline-before:${context.header}:${cursor}`}>
+                {props.text.slice(cursor, matchIndex)}
+              </span>,
+            );
+          }
           inlineNodes.push(
-            <span key={`user-terminal-context-inline-before:${context.header}:${cursor}`}>
-              {props.text.slice(cursor, matchIndex)}
-            </span>,
+            <UserMessageTerminalContextInlineLabel
+              key={`user-terminal-context-inline:${context.header}`}
+              context={context}
+            />,
+          );
+          cursor = matchIndex + label.length;
+        }
+
+        if (inlineNodes.length > 0) {
+          if (cursor < props.text.length) {
+            inlineNodes.push(
+              <span key={`user-message-terminal-context-inline-rest:${cursor}`}>
+                {props.text.slice(cursor)}
+              </span>,
+            );
+          }
+
+          return (
+            <div className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed text-foreground">
+              {inlineNodes}
+            </div>
           );
         }
+      }
+
+      for (const context of props.terminalContexts) {
         inlineNodes.push(
           <UserMessageTerminalContextInlineLabel
             key={`user-terminal-context-inline:${context.header}`}
             context={context}
           />,
         );
-        cursor = matchIndex + label.length;
-      }
-
-      if (inlineNodes.length > 0) {
-        if (cursor < props.text.length) {
-          inlineNodes.push(
-            <span key={`user-message-terminal-context-inline-rest:${cursor}`}>
-              {props.text.slice(cursor)}
-            </span>,
-          );
-        }
-
-        return (
-          <div className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed text-foreground">
-            {inlineNodes}
-          </div>
+        inlineNodes.push(
+          <span key={`user-terminal-context-inline-space:${context.header}`} aria-hidden="true">
+            {" "}
+          </span>,
         );
       }
-    }
 
-    for (const context of props.terminalContexts) {
-      inlineNodes.push(
-        <UserMessageTerminalContextInlineLabel
-          key={`user-terminal-context-inline:${context.header}`}
-          context={context}
-        />,
-      );
-      inlineNodes.push(
-        <span key={`user-terminal-context-inline-space:${context.header}`} aria-hidden="true">
-          {" "}
-        </span>,
+      if (props.text.length > 0) {
+        inlineNodes.push(<span key="user-message-terminal-context-inline-text">{props.text}</span>);
+      } else if (inlinePrefix.length === 0) {
+        return null;
+      }
+
+      return (
+        <div className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed text-foreground">
+          {inlineNodes}
+        </div>
       );
     }
 
-    if (props.text.length > 0) {
-      inlineNodes.push(<span key="user-message-terminal-context-inline-text">{props.text}</span>);
-    } else if (inlinePrefix.length === 0) {
+    if (props.text.length === 0) {
       return null;
     }
 
     return (
       <div className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed text-foreground">
-        {inlineNodes}
+        {props.text}
       </div>
     );
-  }
+  })();
 
-  if (props.text.length === 0) {
+  if (content === null) {
     return null;
   }
 
   return (
-    <div className="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed text-foreground">
-      {props.text}
+    <div
+      data-user-message-body="true"
+      data-user-message-collapsible={isCollapsible ? "true" : "false"}
+      data-user-message-collapsed={isCollapsed ? "true" : "false"}
+      data-user-message-fade={isCollapsed ? "true" : "false"}
+    >
+      <div className={bodyClassName} style={bodyStyle}>
+        {content}
+      </div>
+      {isCollapsible ? (
+        <div className="mt-2 flex justify-end" data-user-message-footer="true">
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            aria-expanded={isExpanded}
+            onClick={() => setIsExpanded((value) => !value)}
+            className="h-6 px-2 text-[11px] text-muted-foreground/70 hover:text-foreground"
+          >
+            {isExpanded ? "Show less" : "Show full message"}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 });
+
+function isUserMessageCollapsible(text: string): boolean {
+  return text.length > 900 || text.split("\n").length > 6;
+}
 
 // ---------------------------------------------------------------------------
 // Structural sharing — reuse old row references when data hasn't changed

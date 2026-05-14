@@ -185,6 +185,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         ],
         activities: [],
         proposedPlans: [],
+        subagentRuns: [],
         checkpoints: [],
         pendingCheckpointCaptures: [],
         session: {

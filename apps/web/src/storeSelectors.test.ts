@@ -29,6 +29,8 @@ function makeEnvironmentState(overrides: Partial<EnvironmentState> = {}): Enviro
     activityByThreadId: {},
     proposedPlanIdsByThreadId: {},
     proposedPlanByThreadId: {},
+    subagentRunIdsByThreadId: {},
+    subagentRunByThreadId: {},
     turnDiffIdsByThreadId: {},
     turnDiffSummaryByThreadId: {},
     sidebarThreadSummaryById: {},

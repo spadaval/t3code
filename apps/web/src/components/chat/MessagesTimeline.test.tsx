@@ -118,6 +118,44 @@ function buildUserTimelineEntry(text: string) {
   };
 }
 
+function buildSubagentTimelineEntry(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "subagent-run-1",
+    kind: "subagent-run" as const,
+    createdAt: MESSAGE_CREATED_AT,
+    subagentRun: {
+      id: "subagent-run-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      parentItemId: "item-1",
+      provider: "codex",
+      title: "Implement nested panel",
+      description: "Subagent implementation task",
+      prompt: "Please inspect the current timeline and add the panel.",
+      agentType: "implementation",
+      model: "gpt-5-codex",
+      reasoningEffort: "high",
+      config: { sandboxMode: "workspace-write" },
+      status: "completed",
+      startedAt: "2026-03-17T19:12:28.000Z",
+      completedAt: "2026-03-17T19:12:38.000Z",
+      updatedAt: "2026-03-17T19:12:38.000Z",
+      entries: [
+        {
+          id: "entry-a",
+          runId: "subagent-run-1",
+          kind: "assistant",
+          title: "Analysis",
+          text: "Found the timeline row shape.",
+          payload: null,
+          createdAt: "2026-03-17T19:12:30.000Z",
+        },
+      ],
+      ...overrides,
+    } as never,
+  };
+}
+
 describe("MessagesTimeline", () => {
   it("renders collapse controls for long user messages", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
@@ -238,5 +276,72 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain("t3code/apps/web/src/session-logic.ts");
     expect(markup).not.toContain("C:/Users/mike/dev-stuff/t3code/apps/web/src/session-logic.ts");
+  });
+
+  it("renders completed subagent rows as collapsed panels", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline {...buildProps()} timelineEntries={[buildSubagentTimelineEntry()]} />,
+    );
+
+    expect(markup).toContain('data-timeline-row-kind="subagent-run"');
+    expect(markup).toContain('data-subagent-expanded="false"');
+    expect(markup).toContain("completed");
+    expect(markup).toContain("gpt-5-codex");
+    expect(markup).toContain("reasoning high");
+    expect(markup).toContain("sandboxMode: workspace-write");
+    expect(markup).toContain("[overflow-wrap:anywhere]");
+    expect(markup).not.toContain("wrap-break-word");
+    expect(markup).not.toContain("Please inspect the current timeline");
+  });
+
+  it("defaults running subagent rows open and shows active empty output text", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          buildSubagentTimelineEntry({
+            status: "running",
+            completedAt: null,
+            entries: [],
+          }),
+        ]}
+      />,
+    );
+
+    expect(markup).toContain('data-subagent-expanded="true"');
+    expect(markup).toContain('data-subagent-detail-chips="true"');
+    expect(markup).toContain("Please inspect the current timeline");
+    expect(markup).toContain("Waiting for attributed subagent output...");
+  });
+
+  it("does not show running subagent waiting text when entries exist without visible text", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...buildProps()}
+        timelineEntries={[
+          buildSubagentTimelineEntry({
+            status: "running",
+            completedAt: null,
+            entries: [
+              {
+                id: "entry-empty",
+                runId: "subagent-run-1",
+                kind: "assistant",
+                title: "Analysis",
+                text: "   ",
+                payload: null,
+                createdAt: "2026-03-17T19:12:30.000Z",
+              },
+            ],
+          }),
+        ]}
+      />,
+    );
+
+    expect(markup).toContain('data-subagent-expanded="true"');
+    expect(markup).not.toContain("Waiting for attributed subagent output...");
   });
 });

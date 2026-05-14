@@ -3,6 +3,7 @@ import type { EnvironmentState } from "./store";
 import type {
   ChatMessage,
   ProposedPlan,
+  SubagentRun,
   Thread,
   ThreadSession,
   ThreadShell,
@@ -13,10 +14,12 @@ import type {
 const EMPTY_MESSAGES: ChatMessage[] = [];
 const EMPTY_ACTIVITIES: Thread["activities"] = [];
 const EMPTY_PROPOSED_PLANS: ProposedPlan[] = [];
+const EMPTY_SUBAGENT_RUNS: SubagentRun[] = [];
 const EMPTY_TURN_DIFF_SUMMARIES: TurnDiffSummary[] = [];
 const EMPTY_MESSAGE_MAP: Record<MessageId, ChatMessage> = {};
 const EMPTY_ACTIVITY_MAP: Record<string, Thread["activities"][number]> = {};
 const EMPTY_PROPOSED_PLAN_MAP: Record<string, ProposedPlan> = {};
+const EMPTY_SUBAGENT_RUN_MAP: Record<string, SubagentRun> = {};
 const EMPTY_TURN_DIFF_MAP: Record<TurnId, TurnDiffSummary> = {};
 
 const collectedByIdsCache = new WeakMap<readonly string[], WeakMap<object, readonly unknown[]>>();
@@ -28,6 +31,7 @@ const threadCache = new WeakMap<
     messages: Thread["messages"];
     activities: Thread["activities"];
     proposedPlans: Thread["proposedPlans"];
+    subagentRuns: Thread["subagentRuns"];
     turnDiffSummaries: Thread["turnDiffSummaries"];
     thread: Thread;
   }
@@ -87,6 +91,17 @@ function selectThreadProposedPlans(
   );
 }
 
+function selectThreadSubagentRuns(
+  state: EnvironmentState,
+  threadId: ThreadId,
+): Thread["subagentRuns"] {
+  return collectByIds(
+    state.subagentRunIdsByThreadId[threadId],
+    state.subagentRunByThreadId[threadId] ?? EMPTY_SUBAGENT_RUN_MAP,
+    EMPTY_SUBAGENT_RUNS,
+  );
+}
+
 function selectThreadTurnDiffSummaries(
   state: EnvironmentState,
   threadId: ThreadId,
@@ -112,6 +127,7 @@ export function getThreadFromEnvironmentState(
   const messages = selectThreadMessages(state, threadId);
   const activities = selectThreadActivities(state, threadId);
   const proposedPlans = selectThreadProposedPlans(state, threadId);
+  const subagentRuns = selectThreadSubagentRuns(state, threadId);
   const turnDiffSummaries = selectThreadTurnDiffSummaries(state, threadId);
   const cached = threadCache.get(shell);
 
@@ -122,6 +138,7 @@ export function getThreadFromEnvironmentState(
     cached.messages === messages &&
     cached.activities === activities &&
     cached.proposedPlans === proposedPlans &&
+    cached.subagentRuns === subagentRuns &&
     cached.turnDiffSummaries === turnDiffSummaries
   ) {
     return cached.thread;
@@ -135,6 +152,7 @@ export function getThreadFromEnvironmentState(
     messages,
     activities,
     proposedPlans,
+    subagentRuns,
     turnDiffSummaries,
   };
 
@@ -144,6 +162,7 @@ export function getThreadFromEnvironmentState(
     messages,
     activities,
     proposedPlans,
+    subagentRuns,
     turnDiffSummaries,
     thread,
   });

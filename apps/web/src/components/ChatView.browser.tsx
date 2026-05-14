@@ -603,6 +603,7 @@ function createSnapshotForTargetUser(options: {
         messages,
         activities: [],
         proposedPlans: [],
+        subagentRuns: [],
         checkpoints: [],
         pendingCheckpointCaptures: [],
         session: {
@@ -654,6 +655,7 @@ function createSnapshotWithManagedIssueSidebar(): OrchestrationReadModel {
     messages: [],
     activities: [],
     proposedPlans: [],
+    subagentRuns: [],
     checkpoints: [],
     pendingCheckpointCaptures: [],
     session: {
@@ -733,6 +735,7 @@ function addSecondaryProjectToSnapshot(snapshot: OrchestrationReadModel): Orches
         messages: [],
         activities: [],
         proposedPlans: [],
+        subagentRuns: [],
         checkpoints: [],
         pendingCheckpointCaptures: [],
         session: {
@@ -1134,6 +1137,7 @@ function addThreadToSnapshot(
         messages: [],
         activities: [],
         proposedPlans: [],
+        subagentRuns: [],
         checkpoints: [],
         pendingCheckpointCaptures: [],
         session: {
@@ -1472,6 +1476,7 @@ function createSnapshotWithSecondaryProject(options?: {
           messages: [],
           activities: [],
           proposedPlans: [],
+          subagentRuns: [],
           checkpoints: [],
           pendingCheckpointCaptures: [],
           session: {
@@ -1506,6 +1511,7 @@ function createSnapshotWithSecondaryProject(options?: {
           messages: [],
           activities: [],
           proposedPlans: [],
+          subagentRuns: [],
           checkpoints: [],
           pendingCheckpointCaptures: [],
           session: {

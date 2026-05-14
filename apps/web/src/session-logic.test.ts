@@ -1477,6 +1477,133 @@ describe("deriveTimelineEntries", () => {
     });
   });
 
+  it("includes subagent runs in chronological order", () => {
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.make("message-1"),
+          role: "assistant",
+          text: "hello",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          streaming: false,
+        },
+      ],
+      [],
+      [
+        {
+          id: "work-1",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          label: "Ran tests",
+          tone: "tool",
+        },
+      ],
+      [
+        {
+          id: "subagent-run-1",
+          threadId: ThreadId.make("thread-1"),
+          turnId: TurnId.make("turn-1"),
+          parentItemId: "tool-call-1" as never,
+          provider: "codex" as never,
+          description: "Implement helper",
+          prompt: "Add tests",
+          agentType: "implementation",
+          model: "gpt-5-codex",
+          reasoningEffort: "high",
+          config: null,
+          status: "running",
+          startedAt: "2026-02-23T00:00:02.000Z",
+          completedAt: null,
+          updatedAt: "2026-02-23T00:00:02.000Z",
+          entries: [],
+        },
+      ],
+    );
+
+    expect(entries.map((entry) => entry.kind)).toEqual(["message", "subagent-run", "work"]);
+  });
+
+  it("suppresses only matching collab agent launch work rows when a subagent run represents them", () => {
+    const entries = deriveTimelineEntries(
+      [],
+      [],
+      [
+        {
+          id: "matching-work",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          label: "Launch subagent",
+          tone: "tool",
+          itemType: "collab_agent_tool_call",
+          toolCallId: "tool-call-1",
+        },
+        {
+          id: "matching-provider-run",
+          createdAt: "2026-02-23T00:00:01.250Z",
+          label: "Launch subagent by provider run",
+          tone: "tool",
+          itemType: "collab_agent_tool_call",
+          providerRunId: "provider-run-1",
+        },
+        {
+          id: "matching-parent-item",
+          createdAt: "2026-02-23T00:00:01.500Z",
+          label: "Launch subagent by parent item",
+          tone: "tool",
+          itemType: "collab_agent_tool_call",
+          parentItemId: "tool-call-1",
+        },
+        {
+          id: "tool-call-1",
+          createdAt: "2026-02-23T00:00:01.750Z",
+          label: "Launch subagent by entry id",
+          tone: "tool",
+          itemType: "collab_agent_tool_call",
+        },
+        {
+          id: "other-collab-work",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          label: "Launch different subagent",
+          tone: "tool",
+          itemType: "collab_agent_tool_call",
+          toolCallId: "tool-call-2",
+        },
+        {
+          id: "ordinary-work",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          label: "Read file",
+          tone: "tool",
+          itemType: "dynamic_tool_call",
+        },
+      ],
+      [
+        {
+          id: "subagent-run-1",
+          threadId: ThreadId.make("thread-1"),
+          turnId: TurnId.make("turn-1"),
+          parentItemId: "tool-call-1" as never,
+          providerRunId: "provider-run-1",
+          provider: "codex" as never,
+          description: null,
+          prompt: null,
+          agentType: null,
+          model: null,
+          reasoningEffort: null,
+          config: null,
+          status: "completed",
+          startedAt: "2026-02-23T00:00:01.500Z",
+          completedAt: "2026-02-23T00:00:04.000Z",
+          updatedAt: "2026-02-23T00:00:04.000Z",
+          entries: [],
+        },
+      ],
+    );
+
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "subagent-run-1",
+      "other-collab-work",
+      "ordinary-work",
+    ]);
+  });
+
   it("anchors the completion divider to latestTurn.assistantMessageId before timestamp fallback", () => {
     const entries = deriveTimelineEntries(
       [

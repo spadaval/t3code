@@ -35,6 +35,7 @@ import {
   selectThreadExistsByRef,
   setThreadBranch,
   selectThreadsAcrossEnvironments,
+  syncServerThreadDetail,
   type AppState,
   type EnvironmentState,
 } from "./store";
@@ -89,6 +90,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     turnDiffSummaries: [],
     activities: [],
     proposedPlans: [],
+    subagentRuns: [],
     error: null,
     createdAt: "2026-02-13T00:00:00.000Z",
     archivedAt: null,
@@ -177,6 +179,14 @@ function makeState(thread: Thread): AppState {
         thread.proposedPlans.map((plan) => [plan.id, plan] as const),
       ) as EnvironmentState["proposedPlanByThreadId"][ThreadId],
     },
+    subagentRunIdsByThreadId: {
+      [thread.id]: thread.subagentRuns.map((run) => run.id),
+    },
+    subagentRunByThreadId: {
+      [thread.id]: Object.fromEntries(
+        thread.subagentRuns.map((run) => [run.id, run] as const),
+      ) as EnvironmentState["subagentRunByThreadId"][ThreadId],
+    },
     turnDiffIdsByThreadId: {
       [thread.id]: thread.turnDiffSummaries.map((summary) => summary.turnId),
     },
@@ -214,6 +224,8 @@ function makeEmptyState(overrides: Partial<AppState & EnvironmentState> = {}): A
     activityByThreadId: {},
     proposedPlanIdsByThreadId: {},
     proposedPlanByThreadId: {},
+    subagentRunIdsByThreadId: {},
+    subagentRunByThreadId: {},
     turnDiffIdsByThreadId: {},
     turnDiffSummaryByThreadId: {},
     sidebarThreadSummaryById: {},
@@ -517,6 +529,7 @@ function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"
     messages: [],
     activities: [],
     proposedPlans: [],
+    subagentRuns: [],
     checkpoints: [],
     pendingCheckpointCaptures: [],
     session: null,
@@ -1136,6 +1149,226 @@ describe("incremental orchestration updates", () => {
       executionId: EpicIssueExecutionId.make("execution-2"),
       workerThreadId: ThreadId.make("worker-thread-2"),
     });
+  });
+
+  it("replaces detail snapshot subagent runs without dropping other thread detail slices", () => {
+    const thread = makeReadModelThread({
+      messages: [
+        {
+          id: MessageId.make("message-1"),
+          role: "assistant",
+          text: "Done",
+          turnId: TurnId.make("turn-1"),
+          streaming: false,
+          createdAt: "2026-02-27T00:00:01.000Z",
+          updatedAt: "2026-02-27T00:00:02.000Z",
+        },
+      ],
+      proposedPlans: [
+        {
+          id: "plan-1",
+          turnId: TurnId.make("turn-1"),
+          planMarkdown: "# Plan",
+          planIntent: "code-implementation",
+          followUpOutcome: null,
+          createdAt: "2026-02-27T00:00:03.000Z",
+          updatedAt: "2026-02-27T00:00:03.000Z",
+        },
+      ],
+      activities: [
+        {
+          id: EventId.make("activity-1"),
+          turnId: TurnId.make("turn-1"),
+          kind: "tool.completed",
+          tone: "tool",
+          summary: "Read file",
+          payload: null,
+          sequence: 1,
+          createdAt: "2026-02-27T00:00:04.000Z",
+        },
+      ],
+      subagentRuns: [
+        {
+          id: "subagent-run-1",
+          threadId: ThreadId.make("thread-1"),
+          turnId: TurnId.make("turn-1"),
+          parentItemId: "tool-call-1" as never,
+          provider: "codex" as never,
+          description: null,
+          prompt: null,
+          agentType: null,
+          model: null,
+          reasoningEffort: null,
+          config: null,
+          status: "running",
+          startedAt: "2026-02-27T00:00:05.000Z",
+          completedAt: null,
+          updatedAt: "2026-02-27T00:00:05.000Z",
+          entries: [],
+        },
+      ],
+    });
+
+    const state = syncServerThreadDetail(makeEmptyState(), thread, localEnvironmentId);
+    const hydrated = selectThreadByRef(
+      state,
+      scopeThreadRef(localEnvironmentId, ThreadId.make("thread-1")),
+    );
+
+    expect(hydrated?.messages).toHaveLength(1);
+    expect(hydrated?.proposedPlans).toHaveLength(1);
+    expect(hydrated?.activities).toHaveLength(1);
+    expect(hydrated?.subagentRuns.map((run) => run.id)).toEqual(["subagent-run-1"]);
+  });
+
+  it("applies subagent run and entry domain events without dropping existing detail", () => {
+    const thread = makeThread({
+      messages: [
+        {
+          id: MessageId.make("message-1"),
+          role: "assistant",
+          text: "Working",
+          turnId: TurnId.make("turn-1"),
+          createdAt: "2026-02-27T00:00:01.000Z",
+          streaming: false,
+        },
+      ],
+      proposedPlans: [
+        {
+          id: "plan-1",
+          turnId: TurnId.make("turn-1"),
+          planMarkdown: "# Plan",
+          implementedAt: null,
+          implementationThreadId: null,
+          createdAt: "2026-02-27T00:00:02.000Z",
+          updatedAt: "2026-02-27T00:00:02.000Z",
+        },
+      ],
+      activities: [
+        {
+          id: EventId.make("activity-1"),
+          turnId: TurnId.make("turn-1"),
+          kind: "tool.completed",
+          tone: "tool",
+          summary: "Read file",
+          payload: null,
+          sequence: 1,
+          createdAt: "2026-02-27T00:00:03.000Z",
+        },
+      ],
+    });
+    const run = {
+      id: "subagent-run-1",
+      threadId: thread.id,
+      turnId: TurnId.make("turn-1"),
+      parentItemId: "tool-call-1" as never,
+      provider: "codex" as never,
+      description: "Implement helper",
+      prompt: "Add tests",
+      agentType: "implementation",
+      model: "gpt-5-codex",
+      reasoningEffort: "high",
+      config: null,
+      status: "running" as const,
+      startedAt: "2026-02-27T00:00:04.000Z",
+      completedAt: null,
+      updatedAt: "2026-02-27T00:00:04.000Z",
+      entries: [],
+    };
+
+    const withRun = applyOrchestrationEvent(
+      makeState(thread),
+      makeEvent("thread.subagent-run-upserted", {
+        threadId: thread.id,
+        run,
+      }),
+      localEnvironmentId,
+    );
+    const withEntry = applyOrchestrationEvent(
+      withRun,
+      makeEvent("thread.subagent-entry-appended", {
+        threadId: thread.id,
+        runId: run.id,
+        entry: {
+          id: "entry-1",
+          runId: run.id,
+          kind: "assistant",
+          title: "Summary",
+          text: "Done",
+          payload: null,
+          createdAt: "2026-02-27T00:00:05.000Z",
+        },
+      }),
+      localEnvironmentId,
+    );
+    const hydrated = selectThreadByRef(withEntry, scopeThreadRef(localEnvironmentId, thread.id));
+
+    expect(hydrated?.messages.map((message) => message.id)).toEqual([MessageId.make("message-1")]);
+    expect(hydrated?.proposedPlans.map((plan) => plan.id)).toEqual(["plan-1"]);
+    expect(hydrated?.activities.map((activity) => activity.id)).toEqual(["activity-1"]);
+    expect(hydrated?.subagentRuns[0]).toMatchObject({
+      id: "subagent-run-1",
+      entries: [{ id: "entry-1", text: "Done" }],
+    });
+  });
+
+  it("preserves existing subagent entries when a lifecycle upsert carries no entries", () => {
+    const thread = makeThread();
+    const run = {
+      id: "subagent-run-1",
+      threadId: thread.id,
+      turnId: TurnId.make("turn-1"),
+      parentItemId: "tool-call-1" as never,
+      provider: "codex" as never,
+      description: null,
+      prompt: null,
+      agentType: null,
+      model: null,
+      reasoningEffort: null,
+      config: null,
+      status: "running" as const,
+      startedAt: "2026-02-27T00:00:04.000Z",
+      completedAt: null,
+      updatedAt: "2026-02-27T00:00:04.000Z",
+      entries: [
+        {
+          id: "entry-1",
+          runId: "subagent-run-1",
+          kind: "assistant" as const,
+          title: null,
+          text: "Still here",
+          payload: null,
+          createdAt: "2026-02-27T00:00:05.000Z",
+        },
+      ],
+    };
+
+    const withRun = applyOrchestrationEvent(
+      makeState(thread),
+      makeEvent("thread.subagent-run-upserted", {
+        threadId: thread.id,
+        run,
+      }),
+      localEnvironmentId,
+    );
+    const completed = applyOrchestrationEvent(
+      withRun,
+      makeEvent("thread.subagent-run-upserted", {
+        threadId: thread.id,
+        run: {
+          ...run,
+          status: "completed" as const,
+          completedAt: "2026-02-27T00:00:06.000Z",
+          updatedAt: "2026-02-27T00:00:06.000Z",
+          entries: [],
+        },
+      }),
+      localEnvironmentId,
+    );
+    const hydrated = selectThreadByRef(completed, scopeThreadRef(localEnvironmentId, thread.id));
+
+    expect(hydrated?.subagentRuns[0]?.status).toBe("completed");
+    expect(hydrated?.subagentRuns[0]?.entries).toEqual(run.entries);
   });
 
   it("reuses an existing project row when project.created arrives with a new id for the same cwd", () => {

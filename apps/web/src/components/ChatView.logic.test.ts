@@ -247,6 +247,7 @@ const makeThread = (input?: {
   worktreePath: null,
   turnDiffSummaries: [],
   activities: [],
+  subagentRuns: [],
 });
 
 function setStoreThreads(threads: ReadonlyArray<ReturnType<typeof makeThread>>) {
@@ -330,6 +331,15 @@ function setStoreThreads(threads: ReadonlyArray<ReturnType<typeof makeThread>>) 
       threads.map((thread) => [
         thread.id,
         Object.fromEntries(thread.proposedPlans.map((plan) => [plan.id, plan])),
+      ]),
+    ),
+    subagentRunIdsByThreadId: Object.fromEntries(
+      threads.map((thread) => [thread.id, thread.subagentRuns.map((run) => run.id)]),
+    ),
+    subagentRunByThreadId: Object.fromEntries(
+      threads.map((thread) => [
+        thread.id,
+        Object.fromEntries(thread.subagentRuns.map((run) => [run.id, run])),
       ]),
     ),
     turnDiffIdsByThreadId: Object.fromEntries(
@@ -485,6 +495,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       session: previousSession,
       messages: [],
       proposedPlans: [],
+      subagentRuns: [],
       error: null,
       createdAt: "2026-03-29T00:00:00.000Z",
       archivedAt: null,
@@ -522,6 +533,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       session: previousSession,
       messages: [],
       proposedPlans: [],
+      subagentRuns: [],
       error: null,
       createdAt: "2026-03-29T00:00:00.000Z",
       archivedAt: null,
@@ -568,6 +580,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       session: previousSession,
       messages: [],
       proposedPlans: [],
+      subagentRuns: [],
       error: null,
       createdAt: "2026-03-29T00:00:00.000Z",
       archivedAt: null,
@@ -611,6 +624,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       session: previousSession,
       messages: [],
       proposedPlans: [],
+      subagentRuns: [],
       error: null,
       createdAt: "2026-03-29T00:00:00.000Z",
       archivedAt: null,
@@ -654,6 +668,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       session: previousSession,
       messages: [],
       proposedPlans: [],
+      subagentRuns: [],
       error: null,
       createdAt: "2026-03-29T00:00:00.000Z",
       archivedAt: null,
@@ -704,6 +719,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       session: previousSession,
       messages: [],
       proposedPlans: [],
+      subagentRuns: [],
       error: null,
       createdAt: "2026-03-29T00:00:00.000Z",
       archivedAt: null,
