@@ -241,6 +241,57 @@ export const OrchestrationMessage = Schema.Struct({
 });
 export type OrchestrationMessage = typeof OrchestrationMessage.Type;
 
+export const OrchestrationSubagentRunStatus = Schema.Literals([
+  "running",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+export type OrchestrationSubagentRunStatus = typeof OrchestrationSubagentRunStatus.Type;
+
+export const OrchestrationSubagentEntryKind = Schema.Literals([
+  "assistant",
+  "tool",
+  "result",
+  "error",
+  "system",
+]);
+export type OrchestrationSubagentEntryKind = typeof OrchestrationSubagentEntryKind.Type;
+
+export const OrchestrationSubagentEntry = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  runId: TrimmedNonEmptyString,
+  kind: OrchestrationSubagentEntryKind,
+  title: Schema.NullOr(TrimmedNonEmptyString),
+  text: Schema.String,
+  payload: Schema.Unknown,
+  createdAt: IsoDateTime,
+});
+export type OrchestrationSubagentEntry = typeof OrchestrationSubagentEntry.Type;
+
+export const OrchestrationSubagentRun = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  threadId: ThreadId,
+  turnId: TurnId,
+  parentItemId: ProviderItemId,
+  provider: ProviderKind,
+  providerInstanceId: Schema.optional(ProviderInstanceId),
+  providerRunId: Schema.optional(TrimmedNonEmptyString),
+  title: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  description: Schema.NullOr(TrimmedNonEmptyString),
+  prompt: Schema.NullOr(Schema.String),
+  agentType: Schema.NullOr(TrimmedNonEmptyString),
+  model: Schema.NullOr(TrimmedNonEmptyString),
+  reasoningEffort: Schema.NullOr(TrimmedNonEmptyString),
+  config: Schema.Unknown,
+  status: OrchestrationSubagentRunStatus,
+  startedAt: IsoDateTime,
+  completedAt: Schema.NullOr(IsoDateTime),
+  updatedAt: IsoDateTime,
+  entries: Schema.Array(OrchestrationSubagentEntry),
+});
+export type OrchestrationSubagentRun = typeof OrchestrationSubagentRun.Type;
+
 export const OrchestrationProposedPlanId = TrimmedNonEmptyString;
 export type OrchestrationProposedPlanId = typeof OrchestrationProposedPlanId.Type;
 
@@ -502,6 +553,9 @@ export const OrchestrationThread = Schema.Struct({
   deletedAt: Schema.NullOr(IsoDateTime),
   messages: Schema.Array(OrchestrationMessage),
   proposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  subagentRuns: Schema.Array(OrchestrationSubagentRun).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
   activities: Schema.Array(OrchestrationThreadActivity),
@@ -1025,6 +1079,25 @@ const ThreadActivityAppendCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const ThreadSubagentRunUpsertCommand = Schema.Struct({
+  type: Schema.Literal("thread.subagent-run.upsert"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  run: OrchestrationSubagentRun,
+  createdAt: IsoDateTime,
+});
+export type ThreadSubagentRunUpsertCommand = typeof ThreadSubagentRunUpsertCommand.Type;
+
+export const ThreadSubagentEntryAppendCommand = Schema.Struct({
+  type: Schema.Literal("thread.subagent-entry.append"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  runId: TrimmedNonEmptyString,
+  entry: OrchestrationSubagentEntry,
+  createdAt: IsoDateTime,
+});
+export type ThreadSubagentEntryAppendCommand = typeof ThreadSubagentEntryAppendCommand.Type;
+
 const ThreadRevertCompleteCommand = Schema.Struct({
   type: Schema.Literal("thread.revert.complete"),
   commandId: CommandId,
@@ -1193,6 +1266,8 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadCheckpointCaptureRequestCommand,
   ThreadTurnDiffCompleteCommand,
   ThreadActivityAppendCommand,
+  ThreadSubagentRunUpsertCommand,
+  ThreadSubagentEntryAppendCommand,
   ThreadRevertCompleteCommand,
   PlanImplementationLaunchRequestCommand,
   PlanImplementationLaunchMarkWorktreePreparedCommand,
@@ -1242,6 +1317,8 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.checkpoint-capture-requested",
   "thread.turn-diff-completed",
   "thread.activity-appended",
+  "thread.subagent-run-upserted",
+  "thread.subagent-entry-appended",
   "plan-implementation-launch.requested",
   "plan-implementation-launch.worktree-prepared",
   "plan-implementation-launch.started",
@@ -1448,6 +1525,19 @@ export const ThreadActivityAppendedPayload = Schema.Struct({
   threadId: ThreadId,
   activity: OrchestrationThreadActivity,
 });
+
+export const ThreadSubagentRunUpsertedPayload = Schema.Struct({
+  threadId: ThreadId,
+  run: OrchestrationSubagentRun,
+});
+export type ThreadSubagentRunUpsertedPayload = typeof ThreadSubagentRunUpsertedPayload.Type;
+
+export const ThreadSubagentEntryAppendedPayload = Schema.Struct({
+  threadId: ThreadId,
+  runId: TrimmedNonEmptyString,
+  entry: OrchestrationSubagentEntry,
+});
+export type ThreadSubagentEntryAppendedPayload = typeof ThreadSubagentEntryAppendedPayload.Type;
 
 export const PlanImplementationLaunchRequestedPayload = Schema.Struct({
   launchId: PlanImplementationLaunchId,
@@ -1732,6 +1822,16 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.subagent-run-upserted"),
+    payload: ThreadSubagentRunUpsertedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.subagent-entry-appended"),
+    payload: ThreadSubagentEntryAppendedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

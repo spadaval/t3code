@@ -12,6 +12,9 @@ import {
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetTurnDiffInput,
   OrchestrationLatestTurn,
+  OrchestrationSubagentEntry,
+  OrchestrationSubagentRun,
+  OrchestrationThread,
   ProjectCreatedPayload,
   ProjectMetaUpdatedPayload,
   OrchestrationProposedPlan,
@@ -38,6 +41,11 @@ const decodeThreadTurnStartRequestedPayload = Schema.decodeUnknownEffect(
   ThreadTurnStartRequestedPayload,
 );
 const decodeOrchestrationLatestTurn = Schema.decodeUnknownEffect(OrchestrationLatestTurn);
+const decodeOrchestrationThread = Schema.decodeUnknownEffect(OrchestrationThread);
+const decodeOrchestrationSubagentRun = Schema.decodeUnknownEffect(OrchestrationSubagentRun);
+const encodeOrchestrationSubagentRun = Schema.encodeUnknownEffect(OrchestrationSubagentRun);
+const decodeOrchestrationSubagentEntry = Schema.decodeUnknownEffect(OrchestrationSubagentEntry);
+const encodeOrchestrationSubagentEntry = Schema.encodeUnknownEffect(OrchestrationSubagentEntry);
 const decodeOrchestrationProposedPlan = Schema.decodeUnknownEffect(OrchestrationProposedPlan);
 const decodeOrchestrationSession = Schema.decodeUnknownEffect(OrchestrationSession);
 const decodeOrchestrationShellSnapshot = Schema.decodeUnknownEffect(OrchestrationShellSnapshot);
@@ -779,6 +787,157 @@ it.effect("decodes orchestration session runtime mode defaults", () =>
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(parsed.runtimeMode, DEFAULT_RUNTIME_MODE);
+  }),
+);
+
+it.effect("defaults thread subagent runs for historical rows", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeOrchestrationThread({
+      id: "thread-1",
+      projectId: "project-1",
+      title: "Thread",
+      modelSelection: {
+        instanceId: "codex",
+        model: "gpt-5-codex",
+      },
+      runtimeMode: "full-access",
+      branch: null,
+      worktreePath: null,
+      latestTurn: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      deletedAt: null,
+      messages: [],
+      activities: [],
+      checkpoints: [],
+      session: null,
+    });
+    assert.deepStrictEqual(parsed.subagentRuns, []);
+  }),
+);
+
+const representativeSubagentEntry = {
+  id: "entry-1",
+  runId: "subagent-run-1",
+  kind: "assistant",
+  title: "Summary",
+  text: "Done",
+  payload: { providerItemId: "item-2" },
+  createdAt: "2026-01-01T00:00:02.000Z",
+} as const;
+
+const representativeSubagentRun = {
+  id: "subagent-run-1",
+  threadId: "thread-1",
+  turnId: "turn-1",
+  parentItemId: "item-1",
+  provider: "codex",
+  providerInstanceId: "codex-primary",
+  providerRunId: "provider-run-1",
+  title: "Implement helper",
+  description: "Focused helper implementation",
+  prompt: "Add helper tests",
+  agentType: "implementation",
+  model: "gpt-5-codex",
+  reasoningEffort: "high",
+  config: { sandboxMode: "workspace-write" },
+  status: "completed",
+  startedAt: "2026-01-01T00:00:01.000Z",
+  completedAt: "2026-01-01T00:01:00.000Z",
+  updatedAt: "2026-01-01T00:01:00.000Z",
+  entries: [representativeSubagentEntry],
+} as const;
+
+it.effect("encodes and decodes representative subagent run and entry", () =>
+  Effect.gen(function* () {
+    const decodedEntry = yield* decodeOrchestrationSubagentEntry(representativeSubagentEntry);
+    const encodedEntry = yield* encodeOrchestrationSubagentEntry(decodedEntry);
+    assert.deepStrictEqual(encodedEntry, representativeSubagentEntry);
+
+    const decodedRun = yield* decodeOrchestrationSubagentRun(representativeSubagentRun);
+    const encodedRun = yield* encodeOrchestrationSubagentRun(decodedRun);
+    assert.deepStrictEqual(encodedRun, representativeSubagentRun);
+  }),
+);
+
+it.effect("accepts null subagent run titles", () =>
+  Effect.gen(function* () {
+    const runWithUnknownTitle = {
+      ...representativeSubagentRun,
+      title: null,
+    };
+
+    const decodedRun = yield* decodeOrchestrationSubagentRun(runWithUnknownTitle);
+    const encodedRun = yield* encodeOrchestrationSubagentRun(decodedRun);
+    assert.deepStrictEqual(encodedRun, runWithUnknownTitle);
+  }),
+);
+
+it.effect("encodes and decodes subagent commands and events", () =>
+  Effect.gen(function* () {
+    const runCommand = {
+      type: "thread.subagent-run.upsert",
+      commandId: "command-1",
+      threadId: "thread-1",
+      run: representativeSubagentRun,
+      createdAt: "2026-01-01T00:01:00.000Z",
+    } as const;
+    const entryCommand = {
+      type: "thread.subagent-entry.append",
+      commandId: "command-2",
+      threadId: "thread-1",
+      runId: "subagent-run-1",
+      entry: representativeSubagentEntry,
+      createdAt: "2026-01-01T00:01:01.000Z",
+    } as const;
+    assert.deepStrictEqual(
+      yield* Schema.encodeUnknownEffect(OrchestrationCommand)(
+        yield* decodeOrchestrationCommand(runCommand),
+      ),
+      runCommand,
+    );
+    assert.deepStrictEqual(
+      yield* Schema.encodeUnknownEffect(OrchestrationCommand)(
+        yield* decodeOrchestrationCommand(entryCommand),
+      ),
+      entryCommand,
+    );
+
+    const runEvent = {
+      ...makeBaseEvent({
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        type: "thread.subagent-run-upserted",
+        payload: {
+          threadId: "thread-1",
+          run: representativeSubagentRun,
+        },
+      }),
+    };
+    const entryEvent = {
+      ...makeBaseEvent({
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        type: "thread.subagent-entry-appended",
+        payload: {
+          threadId: "thread-1",
+          runId: "subagent-run-1",
+          entry: representativeSubagentEntry,
+        },
+      }),
+    };
+    assert.deepStrictEqual(
+      yield* Schema.encodeUnknownEffect(OrchestrationEvent)(
+        yield* decodeOrchestrationEvent(runEvent),
+      ),
+      runEvent,
+    );
+    assert.deepStrictEqual(
+      yield* Schema.encodeUnknownEffect(OrchestrationEvent)(
+        yield* decodeOrchestrationEvent(entryEvent),
+      ),
+      entryEvent,
+    );
   }),
 );
 
