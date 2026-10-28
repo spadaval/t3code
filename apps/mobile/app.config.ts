@@ -114,6 +114,7 @@ function resolveAppVariant(value: string | undefined): AppVariant {
 }
 
 const variant = VARIANT_CONFIG[APP_VARIANT];
+const VOICE_INPUT_MICROPHONE_PERMISSION = "Allow T3 Code to use your microphone for voice input.";
 const iosBundleIdentifier = isIosPersonalTeamBuild
   ? personalTeamBundleIdentifier!
   : variant.iosBundleIdentifier;
@@ -364,8 +365,8 @@ const config: ExpoConfig = {
     [
       "expo-audio",
       {
-        microphonePermission: "Allow T3 Code to use your microphone for voice input.",
-        recordAudioAndroid: false,
+        microphonePermission: VOICE_INPUT_MICROPHONE_PERMISSION,
+        recordAudioAndroid: true,
         enableBackgroundPlayback: false,
         enableBackgroundRecording: false,
       },
@@ -379,7 +380,12 @@ const config: ExpoConfig = {
         recordAudioAndroid: false,
       },
     ],
-    ["expo-image-picker", { photosPermission: false, microphonePermission: false }],
+    // Its `microphonePermission: false` would block RECORD_AUDIO app-wide on
+    // Android, which dictation needs; share expo-audio's text instead.
+    [
+      "expo-image-picker",
+      { photosPermission: false, microphonePermission: VOICE_INPUT_MICROPHONE_PERMISSION },
+    ],
     [
       "expo-splash-screen",
       {

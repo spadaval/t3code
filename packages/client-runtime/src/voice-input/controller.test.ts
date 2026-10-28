@@ -9,7 +9,11 @@ import {
   type VoiceInputControllerDependencies,
   type VoiceRecorder,
 } from "./controller.ts";
-import type { PreparedVoiceTranscription, VoiceTranscriber } from "./transcription.ts";
+import {
+  VoiceTranscriptionError,
+  type PreparedVoiceTranscription,
+  type VoiceTranscriber,
+} from "./transcription.ts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -122,6 +126,23 @@ describe("VoiceInputController", () => {
     await denied.controller.start();
     expect(denied.controller.currentState.errorAction).toBe("settings");
     expect(denied.recorder.record).not.toHaveBeenCalled();
+  });
+
+  it("shows what an unavailable transcriber needs before it can record", async () => {
+    const harness = createHarness({
+      getTranscriber: () => ({
+        prepare: async () => {
+          throw new VoiceTranscriptionError("unavailable", "Download the voice model first.");
+        },
+      }),
+    });
+    await harness.controller.start();
+    expect(harness.controller.currentState).toEqual({
+      phase: "error",
+      error: "Download the voice model first.",
+      errorAction: "retry",
+    });
+    expect(harness.recorder.record).not.toHaveBeenCalled();
   });
 
   it.each(["permission", "transcription"] as const)(
