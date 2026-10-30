@@ -45,7 +45,12 @@ describe("togglePairingScopeSelection", () => {
 
 describe("pairingScopePreset", () => {
   const all = AuthGrantScope.literals;
-  const readOnly = ["orchestration:read", "filesystem:read", "diagnostics:read", "terminal:read"];
+  const readOnly: ReadonlyArray<AuthGrantScope> = [
+    "orchestration:read",
+    "filesystem:read",
+    "diagnostics:read",
+    "terminal:read",
+  ];
   it.each([
     {
       label: "every delegatable scope is full access",
