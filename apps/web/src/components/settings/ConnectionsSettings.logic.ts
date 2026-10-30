@@ -10,8 +10,24 @@ import {
 import {
   type AdvertisedEndpoint,
   type AuthClientSession,
+  type AuthEnvironmentScope,
   type AuthGrantScope,
   type AuthPairingLink,
+  AuthAccessReadScope,
+  AuthAccessWriteScope,
+  AuthDiagnosticsReadScope,
+  AuthEnvironmentMaintainScope,
+  AuthFilesystemReadScope,
+  AuthFilesystemWriteScope,
+  AuthOrchestrationOperateScope,
+  AuthOrchestrationReadScope,
+  AuthPreviewOperateScope,
+  AuthProvidersManageScope,
+  AuthRelayReadScope,
+  AuthRelayWriteScope,
+  AuthSettingsWriteScope,
+  AuthSourceControlWriteScope,
+  AuthStandardClientScopes,
   AuthTerminalOperateScope,
   AuthTerminalReadScope,
   type DesktopBridge,
@@ -24,6 +40,57 @@ import {
   getDesktopUpdateDownloadedVersion,
   resolveDesktopUpdateButtonAction,
 } from "../desktopUpdate.logic";
+
+const PAIRING_READ_ONLY_SCOPES: ReadonlyArray<AuthGrantScope> = [
+  AuthOrchestrationReadScope,
+  AuthFilesystemReadScope,
+  AuthDiagnosticsReadScope,
+  AuthTerminalReadScope,
+];
+
+export type PairingScopePreset = "full" | "read-only" | "custom";
+
+export function pairingPresetScopes(
+  preset: Exclude<PairingScopePreset, "custom">,
+  delegatableScopes: ReadonlyArray<AuthEnvironmentScope>,
+): ReadonlyArray<AuthGrantScope> {
+  const scopes = preset === "full" ? AuthStandardClientScopes : PAIRING_READ_ONLY_SCOPES;
+  return scopes.filter((scope) => delegatableScopes.includes(scope));
+}
+
+export function pairingScopePreset(
+  selected: ReadonlyArray<AuthGrantScope>,
+  delegatableScopes: ReadonlyArray<AuthEnvironmentScope>,
+): PairingScopePreset {
+  const matches = (preset: ReadonlyArray<AuthGrantScope>) =>
+    preset.length === selected.length && preset.every((scope) => selected.includes(scope));
+  if (matches(pairingPresetScopes("full", delegatableScopes))) return "full";
+  if (matches(pairingPresetScopes("read-only", delegatableScopes))) return "read-only";
+  return "custom";
+}
+
+/** Pairs each area's view and change scopes so the picker reads as one row per area. */
+export const PAIRING_SCOPE_AREAS: ReadonlyArray<{
+  readonly label: string;
+  readonly view?: AuthGrantScope;
+  readonly change?: AuthGrantScope;
+}> = [
+  {
+    label: "Threads and tasks",
+    view: AuthOrchestrationReadScope,
+    change: AuthOrchestrationOperateScope,
+  },
+  { label: "Files", view: AuthFilesystemReadScope, change: AuthFilesystemWriteScope },
+  { label: "Terminals", view: AuthTerminalReadScope, change: AuthTerminalOperateScope },
+  { label: "Source control", change: AuthSourceControlWriteScope },
+  { label: "Browser previews", change: AuthPreviewOperateScope },
+  { label: "Settings", change: AuthSettingsWriteScope },
+  { label: "Providers", change: AuthProvidersManageScope },
+  { label: "Server and processes", change: AuthEnvironmentMaintainScope },
+  { label: "Diagnostics and usage", view: AuthDiagnosticsReadScope },
+  { label: "Pairing and clients", view: AuthAccessReadScope, change: AuthAccessWriteScope },
+  { label: "Relay", view: AuthRelayReadScope, change: AuthRelayWriteScope },
+];
 
 /** Keep terminal:read with terminal:operate to avoid creating unseen shells on every script run. */
 export function togglePairingScopeSelection(

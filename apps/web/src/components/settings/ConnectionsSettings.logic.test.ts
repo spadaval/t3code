@@ -1,7 +1,9 @@
-import type { DesktopWslState } from "@t3tools/contracts";
+import { AuthGrantScope, type DesktopWslState } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
   applyWslEnableSelection,
+  PAIRING_SCOPE_AREAS,
+  pairingScopePreset,
   selectQrEndpointOption,
   togglePairingScopeSelection,
 } from "./ConnectionsSettings.logic";
@@ -38,6 +40,52 @@ describe("togglePairingScopeSelection", () => {
     },
   ] as const)("$label", ({ current, scope, checked, expected }) => {
     expect(togglePairingScopeSelection(current, scope, checked)).toEqual(expected);
+  });
+});
+
+describe("pairingScopePreset", () => {
+  const all = AuthGrantScope.literals;
+  const readOnly = ["orchestration:read", "filesystem:read", "diagnostics:read", "terminal:read"];
+  it.each([
+    {
+      label: "every delegatable scope is full access",
+      selected: all,
+      delegatable: all,
+      expected: "full",
+    },
+    {
+      label: "the read scopes are read only",
+      selected: readOnly,
+      delegatable: all,
+      expected: "read-only",
+    },
+    {
+      label: "order does not matter",
+      selected: [...readOnly].reverse(),
+      delegatable: all,
+      expected: "read-only",
+    },
+    {
+      label: "one extra scope is custom",
+      selected: [...readOnly, "relay:read"],
+      delegatable: all,
+      expected: "custom",
+    },
+    {
+      label: "full access is limited to what this client can delegate",
+      selected: ["orchestration:read", "orchestration:operate"],
+      delegatable: ["orchestration:read", "orchestration:operate"],
+      expected: "full",
+    },
+  ] as const)("$label", ({ selected, delegatable, expected }) => {
+    expect(pairingScopePreset(selected, delegatable)).toBe(expected);
+  });
+
+  it("the permission matrix offers every grantable scope exactly once", () => {
+    const offered = PAIRING_SCOPE_AREAS.flatMap(({ view, change }) =>
+      [view, change].filter((scope) => scope !== undefined),
+    );
+    expect(offered.toSorted()).toEqual([...AuthGrantScope.literals].toSorted());
   });
 });
 

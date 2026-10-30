@@ -3,11 +3,7 @@ import { PlusIcon, QrCodeIcon } from "lucide-react";
 import { type ReactNode, memo, useId, useState } from "react";
 import {
   AuthAccessWriteScope,
-  AuthDiagnosticsReadScope,
-  AuthOrchestrationReadScope,
-  AuthFilesystemReadScope,
   AuthStandardClientScopes,
-  AuthTerminalReadScope,
   type AuthEnvironmentScope,
   type AuthGrantScope,
   type AuthPairingCredentialResult,
@@ -24,6 +20,9 @@ import {
   canRevokeOtherClients,
   isQrShareableEndpoint,
   selectQrEndpointOption,
+  PAIRING_SCOPE_AREAS,
+  pairingPresetScopes,
+  pairingScopePreset,
   togglePairingScopeSelection,
 } from "./ConnectionsSettings.logic";
 import { useNowSecond } from "../../hooks/useNowSecond";
@@ -42,6 +41,7 @@ import {
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { QRCodeSvg } from "../ui/qr-code";
 import { stackedThreadToast, toastManager } from "../ui/toast";
+import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
@@ -561,6 +561,68 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
   );
 });
 
+const PAIRING_SCOPE_DETAILS = new Map(
+  PAIRING_SCOPE_OPTIONS.map((option) => [option.scope, option] as const),
+);
+
+function PairingScopeMatrix({
+  delegatableScopes,
+  selectedScopes,
+  disabled,
+  onToggle,
+}: {
+  readonly delegatableScopes: ReadonlyArray<AuthEnvironmentScope>;
+  readonly selectedScopes: ReadonlyArray<AuthGrantScope>;
+  readonly disabled: boolean;
+  readonly onToggle: (scope: AuthGrantScope, checked: boolean) => void;
+}) {
+  const cell = (scope: AuthGrantScope | undefined) => {
+    const details = scope && delegatableScopes.includes(scope) && PAIRING_SCOPE_DETAILS.get(scope);
+    if (!scope || !details) return <span aria-hidden className="size-4" />;
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Checkbox
+              aria-label={details.title}
+              checked={selectedScopes.includes(scope)}
+              disabled={disabled}
+              onCheckedChange={(checked) => onToggle(scope, checked === true)}
+            />
+          }
+        />
+        <TooltipPopup side="left">{details.description}</TooltipPopup>
+      </Tooltip>
+    );
+  };
+
+  return (
+    <div className="rounded-lg border border-border/60 text-xs">
+      <div className="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem] border-b border-border/60 px-3 py-1.5 text-muted-foreground">
+        <span>Area</span>
+        <span className="justify-self-center">View</span>
+        <span className="justify-self-center">Change</span>
+      </div>
+      <div className="py-1">
+        {PAIRING_SCOPE_AREAS.filter(
+          ({ view, change }) =>
+            (view && delegatableScopes.includes(view)) ||
+            (change && delegatableScopes.includes(change)),
+        ).map(({ label, view, change }) => (
+          <div
+            key={label}
+            className="grid grid-cols-[minmax(0,1fr)_3.5rem_3.5rem] items-center px-3 py-1"
+          >
+            <span className="truncate text-foreground">{label}</span>
+            <span className="flex justify-center">{cell(view)}</span>
+            <span className="flex justify-center">{cell(change)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 type AuthorizedClientsHeaderActionProps = {
   onPairingLinkCreated: (result: AuthPairingCredentialResult) => void;
   clientSessions: ReadonlyArray<ServerClientSessionRecord> | null;
@@ -583,6 +645,10 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
     ...AuthStandardClientScopes,
   ]);
   const selectedScopes = pairingScopes.filter((scope) => delegatableScopes.includes(scope));
+  const [customizingScopes, setCustomizingScopes] = useState(false);
+  const shownPreset = customizingScopes
+    ? "custom"
+    : pairingScopePreset(selectedScopes, delegatableScopes);
   const [isCreatingPairingLink, setIsCreatingPairingLink] = useState(false);
 
   const handleCreatePairingLink = async () => {
@@ -601,9 +667,8 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
       });
       onPairingLinkCreated(created);
       setPairingLabel("");
-      setPairingScopes(
-        AuthStandardClientScopes.filter((scope) => delegatableScopes.includes(scope)),
-      );
+      setPairingScopes(pairingPresetScopes("full", delegatableScopes));
+      setCustomizingScopes(false);
       setDialogOpen(false);
     });
     if (settled._tag === "Failure") {
@@ -640,9 +705,8 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
           setDialogOpen(open);
           if (!open) {
             setPairingLabel("");
-            setPairingScopes(
-              AuthStandardClientScopes.filter((scope) => delegatableScopes.includes(scope)),
-            );
+            setPairingScopes(pairingPresetScopes("full", delegatableScopes));
+            setCustomizingScopes(false);
           }
         }}
       >
@@ -675,71 +739,41 @@ export const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHead
                 autoFocus
               />
             </label>
-            <section className="space-y-3">
+            <section className="space-y-2.5">
               <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-xs font-medium text-foreground">Permissions</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Limit what the paired client can do.
-                  </p>
-                </div>
-                <div className="flex gap-1">
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    disabled={isCreatingPairingLink}
-                    onClick={() =>
-                      setPairingScopes(
-                        [
-                          AuthOrchestrationReadScope,
-                          AuthFilesystemReadScope,
-                          AuthDiagnosticsReadScope,
-                          AuthTerminalReadScope,
-                        ].filter((scope) => delegatableScopes.includes(scope)),
-                      )
+                <h3 className="text-xs font-medium text-foreground">Permissions</h3>
+                <ToggleGroup
+                  aria-label="Permission preset"
+                  value={[shownPreset]}
+                  disabled={isCreatingPairingLink}
+                  onValueChange={(next) => {
+                    const value = next[0];
+                    if (value === "custom") setCustomizingScopes(true);
+                    if (value === "full" || value === "read-only") {
+                      setCustomizingScopes(false);
+                      setPairingScopes(pairingPresetScopes(value, delegatableScopes));
                     }
-                  >
-                    Read only
-                  </Button>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    disabled={isCreatingPairingLink}
-                    onClick={() =>
-                      setPairingScopes(
-                        AuthStandardClientScopes.filter((scope) =>
-                          delegatableScopes.includes(scope),
-                        ),
-                      )
-                    }
-                  >
-                    Standard
-                  </Button>
-                </div>
+                  }}
+                >
+                  <ToggleGroupItem value="full">Full access</ToggleGroupItem>
+                  <ToggleGroupItem value="read-only">Read only</ToggleGroupItem>
+                  <ToggleGroupItem value="custom">Custom</ToggleGroupItem>
+                </ToggleGroup>
               </div>
-              <div className="divide-y divide-border/60 rounded-lg border border-input bg-muted/25">
-                {PAIRING_SCOPE_OPTIONS.filter(({ scope }) => delegatableScopes.includes(scope)).map(
-                  ({ scope, title, description }) => (
-                    <label
-                      key={scope}
-                      className="flex cursor-pointer items-start gap-3 px-3 py-2.5 transition-colors hover:bg-muted/40"
-                    >
-                      <Checkbox
-                        className="mt-0.5"
-                        checked={pairingScopes.includes(scope)}
-                        disabled={isCreatingPairingLink}
-                        onCheckedChange={(checked) => togglePairingScope(scope, checked === true)}
-                      />
-                      <span className="min-w-0">
-                        <span className="block text-xs font-medium text-foreground">{title}</span>
-                        <span className="block text-xs leading-snug text-muted-foreground">
-                          {description}
-                        </span>
-                      </span>
-                    </label>
-                  ),
-                )}
-              </div>
+              {shownPreset === "custom" ? (
+                <PairingScopeMatrix
+                  delegatableScopes={delegatableScopes}
+                  selectedScopes={selectedScopes}
+                  disabled={isCreatingPairingLink}
+                  onToggle={togglePairingScope}
+                />
+              ) : (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {shownPreset === "full"
+                    ? "Everything you can do from this client, including running agents, editing files, using terminals, and pairing other devices."
+                    : "Can view threads, files, terminal output, and diagnostics, but cannot change anything."}
+                </p>
+              )}
               {selectedScopes.length === 0 ? (
                 <p className="text-xs text-destructive">Select at least one permission.</p>
               ) : selectedScopes.includes(AuthAccessWriteScope) ? (
