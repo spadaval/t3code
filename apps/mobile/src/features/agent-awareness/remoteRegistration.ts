@@ -388,6 +388,9 @@ const registerDeviceWithRelay = Effect.fn("remoteRegistration.registerDeviceWith
     return;
   }
   if (body.platform === "android") androidDeviceReplayedAt = yield* Clock.currentTimeMillis;
+  yield* Effect.logInfo(
+    `[agent-awareness] registered with relay: pushToken=${payload.pushToken ? "yes" : "no"}`,
+  );
   setRegistrationStatus("registered");
   yield* Effect.promise(() =>
     saveAgentAwarenessRegistrationRecord({
@@ -537,10 +540,8 @@ const registerLiveActivityWithRelay = Effect.fn("remoteRegistration.registerLive
   },
 );
 
+// Release builds log too: push registration fails silently on devices otherwise.
 function logRegistrationError(context: string, error: unknown): void {
-  if (!__DEV__) {
-    return;
-  }
   console.warn(`[agent-awareness] ${context}`, {
     message: error instanceof Error ? error.message : String(error),
     traceId: findErrorTraceId(error),

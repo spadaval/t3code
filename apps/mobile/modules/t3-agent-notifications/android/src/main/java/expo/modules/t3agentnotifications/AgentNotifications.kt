@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
@@ -19,7 +20,13 @@ import com.google.firebase.messaging.RemoteMessage
 import expo.modules.notifications.service.ExpoFirebaseMessagingService
 
 class AgentMessagingService : ExpoFirebaseMessagingService() {
+  override fun onNewToken(token: String) {
+    Log.i(AgentNotifications.LOG_TAG, "FCM token issued")
+    super.onNewToken(token)
+  }
+
   override fun onMessageReceived(remoteMessage: RemoteMessage) {
+    Log.i(AgentNotifications.LOG_TAG, "push received: kind=${remoteMessage.data["t3_kind"]}")
     if (remoteMessage.data["t3_kind"] == "agent_activity") {
       AgentNotifications.receive(this, remoteMessage.data)
     } else {
@@ -42,6 +49,7 @@ class AgentActivityExpiryReceiver : BroadcastReceiver() {
 
 /** Handles data pushes natively so delivery does not depend on a running JS bridge. */
 object AgentNotifications {
+  const val LOG_TAG = "T3AgentNotifications"
   private const val STORE = "t3-agent-notifications"
   private const val ACTIVITY_CHANNEL = "agent-activity"
   private const val ALERT_CHANNEL = "agent-alerts"
@@ -124,7 +132,17 @@ object AgentNotifications {
       data["device_id"] == prefs.getString("deviceId", null) &&
       data["user_id"] == prefs.getString("userId", null)
     val fresh = System.currentTimeMillis() - updatedAt in -MAX_MESSAGE_AGE_MS..MAX_MESSAGE_AGE_MS
-    if (registered && fresh && NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+    val allowed = NotificationManagerCompat.from(context).areNotificationsEnabled()
+    if (!registered || !fresh || !allowed) {
+      Log.w(
+        LOG_TAG,
+        "push dropped: enabled=${prefs.getBoolean("enabled", false)} " +
+          "deviceMatch=${data["device_id"] == prefs.getString("deviceId", null)} " +
+          "userMatch=${data["user_id"] == prefs.getString("userId", null)} " +
+          "fresh=$fresh notificationsAllowed=$allowed"
+      )
+    }
+    if (registered && fresh && allowed) {
       channels(context)
       val scheme = prefs.getString("scheme", "t3code") ?: "t3code"
       showAlert(context, prefs, scheme, data)
@@ -152,6 +170,8 @@ object AgentNotifications {
       val onScreen = resumed && visibleThread != null && data["alert_path"] == visibleThread
       if (!onScreen) {
         postAlert(context, scheme, data, alertId)
+      } else {
+        Log.i(LOG_TAG, "alert suppressed: its thread is on screen")
       }
       prefs.edit().remove("seenAlerts").putString(
         "seenAlertsOrdered",
