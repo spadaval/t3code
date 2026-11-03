@@ -152,9 +152,9 @@ function PairingForm({
       const { host, code } = parsePairingUrl(pairingUrl);
       setHostInput(host);
       setCodeInput(code);
-      onChangeConnectionPairingUrl(pairingUrl);
       setScanComplete(true);
       setScannerLocked(false);
+      if (!connecting) void connectWith(pairingUrl);
     } catch (error) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Dialog.alert(
@@ -169,8 +169,9 @@ function PairingForm({
     }
   };
 
-  const handleSubmit = async () => {
-    const pairingUrl = buildPairingUrl(hostInput, codeInput);
+  const handleSubmit = () => connectWith(buildPairingUrl(hostInput, codeInput));
+
+  const connectWith = async (pairingUrl: string) => {
     setOwnAttempt(true);
     setSubmitError(null);
     setIsSubmitting(true);
