@@ -7,6 +7,7 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import * as EnvironmentRegistry from "../connection/registry.ts";
 import type { ConnectionCatalogEntry } from "../connection/catalog.ts";
 import { AVAILABLE_CONNECTION_STATE } from "../connection/model.ts";
+import { withReconnectGrace } from "../connection/presentation.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import {
   PullRequestRoutingPermissions,
@@ -120,6 +121,22 @@ export function createEnvironmentCatalogAtoms<R, E>(
     ),
   );
 
+  const presentedStateAtom = Atom.family((environmentId: EnvironmentIdType) =>
+    runtime.atom(
+      followStreamInEnvironment(
+        environmentId,
+        Stream.unwrap(
+          EnvironmentSupervisor.EnvironmentSupervisor.pipe(
+            Effect.map((supervisor) =>
+              withReconnectGrace(SubscriptionRef.changes(supervisor.state)),
+            ),
+          ),
+        ),
+      ),
+      { initialValue: AVAILABLE_CONNECTION_STATE },
+    ),
+  );
+
   const sessionGenerationAtom = (environmentId: EnvironmentIdType) =>
     environmentSessionGenerationAtom(runtime, environmentId);
 
@@ -200,6 +217,7 @@ export function createEnvironmentCatalogAtoms<R, E>(
     networkStatusAtom,
     networkStatusValueAtom,
     stateAtom,
+    presentedStateAtom,
     sessionGenerationAtom,
     register,
     remove,

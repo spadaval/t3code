@@ -1,5 +1,8 @@
 import type { ServerConfig } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
+import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Stream from "effect/Stream";
 import { mFallback, msg } from "gt-i18n";
 import type { MFunctionType } from "gt-i18n/types";
 
@@ -200,4 +203,44 @@ export function connectionCatalogDisplayUrl(entry: ConnectionCatalogEntry): stri
         ? `${entry.profile.value.target.username}@${entry.profile.value.target.hostname}`
         : null;
   }
+}
+
+const RECONNECT_GRACE_MS = 2_000;
+
+function isQuietReconnect(state: SupervisorConnectionState): boolean {
+  return (
+    (state.phase === "connecting" || state.phase === "backoff") &&
+    state.lastFailure === null &&
+    state.generation > 0
+  );
+}
+
+/**
+ * Holds back a reconnect after a live session drops, so a socket the OS killed
+ * while the app was in the background is replaced without a Reconnecting banner.
+ * A reconnect still running after the grace, or one that failed, shows as usual.
+ */
+export function withReconnectGrace<E, R>(
+  changes: Stream.Stream<SupervisorConnectionState, E, R>,
+): Stream.Stream<SupervisorConnectionState, E, R> {
+  return Stream.suspend(() => {
+    let heldSince: number | null = null;
+    return changes.pipe(
+      Stream.switchMap((state) => {
+        if (!isQuietReconnect(state)) {
+          heldSince = null;
+          return Stream.make(state);
+        }
+        return Stream.fromEffect(
+          Effect.gen(function* () {
+            const now = yield* Clock.currentTimeMillis;
+            heldSince ??= now;
+            const remaining = RECONNECT_GRACE_MS - (now - heldSince);
+            if (remaining > 0) yield* Effect.sleep(remaining);
+            return state;
+          }),
+        );
+      }),
+    );
+  });
 }
