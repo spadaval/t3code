@@ -24,6 +24,7 @@ import * as EnvironmentRegistry from "../connection/registry.ts";
 import { connectionProjectionPhase } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as ConnectionWakeups from "../connection/wakeups.ts";
+import { continuesSession } from "../connection/handoff.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import * as Persistence from "../platform/persistence.ts";
 import { runCachePersistence } from "./cachePersistence.ts";
@@ -468,9 +469,14 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
           omitIdleSubagents: false,
           omitOlderSettled: false,
         };
+        const previous = yield* Ref.get(activeSubscription);
+        // A route upgrade that replaced the session with no gap resumes without a visible sync.
+        const handedOff = previous !== null && continuesSession(session, previous.session);
         yield* Ref.set(activeSubscription, { session, identity });
-        yield* Ref.set(awaitingCompletion, true);
-        yield* setSynchronizing;
+        if (!handedOff) {
+          yield* Ref.set(awaitingCompletion, true);
+          yield* setSynchronizing;
+        }
 
         // Rows from a recent server snapshot with the same omissions and server build resume
         // from their cursor, in memory or from the cache. Anything else reloads the HTTP
