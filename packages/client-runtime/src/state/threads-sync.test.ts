@@ -42,6 +42,7 @@ import {
 import { recordServerClock, toServerClock } from "../clock.ts";
 import * as ConnectionWakeups from "../connection/wakeups.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
+import { recordHandoff } from "../connection/handoff.ts";
 import * as Persistence from "../platform/persistence.ts";
 import {
   ORCHESTRATION_THREAD_CACHE_SCHEMA_VERSION,
@@ -319,6 +320,11 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
       supervisorSession,
       Option.some(testSession(client, sessionConfig)),
     ),
+    handOffSession: Effect.gen(function* () {
+      const next = testSession(client, sessionConfig);
+      recordHandoff(next, Option.getOrThrow(yield* SubscriptionRef.get(supervisorSession)));
+      yield* SubscriptionRef.set(supervisorSession, Option.some(next));
+    }),
   };
 });
 
@@ -2580,6 +2586,19 @@ describe("EnvironmentThreads", () => {
       expect(toServerClock(PREPARED.environmentId, 0)).toBe(
         DateTime.toEpochMillis(Option.getOrThrow(next.data).thread.updatedAt),
       );
+      // A route upgrade's session resumes without going back to synchronizing.
+      yield* harness.handOffSession;
+      yield* awaitSubscriptionCount(harness, 2);
+      expect(yield* Ref.get(harness.lastSubscribeAfterSequence)).toBe(CACHED_SNAPSHOT_SEQUENCE + 21);
+      yield* Queue.offer(
+        harness.inputs,
+        titleUpdated("Title over LAN", CACHED_SNAPSHOT_SEQUENCE + 22),
+      );
+      const handedOff = yield* awaitThreadState(
+        harness.observed,
+        (value) => Option.isSome(value.data) && value.data.value.thread.title === "Title over LAN",
+      );
+      expect(handedOff.status).toBe("live");
     }),
   );
 

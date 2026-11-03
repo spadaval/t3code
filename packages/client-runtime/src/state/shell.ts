@@ -31,6 +31,7 @@ import * as EnvironmentRegistry from "../connection/registry.ts";
 import { connectionProjectionPhase, type PreparedConnection } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as ConnectionWakeups from "../connection/wakeups.ts";
+import { continuesSession } from "../connection/handoff.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import * as Persistence from "../platform/persistence.ts";
 import { runCachePersistence } from "./cachePersistence.ts";
@@ -587,6 +588,15 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
           const done = current.fiber.pollUnsafe() !== undefined;
           return [current.claimed && done ? null : current, next] as const;
         }
+        // A route upgrade updates prepared while a session is already live; leave the active
+        // subscription intact so makeSubscribeInput recognizes the handoff and resumes over WS.
+        if (
+          !claim &&
+          prepared !== null &&
+          Option.isSome(yield* SubscriptionRef.get(supervisor.session))
+        ) {
+          return [current, current] as const;
+        }
         if (current !== null) yield* Fiber.interrupt(current.fiber);
         const identity = descriptorShellIdentity(prepared?.descriptor);
         if (prepared === null || identity === null) return [null, null] as const;
@@ -655,10 +665,15 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
           omitIdleSubagents: false,
           omitOlderSettled: false,
         };
-        const early = yield* useEarlyLoad(
-          Option.getOrNull(yield* SubscriptionRef.get(supervisor.prepared)),
-          true,
-        );
+        const previous = yield* Ref.get(activeSubscription);
+        // A route upgrade that replaced the session with no gap resumes without a visible sync.
+        const handedOff = previous !== null && continuesSession(session, previous.session);
+        const early = handedOff
+          ? null
+          : yield* useEarlyLoad(
+              Option.getOrNull(yield* SubscriptionRef.get(supervisor.prepared)),
+              true,
+            );
         const earlyExit = early === null ? null : yield* awaitEarlyLoad(early, identity);
         // Rows the descriptor's flags or build loaded are not kept when the live config differs:
         // their origin then cannot resume, so the load below replaces them.
@@ -671,8 +686,10 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
             ? earlyExit.value
             : null;
         yield* Ref.set(activeSubscription, { session, identity });
-        yield* Ref.set(awaitingCompletion, true);
-        yield* setSynchronizing;
+        if (!handedOff) {
+          yield* Ref.set(awaitingCompletion, true);
+          yield* setSynchronizing;
+        }
 
         // Rows from a recent server snapshot with the same omissions and server build resume
         // from their cursor, in memory or from the cache. Anything else reloads the HTTP
