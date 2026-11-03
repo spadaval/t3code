@@ -25,6 +25,7 @@ import {
   type PreparedConnection,
 } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
+import { recordHandoff } from "../connection/handoff.ts";
 import * as Persistence from "../platform/persistence.ts";
 import * as RpcSession from "../rpc/session.ts";
 import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
@@ -907,6 +908,80 @@ describe("environment shell synchronization", () => {
         yield* stateWhere((state) => state.generation > loaded.generation),
       );
       expect(reset.removedAt.size).toBe(0);
+    }),
+  );
+
+  it.effect("resumes on a route upgrade's session without reloading or showing a sync", () =>
+    Effect.gen(function* () {
+      const inputs = yield* Queue.unbounded<unknown>();
+      const makeSession = Effect.fn("test.makeShellSession")(function* () {
+        const events = yield* Queue.unbounded<OrchestrationV2ShellStreamItem>();
+        const client = {
+          [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input: unknown) =>
+            Stream.unwrap(Queue.offer(inputs, input).pipe(Effect.as(Stream.fromQueue(events)))),
+        } as unknown as WsRpcProtocolClient;
+        return { session: session(client), events };
+      });
+      const relay = yield* makeSession();
+      const lan = yield* makeSession();
+      const restarted = yield* makeSession();
+      const loads = yield* Ref.make(0);
+      const current = yield* SubscriptionRef.make(Option.some(relay.session));
+      const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
+        target: TARGET,
+        state: yield* SubscriptionRef.make(AVAILABLE_CONNECTION_STATE),
+        session: current,
+        prepared: yield* SubscriptionRef.make(Option.some(PREPARED)),
+        connect: Effect.void,
+        disconnect: Effect.void,
+        retryNow: Effect.void,
+      });
+      const cache = Persistence.EnvironmentCacheStore.of({
+        loadShell: () => Effect.succeedNone,
+        saveShell: () => Effect.void,
+        loadThread: () => Effect.succeedNone,
+        saveThread: () => Effect.void,
+        removeThread: () => Effect.void,
+        loadServerConfig: () => Effect.succeedNone,
+        saveServerConfig: () => Effect.void,
+        loadVcsRefs: () => Effect.succeedNone,
+        saveVcsRefs: () => Effect.void,
+        removeVcsRefs: () => Effect.void,
+        clearVcsRefs: () => Effect.void,
+        clear: () => Effect.void,
+      });
+      const shellState = yield* makeEnvironmentShellState().pipe(
+        Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        Effect.provideService(Persistence.EnvironmentCacheStore, cache),
+        Effect.provideService(ShellSnapshotLoader.ShellSnapshotLoader, {
+          load: () =>
+            Ref.update(loads, (count) => count + 1).pipe(
+              Effect.as(Option.some(LIVE_SHELL_SNAPSHOT)),
+            ),
+        }),
+      );
+      expect(yield* Queue.take(inputs)).toMatchObject({ afterSequence: 1 });
+      yield* Queue.offer(relay.events, { kind: "synchronized" } as OrchestrationV2ShellStreamItem);
+      yield* SubscriptionRef.changes(shellState).pipe(
+        Stream.filter((state) => state.status === "live"),
+        Stream.runHead,
+      );
+      const statuses = yield* Ref.make<ReadonlyArray<string>>([]);
+      yield* SubscriptionRef.changes(shellState).pipe(
+        Stream.runForEach((state) => Ref.update(statuses, (all) => [...all, state.status])),
+        Effect.forkScoped,
+      );
+
+      recordHandoff(lan.session, relay.session);
+      yield* SubscriptionRef.set(current, Option.some(lan.session));
+      expect(yield* Queue.take(inputs)).toMatchObject({ afterSequence: 1 });
+      expect(yield* Ref.get(loads)).toBe(1);
+      expect(new Set(yield* Ref.get(statuses))).toEqual(new Set(["live"]));
+
+      // A session that did not take over from the live one reloads.
+      yield* SubscriptionRef.set(current, Option.some(restarted.session));
+      yield* Queue.take(inputs);
+      expect(yield* Ref.get(loads)).toBe(2);
     }),
   );
 

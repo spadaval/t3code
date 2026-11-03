@@ -23,6 +23,7 @@ import * as EnvironmentRegistry from "../connection/registry.ts";
 import { connectionProjectionPhase } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as ConnectionWakeups from "../connection/wakeups.ts";
+import { continuesSession } from "../connection/handoff.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import * as Persistence from "../platform/persistence.ts";
 import { runCachePersistence } from "./cachePersistence.ts";
@@ -386,13 +387,19 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
           })),
           Effect.orElseSucceed(() => ({ omitIdleSubagents: false, omitOlderSettled: false })),
         );
-        yield* Ref.set(awaitingCompletion, true);
-        yield* setSynchronizing;
-
-        // Foreground resubscriptions on the same live session can resume from
-        // the in-memory cursor. A new session reloads the authoritative HTTP
-        // snapshot so a valid cursor cannot preserve incomplete cached data.
-        const hasAuthoritativeSnapshot = (yield* Ref.get(lastAuthoritativeSession)) === session;
+        // A resubscribe on the same session, or a route upgrade that replaced it
+        // with no gap, resumes from the in-memory cursor without a visible sync.
+        // Any other session reloads the HTTP snapshot so a valid cursor cannot
+        // preserve incomplete cached data.
+        const authority = yield* Ref.get(lastAuthoritativeSession);
+        const handedOff = authority !== null && continuesSession(session, authority);
+        if (handedOff) {
+          yield* Ref.set(lastAuthoritativeSession, session);
+        } else {
+          yield* Ref.set(awaitingCompletion, true);
+          yield* setSynchronizing;
+        }
+        const hasAuthoritativeSnapshot = authority === session || handedOff;
         let canResume = hasAuthoritativeSnapshot;
         let current = yield* SubscriptionRef.get(state);
         if (!hasAuthoritativeSnapshot || Option.isNone(current.snapshot)) {

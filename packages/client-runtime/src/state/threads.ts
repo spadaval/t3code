@@ -29,6 +29,8 @@ import * as EnvironmentRegistry from "../connection/registry.ts";
 import { connectionProjectionPhase } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as ConnectionWakeups from "../connection/wakeups.ts";
+import { continuesSession } from "../connection/handoff.ts";
+import type { RpcSession } from "../rpc/session.ts";
 import * as Persistence from "../platform/persistence.ts";
 import { runCachePersistence } from "./cachePersistence.ts";
 import * as ManagedRelay from "../relay/managedRelay.ts";
@@ -958,6 +960,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   });
 
   yield* markSynchronizing;
+  const subscribedSession = yield* Ref.make<RpcSession | null>(null);
   yield* Effect.forkScoped(
     subscribeDynamic(
       ORCHESTRATION_V2_WS_METHODS.subscribeThread,
@@ -971,8 +974,15 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         }
 
         yield* Effect.ignore(session.initialConfig);
-        yield* Ref.set(awaitingCompletion, true);
-        yield* markSynchronizing;
+        // A route upgrade's session resumes a live thread from its cursor with
+        // no visible sync, since the replaced socket was healthy until now.
+        const previous = yield* Ref.getAndSet(subscribedSession, session);
+        const handedOff =
+          previous !== null && current.status === "live" && continuesSession(session, previous);
+        if (!handedOff) {
+          yield* Ref.set(awaitingCompletion, true);
+          yield* markSynchronizing;
+        }
         yield* Ref.set(resumingLive, false);
 
         if (Option.isNone(current.data)) {

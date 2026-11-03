@@ -42,6 +42,7 @@ import * as RpcSession from "../rpc/session.ts";
 import { presentConnectionState } from "./presentation.ts";
 import * as EnvironmentSupervisor from "./supervisor.ts";
 import * as ConnectionWakeups from "./wakeups.ts";
+import { continuesSession } from "./handoff.ts";
 import { connectionRouteId, entryWithRoutes, isLearned, mergeLearnedRoutes } from "./routes.ts";
 
 const TARGET = new PrimaryConnectionTarget({
@@ -136,6 +137,19 @@ function awaitState(
   predicate: (value: SupervisorConnectionState) => boolean,
 ) {
   return SubscriptionRef.changes(state).pipe(
+    Stream.filter(predicate),
+    Stream.runHead,
+    Effect.map(Option.getOrThrow),
+  );
+}
+
+function awaitPrepared(
+  prepared: SubscriptionRef.SubscriptionRef<Option.Option<PreparedConnection>>,
+  predicate: (value: PreparedConnection) => boolean,
+) {
+  return SubscriptionRef.changes(prepared).pipe(
+    Stream.filter(Option.isSome),
+    Stream.map((value) => value.value),
     Stream.filter(predicate),
     Stream.runHead,
     Effect.map(Option.getOrThrow),
@@ -1688,18 +1702,77 @@ describe("EnvironmentSupervisor routes", () => {
         "RelayConnectionTarget",
       );
 
+      const relaySession = Option.getOrThrow(yield* SubscriptionRef.get(supervisor.session));
+      const phases = yield* Ref.make<ReadonlyArray<SupervisorConnectionState["phase"]>>([]);
+      yield* SubscriptionRef.changes(supervisor.state).pipe(
+        Stream.runForEach((state) => Ref.update(phases, (all) => [...all, state.phase])),
+        Effect.forkScoped,
+      );
+
       yield* Ref.set(lanReachable, true);
       yield* harness.setNetworkStatus("unknown");
       yield* harness.setNetworkStatus("online");
 
-      yield* awaitState(
-        supervisor.state,
-        (state) => state.phase === "connected" && state.generation === 2,
+      const lanPrepared = yield* awaitPrepared(
+        supervisor.prepared,
+        (prepared) => prepared.target._tag === "BearerConnectionTarget",
       );
-      expect(Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).target._tag).toBe(
-        "BearerConnectionTarget",
+      expect(lanPrepared.target._tag).toBe("BearerConnectionTarget");
+      const lanSession = yield* SubscriptionRef.changes(supervisor.session).pipe(
+        Stream.filter(Option.isSome),
+        Stream.map((value) => value.value),
+        Stream.filter((value) => value !== relaySession),
+        Stream.runHead,
+        Effect.map(Option.getOrThrow),
       );
+      expect(continuesSession(lanSession, relaySession)).toBe(true);
+      // The relay socket stays open for in-flight requests, then closes.
+      expect(yield* Ref.get(harness.releaseCount)).toBe(0);
+      yield* TestClock.adjust("5 seconds");
       expect(yield* Ref.get(harness.releaseCount)).toBe(1);
+      expect(new Set(yield* Ref.get(phases))).toEqual(new Set(["connected"]));
+      expect((yield* SubscriptionRef.get(supervisor.state)).generation).toBe(1);
+    }),
+  );
+
+  it.effect("keeps the live session when a better route fails to get ready", () =>
+    Effect.gen(function* () {
+      const lanReachable = yield* Ref.make(false);
+      const lanFailed = yield* Deferred.make<void>();
+      const harness = yield* makeHarness({
+        checkRoute: (route) =>
+          route.target._tag === "BearerConnectionTarget"
+            ? Ref.get(lanReachable).pipe(
+                Effect.map((reachable) => (reachable ? "answered" : "silent")),
+              )
+            : Effect.succeed("unchecked"),
+        prepare: (_attempt, target) => Effect.succeed(preparedFor(target)),
+        ready: (attempt) =>
+          attempt === 1
+            ? Effect.void
+            : Deferred.succeed(lanFailed, undefined).pipe(
+                Effect.andThen(Effect.fail(transient("No config."))),
+              ),
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(LAN_THEN_RELAY_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      const relaySession = Option.getOrThrow(yield* SubscriptionRef.get(supervisor.session));
+      const phases = yield* Ref.make<ReadonlyArray<SupervisorConnectionState["phase"]>>([]);
+      yield* SubscriptionRef.changes(supervisor.state).pipe(
+        Stream.runForEach((state) => Ref.update(phases, (all) => [...all, state.phase])),
+        Effect.forkScoped,
+      );
+
+      yield* Ref.set(lanReachable, true);
+      yield* harness.wake("network-changed");
+      yield* Deferred.await(lanFailed);
+      yield* TestClock.adjust("1 second");
+
+      expect(Option.getOrThrow(yield* SubscriptionRef.get(supervisor.session))).toBe(relaySession);
+      expect(yield* Ref.get(harness.sessionCount)).toBe(2);
+      expect(new Set(yield* Ref.get(phases))).toEqual(new Set(["connected"]));
     }),
   );
 
@@ -1735,13 +1808,11 @@ describe("EnvironmentSupervisor routes", () => {
 
       yield* Ref.set(lanReachable, true);
       yield* harness.wake("network-changed");
-      yield* awaitState(
-        supervisor.state,
-        (state) => state.phase === "connected" && state.generation === 2,
+      yield* awaitPrepared(
+        supervisor.prepared,
+        (prepared) => prepared.target._tag === "BearerConnectionTarget",
       );
-      expect(Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).target._tag).toBe(
-        "BearerConnectionTarget",
-      );
+      expect((yield* SubscriptionRef.get(supervisor.state)).generation).toBe(1);
     }),
   );
 
@@ -1820,13 +1891,11 @@ describe("EnvironmentSupervisor routes", () => {
       yield* Deferred.await(wakeupHandled);
       yield* Deferred.succeed(finishCheck, undefined);
 
-      yield* awaitState(
-        supervisor.state,
-        (state) => state.phase === "connected" && state.generation === 2,
+      yield* awaitPrepared(
+        supervisor.prepared,
+        (prepared) => prepared.target._tag === "BearerConnectionTarget",
       );
-      expect(Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).target._tag).toBe(
-        "BearerConnectionTarget",
-      );
+      expect((yield* SubscriptionRef.get(supervisor.state)).generation).toBe(1);
     }),
   );
 
@@ -1979,7 +2048,13 @@ describe("EnvironmentSupervisor routes", () => {
         if (discovery === "withdrawn-upgrade") {
           yield* Deferred.await(discoveryProcessed);
           yield* TestClock.adjust("60 seconds");
-          expect((yield* SubscriptionRef.get(supervisor.state)).generation).toBe(2);
+          yield* awaitPrepared(
+            supervisor.prepared,
+            (prepared) =>
+              connectionRouteId(prepared.target) ===
+              `learned:${TARGET.environmentId}:https://fixture.tail1234.ts.net`,
+          );
+          expect((yield* SubscriptionRef.get(supervisor.state)).generation).toBe(1);
           return;
         }
         if (discovery === "withdrawn" || discovery === "omitted") {
@@ -1990,13 +2065,11 @@ describe("EnvironmentSupervisor routes", () => {
           expect((yield* SubscriptionRef.get(supervisor.state)).generation).toBe(1);
           return;
         }
-        yield* awaitState(
-          supervisor.state,
-          (state) => state.phase === "connected" && state.generation === 2,
+        yield* awaitPrepared(
+          supervisor.prepared,
+          (prepared) => prepared.target._tag === "BearerConnectionTarget",
         );
-        expect(Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).target._tag).toBe(
-          "BearerConnectionTarget",
-        );
+        expect((yield* SubscriptionRef.get(supervisor.state)).generation).toBe(1);
         expect(yield* Ref.get(learned)).toEqual([
           `learned:${TARGET.environmentId}:${discovery !== "initial" ? "https://fixture.tail1234.ts.net" : "http://192.168.1.10:3773"}`,
         ]);
