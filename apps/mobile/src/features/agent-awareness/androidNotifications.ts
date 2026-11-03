@@ -8,6 +8,10 @@ interface AndroidAgentNotifications {
   setThreadOnScreen?(path: string | null): void;
   openLiveUpdateSettings?(): boolean;
   showShowcaseActivity?(scheme: string, data: Record<string, string>): void;
+  showConnectionNotification?(title: string, text: string): boolean;
+  stopConnectionNotification?(): void;
+  isConnectionNotificationEnabled?(): boolean;
+  setConnectionNotificationEnabled?(enabled: boolean): void;
 }
 
 const native =
@@ -54,4 +58,25 @@ export async function openAndroidLiveUpdateSettings(): Promise<void> {
   if (!native?.openLiveUpdateSettings?.()) {
     await Linking.openSettings();
   }
+}
+
+export function supportsAndroidConnectionNotification(): boolean {
+  return typeof native?.showConnectionNotification === "function";
+}
+
+/** Starts or updates the ongoing connection notification. False when off or not allowed now. */
+export function showAndroidConnectionNotification(title: string, text: string): boolean {
+  return native?.showConnectionNotification?.(title, text) ?? false;
+}
+
+export function stopAndroidConnectionNotification(): void {
+  native?.stopConnectionNotification?.();
+}
+
+export function androidConnectionNotificationEnabled(): boolean {
+  return native?.isConnectionNotificationEnabled?.() ?? false;
+}
+
+export function setAndroidConnectionNotificationEnabled(enabled: boolean): void {
+  native?.setConnectionNotificationEnabled?.(enabled);
 }
