@@ -29,6 +29,7 @@ import {
 import { supportsAgentAwarenessPush } from "../agent-awareness/capabilities";
 import {
   openAndroidLiveUpdateSettings,
+  supportsAndroidConnectionNotification,
   supportsAndroidLiveUpdateSettings,
 } from "../agent-awareness/androidNotifications";
 import { setLiveActivityUpdatesEnabled } from "../agent-awareness/liveActivityPreferences";
@@ -44,6 +45,10 @@ import { makePermissionStatusAtom } from "../../lib/permissionStatusAtom";
 import { runtime } from "../../lib/runtime";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
+import {
+  connectionNotificationEnabledAtom,
+  setConnectionNotificationEnabled,
+} from "../connection/ConnectionNotificationCoordinator";
 import { SettingsRow } from "./components/SettingsRow";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
@@ -137,6 +142,7 @@ function ConfiguredSettingsNotificationsRouteScreen() {
       ? "Install a newer app build to enable notifications"
       : agentAwarenessPlatform.subtitle;
   const insets = useSafeAreaInsets();
+  const connectionNotificationEnabled = useAtomValue(connectionNotificationEnabledAtom);
   const navigation = useNavigation();
   const { getToken, isLoaded, isSignedIn } = useAuth({ treatPendingAsSignedOut: false });
   const { savedConnectionsById } = useSavedRemoteConnections();
@@ -484,6 +490,17 @@ function ConfiguredSettingsNotificationsRouteScreen() {
             />
           ) : null}
         </SettingsSection>
+        {supportsAndroidConnectionNotification() ? (
+          <SettingsSection title="Connection">
+            <SettingsSwitchRow
+              icon="cable.connector"
+              label="Stay Connected in Background"
+              subtitle="Shows an ongoing notification with what your threads are doing, and keeps environments connected while T3 Code is in the background."
+              value={connectionNotificationEnabled}
+              onValueChange={setConnectionNotificationEnabled}
+            />
+          </SettingsSection>
+        ) : null}
       </ScrollView>
     </SettingsScreen>
   );

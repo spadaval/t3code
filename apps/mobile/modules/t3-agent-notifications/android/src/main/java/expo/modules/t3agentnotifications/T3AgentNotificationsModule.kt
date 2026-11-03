@@ -34,6 +34,22 @@ class T3AgentNotificationsModule : Module() {
       AgentNotifications.setThreadOnScreen(path)
     }
 
+    Function("showConnectionNotification") { title: String, text: String ->
+      appContext.reactContext?.let { ConnectionKeepAliveService.show(it, title, text) } ?: false
+    }
+
+    Function("stopConnectionNotification") {
+      appContext.reactContext?.let { ConnectionKeepAliveService.stop(it) }
+    }
+
+    Function("isConnectionNotificationEnabled") {
+      appContext.reactContext?.let { ConnectionKeepAliveService.isEnabled(it) } ?: false
+    }
+
+    Function("setConnectionNotificationEnabled") { enabled: Boolean ->
+      appContext.reactContext?.let { ConnectionKeepAliveService.setEnabled(it, enabled) }
+    }
+
     Function("openLiveUpdateSettings") {
       val context = appContext.reactContext
       if (context == null || Build.VERSION.SDK_INT < 36) {
