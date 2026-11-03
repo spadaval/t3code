@@ -13,7 +13,7 @@ import { createThreadListEnvironmentsAtom } from "./thread-list-environments";
 
 export const environmentPresentations = createEnvironmentPresentationAtoms({
   catalogValueAtom: environmentCatalog.catalogValueAtom,
-  stateAtom: environmentCatalog.stateAtom,
+  stateAtom: environmentCatalog.presentedStateAtom,
   serverConfigValueAtom: serverEnvironment.configValueAtom,
 });
 

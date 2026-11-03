@@ -1,6 +1,10 @@
 import { EnvironmentId } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
+import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 
 import {
   BearerConnectionProfile,
@@ -13,7 +17,7 @@ import {
   RelayConnectionTarget,
   type SupervisorConnectionState,
 } from "./model.ts";
-import { environmentMcpUrl, presentConnectionState } from "./presentation.ts";
+import { environmentMcpUrl, presentConnectionState, withReconnectGrace } from "./presentation.ts";
 
 const TARGET = new BearerConnectionTarget({
   environmentId: EnvironmentId.make("environment-1"),
@@ -167,4 +171,43 @@ describe("connection presentation", () => {
       traceId: null,
     });
   });
+});
+
+describe("withReconnectGrace", () => {
+  it.effect("hides a quick reconnect of a live session but not a slow or failed one", () =>
+    Effect.gen(function* () {
+      const input = yield* Queue.unbounded<SupervisorConnectionState>();
+      const pulled = yield* Queue.unbounded<void>();
+      const shown = yield* Queue.unbounded<string>();
+      yield* withReconnectGrace(
+        Stream.fromQueue(input).pipe(Stream.tap(() => Queue.offer(pulled, undefined))),
+      ).pipe(
+        Stream.runForEach((state) => Queue.offer(shown, `${state.phase}:${state.generation}`)),
+        Effect.forkScoped,
+      );
+      const send = (overrides: Partial<SupervisorConnectionState>) =>
+        Queue.offer(input, supervisorState(overrides)).pipe(Effect.andThen(Queue.take(pulled)));
+
+      yield* send({ phase: "connected", generation: 1 });
+      expect(yield* Queue.take(shown)).toBe("connected:1");
+
+      // The OS killed the socket: backoff, then a fresh attempt, back within 2 s.
+      yield* send({ phase: "backoff", generation: 1 });
+      yield* TestClock.adjust("1 second");
+      yield* send({ phase: "connecting", generation: 1, attempt: 2 });
+      yield* send({ phase: "connected", generation: 2 });
+      expect(yield* Queue.take(shown)).toBe("connected:2");
+
+      yield* send({ phase: "connecting", generation: 2 });
+      yield* TestClock.adjust("2 seconds");
+      expect(yield* Queue.take(shown)).toBe("connecting:2");
+
+      yield* send({
+        phase: "backoff",
+        generation: 2,
+        lastFailure: new ConnectionTransientError({ reason: "timeout", detail: "No answer." }),
+      });
+      expect(yield* Queue.take(shown)).toBe("backoff:2");
+    }),
+  );
 });
