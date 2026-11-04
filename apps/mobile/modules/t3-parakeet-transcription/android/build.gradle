@@ -1,0 +1,22 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.t3tools.parakeettranscription'
+version = '0.0.0'
+
+android {
+  namespace 'expo.modules.t3parakeettranscription'
+  defaultConfig {
+    versionCode 1
+    versionName '0.0.0'
+    consumerProguardFiles 'proguard-rules.pro'
+  }
+}
+
+dependencies {
+  // Parakeet runs through sherpa-onnx's ONNX Runtime build. JitPack, which the
+  // Expo Android template already lists, serves the same AAR as the GitHub release.
+  implementation 'com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.8'
+}

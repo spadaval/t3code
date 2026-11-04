@@ -1,3 +1,4 @@
+import * as Haptics from "expo-haptics";
 import { useAtomValue } from "@effect/atom-react";
 import { RecordingPresets, type RecordingStatus } from "expo-audio";
 import { File } from "expo-file-system";
@@ -26,6 +27,9 @@ import { VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 import { VoiceInputSession } from "./voiceInputSession";
 import { createVoiceRecordingPermission } from "./voiceRecordingPermission";
 import { makePermissionStatusAtom } from "../../lib/permissionStatusAtom";
+import { parakeetModule } from "../../native/parakeetModel";
+import { getParakeetTranscriber } from "../../native/parakeetTranscription";
+import { DEFAULT_VOICE_ENGINE, selectVoiceEngine } from "../../native/voiceEngine";
 import {
   acquireAudioSession,
   activateAudioSession,
@@ -41,7 +45,17 @@ const VOICE_RECORDING_OPTIONS = {
   numberOfChannels: RecordingPresets.HIGH_QUALITY.numberOfChannels,
   bitRate: RecordingPresets.HIGH_QUALITY.bitRate,
   isMeteringEnabled: true,
-  ...(Platform.OS === "ios" ? IOS_RECORDING_OPTIONS : ANDROID_RECORDING_OPTIONS),
+  ...(Platform.OS === "ios"
+    ? IOS_RECORDING_OPTIONS
+    : {
+        ...ANDROID_RECORDING_OPTIONS,
+        // The default MIC source skips the noise suppression Android tunes for speech-to-text.
+        audioSource: "voice_recognition" as const,
+        // Both engines hear 16 kHz mono; recording only that makes decoding ~3x cheaper.
+        sampleRate: 16000,
+        numberOfChannels: 1,
+        bitRate: 32000,
+      }),
 };
 
 function keepScreenAwake(tag: string): () => void {
@@ -54,13 +68,28 @@ function keepScreenAwake(tag: string): () => void {
 export const deviceMicrophoneOrder = (saved?: ReadonlyArray<MicrophoneEntry>) =>
   microphoneOrder(saved, Platform.OS === "android" ? "android" : "ios");
 
-/** "checking" until the first availability probe settles; re-probed on foreground. */
-export const localVoiceTranscriberAtom = makePermissionStatusAtom<
+/** Google's on-device engine. "checking" until the first probe settles; re-probed on foreground. */
+export const googleVoiceTranscriberAtom = makePermissionStatusAtom<
   VoiceTranscriber | null | "checking"
 >({
-  label: "mobile:voice-input:transcriber",
+  label: "mobile:voice-input:google-transcriber",
   initial: "checking",
   read: () => getLocalVoiceTranscriber().catch(() => null),
+}).pipe(Atom.keepAlive);
+
+const parakeetTranscriber = getParakeetTranscriber();
+
+export const localVoiceTranscriberAtom = Atom.make((get) => {
+  const google = get(googleVoiceTranscriberAtom);
+  if (google === "checking") return "checking" as const;
+  const registry = get.registry;
+  // Read when dictation starts so changing the engine does not re-render every composer.
+  return selectVoiceEngine({ parakeet: parakeetTranscriber, google }, () => {
+    const preferences = registry.get(mobilePreferencesAtom);
+    return AsyncResult.isSuccess(preferences)
+      ? (preferences.value.voiceEngine ?? DEFAULT_VOICE_ENGINE)
+      : DEFAULT_VOICE_ENGINE;
+  });
 }).pipe(Atom.keepAlive);
 
 // Each foreground re-probe yields a new transcriber; composers re-render only when availability flips.
@@ -97,6 +126,12 @@ const voiceInputAtom = Atom.make((get) => {
         url: status.url,
       });
     },
+    waitForBluetoothRoute: async () => {
+      if (await parakeetModule?.waitForBluetoothInput()) {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      }
+    },
+    cancelBluetoothRouteWait: () => parakeetModule?.cancelBluetoothInputWait(),
     // Read when recording starts so preference changes do not re-render every composer.
     selectInput: (inputs) => {
       const preferences = registry.get(mobilePreferencesAtom);
@@ -131,6 +166,7 @@ const voiceInputAtom = Atom.make((get) => {
       }
     },
     releaseRecording: async () => {
+      parakeetModule?.cancelBluetoothInputWait();
       if (audioToken) await releaseAudioSession(audioToken);
       audioToken = null;
     },

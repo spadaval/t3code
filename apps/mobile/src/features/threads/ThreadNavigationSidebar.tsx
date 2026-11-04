@@ -56,6 +56,7 @@ import {
   ThreadListV2SettledShelfHeader,
   ThreadListV2ShowMoreRow,
   ThreadListV2SnoozedShelfHeader,
+  ThreadListV2ProjectFolderHeader,
   ThreadListV2WorkingShelfHeader,
 } from "./thread-list-v2-items";
 import { useThreadRowProviderInstanceResolver } from "./thread-provider-instance";
@@ -237,8 +238,11 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     loaded: shelfPreferencesLoaded,
     settledShelfExpanded,
     snoozedShelfExpanded,
-    workingShelfEnabled,
+    workingShelfEnabled: workingShelfPreference,
     workingShelfExpanded,
+    groupByProject,
+    collapsedProjectFolders,
+    toggleProjectFolder,
     toggleSettledShelf,
     toggleSnoozedShelf,
     toggleWorkingShelf,
@@ -264,6 +268,7 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     items: threadListV2Items,
     contentOnlyThreadKeys,
     olderSettledShelf,
+    workingShelfEnabled,
   } = useThreadListV2({
     threads,
     pendingTasks,
@@ -280,8 +285,11 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
     now,
     pendingOrder,
     shelfPreferencesLoaded,
-    workingShelfEnabled,
+    workingShelfEnabled: workingShelfPreference,
     workingShelfExpanded,
+    projectFolders: groupByProject
+      ? { groups: projectScopes, collapsedKeys: collapsedProjectFolders }
+      : null,
     snoozedShelfExpanded,
     settledShelfExpanded,
     selectedThreadKey: props.selectedThreadKey ?? null,
@@ -486,6 +494,20 @@ function ThreadNavigationSidebarPane(props: ThreadNavigationSidebarProps) {
             disabled={item.disabled}
             expanded={item.expanded}
             onToggle={toggleWorkingShelf}
+            pane="sidebar"
+          />
+        );
+      case "v2-project-folder":
+        return (
+          <ThreadListV2ProjectFolderHeader
+            folderKey={item.folderKey}
+            title={item.title}
+            project={item.project}
+            count={item.count}
+            expanded={item.expanded}
+            dot={item.dot}
+            disabled={item.disabled}
+            onToggle={toggleProjectFolder}
             pane="sidebar"
           />
         );

@@ -37,6 +37,9 @@ export function createLazyVoiceRecorder<TStatus, TRecorderState>(input: {
   readonly create: () => NativeVoiceRecorder<TStatus, TRecorderState>;
   readonly onStatus: (status: TStatus) => void;
   readonly selectInput?: (inputs: ReadonlyArray<VoiceRecordingInput>) => VoiceRecordingInput | null;
+  /** Settles once a selected Bluetooth microphone carries audio. */
+  readonly waitForBluetoothRoute?: () => Promise<unknown>;
+  readonly cancelBluetoothRouteWait?: () => void;
 }): LazyVoiceRecorder<TRecorderState> {
   let recorder: NativeVoiceRecorder<TStatus, TRecorderState> | null = null;
   let subscription: Subscription | null = null;
@@ -73,6 +76,7 @@ export function createLazyVoiceRecorder<TStatus, TRecorderState>(input: {
           }
           if (!selected) return;
           const uid = selected.uid;
+          const bluetooth = selected.type === "BluetoothSCO" || selected.type === "BluetoothLE";
           // Expo never settles a canceled coroutine function's promise, so stop waiting on abort.
           const abandoned = Promise.withResolvers<void>();
           const abandon = () => {
@@ -82,11 +86,25 @@ export function createLazyVoiceRecorder<TStatus, TRecorderState>(input: {
           signal?.addEventListener("abort", abandon, { once: true });
           abandonInputSelection = abandon;
           try {
-            await Promise.race([
-              new Promise<void>((resolve) => resolve(prepared.setInput(uid))).catch(() => {}),
-              abandoned.promise,
+            const routed = await Promise.race([
+              new Promise<void>((resolve) => resolve(prepared.setInput(uid))).then(
+                () => true,
+                () => false,
+              ),
+              abandoned.promise.then(() => false),
             ]);
             if (signal) throwIfVoiceTranscriptionAborted(signal);
+            // The link reports ready a few hundred ms before audio flows; recording earlier clips the first words.
+            if (routed && bluetooth && input.waitForBluetoothRoute) {
+              const cancelWait = () => input.cancelBluetoothRouteWait?.();
+              signal?.addEventListener("abort", cancelWait, { once: true });
+              try {
+                await input.waitForBluetoothRoute();
+              } finally {
+                signal?.removeEventListener("abort", cancelWait);
+              }
+              if (signal) throwIfVoiceTranscriptionAborted(signal);
+            }
           } finally {
             signal?.removeEventListener("abort", abandon);
             if (abandonInputSelection === abandon) abandonInputSelection = null;

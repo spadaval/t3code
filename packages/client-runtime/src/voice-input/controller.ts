@@ -425,7 +425,7 @@ export class VoiceInputController {
           transcript = result.text;
         } else {
           transcript = await runTranscriptionOperation(() =>
-            transcription.transcribe(recordingUri, { signal }),
+            transcription.transcribe(recordingUri, { signal, draft: capturedDraft }),
           );
         }
       } catch (error) {

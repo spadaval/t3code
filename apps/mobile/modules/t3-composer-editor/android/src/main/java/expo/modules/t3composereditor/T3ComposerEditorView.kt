@@ -21,6 +21,7 @@ import android.view.DragEvent
 import android.view.Gravity
 import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.View
 import android.view.KeyEvent
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -588,6 +589,14 @@ internal class SelectionAwareEditText(
   var textPasteThresholdBytes = 0
   var maxInputChars = Int.MAX_VALUE
   var clipboardFragment = ""
+
+  init {
+    importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
+  }
+
+  // Newer Android can request autofill even with importantForAutofill=no, which let
+  // SMS verification codes land in the draft.
+  override fun getAutofillType(): Int = View.AUTOFILL_TYPE_NONE
 
   /**
    * Editable TextView hints do not ellipsize, so long placeholders wrap and grow the composer.

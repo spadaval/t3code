@@ -66,6 +66,7 @@ import {
   ThreadListV2SettledShelfHeader,
   ThreadListV2ShowMoreRow,
   ThreadListV2SnoozedShelfHeader,
+  ThreadListV2ProjectFolderHeader,
   ThreadListV2WorkingShelfHeader,
 } from "../threads/thread-list-v2-items";
 import { useThreadRowProviderInstanceResolver } from "../threads/thread-provider-instance";
@@ -434,8 +435,11 @@ export function HomeScreen(props: HomeScreenProps) {
     loaded: shelfPreferencesLoaded,
     settledShelfExpanded,
     snoozedShelfExpanded,
-    workingShelfEnabled,
+    workingShelfEnabled: workingShelfPreference,
     workingShelfExpanded,
+    groupByProject,
+    collapsedProjectFolders,
+    toggleProjectFolder,
     toggleSettledShelf,
     toggleSnoozedShelf,
     toggleWorkingShelf,
@@ -461,6 +465,7 @@ export function HomeScreen(props: HomeScreenProps) {
     items: threadListV2Items,
     contentOnlyThreadKeys,
     olderSettledShelf,
+    workingShelfEnabled,
   } = useThreadListV2({
     threads: props.threads,
     pendingTasks: props.pendingTasks,
@@ -477,8 +482,11 @@ export function HomeScreen(props: HomeScreenProps) {
     now,
     pendingOrder,
     shelfPreferencesLoaded,
-    workingShelfEnabled,
+    workingShelfEnabled: workingShelfPreference,
     workingShelfExpanded,
+    projectFolders: groupByProject
+      ? { groups: projectScopes, collapsedKeys: collapsedProjectFolders }
+      : null,
     snoozedShelfExpanded,
     settledShelfExpanded,
     selectedThreadKey,
@@ -548,6 +556,21 @@ export function HomeScreen(props: HomeScreenProps) {
           disabled={item.disabled}
           expanded={item.expanded}
           onToggle={toggleWorkingShelf}
+        />
+      );
+    }
+    if (item.type === "v2-project-folder") {
+      return (
+        <ThreadListV2ProjectFolderHeader
+          pane={primaryColumn ? "sidebar" : "screen"}
+          folderKey={item.folderKey}
+          title={item.title}
+          project={item.project}
+          count={item.count}
+          expanded={item.expanded}
+          dot={item.dot}
+          disabled={item.disabled}
+          onToggle={toggleProjectFolder}
         />
       );
     }

@@ -143,6 +143,23 @@ describe("VoiceInputController", () => {
     expect(denied.recorder.record).not.toHaveBeenCalled();
   });
 
+  it("shows what an unavailable transcriber needs before it can record", async () => {
+    const harness = createHarness({
+      getTranscriber: () => ({
+        prepare: async () => {
+          throw new VoiceTranscriptionError("unavailable", "Download the voice model first.");
+        },
+      }),
+    });
+    await harness.controller.start();
+    expect(harness.controller.currentState).toEqual({
+      phase: "error",
+      error: "Download the voice model first.",
+      errorAction: "retry",
+    });
+    expect(harness.recorder.record).not.toHaveBeenCalled();
+  });
+
   it.each(["permission", "transcription"] as const)(
     "clears %s errors when switching to another draft",
     async (failure) => {

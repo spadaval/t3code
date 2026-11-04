@@ -134,7 +134,7 @@ function MicrophoneSettings() {
   const ready = AsyncResult.isSuccess(preferencesResult) && !preferencesResult.waiting;
   const entries = deviceMicrophoneOrder(
     AsyncResult.isSuccess(preferencesResult) ? preferencesResult.value.microphones : undefined,
-  );
+  ).filter((entry) => Platform.OS === "ios" || entry.kind !== "carPlay");
   const { permission, request: requestPermission } = useMicrophonePermission();
   const [drag, setDrag] = useState<{ readonly key: string; readonly translation: number } | null>(
     null,
