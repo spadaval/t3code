@@ -84,11 +84,21 @@ export const localVoiceTranscriberAtom = Atom.make((get) => {
   if (google === "checking") return "checking" as const;
   const registry = get.registry;
   // Read when dictation starts so changing the engine does not re-render every composer.
-  return selectVoiceEngine({ parakeet: parakeetTranscriber, google }, () => {
-    const preferences = registry.get(mobilePreferencesAtom);
-    return AsyncResult.isSuccess(preferences)
-      ? (preferences.value.voiceEngine ?? DEFAULT_VOICE_ENGINE)
-      : DEFAULT_VOICE_ENGINE;
+  return selectVoiceEngine({
+    parakeet: parakeetTranscriber,
+    google,
+    settings: () => {
+      const preferences = registry.get(mobilePreferencesAtom);
+      const clips = parakeetModule?.getClipState();
+      return {
+        engine: AsyncResult.isSuccess(preferences)
+          ? (preferences.value.voiceEngine ?? DEFAULT_VOICE_ENGINE)
+          : DEFAULT_VOICE_ENGINE,
+        compare: clips?.enabled === true && clips.compareEnabled,
+      };
+    },
+    annotateClip: async (clip, comparison) =>
+      parakeetModule?.annotateClip(clip, "comparison", JSON.stringify(comparison)),
   });
 }).pipe(Atom.keepAlive);
 

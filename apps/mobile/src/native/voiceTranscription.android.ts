@@ -63,6 +63,8 @@ export async function getLocalVoiceTranscriber(): Promise<VoiceTranscriber | nul
                 ),
             }
           : {}),
+        // Fork: lets engine comparisons record basic vs advanced mode.
+        mode: prepared.mode,
         transcribe: (uri, { signal }) =>
           runOperation(module, signal, "transcription-failed", (id) =>
             module.transcribe(id, uri, prepared.locale, prepared.mode),

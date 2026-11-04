@@ -119,21 +119,19 @@ class T3ParakeetTranscriptionModule : Module() {
             }
           }
           scheduleIdleRelease()
-          if (!transcriptionCancelled.get()) {
-            saveClip(
-              path,
-              audio,
-              text.toString(),
-              JSONObject()
-                .put("draftOwnerKey", draftOwnerKey)
-                .put("draftTextBefore", draftText)
-                .put("requestedAtMs", requestedAtMs.toLong())
-                .put("decodeMs", decodedAt - startedAt)
-                .put("modelLoadMs", loadedAt - decodedAt)
-                .put("inferenceMs", SystemClock.elapsedRealtime() - loadedAt),
-            )
-          }
-          promise.resolve(text.toString())
+          val clip = if (transcriptionCancelled.get()) null else saveClip(
+            path,
+            audio,
+            text.toString(),
+            JSONObject()
+              .put("draftOwnerKey", draftOwnerKey)
+              .put("draftTextBefore", draftText)
+              .put("requestedAtMs", requestedAtMs.toLong())
+              .put("decodeMs", decodedAt - startedAt)
+              .put("modelLoadMs", loadedAt - decodedAt)
+              .put("inferenceMs", SystemClock.elapsedRealtime() - loadedAt),
+          )
+          promise.resolve(mapOf("text" to text.toString(), "clip" to clip))
         } catch (error: Throwable) {
           scheduleIdleRelease()
           promise.reject(CodedException("TranscriptionFailed", error.message ?: "Transcription failed.", error))
@@ -152,6 +150,19 @@ class T3ParakeetTranscriptionModule : Module() {
     Function("setClipCaptureEnabled") { enabled: Boolean ->
       clips.enabled = enabled
       clips.state()
+    }
+
+    Function("setClipCompareEnabled") { enabled: Boolean ->
+      clips.compareEnabled = enabled
+      clips.state()
+    }
+
+    AsyncFunction("annotateClip") { clipAudioPath: String, key: String, detailsJson: String ->
+      try {
+        clips.annotate(clipAudioPath, key, JSONObject(detailsJson))
+      } catch (_: Exception) {
+        // Debug capture must never fail a dictation.
+      }
     }
 
     AsyncFunction("deleteClips") { promise: Promise ->
@@ -211,8 +222,8 @@ class T3ParakeetTranscriptionModule : Module() {
   }
 
   // Debug capture must never cost the user their transcript.
-  private fun saveClip(path: String, audio: DecodedAudio, transcript: String, details: JSONObject) {
-    try {
+  private fun saveClip(path: String, audio: DecodedAudio, transcript: String, details: JSONObject): String? {
+    return try {
       clips.save(
         path,
         details
@@ -222,6 +233,7 @@ class T3ParakeetTranscriptionModule : Module() {
           .put("audioSeconds", audio.samples.size.toDouble() / audio.sampleRate),
       )
     } catch (_: Exception) {
+      null
     }
   }
 
