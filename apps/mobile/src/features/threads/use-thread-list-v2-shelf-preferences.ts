@@ -12,6 +12,10 @@ export function useThreadListV2ShelfPreferences() {
   const settledShelfExpanded =
     loaded && preferencesResult.value.threadListSettledShelfExpanded === true;
   const workingShelfEnabled = loaded && preferencesResult.value.workingShelfEnabled !== false;
+  const groupByProject = loaded && preferencesResult.value.threadListGroupByProject === true;
+  const collapsedProjectFolders = new Set(
+    loaded ? (preferencesResult.value.collapsedProjectGroups ?? []) : [],
+  );
   const workingShelfExpanded =
     loaded && preferencesResult.value.threadListWorkingShelfExpanded === true;
 
@@ -41,8 +45,25 @@ export function useThreadListV2ShelfPreferences() {
     });
   };
 
+  const toggleProjectFolder = (key: string) => {
+    if (!loaded) return;
+    savePreferences({
+      transform: (current) => {
+        const collapsed = current.collapsedProjectGroups ?? [];
+        return {
+          collapsedProjectGroups: collapsed.includes(key)
+            ? collapsed.filter((entry) => entry !== key)
+            : [...collapsed, key],
+        };
+      },
+    });
+  };
+
   return {
     loaded,
+    groupByProject,
+    collapsedProjectFolders,
+    toggleProjectFolder,
     settledShelfExpanded,
     snoozedShelfExpanded,
     workingShelfEnabled,

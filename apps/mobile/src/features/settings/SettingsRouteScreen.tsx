@@ -247,7 +247,8 @@ function useSettingsIndexSections(): SettingsListSection[] {
           ? [page("SettingsNavigation", "line.3.horizontal", "Navigation tabs")]
           : []),
         page("SettingsKeyboard", "keyboard", "Keyboard"),
-        page("SettingsVoice", "mic", "Voice"),
+        ...(Platform.OS === "ios" ? [] : [page("SettingsVoiceInput", "mic", "Voice input")]),
+        page("SettingsVoice", Platform.OS === "ios" ? "mic" : "headphones", "Voice"),
       ],
     },
     {

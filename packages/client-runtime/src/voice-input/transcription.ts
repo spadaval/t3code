@@ -9,6 +9,11 @@ export type VoiceStreamingSession = {
   readonly finish: (options: VoiceTranscriptionOptions) => Promise<string>;
 };
 
+export type VoiceTranscribeOptions = VoiceTranscriptionOptions & {
+  /** The draft being dictated into, as it was when recording stopped. */
+  readonly draft: { readonly ownerKey: string; readonly text: string };
+};
+
 export type PreparedVoiceTranscription = {
   readonly locale: string;
   /**
@@ -17,7 +22,7 @@ export type PreparedVoiceTranscription = {
    * A rejection stops the recording.
    */
   readonly start?: (uri: string, options: VoiceTranscriptionOptions) => Promise<string | null>;
-  readonly transcribe: (uri: string, options: VoiceTranscriptionOptions) => Promise<string>;
+  readonly transcribe: (uri: string, options: VoiceTranscribeOptions) => Promise<string>;
   /** Present when audio streams during capture; `finish` then replaces `transcribe`. */
   readonly streaming?: VoiceStreamingSession;
 };

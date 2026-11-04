@@ -60,7 +60,10 @@ async function transcribeOnce(signal = new AbortController().signal) {
   return transcriber
     .prepare({ signal })
     .then(async (prepared) => {
-      const text = await prepared.transcribe("file:///voice.m4a", { signal });
+      const text = await prepared.transcribe("file:///voice.m4a", {
+        signal,
+        draft: { ownerKey: "thread", text: "" },
+      });
       return { text, locale: prepared.locale };
     })
     .catch((error: unknown) => error);

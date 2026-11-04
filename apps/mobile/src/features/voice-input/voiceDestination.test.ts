@@ -164,7 +164,12 @@ it("keeps local as the default and never reuses consent for an offline or resele
       .mockResolvedValueOnce(Response.json({ text: "hello" }));
     const options = { signal: new AbortController().signal };
     const recording = await current!.prepare(options);
-    await expect(recording.transcribe("file:///voice.m4a", options)).resolves.toBe("hello");
+    await expect(
+      recording.transcribe("file:///voice.m4a", {
+        ...options,
+        draft: { ownerKey: "thread", text: "" },
+      }),
+    ).resolves.toBe("hello");
     expect(mocks.fetch.mock.calls.map(([url, init]) => [String(url), init?.redirect])).toEqual([
       ["https://my-server.test/api/voice/status", "error"],
       ["https://my-server.test/api/voice/transcribe", "error"],
@@ -179,14 +184,19 @@ it("keeps local as the default and never reuses consent for an offline or resele
     mocks.fetch.mockResolvedValueOnce(Response.json({ openai: true, xai: true }));
     const recorded = await cloud.prepare(options);
     chooseVoiceDestination(host, "xai");
-    await expect(recorded.transcribe("file:///voice.m4a", options)).rejects.toThrow(
-      "Your transcription choice changed.",
-    );
+    await expect(
+      recorded.transcribe("file:///voice.m4a", {
+        ...options,
+        draft: { ownerKey: "thread", text: "" },
+      }),
+    ).rejects.toThrow("Your transcription choice changed.");
     mocks.fetch
       .mockResolvedValueOnce(Response.json({ openai: true, xai: true }))
       .mockResolvedValueOnce(Response.json({ text: "cloud" }));
     const next = await appAtomRegistry.get(voiceRouteAtom)!.transcriber!.prepare(options);
-    await expect(next.transcribe("file:///voice.m4a", options)).resolves.toBe("cloud");
+    await expect(
+      next.transcribe("file:///voice.m4a", { ...options, draft: { ownerKey: "thread", text: "" } }),
+    ).resolves.toBe("cloud");
     mocks.fetch.mockResolvedValueOnce(
       Response.json(
         {
@@ -197,7 +207,9 @@ it("keeps local as the default and never reuses consent for an offline or resele
         { status: 422 },
       ),
     );
-    await expect(next.transcribe("file:///voice.m4a", options)).rejects.toMatchObject({
+    await expect(
+      next.transcribe("file:///voice.m4a", { ...options, draft: { ownerKey: "thread", text: "" } }),
+    ).rejects.toMatchObject({
       _tag: "VoiceTranscriptionError",
       code: "transcription-failed",
       message: expect.stringContaining("rejected this API key"),
@@ -217,7 +229,12 @@ it("keeps local as the default and never reuses consent for an offline or resele
       .mockResolvedValueOnce(Response.json({ openai: true, xai: true, openrouter: true }))
       .mockResolvedValueOnce(Response.json({ text: "routed" }));
     const routed = await appAtomRegistry.get(voiceRouteAtom)!.transcriber!.prepare(options);
-    await expect(routed.transcribe("file:///voice.m4a", options)).resolves.toBe("routed");
+    await expect(
+      routed.transcribe("file:///voice.m4a", {
+        ...options,
+        draft: { ownerKey: "thread", text: "" },
+      }),
+    ).resolves.toBe("routed");
     const upload = new URL(String(mocks.fetch.mock.lastCall![0]));
     expect(upload.pathname).toBe("/api/voice/cloud/openrouter/transcribe");
     expect(upload.searchParams.get("model")).toBe("acme/transcribe-1");

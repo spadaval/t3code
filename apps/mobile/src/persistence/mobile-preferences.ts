@@ -118,6 +118,9 @@ export interface Preferences {
   readonly projectGroupingMode?: SidebarProjectGroupingMode;
   readonly toolCallVisibility?: ToolCallVisibility;
   readonly workingShelfEnabled?: boolean;
+  readonly threadListGroupByProject?: boolean;
+  /** Android's dictation engine; Parakeet when unset. */
+  readonly voiceEngine?: "parakeet" | "google";
   readonly useLastProjectForNewThreads?: boolean;
   readonly lastThreadProject?: typeof ThreadProject.Type;
   readonly modelFavorites?: ReadonlyArray<{
@@ -202,6 +205,8 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     projectGroupingMode?: SidebarProjectGroupingMode;
     toolCallVisibility?: ToolCallVisibility;
     workingShelfEnabled?: boolean;
+    threadListGroupByProject?: boolean;
+    voiceEngine?: "parakeet" | "google";
     useLastProjectForNewThreads?: boolean;
     lastThreadProject?: typeof ThreadProject.Type;
     modelFavorites?: Preferences["modelFavorites"];
@@ -329,6 +334,12 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.workingShelfEnabled === "boolean") {
     preferences.workingShelfEnabled = parsed.workingShelfEnabled;
+  }
+  if (typeof parsed.threadListGroupByProject === "boolean") {
+    preferences.threadListGroupByProject = parsed.threadListGroupByProject;
+  }
+  if (parsed.voiceEngine === "parakeet" || parsed.voiceEngine === "google") {
+    preferences.voiceEngine = parsed.voiceEngine;
   }
   if (typeof parsed.useLastProjectForNewThreads === "boolean") {
     preferences.useLastProjectForNewThreads = parsed.useLastProjectForNewThreads;
