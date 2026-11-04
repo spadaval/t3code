@@ -21,19 +21,19 @@ export function getParakeetTranscriber(): VoiceTranscriber | null {
     prepare: async ({ signal }): Promise<PreparedVoiceTranscription> => {
       throwIfVoiceTranscriptionAborted(signal);
       if (native.getModelState().status !== "installed") {
-        throw new VoiceTranscriptionError(
-          "unavailable",
-          "Download the voice model in Settings > Voice input to use dictation.",
-        );
+        throw new VoiceTranscriptionError({
+          code: "unavailable",
+          message: "Download the voice model in Settings > Voice input to use dictation.",
+        });
       }
       try {
         await native.prepare();
       } catch (error) {
-        throw new VoiceTranscriptionError(
-          "preparation-failed",
-          "Voice transcription could not load its model.",
-          { cause: error },
-        );
+        throw new VoiceTranscriptionError({
+          code: "preparation-failed",
+          message: "Voice transcription could not load its model.",
+          cause: error,
+        });
       }
       throwIfVoiceTranscriptionAborted(signal);
       return {
@@ -59,7 +59,9 @@ async function transcribe(
     return text.trim();
   } catch (error) {
     throwIfVoiceTranscriptionAborted(signal);
-    throw new VoiceTranscriptionError("transcription-failed", "Voice transcription failed.", {
+    throw new VoiceTranscriptionError({
+      code: "transcription-failed",
+      message: "Voice transcription failed.",
       cause: error,
     });
   } finally {
