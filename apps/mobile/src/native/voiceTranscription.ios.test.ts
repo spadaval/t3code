@@ -67,7 +67,7 @@ describe("getLocalVoiceTranscriber", () => {
     const options = { signal: controller.signal };
     const prepared = await (await getLocalVoiceTranscriber())!.prepare(options);
     const result = prepared
-      .transcribe("file:///voice.m4a", options)
+      .transcribe("file:///voice.m4a", { ...options, draft: { ownerKey: "thread", text: "" } })
       .catch((error: unknown) => error);
 
     await enteredRead.promise;

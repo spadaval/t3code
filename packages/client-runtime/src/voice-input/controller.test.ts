@@ -147,7 +147,10 @@ describe("VoiceInputController", () => {
     const harness = createHarness({
       getTranscriber: () => ({
         prepare: async () => {
-          throw new VoiceTranscriptionError("unavailable", "Download the voice model first.");
+          throw new VoiceTranscriptionError({
+            code: "unavailable",
+            message: "Download the voice model first.",
+          });
         },
       }),
     });

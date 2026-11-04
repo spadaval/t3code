@@ -274,10 +274,7 @@ const SETTINGS_SCREENS = {
   SettingsVoiceInput: createNativeStackScreen({
     screen: SettingsVoiceInputRouteScreen,
     linking: "settings/voice-input",
-    options: {
-      ...SETTINGS_PAGE_OPTIONS,
-      title: "Voice input",
-    },
+    options: settingsPage("Voice input"),
   }),
   SettingsFollowUp: createNativeStackScreen({
     screen: SettingsFollowUpRouteScreen,
