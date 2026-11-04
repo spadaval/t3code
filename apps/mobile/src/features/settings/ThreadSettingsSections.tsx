@@ -174,6 +174,8 @@ export function WorkingSectionSettings() {
   const preferences = useAtomValue(mobilePreferencesAtom);
   const workingShelfEnabled =
     AsyncResult.isSuccess(preferences) && preferences.value.workingShelfEnabled !== false;
+  const groupByProject =
+    AsyncResult.isSuccess(preferences) && preferences.value.threadListGroupByProject === true;
 
   return (
     <View className="gap-3">
@@ -182,13 +184,20 @@ export function WorkingSectionSettings() {
           icon="bolt.circle"
           label="Working section"
           value={workingShelfEnabled}
+          disabled={groupByProject}
           onValueChange={(value) => savePreferences({ workingShelfEnabled: value })}
+        />
+        <SettingsSwitchRow
+          icon="folder"
+          label="Group by project"
+          value={groupByProject}
+          onValueChange={(value) => savePreferences({ threadListGroupByProject: value })}
         />
       </SettingsSection>
       <Text className="px-2 text-sm text-foreground-muted">
-        Fold working and monitoring threads into a Working section. They return to the top of the
-        list when they need you. While this is on, active threads are ordered by time and cannot be
-        moved.
+        {groupByProject
+          ? "Active threads sit in a folder for each project, newest message first. Tap a folder to open or close it; a closed folder shows a dot when a thread needs you. Pinned threads stay above the folders, and Snoozed and Settled stay below. The Working section is off in this mode."
+          : "Fold working and monitoring threads into a Working section. They return to the top of the list when they need you. While this is on, active threads are ordered by time and cannot be moved."}
       </Text>
     </View>
   );

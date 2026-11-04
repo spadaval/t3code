@@ -71,6 +71,7 @@ import {
   resolveThreadListV2Status,
   resolveThreadListV2ProviderDrivers,
   resolveThreadListV2SwipeActions,
+  type ThreadListV2FolderDot,
   type ThreadListV2Status,
 } from "./threadListV2";
 import { QueuedMessageIcon } from "./queued-message-icon";
@@ -295,6 +296,77 @@ export const ThreadListV2SettledShelfHeader = memo(function ThreadListV2SettledS
 ) {
   return <ThreadListV2ShelfHeader {...props} kind="settled" />;
 });
+
+const FOLDER_DOT_CLASS: Record<ThreadListV2FolderDot, string> = {
+  attention: "bg-warning-foreground",
+  failed: "bg-adaptive-rose-600-400",
+  unread: "bg-adaptive-emerald-600-400",
+  working: "bg-adaptive-sky-600-400",
+};
+
+export const ThreadListV2ProjectFolderHeader = memo(
+  function ThreadListV2ProjectFolderHeader(props: {
+    readonly pane?: "screen" | "sidebar";
+    readonly folderKey: string;
+    readonly title: string;
+    readonly project: EnvironmentProject | null;
+    readonly count: number;
+    readonly expanded: boolean;
+    readonly dot: ThreadListV2FolderDot | null;
+    readonly disabled?: boolean;
+    readonly onToggle: (folderKey: string) => void;
+  }) {
+    const sidebarPane = props.pane === "sidebar";
+    const muted = sidebarPane ? "text-drawer-foreground-muted" : "text-foreground-muted";
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${props.title}, ${props.count} ${props.count === 1 ? "thread" : "threads"}`}
+        accessibilityHint={`${props.expanded ? "Closes" : "Opens"} the project folder.`}
+        accessibilityState={{ disabled: props.disabled, expanded: props.expanded }}
+        className={cn("mt-3 flex-row items-center gap-2 py-1.5", sidebarPane ? "px-3" : "px-5")}
+        disabled={props.disabled}
+        onPress={() => props.onToggle(props.folderKey)}
+        style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+      >
+        <SymbolView
+          name="chevron.right"
+          size={10}
+          tintColorClassName={
+            sidebarPane ? "accent-drawer-foreground-muted" : "accent-foreground-muted"
+          }
+          type="monochrome"
+          style={{ transform: [{ rotate: props.expanded ? "90deg" : "0deg" }] }}
+        />
+        {props.project ? (
+          <ProjectFavicon
+            environmentId={props.project.environmentId}
+            faviconPath={props.project.faviconPath}
+            projectIcon={props.project.projectIcon}
+            size={15}
+            projectTitle={props.project.title}
+            workspaceRoot={props.project.workspaceRoot}
+          />
+        ) : null}
+        <Text
+          numberOfLines={1}
+          className={cn(
+            "shrink text-sm font-t3-medium",
+            sidebarPane ? "text-drawer-foreground" : "text-foreground",
+          )}
+        >
+          {props.title}
+        </Text>
+        {props.expanded ? null : (
+          <Text className={cn("text-xs font-t3-medium", muted)}>{props.count}</Text>
+        )}
+        {props.dot ? (
+          <View className={cn("size-2 rounded-full", FOLDER_DOT_CLASS[props.dot])} />
+        ) : null}
+      </Pressable>
+    );
+  },
+);
 
 export const ThreadListV2ShowMoreRow = memo(function ThreadListV2ShowMoreRow(props: {
   readonly pane?: "screen" | "sidebar";
