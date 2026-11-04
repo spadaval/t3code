@@ -57,6 +57,7 @@ it("reuses a large thread list across tab renders and updates when its inputs ch
     shelfPreferencesLoaded: true,
     workingShelfEnabled: true,
     workingShelfExpanded: false,
+    projectFolders: null,
     snoozedShelfExpanded: false,
     settledShelfExpanded: true,
     selectedThreadKey: null,

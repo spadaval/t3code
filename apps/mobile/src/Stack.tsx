@@ -131,6 +131,7 @@ import { SettingsKeyboardRouteScreen } from "./features/settings/SettingsKeyboar
 import { SettingsLegalRouteScreen } from "./features/settings/SettingsLegalRouteScreen";
 import { SettingsVoiceRouteScreen } from "./features/settings/SettingsVoiceRouteScreen";
 import { SettingsVoiceModelsRouteScreen } from "./features/settings/SettingsVoiceModelsRouteScreen";
+import { SettingsVoiceInputRouteScreen } from "./features/settings/SettingsVoiceInputRouteScreen";
 import {
   SettingsOpenSourceLicenseRouteScreen,
   SettingsOpenSourceLicensesRouteScreen,
@@ -363,6 +364,11 @@ const SETTINGS_SCREENS = {
   SettingsVoiceModels: createNativeStackScreen({
     screen: SettingsVoiceModelsRouteScreen,
     options: SEARCH_SHEET_ROUTE,
+  }),
+  SettingsVoiceInput: createNativeStackScreen({
+    screen: SettingsVoiceInputRouteScreen,
+    linking: "settings/voice-input",
+    options: settingsPage("Voice input"),
   }),
   SettingsFollowUp: createNativeStackScreen({
     screen: SettingsFollowUpRouteScreen,

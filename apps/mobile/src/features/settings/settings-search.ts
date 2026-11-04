@@ -86,6 +86,7 @@ const SETTINGS_SEARCH_TERMS = {
     msg("checkouts", { $context: "settings search keyword" }),
     msg("delete project", { $context: "settings search keyword" }),
   ],
+  SettingsVoiceInput: ["voice", "dictation", "speech", "engine", "parakeet", "google", "model"],
   SettingsOrganization: [
     msg("language", { $context: "settings search keyword" }),
     msg("locale", { $context: "settings search keyword" }),

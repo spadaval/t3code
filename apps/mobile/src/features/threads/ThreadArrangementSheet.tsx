@@ -191,7 +191,9 @@ function ThreadArrangementSheet(props: { onClose: () => void }) {
   const dropBusy = useAtomValue(threadDropBusyAtom);
   const holdingRows = useAtomValue(steadyShellsHoldingAtom);
   const { moveThread } = useThreadListActions();
-  const { workingShelfEnabled } = useThreadListV2ShelfPreferences();
+  const { workingShelfEnabled, groupByProject } = useThreadListV2ShelfPreferences();
+  // Project folders order active threads by your latest message, so they cannot be moved.
+  const activeLocked = workingShelfEnabled || groupByProject;
   const now = useThreadListNow(threads);
   const [expanded, setExpanded] = useState({ snoozed: false, settled: false });
   const [settledVisibleCount, setSettledVisibleCount] = useState(
@@ -240,12 +242,12 @@ function ThreadArrangementSheet(props: { onClose: () => void }) {
         reorderableEnvironmentIds:
           section === "pinned"
             ? listEnvironments.pinReorderEnvironmentIds
-            : workingShelfEnabled
+            : activeLocked
               ? new Set()
               : listEnvironments.activeReorderEnvironmentIds,
       });
     return { pinned: planner("pinned"), active: planner("active") };
-  }, [sections, threads, listEnvironments, workingShelfEnabled]);
+  }, [sections, threads, listEnvironments, activeLocked]);
   const rows = useMemo(() => {
     const result: Row[] = [];
     let offset = 0;

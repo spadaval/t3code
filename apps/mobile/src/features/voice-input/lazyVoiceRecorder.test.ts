@@ -86,6 +86,38 @@ describe("createLazyVoiceRecorder", () => {
     recorder.release();
   });
 
+  it("holds recording until a routed Bluetooth microphone is live, not when routing fails", async () => {
+    const earbuds = { uid: "bt", name: "Earbuds", type: "BluetoothSCO" };
+    let linkLive = () => {};
+    const waitForBluetoothRoute = vi.fn(() => new Promise<void>((resolve) => (linkLive = resolve)));
+    const native = createNativeRecorder("file:///voice.m4a");
+    const recorder = createLazyVoiceRecorder({
+      getDestination: () => "local",
+      create: () => native,
+      onStatus: () => {},
+      selectInput: () => earbuds,
+      waitForBluetoothRoute,
+    });
+    let prepared = false;
+    const preparing = recorder.prepareToRecordAsync().then(() => (prepared = true));
+    await vi.waitFor(() => expect(waitForBluetoothRoute).toHaveBeenCalledOnce());
+    expect(prepared).toBe(false);
+    linkLive();
+    await preparing;
+
+    const failing = createNativeRecorder("file:///voice-2.m4a");
+    failing.setInput.mockImplementation(() => Promise.reject(new Error("Routing timed out")));
+    const failed = createLazyVoiceRecorder({
+      getDestination: () => "local",
+      create: () => failing,
+      onStatus: () => {},
+      selectInput: () => earbuds,
+      waitForBluetoothRoute,
+    });
+    await expect(failed.prepareToRecordAsync()).resolves.toBeUndefined();
+    expect(waitForBluetoothRoute).toHaveBeenCalledOnce();
+  });
+
   it("keeps the system input when none is preferred or the preferred one disconnects", async () => {
     const unpreferred = createHarness(() => null);
     await unpreferred.recorder.prepareToRecordAsync();
