@@ -63,6 +63,63 @@ describe("createLazyVoiceRecorder", () => {
     await expect(disconnected.recorder.prepareToRecordAsync()).resolves.toBeUndefined();
   });
 
+  it("gives up an Android Bluetooth route when recording stops or is abandoned", async () => {
+    const earbuds = { uid: "bt", name: "Earbuds", type: "BluetoothSCO" };
+    const builtIn = { uid: "mic", name: "Pixel", type: "MicrophoneBuiltIn" };
+    const { recorder, created } = createHarness(() => earbuds);
+
+    await recorder.prepareToRecordAsync();
+    created[0]!.getAvailableInputs.mockReturnValue([earbuds, builtIn]);
+    // Routed before prepare opens the input stream, then set as the recorder's preferred input.
+    expect(created[0]!.setInput.mock.calls).toEqual([["bt"], ["bt"]]);
+    await recorder.stop();
+    expect(created[0]!.setInput.mock.calls).toEqual([["bt"], ["bt"], ["mic"]]);
+
+    await recorder.prepareToRecordAsync();
+    recorder.release();
+    await vi.waitFor(() => expect(created[0]!.release).toHaveBeenCalled());
+    expect(created[0]!.setInput.mock.calls.slice(3)).toEqual([["bt"], ["bt"], ["mic"]]);
+  });
+
+  it("holds recording until the Bluetooth link is up, and stops waiting if routing fails", async () => {
+    const earbuds = { uid: "bt", name: "Earbuds", type: "BluetoothSCO" };
+    let linkUp = () => {};
+    const cancelBluetoothRouteWait = vi.fn();
+    const native = createNativeRecorder("file:///voice.m4a");
+    const recorder = createLazyVoiceRecorder({
+      create: () => native,
+      onStatus: () => {},
+      selectInput: () => earbuds,
+      waitForBluetoothRoute: () => new Promise<void>((resolve) => (linkUp = resolve)),
+      cancelBluetoothRouteWait,
+    });
+
+    let prepared = false;
+    const preparing = recorder.prepareToRecordAsync().then(() => (prepared = true));
+    await vi.waitFor(() => expect(native.setInput).toHaveBeenCalledWith("bt"));
+    expect(prepared).toBe(false);
+    expect(native.prepareToRecordAsync).not.toHaveBeenCalled();
+    linkUp();
+    await preparing;
+    expect(prepared).toBe(true);
+    expect(native.setInput.mock.calls).toEqual([["bt"], ["bt"]]);
+    expect(cancelBluetoothRouteWait).not.toHaveBeenCalled();
+
+    const failing = createNativeRecorder("file:///voice-2.m4a");
+    failing.setInput.mockImplementation(() => {
+      throw new Error("Preferred input not found");
+    });
+    const failed = createLazyVoiceRecorder({
+      create: () => failing,
+      onStatus: () => {},
+      selectInput: () => earbuds,
+      waitForBluetoothRoute: () => new Promise<void>(() => {}),
+      cancelBluetoothRouteWait,
+    });
+    await expect(failed.prepareToRecordAsync()).resolves.toBeUndefined();
+    expect(cancelBluetoothRouteWait).toHaveBeenCalledOnce();
+  });
+
   it("forwards status events until the recorder is released", async () => {
     const { recorder, created, statuses } = createHarness();
     await recorder.prepareToRecordAsync();

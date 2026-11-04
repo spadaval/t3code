@@ -1,3 +1,4 @@
+import * as Haptics from "expo-haptics";
 import { useAtomValue } from "@effect/atom-react";
 import {
   AudioModule,
@@ -24,6 +25,7 @@ import { voiceInputBlocksSubmission } from "@t3tools/client-runtime/voice-input"
 import { createLazyVoiceRecorder } from "./lazyVoiceRecorder";
 import { VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 import { VoiceInputSession } from "./voiceInputSession";
+import { voiceTranscriptionModule } from "../../native/voiceModel";
 import {
   acquireAudioSession,
   activateAudioSession,
@@ -39,7 +41,17 @@ const VOICE_RECORDING_OPTIONS = {
   numberOfChannels: RecordingPresets.HIGH_QUALITY.numberOfChannels,
   bitRate: RecordingPresets.HIGH_QUALITY.bitRate,
   isMeteringEnabled: true,
-  ...(Platform.OS === "ios" ? IOS_RECORDING_OPTIONS : ANDROID_RECORDING_OPTIONS),
+  ...(Platform.OS === "ios"
+    ? IOS_RECORDING_OPTIONS
+    : {
+        ...ANDROID_RECORDING_OPTIONS,
+        // The default MIC source skips the noise suppression Android tunes for speech-to-text.
+        audioSource: "voice_recognition" as const,
+        // Parakeet hears 16 kHz mono; recording only that makes the decode before transcription ~3x cheaper.
+        sampleRate: 16000,
+        numberOfChannels: 1,
+        bitRate: 32000,
+      }),
 };
 
 function keepScreenAwake(tag: string): () => void {
@@ -73,6 +85,12 @@ const voiceInputAtom = Atom.make((get) => {
         url: status.url,
       });
     },
+    waitForBluetoothRoute: async () => {
+      if (await voiceTranscriptionModule?.waitForBluetoothInput()) {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      }
+    },
+    cancelBluetoothRouteWait: () => voiceTranscriptionModule?.cancelBluetoothInputWait(),
     // Read when recording starts so preference changes do not re-render every composer.
     selectInput: (inputs) => {
       const preferences = registry.get(mobilePreferencesAtom);
@@ -107,6 +125,7 @@ const voiceInputAtom = Atom.make((get) => {
       }
     },
     releaseRecording: async () => {
+      voiceTranscriptionModule?.cancelBluetoothInputWait();
       if (audioToken) await releaseAudioSession(audioToken);
       audioToken = null;
     },

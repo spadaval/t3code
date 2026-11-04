@@ -44,9 +44,13 @@ private fun drain(extractor: MediaExtractor, codec: MediaCodec, inputFormat: Med
   val info = MediaCodec.BufferInfo()
   var inputDone = false
   while (true) {
+    // Keep the codec's input queue full and only block on output when it is, so frames
+    // decode back to back instead of one codec round trip per frame.
+    var queued = false
     if (!inputDone) {
-      val inputIndex = codec.dequeueInputBuffer(10_000)
+      val inputIndex = codec.dequeueInputBuffer(0)
       if (inputIndex >= 0) {
+        queued = true
         val buffer = codec.getInputBuffer(inputIndex)!!
         val size = extractor.readSampleData(buffer, 0)
         if (size < 0) {
@@ -58,7 +62,7 @@ private fun drain(extractor: MediaExtractor, codec: MediaCodec, inputFormat: Med
         }
       }
     }
-    val outputIndex = codec.dequeueOutputBuffer(info, 10_000)
+    val outputIndex = codec.dequeueOutputBuffer(info, if (queued) 0 else 10_000)
     if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
       val format = codec.outputFormat
       sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)

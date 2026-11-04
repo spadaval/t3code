@@ -11,32 +11,36 @@ import java.security.MessageDigest
 internal data class VoiceModelFile(val name: String, val bytes: Long, val sha256: String?)
 
 /**
- * NVIDIA Parakeet TDT 0.6B v3 (25 European languages), int8 ONNX export by sherpa-onnx.
+ * NVIDIA Parakeet Unified EN 0.6B (English only), int8 non-streaming ONNX export by sherpa-onnx.
  * Files download one at a time into a staging directory, which is renamed into place
  * only after every file is complete, so an installed model is never partial.
  */
-internal object ParakeetV3 {
-  const val ID = "parakeet-tdt-0.6b-v3-int8"
+internal object ParakeetModel {
+  const val ID = "parakeet-unified-en-0.6b-int8"
   private const val BASE_URL =
-    "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/resolve/2bda32ec70b097a55adaa07d9a7173915b43cc78"
+    "https://huggingface.co/csukuangfj2/sherpa-onnx-nemo-parakeet-unified-en-0.6b-int8-non-streaming/resolve/8c3a10fb13408c7a7054f6898958bf1c64a8d6c7"
 
   val files = listOf(
     VoiceModelFile(
       "encoder.int8.onnx",
-      652_184_281,
-      "acfc2b4456377e15d04f0243af540b7fe7c992f8d898d751cf134c3a55fd2247",
+      654_040_552,
+      "6716910b7a0833997fec7a410494c995d70124001a0e9b66d6370d6aced577e0",
     ),
     VoiceModelFile(
       "decoder.int8.onnx",
-      11_845_275,
-      "179e50c43d1a9de79c8a24149a2f9bac6eb5981823f2a2ed88d655b24248db4e",
+      7_257_753,
+      "a5e223392c90e75f8144cdb5eb95af7625db389e39edef2bd1a9c872b3298fe6",
     ),
     VoiceModelFile(
       "joiner.int8.onnx",
-      6_355_277,
-      "3164c13fc2821009440d20fcb5fdc78bff28b4db2f8d0f0b329101719c0948b3",
+      1_735_860,
+      "869f43f7d24595c55581ad3bf249a935fb8a71389fbdaa7504b9f46f93140f8a",
     ),
-    VoiceModelFile("tokens.txt", 93_939, null),
+    VoiceModelFile(
+      "tokens.txt",
+      8_952,
+      "dc0b4584ab2e4ddbf888425c076c61b736e7356a015250db7d307e6f1a8188ff",
+    ),
   )
 
   val totalBytes = files.sumOf { it.bytes }
@@ -48,16 +52,16 @@ internal class VoiceModelCancelledException : IOException("Voice model download 
 
 internal class VoiceModelStore(filesDir: File) {
   private val root = File(filesDir, "voice-models")
-  val modelDir = File(root, ParakeetV3.ID)
-  private val stagingDir = File(root, "${ParakeetV3.ID}.partial")
+  val modelDir = File(root, ParakeetModel.ID)
+  private val stagingDir = File(root, "${ParakeetModel.ID}.partial")
 
-  fun isInstalled(): Boolean = ParakeetV3.files.all { File(modelDir, it.name).isFile }
+  fun isInstalled(): Boolean = ParakeetModel.files.all { File(modelDir, it.name).isFile }
 
   fun file(name: String) = File(modelDir, name)
 
   /** Bytes already on disk, so an interrupted download resumes where it stopped. */
   fun stagedBytes(): Long =
-    ParakeetV3.files.sumOf { File(stagingDir, it.name).let { file -> if (file.isFile) file.length() else 0L } }
+    ParakeetModel.files.sumOf { File(stagingDir, it.name).let { file -> if (file.isFile) file.length() else 0L } }
 
   /**
    * Downloads the missing files, resuming partial ones with HTTP range requests.
@@ -67,7 +71,7 @@ internal class VoiceModelStore(filesDir: File) {
     if (isInstalled()) return
     stagingDir.mkdirs()
     var completedBytes = 0L
-    for (file in ParakeetV3.files) {
+    for (file in ParakeetModel.files) {
       val target = File(stagingDir, file.name)
       if (!target.isFile || target.length() < file.bytes) {
         downloadFile(file, target, completedBytes, isCancelled, onProgress)
@@ -85,11 +89,18 @@ internal class VoiceModelStore(filesDir: File) {
     }
     modelDir.deleteRecursively()
     if (!stagingDir.renameTo(modelDir)) throw IOException("Could not install the voice model.")
+    deleteRetiredModels()
   }
 
   fun delete() {
     modelDir.deleteRecursively()
     stagingDir.deleteRecursively()
+    deleteRetiredModels()
+  }
+
+  /** Earlier models (Parakeet TDT v3 is ~650 MB) are dropped once a replacement is installed. */
+  private fun deleteRetiredModels() {
+    root.listFiles()?.filter { it != modelDir && it != stagingDir }?.forEach { it.deleteRecursively() }
   }
 
   private fun downloadFile(
@@ -100,7 +111,7 @@ internal class VoiceModelStore(filesDir: File) {
     onProgress: (Long) -> Unit,
   ) {
     var offset = if (target.isFile) target.length() else 0L
-    val connection = URL(ParakeetV3.url(file)).openConnection() as HttpURLConnection
+    val connection = URL(ParakeetModel.url(file)).openConnection() as HttpURLConnection
     try {
       connection.connectTimeout = 15_000
       connection.readTimeout = 30_000

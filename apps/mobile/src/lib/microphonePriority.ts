@@ -5,7 +5,7 @@ export type MicrophoneKind = (typeof MICROPHONE_KINDS)[number];
 
 export interface MicrophoneDevice {
   readonly kind: MicrophoneKind;
-  /** iOS's port identifier, stable across reconnects of the same device. */
+  /** iOS's port identifier is stable across reconnects; Android's device id is not. */
   readonly uid: string;
   readonly name: string;
 }
@@ -24,6 +24,7 @@ const KIND_BY_PORT_TYPE: Readonly<Record<string, MicrophoneKind>> = {
   USBAudio: "wired",
   LineIn: "wired",
   BluetoothHFP: "bluetooth",
+  BluetoothSCO: "bluetooth",
   BluetoothLE: "bluetooth",
   MicrophoneBuiltIn: "builtIn",
   CarAudio: "carPlay",
@@ -80,9 +81,23 @@ export function rememberMicrophones(
     const kind = KIND_BY_PORT_TYPE[input.type];
     if (!kind || !DEVICE_KINDS.has(kind)) continue;
     const current = next ?? order;
-    const index = current.findIndex((entry) => microphoneEntryKey(entry) === input.uid);
+    const byUid = current.findIndex((entry) => microphoneEntryKey(entry) === input.uid);
+    const index =
+      byUid !== -1 || input.type !== "BluetoothSCO"
+        ? byUid
+        : current.findIndex(
+            (entry) =>
+              isMicrophoneDevice(entry) && entry.kind === kind && entry.name === input.name,
+          );
     const existing = current[index];
-    if (existing && isMicrophoneDevice(existing) && existing.name === input.name) continue;
+    if (
+      existing &&
+      isMicrophoneDevice(existing) &&
+      existing.uid === input.uid &&
+      existing.name === input.name
+    ) {
+      continue;
+    }
     next ??= [...order];
     const device = { kind, uid: input.uid, name: input.name };
     if (index !== -1) {

@@ -3,13 +3,13 @@ import {
   throwIfVoiceTranscriptionAborted,
   type PreparedVoiceTranscription,
   type VoiceTranscriber,
-  type VoiceTranscriptionOptions,
+  type VoiceTranscribeOptions,
 } from "@t3tools/client-runtime/voice-input";
 
 import { voiceTranscriptionModule } from "./voiceModel";
 
-// Parakeet v3 detects the spoken language itself, so this only informs how the
-// transcript is joined to the draft.
+// The on-device model is English-only, so this only informs how the transcript
+// is joined to the draft.
 function getDeviceLocale(): string {
   return Intl.DateTimeFormat().resolvedOptions().locale;
 }
@@ -47,14 +47,14 @@ export function getLocalVoiceTranscriber(): VoiceTranscriber | null {
 async function transcribe(
   native: NonNullable<typeof voiceTranscriptionModule>,
   uri: string,
-  { signal }: VoiceTranscriptionOptions,
+  { signal, draft }: VoiceTranscribeOptions,
 ): Promise<string> {
   throwIfVoiceTranscriptionAborted(signal);
   // Native work stops between audio pieces; the promise settles once it has.
   const onAbort = () => native.cancelTranscription();
   signal.addEventListener("abort", onAbort);
   try {
-    const text = await native.transcribe(uri);
+    const text = await native.transcribe(uri, draft.ownerKey, draft.text, Date.now());
     throwIfVoiceTranscriptionAborted(signal);
     return text.trim();
   } catch (error) {

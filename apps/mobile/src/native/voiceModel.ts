@@ -9,14 +9,32 @@ export type VoiceModelState = {
   readonly error: string | null;
 };
 
+export type VoiceClipState = {
+  readonly enabled: boolean;
+  readonly count: number;
+  readonly bytes: number;
+  readonly directory: string;
+};
+
 type VoiceTranscriptionModule = {
   getModelState(): VoiceModelState;
   downloadModel(): void;
   cancelDownload(): void;
   deleteModel(): Promise<void>;
   prepare(): Promise<void>;
-  transcribe(uri: string): Promise<string>;
+  transcribe(
+    uri: string,
+    draftOwnerKey: string,
+    draftText: string,
+    requestedAtMs: number,
+  ): Promise<string>;
   cancelTranscription(): void;
+  /** Resolves true after cueing the user that the Bluetooth mic is live, false if cancelled. */
+  waitForBluetoothInput(): Promise<boolean>;
+  cancelBluetoothInputWait(): void;
+  getClipState(): VoiceClipState;
+  setClipCaptureEnabled(enabled: boolean): VoiceClipState;
+  deleteClips(): Promise<void>;
   addListener(
     eventName: "onModelStateChange",
     listener: (state: VoiceModelState) => void,

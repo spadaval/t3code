@@ -5,6 +5,7 @@ import {
   microphoneEntryKey,
   microphoneOrder,
   preferredMicrophoneInput,
+  isMicrophoneDevice,
   rememberMicrophones,
 } from "./microphonePriority";
 
@@ -35,6 +36,18 @@ describe("microphoneOrder", () => {
 });
 
 describe("rememberMicrophones", () => {
+  it("keeps an Android Bluetooth headset's rank when its id changes on reconnect", () => {
+    const liberty = { uid: "12", name: "soundcore Liberty 5 Pro", type: "BluetoothSCO" };
+    const order = rememberMicrophones(microphoneOrder(), [liberty]);
+    expect(preferredMicrophoneInput([{ ...iPhone }, liberty], order)).toEqual(liberty);
+
+    const reconnected = { ...liberty, uid: "47" };
+    const next = rememberMicrophones(order, [reconnected]);
+    expect(next.filter(isMicrophoneDevice)).toEqual([
+      { kind: "bluetooth", uid: "47", name: liberty.name },
+    ]);
+  });
+
   it("lists a new device just above its kind and leaves built-in and CarPlay as kinds", () => {
     const order = microphoneOrder();
     expect(keys(rememberMicrophones(order, [iPhone, carPlay, airPods]))).toEqual([

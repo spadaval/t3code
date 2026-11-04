@@ -3,9 +3,14 @@ export type VoiceTranscriptionOptions = {
   readonly signal: AbortSignal;
 };
 
+export type VoiceTranscribeOptions = VoiceTranscriptionOptions & {
+  /** The draft being dictated into, as it was when recording stopped. */
+  readonly draft: { readonly ownerKey: string; readonly text: string };
+};
+
 export type PreparedVoiceTranscription = {
   readonly locale: string;
-  readonly transcribe: (uri: string, options: VoiceTranscriptionOptions) => Promise<string>;
+  readonly transcribe: (uri: string, options: VoiceTranscribeOptions) => Promise<string>;
 };
 
 export type VoiceTranscriber = {

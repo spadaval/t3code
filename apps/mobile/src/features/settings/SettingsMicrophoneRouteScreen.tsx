@@ -3,7 +3,7 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
 import { getRecordingPermissionsAsync, requestRecordingPermissionsAsync } from "expo-audio";
 import { useState } from "react";
-import { Linking, useWindowDimensions, View } from "react-native";
+import { Linking, Platform, useWindowDimensions, View } from "react-native";
 import Reanimated, { ReduceMotion, useAnimatedStyle, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -23,6 +23,7 @@ import { ListRowLayout } from "../../components/ui/ListRowLayout";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
 import { SettingsDragHandle } from "./components/SettingsDragHandle";
+import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 
 type MicrophonePermission = "checking" | "granted" | "ask" | "denied";
@@ -95,7 +96,7 @@ export function SettingsMicrophoneRouteScreen() {
   const ready = AsyncResult.isSuccess(preferencesResult) && !preferencesResult.waiting;
   const entries = microphoneOrder(
     AsyncResult.isSuccess(preferencesResult) ? preferencesResult.value.microphones : undefined,
-  );
+  ).filter((entry) => Platform.OS === "ios" || entry.kind !== "carPlay");
   const { permission, request: requestPermission } = useMicrophonePermission();
   const [drag, setDrag] = useState<{ readonly key: string; readonly translation: number } | null>(
     null,
@@ -136,7 +137,7 @@ export function SettingsMicrophoneRouteScreen() {
   const dragTo = drag === null ? -1 : dragFrom + dropSteps(dragFrom, drag.translation);
 
   return (
-    <View collapsable={false} className="flex-1 bg-sheet">
+    <SettingsScreen title="Microphone">
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
@@ -202,7 +203,7 @@ export function SettingsMicrophoneRouteScreen() {
           Other row ranks them. Swipe a device left to forget it.
         </Text>
       </ScrollView>
-    </View>
+    </SettingsScreen>
   );
 }
 

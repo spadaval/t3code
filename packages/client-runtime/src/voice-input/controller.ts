@@ -402,7 +402,7 @@ export class VoiceInputController {
       let transcript: string;
       try {
         transcript = await runTranscriptionOperation(() =>
-          transcription.transcribe(recordingUri, { signal }),
+          transcription.transcribe(recordingUri, { signal, draft: capturedDraft }),
         );
       } catch (error) {
         if (this.isCurrent(operationToken)) {

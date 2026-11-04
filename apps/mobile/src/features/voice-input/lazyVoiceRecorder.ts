@@ -33,16 +33,33 @@ export function createLazyVoiceRecorder<TStatus, TRecorderState>(input: {
   readonly create: () => NativeVoiceRecorder<TStatus, TRecorderState>;
   readonly onStatus: (status: TStatus) => void;
   readonly selectInput?: (inputs: ReadonlyArray<VoiceRecordingInput>) => VoiceRecordingInput | null;
+  /** Settles once a requested Bluetooth link carries audio. Started before the route request. */
+  readonly waitForBluetoothRoute?: () => Promise<unknown>;
+  readonly cancelBluetoothRouteWait?: () => void;
 }): LazyVoiceRecorder<TRecorderState> {
   let recorder: NativeVoiceRecorder<TStatus, TRecorderState> | null = null;
   let subscription: Subscription | null = null;
   let retired: NativeVoiceRecorder<TStatus, TRecorderState> | null = null;
   let retiredUri: string | null = null;
+  let holdsBluetoothRoute = false;
   let pending: Promise<unknown> = Promise.resolve();
 
   const track = <T>(promise: Promise<T>): Promise<T> => {
     pending = Promise.allSettled([pending, promise]).then(() => undefined);
     return promise;
+  };
+
+  // expo-audio only clears Android's communication device when another input is selected.
+  // Left set, it keeps the headset in call mode and call quality after dictation.
+  const releaseBluetoothRoute = (native: NativeVoiceRecorder<TStatus, TRecorderState>) => {
+    if (!holdsBluetoothRoute) return;
+    holdsBluetoothRoute = false;
+    try {
+      const builtIn = native
+        .getAvailableInputs()
+        .find((candidate) => candidate.type === "MicrophoneBuiltIn");
+      if (builtIn) native.setInput(builtIn.uid);
+    } catch {}
   };
 
   return {
@@ -56,14 +73,31 @@ export function createLazyVoiceRecorder<TStatus, TRecorderState>(input: {
         subscription = recorder.addListener("recordingStatusUpdate", input.onStatus);
       }
       const prepared = recorder;
+      const applyInput = (onlyBluetooth: boolean): Promise<unknown> | undefined => {
+        if (!input.selectInput) return;
+        let routeReady: Promise<unknown> | undefined;
+        try {
+          const selected = input.selectInput(prepared.getAvailableInputs());
+          if (!selected) return;
+          const bluetooth = selected.type === "BluetoothSCO";
+          if (onlyBluetooth && !bluetooth) return;
+          if (bluetooth && !holdsBluetoothRoute) routeReady = input.waitForBluetoothRoute?.();
+          holdsBluetoothRoute = bluetooth;
+          prepared.setInput(selected.uid);
+        } catch {
+          if (routeReady) input.cancelBluetoothRouteWait?.();
+          return;
+        }
+        return routeReady;
+      };
       return track(
-        prepared.prepareToRecordAsync().then(() => {
-          if (!input.selectInput) return;
-          try {
-            const selected = input.selectInput(prepared.getAvailableInputs());
-            if (selected) prepared.setInput(selected.uid);
-          } catch {}
-        }),
+        (async () => {
+          // Android opens the input stream in prepare. Opened before the Bluetooth link
+          // is up, it can record nothing but zeros for the whole take.
+          await applyInput(true);
+          await prepared.prepareToRecordAsync();
+          await applyInput(false);
+        })(),
       );
     },
     record(options) {
@@ -71,7 +105,9 @@ export function createLazyVoiceRecorder<TStatus, TRecorderState>(input: {
       recorder.record(options);
     },
     stop() {
-      return recorder ? track(recorder.stop()) : Promise.resolve();
+      const stopping = recorder;
+      if (!stopping) return Promise.resolve();
+      return track(stopping.stop().finally(() => releaseBluetoothRoute(stopping)));
     },
     getStatus() {
       return recorder ? recorder.getStatus() : null;
@@ -88,6 +124,7 @@ export function createLazyVoiceRecorder<TStatus, TRecorderState>(input: {
           retiredUri = released.uri;
           retired = null;
         }
+        releaseBluetoothRoute(released);
         released.release();
       });
     },
