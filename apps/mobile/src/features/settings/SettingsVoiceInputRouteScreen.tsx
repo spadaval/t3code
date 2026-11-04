@@ -153,6 +153,14 @@ export function SettingsVoiceInputRouteScreen() {
                 value={clips.enabled}
                 onValueChange={(enabled) => setClips(native.setClipCaptureEnabled(enabled))}
               />
+              {clips.enabled && engines.every((option) => option.available) ? (
+                <SettingsSwitchRow
+                  icon="arrow.left.arrow.right"
+                  label="Compare engines"
+                  value={clips.compareEnabled}
+                  onValueChange={(enabled) => setClips(native.setClipCompareEnabled(enabled))}
+                />
+              ) : null}
               {clips.count > 0 ? (
                 <SettingsActionRow
                   icon="trash"
@@ -164,7 +172,9 @@ export function SettingsVoiceInputRouteScreen() {
             </SettingsSection>
             <Text className="px-2 text-sm text-foreground-muted">
               Keeps each recording and its transcript on this phone, in {clips.directory}. They stay
-              here until you delete them or uninstall the app.
+              here until you delete them or uninstall the app. Compare engines also transcribes each
+              one with the engine you did not choose and saves that transcript beside it; your
+              dictation still uses the chosen engine.
             </Text>
           </>
         ) : null}

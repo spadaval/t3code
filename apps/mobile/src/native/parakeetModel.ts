@@ -11,6 +11,7 @@ export type VoiceModelState = {
 
 export type VoiceClipState = {
   readonly enabled: boolean;
+  readonly compareEnabled: boolean;
   readonly count: number;
   readonly bytes: number;
   readonly directory: string;
@@ -27,13 +28,16 @@ type ParakeetTranscriptionModule = {
     draftOwnerKey: string,
     draftText: string,
     requestedAtMs: number,
-  ): Promise<string>;
+  ): Promise<{ readonly text: string; readonly clip: string | null }>;
   cancelTranscription(): void;
   /** Resolves true after cueing the user that the Bluetooth mic is live, false if cancelled. */
   waitForBluetoothInput(): Promise<boolean>;
   cancelBluetoothInputWait(): void;
   getClipState(): VoiceClipState;
   setClipCaptureEnabled(enabled: boolean): VoiceClipState;
+  setClipCompareEnabled(enabled: boolean): VoiceClipState;
+  /** Adds `detailsJson` under `key` in the saved clip's JSON. */
+  annotateClip(clipAudioPath: string, key: string, detailsJson: string): Promise<void>;
   deleteClips(): Promise<void>;
   addListener(
     eventName: "onModelStateChange",

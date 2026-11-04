@@ -2,7 +2,7 @@ import {
   VoiceTranscriptionError,
   throwIfVoiceTranscriptionAborted,
   type PreparedVoiceTranscription,
-  type VoiceTranscriber,
+  type VoiceTranscriptionOptions,
   type VoiceTranscribeOptions,
 } from "@t3tools/client-runtime/voice-input";
 
@@ -14,11 +14,23 @@ function getDeviceLocale(): string {
   return Intl.DateTimeFormat().resolvedOptions().locale;
 }
 
-export function getParakeetTranscriber(): VoiceTranscriber | null {
+export type ParakeetPrepared = PreparedVoiceTranscription & {
+  /** Also returns the saved debug clip's audio path, or null when capture is off. */
+  readonly transcribeToClip: (
+    uri: string,
+    options: VoiceTranscribeOptions,
+  ) => Promise<{ readonly text: string; readonly clip: string | null }>;
+};
+
+export type ParakeetTranscriber = {
+  readonly prepare: (options: VoiceTranscriptionOptions) => Promise<ParakeetPrepared>;
+};
+
+export function getParakeetTranscriber(): ParakeetTranscriber | null {
   const native = parakeetModule;
   if (!native) return null;
   return {
-    prepare: async ({ signal }): Promise<PreparedVoiceTranscription> => {
+    prepare: async ({ signal }) => {
       throwIfVoiceTranscriptionAborted(signal);
       if (native.getModelState().status !== "installed") {
         throw new VoiceTranscriptionError({
@@ -38,7 +50,8 @@ export function getParakeetTranscriber(): VoiceTranscriber | null {
       throwIfVoiceTranscriptionAborted(signal);
       return {
         locale: getDeviceLocale(),
-        transcribe: (uri, options) => transcribe(native, uri, options),
+        transcribe: (uri, options) => transcribe(native, uri, options).then(({ text }) => text),
+        transcribeToClip: (uri, options) => transcribe(native, uri, options),
       };
     },
   };
@@ -48,15 +61,15 @@ async function transcribe(
   native: NonNullable<typeof parakeetModule>,
   uri: string,
   { signal, draft }: VoiceTranscribeOptions,
-): Promise<string> {
+): Promise<{ readonly text: string; readonly clip: string | null }> {
   throwIfVoiceTranscriptionAborted(signal);
   // Native work stops between audio pieces; the promise settles once it has.
   const onAbort = () => native.cancelTranscription();
   signal.addEventListener("abort", onAbort);
   try {
-    const text = await native.transcribe(uri, draft.ownerKey, draft.text, Date.now());
+    const { text, clip } = await native.transcribe(uri, draft.ownerKey, draft.text, Date.now());
     throwIfVoiceTranscriptionAborted(signal);
-    return text.trim();
+    return { text: text.trim(), clip };
   } catch (error) {
     throwIfVoiceTranscriptionAborted(signal);
     throw new VoiceTranscriptionError({
