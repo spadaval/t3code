@@ -110,6 +110,7 @@ import {
   ComposerDictationStartAction,
   ComposerDictationStatus,
   ComposerDictationToolbar,
+  LiveDictationTranscript,
 } from "../voice-input/ComposerDictationControl";
 import { useVoiceInputController } from "../voice-input/useVoiceInputController";
 import { resolveVoiceComposerPresentation } from "../voice-input/voiceInputPresentation";
@@ -864,6 +865,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
           />
         ) : null}
 
+        <LiveDictationTranscript transcript={voiceInput.liveTranscript} placement="bubble" />
         <ComposerSurface
           animateLayout={false}
           style={{
@@ -874,6 +876,9 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
           }}
         >
           {isExpanded ? editingAttachments : null}
+          {showsCompactDictation ? (
+            <LiveDictationTranscript transcript={voiceInput.liveTranscript} placement="caption" />
+          ) : null}
           <View
             onLayout={(event) => {
               compactEditor.onRowLayout(event);
@@ -1131,6 +1136,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                 />
                 <ComposerDictationStatus
                   audioLevels={voiceInput.audioLevels}
+                  liveTranscript={voiceInput.liveTranscript}
                   elapsedSeconds={voiceInput.elapsedSeconds}
                   phase={voiceInput.state.phase}
                   presentation={voicePresentation}

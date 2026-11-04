@@ -1,4 +1,6 @@
+import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useFocusEffect } from "@react-navigation/native";
+import { AsyncResult } from "effect/reactivity";
 import { useCallback, useState } from "react";
 import { Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -7,6 +9,7 @@ import { AppText as Text } from "../../components/ui/AppText";
 import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActionRow";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { useVoiceModelState, voiceTranscriptionModule } from "../../native/voiceModel";
+import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
@@ -20,6 +23,11 @@ export function SettingsVoiceInputRouteScreen() {
   const insets = useSafeAreaInsets();
   const model = useVoiceModelState();
   const native = voiceTranscriptionModule;
+  const preferencesResult = useAtomValue(mobilePreferencesAtom);
+  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const liveDictation =
+    !AsyncResult.isSuccess(preferencesResult) ||
+    preferencesResult.value.liveDictationEnabled !== false;
   const [clips, setClips] = useState(() => native?.getClipState() ?? null);
   // Dictations happen elsewhere, so the count is reread on return to this page.
   useFocusEffect(useCallback(() => setClips(voiceTranscriptionModule?.getClipState() ?? null), []));
@@ -91,6 +99,23 @@ export function SettingsVoiceInputRouteScreen() {
           phone. It understands English only. Use Wi-Fi for the download; it continues if you leave
           this screen.
         </Text>
+        {native ? (
+          <>
+            <SettingsSection title="Dictation">
+              <SettingsSwitchRow
+                icon="text.bubble"
+                label="Show text while speaking"
+                value={liveDictation}
+                disabled={!AsyncResult.isSuccess(preferencesResult)}
+                onValueChange={(enabled) => savePreferences({ liveDictationEnabled: enabled })}
+              />
+            </SettingsSection>
+            <Text className="px-2 text-sm text-foreground-muted">
+              Each phrase is transcribed when you pause, so finishing is almost instant. Turn this
+              off to transcribe the whole recording once you stop, which uses less battery.
+            </Text>
+          </>
+        ) : null}
         {clips && native ? (
           <>
             <SettingsSection title="Debugging">

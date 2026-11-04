@@ -23,6 +23,7 @@ import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
 import { voiceInputBlocksSubmission } from "@t3tools/client-runtime/voice-input";
 import { createLazyVoiceRecorder } from "./lazyVoiceRecorder";
+import { createLiveVoiceRecorder, getLiveVoiceTranscriber } from "../../native/liveDictation";
 import { VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 import { VoiceInputSession } from "./voiceInputSession";
 import { voiceTranscriptionModule } from "../../native/voiceModel";
@@ -75,7 +76,7 @@ const voiceInputAtom = Atom.make((get) => {
   );
   let keepAwakeSequence = 0;
   let audioToken: ReturnType<typeof acquireAudioSession> | null = null;
-  const recorder = createLazyVoiceRecorder({
+  const fileRecorder = createLazyVoiceRecorder({
     create: () => new AudioModule.AudioRecorder(VOICE_RECORDING_OPTIONS),
     onStatus: (status: RecordingStatus) => {
       session.controller.handleRecorderStatus({
@@ -107,9 +108,34 @@ const voiceInputAtom = Atom.make((get) => {
       return preferredMicrophoneInput(inputs, order);
     },
   });
+  const native = voiceTranscriptionModule;
+  const liveRecorder = native ? createLiveVoiceRecorder(native) : null;
+  // Chosen when a dictation starts; the controller asks for the transcriber before the recorder.
+  let live = false;
+  const recorder = {
+    get uri() {
+      return live && liveRecorder ? liveRecorder.uri : fileRecorder.uri;
+    },
+    prepareToRecordAsync: () =>
+      live && liveRecorder
+        ? liveRecorder.prepareToRecordAsync()
+        : fileRecorder.prepareToRecordAsync(),
+    record: (options: { readonly forDuration: number }) =>
+      live && liveRecorder ? liveRecorder.record(options) : fileRecorder.record(options),
+    stop: () => (live && liveRecorder ? liveRecorder.stop() : fileRecorder.stop()),
+  };
+  const liveSubscription = native?.addListener("onLiveTranscript", (transcript) =>
+    session.setLiveTranscript(transcript),
+  );
   const session: VoiceInputSession = new VoiceInputSession({
     recorder,
-    getTranscriber: getLocalVoiceTranscriber,
+    getTranscriber: () => {
+      const preferences = registry.get(mobilePreferencesAtom);
+      live =
+        native !== null &&
+        (!AsyncResult.isSuccess(preferences) || preferences.value.liveDictationEnabled !== false);
+      return live && native ? getLiveVoiceTranscriber(native) : getLocalVoiceTranscriber();
+    },
     requestPermission: async () => {
       const permission = await requestRecordingPermissionsAsync();
       return { granted: permission.granted, canAskAgain: permission.canAskAgain };
@@ -131,7 +157,14 @@ const voiceInputAtom = Atom.make((get) => {
     },
     deleteRecording: (uri) => new File(uri).delete(),
     sampleRecording: () => {
-      const status = recorder.getStatus();
+      if (live && liveRecorder) {
+        const status = liveRecorder.getStatus();
+        if (status?.error) void session.controller.interruptRecording(status.error);
+        return status?.isRecording
+          ? { durationMillis: status.durationMillis, metering: status.metering }
+          : null;
+      }
+      const status = fileRecorder.getStatus();
       return status?.isRecording
         ? { durationMillis: status.durationMillis, metering: status.metering }
         : null;
@@ -147,8 +180,9 @@ const voiceInputAtom = Atom.make((get) => {
   });
   get.addFinalizer(() => {
     appStateSubscription.remove();
+    liveSubscription?.remove();
     session.dispose();
-    recorder.release();
+    fileRecorder.release();
   });
   return { session, audioLevels };
 }).pipe(Atom.keepAlive, Atom.withLabel("mobile:voice-input"));

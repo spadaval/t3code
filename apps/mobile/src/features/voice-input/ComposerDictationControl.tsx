@@ -1,6 +1,14 @@
 import type { VoiceInputPhase, VoiceInputState } from "@t3tools/client-runtime/voice-input";
-import { memo, useState, type ReactNode } from "react";
-import { Linking, Pressable, Text as SystemText, View, type LayoutChangeEvent } from "react-native";
+import { memo, useRef, useState, type ReactNode } from "react";
+import {
+  Linking,
+  Pressable,
+  ScrollView,
+  Text as SystemText,
+  View,
+  type LayoutChangeEvent,
+  type ScrollViewInstance,
+} from "react-native";
 import Animated, {
   Easing,
   ReduceMotion,
@@ -18,6 +26,7 @@ import { SymbolView, type AppSymbolName } from "../../components/ui/AppSymbol";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
 import { cn } from "../../lib/cn";
 import type { VoiceComposerPresentation } from "./voiceInputPresentation";
+import type { VoiceLiveTranscript } from "./voiceInputSession";
 import { VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 
 const DICTATION_TIMING = {
@@ -321,6 +330,7 @@ function VoiceActionButton(props: {
 
 export function ComposerDictationStatus(props: {
   readonly audioLevels: SharedValue<ReadonlyArray<number>>;
+  readonly liveTranscript?: VoiceLiveTranscript | null;
   readonly elapsedSeconds: number;
   readonly phase: VoiceInputPhase;
   readonly presentation: VoiceComposerPresentation;
@@ -335,6 +345,12 @@ export function ComposerDictationStatus(props: {
   }));
 
   if (!props.presentation.statusLabel) return null;
+  const ticker =
+    LIVE_TRANSCRIPT_STYLE === "ticker" &&
+    props.liveTranscript &&
+    (props.liveTranscript.committed || props.liveTranscript.pending)
+      ? props.liveTranscript
+      : null;
   const isError = props.presentation.statusKind === "error";
   return (
     <View className="relative h-11 min-w-0 flex-1 justify-center">
@@ -369,7 +385,14 @@ export function ComposerDictationStatus(props: {
             className="absolute inset-0 min-w-0 flex-row items-center gap-2 px-1"
             style={waveformStyle}
           >
-            <VoiceWaveform audioLevels={props.audioLevels} />
+            {ticker ? (
+              <>
+                <CompactVoiceWaveform audioLevels={props.audioLevels} />
+                <LiveDictationTicker transcript={ticker} />
+              </>
+            ) : (
+              <VoiceWaveform audioLevels={props.audioLevels} />
+            )}
             <DictationElapsedTime
               className="text-foreground-muted"
               seconds={props.elapsedSeconds}
@@ -458,5 +481,62 @@ export function ComposerDictationStartAction(props: {
           : props.onStart
       }
     />
+  );
+}
+
+/** Where live dictation shows its text. Prototype: compared in screenshots before one is kept. */
+export const LIVE_TRANSCRIPT_STYLE: "caption" | "ticker" | "bubble" = "caption";
+
+const LIVE_TRANSCRIPT_MAX_HEIGHT = 132;
+
+function LiveTranscriptRuns(props: { readonly transcript: VoiceLiveTranscript }) {
+  const { committed, pending } = props.transcript;
+  return (
+    <>
+      {committed}
+      {committed && pending ? " " : ""}
+      <Text className="text-foreground-muted">{pending}</Text>
+    </>
+  );
+}
+
+/** Finished phrases in full colour, the phrase still being spoken muted; follows the newest words. */
+export function LiveDictationTranscript(props: {
+  readonly transcript: VoiceLiveTranscript | null;
+  readonly placement: "caption" | "bubble";
+}) {
+  const transcript = props.transcript;
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  if (LIVE_TRANSCRIPT_STYLE !== props.placement) return null;
+  if (!transcript || (!transcript.committed && !transcript.pending)) return null;
+  return (
+    <View
+      accessibilityLiveRegion="polite"
+      className={cn(
+        props.placement === "bubble"
+          ? "mb-2 self-stretch rounded-3xl border border-border bg-card px-4 py-3"
+          : "px-4 pt-2",
+      )}
+    >
+      <ScrollView
+        ref={scrollRef}
+        style={{ maxHeight: LIVE_TRANSCRIPT_MAX_HEIGHT }}
+        showsVerticalScrollIndicator={false}
+        onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
+      >
+        <Text className="text-base leading-6 text-foreground">
+          <LiveTranscriptRuns transcript={transcript} />
+        </Text>
+      </ScrollView>
+    </View>
+  );
+}
+
+/** The ticker style: the newest words on one line, in the waveform's place. */
+function LiveDictationTicker(props: { readonly transcript: VoiceLiveTranscript }) {
+  return (
+    <Text className="min-w-0 flex-1 text-sm text-foreground" ellipsizeMode="head" numberOfLines={1}>
+      <LiveTranscriptRuns transcript={props.transcript} />
+    </Text>
   );
 }

@@ -22,8 +22,15 @@ export type VoiceInputTarget = {
   readonly subscribe: () => () => void;
 };
 
+export type VoiceLiveTranscript = {
+  readonly committed: string;
+  readonly pending: string;
+};
+
 export type VoiceInputSnapshot = {
   readonly state: VoiceInputState;
+  /** Text heard so far in a live dictation; null when dictation transcribes at the end. */
+  readonly liveTranscript: VoiceLiveTranscript | null;
   readonly ownerKey: string | null;
   readonly label: string | null;
   readonly elapsedSeconds: number;
@@ -87,6 +94,7 @@ export class VoiceInputSession {
   private unsubscribe: (() => void) | null = null;
   private snapshot: VoiceInputSnapshot = {
     state: IDLE_STATE,
+    liveTranscript: null,
     ownerKey: null,
     label: null,
     elapsedSeconds: 0,
@@ -130,6 +138,12 @@ export class VoiceInputSession {
     this.publish({ ...this.snapshot, focusedOwners });
   }
 
+  setLiveTranscript(liveTranscript: VoiceLiveTranscript): void {
+    const phase = this.snapshot.state.phase;
+    if (phase !== "recording" && phase !== "transcribing") return;
+    this.publish({ ...this.snapshot, liveTranscript });
+  }
+
   cancel(ownerKey: string | null): void {
     if (ownerKey !== null && this.ownerKey === ownerKey) this.controller.cancel();
   }
@@ -170,6 +184,10 @@ export class VoiceInputSession {
     this.publish({
       ...this.snapshot,
       state,
+      liveTranscript:
+        voiceInputBlocksSubmission(state) && state.phase !== "preparing"
+          ? this.snapshot.liveTranscript
+          : null,
       ownerKey: this.ownerKey,
       label: this.label,
       elapsedSeconds,
