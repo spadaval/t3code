@@ -862,7 +862,7 @@ export function buildThreadListV2Items(input: {
     : null;
 
   const projectFolders = input.projectFolders ?? null;
-  const workingShelfEnabled = input.workingShelfEnabled === true && projectFolders === null;
+  const workingShelfEnabled = input.workingShelfEnabled === true;
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
   const working: EnvironmentThreadShell[] = [];

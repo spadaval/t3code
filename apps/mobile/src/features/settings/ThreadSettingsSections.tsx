@@ -228,7 +228,6 @@ export function WorkingSectionSettings() {
           icon="bolt.circle"
           label={gt("Working section")}
           value={workingShelfEnabled}
-          disabled={groupByProject}
           onValueChange={(value) => {
             void savePreferences({ workingShelfEnabled: value });
           }}
@@ -244,7 +243,7 @@ export function WorkingSectionSettings() {
       </SettingsSection>
       <Text className="px-2 text-sm text-foreground-muted">
         {groupByProject ? (
-          "Active threads sit in a folder for each project, newest message first. Tap a folder to open or close it; a closed folder shows a dot when a thread needs you. Pinned threads stay above the folders, and Snoozed and Settled stay below. The Working section is off in this mode."
+          "Active threads sit in a folder for each project, newest message first. Tap a folder to open or close it; a closed folder shows a dot when a thread needs you. Pinned threads stay above the folders. Working, Snoozed and Settled stay below, and a project whose threads are all working has no folder until one finishes."
         ) : (
           <T>
             Fold working and monitoring threads into a Working section. They return to the top of the
