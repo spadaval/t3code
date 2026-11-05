@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 import { useAtomValue } from "@effect/atom-react";
-import { RecordingPresets, type RecordingStatus } from "expo-audio";
+import { AudioModule, RecordingPresets, type RecordingStatus } from "expo-audio";
 import { File } from "expo-file-system";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useSyncExternalStore } from "react";
@@ -22,13 +22,20 @@ import {
   voiceInputBlocksSubmission,
   type VoiceTranscriber,
 } from "@t3tools/client-runtime/voice-input";
-import { createLazyVoiceRecorder } from "./lazyVoiceRecorder";
+import { createLazyVoiceRecorder, type VoiceRecordingInput } from "./lazyVoiceRecorder";
 import { VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 import { VoiceInputSession } from "./voiceInputSession";
 import { createVoiceRecordingPermission } from "./voiceRecordingPermission";
 import { makePermissionStatusAtom } from "../../lib/permissionStatusAtom";
 import { parakeetModule } from "../../native/parakeetModel";
-import { getParakeetTranscriber } from "../../native/parakeetTranscription";
+import {
+  getParakeetTranscriber,
+  type ParakeetTranscriber,
+} from "../../native/parakeetTranscription";
+import {
+  createLiveDictationRecorder,
+  getLiveDictationTranscriber,
+} from "../../native/liveDictation";
 import { DEFAULT_VOICE_ENGINE, selectVoiceEngine } from "../../native/voiceEngine";
 import {
   acquireAudioSession,
@@ -77,26 +84,38 @@ export const googleVoiceTranscriberAtom = makePermissionStatusAtom<
   read: () => getLocalVoiceTranscriber().catch(() => null),
 }).pipe(Atom.keepAlive);
 
-const parakeetTranscriber = getParakeetTranscriber();
+const fileParakeetTranscriber = getParakeetTranscriber();
+const liveParakeetTranscriber = getLiveDictationTranscriber();
 
 export const localVoiceTranscriberAtom = Atom.make((get) => {
   const google = get(googleVoiceTranscriberAtom);
   if (google === "checking") return "checking" as const;
   const registry = get.registry;
+  const settings = () => {
+    const preferences = registry.get(mobilePreferencesAtom);
+    const clips = parakeetModule?.getClipState();
+    return {
+      engine: AsyncResult.isSuccess(preferences)
+        ? (preferences.value.voiceEngine ?? DEFAULT_VOICE_ENGINE)
+        : DEFAULT_VOICE_ENGINE,
+      compare: clips?.enabled === true && clips.compareEnabled,
+      live: !AsyncResult.isSuccess(preferences) || preferences.value.liveDictationEnabled !== false,
+    };
+  };
+  // Live dictation records itself, so it only serves dictations Parakeet was chosen for; a
+  // comparison run behind Google's transcribes Google's recording instead.
+  const parakeet: ParakeetTranscriber | null = fileParakeetTranscriber && {
+    prepare: (options) => {
+      const { engine, live } = settings();
+      const useLive = live && liveParakeetTranscriber && (engine === "parakeet" || !google);
+      return (useLive ? liveParakeetTranscriber : fileParakeetTranscriber).prepare(options);
+    },
+  };
   // Read when dictation starts so changing the engine does not re-render every composer.
   return selectVoiceEngine({
-    parakeet: parakeetTranscriber,
+    parakeet,
     google,
-    settings: () => {
-      const preferences = registry.get(mobilePreferencesAtom);
-      const clips = parakeetModule?.getClipState();
-      return {
-        engine: AsyncResult.isSuccess(preferences)
-          ? (preferences.value.voiceEngine ?? DEFAULT_VOICE_ENGINE)
-          : DEFAULT_VOICE_ENGINE,
-        compare: clips?.enabled === true && clips.compareEnabled,
-      };
-    },
+    settings,
     annotateClip: async (clip, comparison) =>
       parakeetModule?.annotateClip(clip, "comparison", JSON.stringify(comparison)),
   });
@@ -126,8 +145,7 @@ const voiceInputAtom = Atom.make((get) => {
   const permission = createVoiceRecordingPermission(() => {
     void session.controller.appMovedToBackground();
   });
-  const recorder = createLazyVoiceRecorder({
-    create: () => createVoiceRecorder(VOICE_RECORDING_OPTIONS),
+  const recorderOptions = {
     onStatus: (status: RecordingStatus) => {
       session.controller.handleRecorderStatus({
         isFinished: status.isFinished,
@@ -143,7 +161,7 @@ const voiceInputAtom = Atom.make((get) => {
     },
     cancelBluetoothRouteWait: () => parakeetModule?.cancelBluetoothInputWait(),
     // Read when recording starts so preference changes do not re-render every composer.
-    selectInput: (inputs) => {
+    selectInput: (inputs: ReadonlyArray<VoiceRecordingInput>) => {
       const preferences = registry.get(mobilePreferencesAtom);
       if (!AsyncResult.isSuccess(preferences)) return null;
       const known = deviceMicrophoneOrder(preferences.value.microphones);
@@ -157,12 +175,50 @@ const voiceInputAtom = Atom.make((get) => {
       }
       return preferredMicrophoneInput(inputs, order);
     },
+  };
+  // Upstream's Android recorder streams into Google's recognizer and fails when nothing reads
+  // it, so it only records for a transcription that starts during recording.
+  const streamingRecorder = createLazyVoiceRecorder({
+    ...recorderOptions,
+    create: () => createVoiceRecorder(VOICE_RECORDING_OPTIONS),
   });
+  const fileRecorder = createLazyVoiceRecorder({
+    ...recorderOptions,
+    create: () => new AudioModule.AudioRecorder(VOICE_RECORDING_OPTIONS),
+  });
+  const liveRecorder = parakeetModule ? createLiveDictationRecorder(parakeetModule) : null;
+  const liveSubscription = parakeetModule?.addListener("onLiveTranscript", (transcript) =>
+    session.setLiveTranscript(transcript),
+  );
+  // The controller prepares the transcription before the recorder, so its kind picks the recorder.
+  let recorderKind: "live" | "streaming" | "file" = "file";
+  const activeRecorder = () =>
+    recorderKind === "live" && liveRecorder
+      ? liveRecorder
+      : recorderKind === "streaming"
+        ? streamingRecorder
+        : fileRecorder;
+  const recorder = {
+    get uri() {
+      return activeRecorder().uri;
+    },
+    prepareToRecordAsync: (signal?: AbortSignal) => activeRecorder().prepareToRecordAsync(signal),
+    record: (options: { readonly forDuration: number }) => activeRecorder().record(options),
+    stop: () => activeRecorder().stop(),
+  };
   const session: VoiceInputSession = new VoiceInputSession({
     recorder,
     getTranscriber: () => {
       const transcriber = registry.get(localVoiceTranscriberAtom);
-      return transcriber === "checking" ? null : transcriber;
+      if (transcriber === "checking" || transcriber === null) return null;
+      return {
+        prepare: async (options) => {
+          const prepared = await transcriber.prepare(options);
+          recorderKind =
+            "liveDictation" in prepared ? "live" : prepared.start ? "streaming" : "file";
+          return prepared;
+        },
+      };
     },
     requestPermission: permission.requestPermission,
     configureRecording: async () => {
@@ -182,7 +238,14 @@ const voiceInputAtom = Atom.make((get) => {
     },
     deleteRecording: (uri) => new File(uri).delete(),
     sampleRecording: () => {
-      const status = recorder.getStatus();
+      if (recorderKind === "live" && liveRecorder) {
+        const status = liveRecorder.getStatus();
+        if (status?.error) void session.controller.interruptRecording(status.error);
+        return status?.isRecording
+          ? { durationMillis: status.durationMillis, metering: status.metering }
+          : null;
+      }
+      const status = (recorderKind === "streaming" ? streamingRecorder : fileRecorder).getStatus();
       return status?.isRecording
         ? { durationMillis: status.durationMillis, metering: status.metering }
         : null;
@@ -192,8 +255,10 @@ const voiceInputAtom = Atom.make((get) => {
   });
   get.addFinalizer(() => {
     permission.dispose();
+    liveSubscription?.remove();
     session.dispose();
-    recorder.release();
+    streamingRecorder.release();
+    fileRecorder.release();
   });
   return { session, audioLevels };
 }).pipe(Atom.keepAlive, Atom.withLabel("mobile:voice-input"));
