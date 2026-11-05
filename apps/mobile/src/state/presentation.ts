@@ -43,3 +43,7 @@ export function useEnvironmentPresentation(environmentId: EnvironmentId | null) 
     presentation,
   };
 }
+
+export function useEnvironmentConnected(environmentId: EnvironmentId): boolean {
+  return useAtomValue(connectedEnvironmentIdsAtom, (ids) => ids.includes(environmentId));
+}
