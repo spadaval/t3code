@@ -112,6 +112,8 @@ export interface Preferences {
   /** Hardware Return behavior is iOS-only. */
   readonly composerEnterBehavior?: ComposerEnterBehavior;
   readonly followUpBehavior?: FollowUpBehavior;
+  /** Leave the thread for the list as soon as a message is sent. */
+  readonly fireAndForget?: boolean;
   readonly microphones?: ReadonlyArray<MicrophoneEntry>;
   readonly projectGroupingEnabled?: boolean;
   readonly projectGroupingMode?: SidebarProjectGroupingMode;
@@ -197,6 +199,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     dismissedDatabaseStorageNotices?: readonly string[];
     composerEnterBehavior?: ComposerEnterBehavior;
     followUpBehavior?: FollowUpBehavior;
+    fireAndForget?: boolean;
     microphones?: ReadonlyArray<MicrophoneEntry>;
     projectGroupingEnabled?: boolean;
     projectGroupingMode?: SidebarProjectGroupingMode;
@@ -307,6 +310,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   if (parsed.followUpBehavior === "queue" || parsed.followUpBehavior === "steer") {
     preferences.followUpBehavior = parsed.followUpBehavior;
   }
+  if (typeof parsed.fireAndForget === "boolean") preferences.fireAndForget = parsed.fireAndForget;
   if (Array.isArray(parsed.microphones)) {
     preferences.microphones = parsed.microphones.flatMap((entry): MicrophoneEntry[] => {
       if (typeof entry !== "object" || entry === null || !isMicrophoneKind(entry.kind)) return [];

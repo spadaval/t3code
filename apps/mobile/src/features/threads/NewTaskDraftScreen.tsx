@@ -3,6 +3,7 @@ import { NativeScrollEdgeEffectsContext } from "../../native/NativeScrollViewMar
 import { DraftThreadHeader } from "./DraftThreadHeader";
 import { useComposerAttachmentActions } from "../../state/use-composer-attachment-actions";
 import { useWorkspaceBackNavigation } from "../layout/workspace/useAndroidWorkspaceNavigation";
+import { useFireAndForget } from "./useFireAndForget";
 import { submittedThreadParams } from "./thread-route-state";
 import { ThreadScreenBinding, ThreadScreenFallback } from "./ThreadScreenHost";
 import { draftThreadShell } from "./draft-thread-shell";
@@ -157,6 +158,7 @@ export function NewTaskDraftScreen(props: {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
   const goBack = useWorkspaceBackNavigation("threads");
+  const fireAndForget = useFireAndForget();
   const currentRoute = useRoute();
   const flowKey = newTaskFlowKey(currentRoute);
   const { getShare, isLoading: isIncomingShareInboxLoading } = useIncomingShare();
@@ -662,11 +664,14 @@ export function NewTaskDraftScreen(props: {
       return null;
     }
     promptInputRef.current?.blur();
-    navigation.dispatch(
-      CommonActions.setParams(
-        submittedThreadParams(String(message.environmentId), String(message.threadId)),
-      ),
-    );
+    const leaveForList = fireAndForget && environmentConnected;
+    if (!leaveForList) {
+      navigation.dispatch(
+        CommonActions.setParams(
+          submittedThreadParams(String(message.environmentId), String(message.threadId)),
+        ),
+      );
+    }
     // The composer has moved to the submitted thread; a pick still converting
     // would otherwise resurrect this draft.
     abortComposerDraftOperations(draftKey);
@@ -679,6 +684,7 @@ export function NewTaskDraftScreen(props: {
       deferAttachmentCleanup: true,
     });
     scheduleUnusedComposerAttachmentCleanup(draftSnapshot.attachments);
+    if (leaveForList) goBack();
     return message.messageId;
   }
 

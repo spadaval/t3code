@@ -8,6 +8,7 @@ import { DEFAULT_FOLLOW_UP_BEHAVIOR, type FollowUpBehavior } from "../../lib/fol
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { ListChoiceRow as SettingsChoiceRow } from "../../components/ui/ListChoiceRow";
 import { SettingsSection } from "./components/SettingsSection";
+import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsScreen } from "./components/SettingsScreen";
 
 const FOLLOW_UP_OPTIONS: ReadonlyArray<{
@@ -35,6 +36,8 @@ export function SettingsFollowUpRouteScreen() {
   const selectedBehavior = AsyncResult.isSuccess(preferencesResult)
     ? (preferencesResult.value.followUpBehavior ?? DEFAULT_FOLLOW_UP_BEHAVIOR)
     : null;
+  const fireAndForget =
+    AsyncResult.isSuccess(preferencesResult) && preferencesResult.value.fireAndForget === true;
 
   const content = (
     <ScrollView
@@ -61,6 +64,16 @@ export function SettingsFollowUpRouteScreen() {
         Long-press the send button to use the other option for a single message. With a hardware
         keyboard, hold Command while sending.
       </Text>
+      <SettingsSection title="After sending">
+        <SettingsSwitchRow
+          icon="paperplane"
+          label="Fire and forget"
+          subtitle="Once a message sends, go back to the thread list. The agent keeps working without you."
+          disabled={!preferencesReady}
+          value={fireAndForget}
+          onValueChange={(value) => savePreferences({ fireAndForget: value })}
+        />
+      </SettingsSection>
     </ScrollView>
   );
 
