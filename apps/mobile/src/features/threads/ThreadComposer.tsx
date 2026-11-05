@@ -865,7 +865,11 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
           />
         ) : null}
 
-        <LiveDictationTranscript transcript={voiceInput.liveTranscript} placement="bubble" />
+        <LiveDictationTranscript
+          draft={draftMessage}
+          transcript={voiceInput.liveTranscript}
+          placement="bubble"
+        />
         <ComposerSurface
           animateLayout={false}
           style={{
@@ -877,7 +881,11 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
         >
           {isExpanded ? editingAttachments : null}
           {showsCompactDictation ? (
-            <LiveDictationTranscript transcript={voiceInput.liveTranscript} placement="caption" />
+            <LiveDictationTranscript
+              draft={draftMessage}
+              transcript={voiceInput.liveTranscript}
+              placement="caption"
+            />
           ) : null}
           <View
             onLayout={(event) => {
@@ -907,7 +915,8 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                         ? 0
                         : INLINE_EDITOR_MIN_WIDTH,
                   },
-                  compactEditor.containerStyle,
+                  // The editor is hidden while dictating, so it must not hold its expanded height.
+                  showsCompactDictation ? { height: 44 } : compactEditor.containerStyle,
                   compactEditor.isExpanded ? { flex: 0, width: 0 } : undefined,
                 ]}
               ></Animated.View>

@@ -399,6 +399,30 @@ describe("global voice input", () => {
     }
   });
 
+  it("shows live text until the transcript commits, and drops it outside a dictation", async () => {
+    const { session, prepare } = createSession();
+    const transcript = Promise.withResolvers<string>();
+    prepare.mockResolvedValueOnce({ locale: "en-US", transcribe: () => transcript.promise });
+    const heard = { committed: "Hello there.", pending: "how are" };
+
+    session.setLiveTranscript(heard);
+    expect(session.getSnapshot().liveTranscript).toBeNull();
+
+    await session.start(createTarget("first", () => "", vi.fn(), { start: 0, end: 0 }));
+    session.setLiveTranscript(heard);
+    expect(session.getSnapshot().liveTranscript).toEqual(heard);
+
+    const stopping = session.controller.stop();
+    // The last phrase is still decoding; the text heard so far stays on screen.
+    expect(session.getSnapshot().state.phase).toBe("transcribing");
+    expect(session.getSnapshot().liveTranscript).toEqual(heard);
+
+    transcript.resolve("Hello there. How are you?");
+    await stopping;
+    expect(session.getSnapshot().state.phase).toBe("idle");
+    expect(session.getSnapshot().liveTranscript).toBeNull();
+  });
+
   it("publishes which owners are focused", () => {
     const { session } = createSession();
     const listener = vi.fn();

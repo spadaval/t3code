@@ -374,7 +374,7 @@ class T3VoiceTranscriptionModule : Module() {
         val open = session.openPhrase()
         if (open != null) {
           val startedAt = SystemClock.elapsedRealtime()
-          session.pending = decodePhrase(model, session.snapshot(open[0], open[1]))
+          session.pending = continuePhrase(session.committed.lastOrNull(), decodePhrase(model, session.snapshot(open[0], open[1])))
           val took = SystemClock.elapsedRealtime() - startedAt
           session.previews += 1
           session.previewMs += took
@@ -398,7 +398,7 @@ class T3VoiceTranscriptionModule : Module() {
     session.commits += 1
     session.commitMs += took
     Log.d(LIVE_TAG, "commit ${(phrase[1] - phrase[0]) * 1000L / LIVE_SAMPLE_RATE}ms audio in ${took}ms: $text")
-    if (text.isNotEmpty()) session.committed += text
+    if (text.isNotEmpty()) session.committed += continuePhrase(session.committed.lastOrNull(), text)
   }
 
   private fun decodePhrase(model: OfflineRecognizer, samples: FloatArray): String {

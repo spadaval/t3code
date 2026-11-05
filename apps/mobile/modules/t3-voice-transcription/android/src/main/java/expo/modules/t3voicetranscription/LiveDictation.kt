@@ -276,3 +276,17 @@ internal class LiveDictation(private val source: LiveAudioSource, val wavFile: F
     const val MIN_NEW_AUDIO_MS = 350
   }
 }
+
+/**
+ * Parakeet capitalizes the start of every phrase it decodes, but a pause often falls mid-sentence.
+ * Lowercases that first word unless it is "I", an acronym, or follows a sentence end; a proper noun
+ * there loses its capital, which reads better than a stray one in every other sentence.
+ */
+internal fun continuePhrase(previous: String?, text: String): String {
+  if (previous == null || previous.lastOrNull() in SENTENCE_ENDS) return text
+  val first = text.substringBefore(' ')
+  if (first.length < 2 || first == "I" || first.startsWith("I'") || first[1].isUpperCase()) return text
+  return text.replaceFirstChar { it.lowercaseChar() }
+}
+
+private val SENTENCE_ENDS = setOf('.', '!', '?', ':')

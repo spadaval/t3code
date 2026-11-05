@@ -502,6 +502,7 @@ function LiveTranscriptRuns(props: { readonly transcript: VoiceLiveTranscript })
 
 /** Finished phrases in full colour, the phrase still being spoken muted; follows the newest words. */
 export function LiveDictationTranscript(props: {
+  readonly draft: string;
   readonly transcript: VoiceLiveTranscript | null;
   readonly placement: "caption" | "bubble";
 }) {
@@ -509,6 +510,7 @@ export function LiveDictationTranscript(props: {
   const scrollRef = useRef<ScrollViewInstance>(null);
   if (LIVE_TRANSCRIPT_STYLE !== props.placement) return null;
   if (!transcript || (!transcript.committed && !transcript.pending)) return null;
+  const draft = props.draft.trimEnd();
   return (
     <View
       accessibilityLiveRegion="polite"
@@ -525,6 +527,7 @@ export function LiveDictationTranscript(props: {
         onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
       >
         <Text className="text-base leading-6 text-foreground">
+          {draft ? `${draft} ` : ""}
           <LiveTranscriptRuns transcript={transcript} />
         </Text>
       </ScrollView>
