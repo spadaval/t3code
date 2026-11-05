@@ -657,14 +657,18 @@ describe("buildThreadListV2Items project folders", () => {
         workingCount: layout.workingCount,
         workingShelfExpanded: true,
         workingShelfHeaderIndex: layout.workingShelfHeaderIndex,
-      }).map((item) => (item.type === "v2-thread" ? item.item.thread.id : item.key)),
+      }).map((item) =>
+        item.type === "v2-thread"
+          ? `${item.item.thread.id}${item.inFolder ? " (in folder)" : ""}`
+          : item.key,
+      ),
     ).toEqual([
       "pinned",
       "v2-project-folder:group:beta",
-      "b-new",
+      "b-new (in folder)",
       "v2-project-folder:group:alpha",
-      "a-new",
-      "a-old",
+      "a-new (in folder)",
+      "a-old (in folder)",
       "v2-working-shelf",
       "g-run",
     ]);

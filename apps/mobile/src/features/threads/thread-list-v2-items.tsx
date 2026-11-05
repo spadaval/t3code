@@ -311,6 +311,9 @@ export const ThreadListV2SettledShelfHeader = memo(function ThreadListV2SettledS
   return <ThreadListV2ShelfHeader {...props} kind="settled" />;
 });
 
+/** Folder rows indent by this plus the header gap, so titles line up with the folder name. */
+const FOLDER_ICON_SIZE = 16;
+
 const FOLDER_DOT_CLASS: Record<ThreadListV2FolderDot, string> = {
   attention: "bg-warning-foreground",
   failed: "bg-adaptive-rose-600-400",
@@ -331,52 +334,58 @@ export const ThreadListV2ProjectFolderHeader = memo(
     readonly onToggle: (folderKey: string) => void;
   }) {
     const sidebarPane = props.pane === "sidebar";
-    const muted = sidebarPane ? "text-drawer-foreground-muted" : "text-foreground-muted";
+    const { fontScale } = useWindowDimensions();
+    const iconSize = FOLDER_ICON_SIZE * fontScale;
+    const muted = sidebarPane ? "text-drawer-foreground-muted" : "text-foreground-tertiary";
     return (
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${props.title}, ${props.count} ${props.count === 1 ? "thread" : "threads"}`}
         accessibilityHint={`${props.expanded ? "Closes" : "Opens"} the project folder.`}
         accessibilityState={{ disabled: props.disabled, expanded: props.expanded }}
-        className={cn("mt-3 flex-row items-center gap-2 py-1.5", sidebarPane ? "px-3" : "px-5")}
+        className={cn(
+          "mt-3 min-h-[40px] flex-row items-center gap-2 py-2",
+          sidebarPane ? "px-3" : "px-5",
+        )}
         disabled={props.disabled}
         onPress={() => props.onToggle(props.folderKey)}
         style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
       >
-        <SymbolView
-          name="chevron.right"
-          size={10}
-          tintColorClassName={
-            sidebarPane ? "accent-drawer-foreground-muted" : "accent-foreground-muted"
-          }
-          type="monochrome"
-          style={{ transform: [{ rotate: props.expanded ? "90deg" : "0deg" }] }}
-        />
-        {props.project ? (
-          <ProjectFavicon
-            environmentId={props.project.environmentId}
-            faviconPath={props.project.faviconPath}
-            projectIcon={props.project.projectIcon}
-            size={15}
-            projectTitle={props.project.title}
-            workspaceRoot={props.project.workspaceRoot}
-          />
-        ) : null}
+        <View style={{ width: iconSize }}>
+          {props.project ? (
+            <ProjectFavicon
+              environmentId={props.project.environmentId}
+              faviconPath={props.project.faviconPath}
+              projectIcon={props.project.projectIcon}
+              size={iconSize}
+              projectTitle={props.project.title}
+              workspaceRoot={props.project.workspaceRoot}
+            />
+          ) : null}
+        </View>
         <Text
           numberOfLines={1}
           className={cn(
-            "shrink text-sm font-t3-medium",
+            "flex-1 text-base font-t3-medium",
             sidebarPane ? "text-drawer-foreground" : "text-foreground",
           )}
         >
           {props.title}
         </Text>
-        {props.expanded ? null : (
-          <Text className={cn("text-xs font-t3-medium", muted)}>{props.count}</Text>
-        )}
         {props.dot ? (
-          <View className={cn("size-2 rounded-full", FOLDER_DOT_CLASS[props.dot])} />
+          <View className={cn("size-1.5 rounded-full", FOLDER_DOT_CLASS[props.dot])} />
         ) : null}
+        {props.expanded ? null : (
+          <Text className={cn("text-xs tabular-nums", muted)}>{props.count}</Text>
+        )}
+        <SymbolView
+          name={props.expanded ? "chevron.down" : "chevron.right"}
+          size={10}
+          tintColorClassName={
+            sidebarPane ? "accent-drawer-foreground-muted" : "accent-foreground-muted"
+          }
+          type="monochrome"
+        />
       </Pressable>
     );
   },
@@ -721,6 +730,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly environmentMachine?: EnvironmentMachineKind;
   readonly pane?: "screen" | "sidebar";
   readonly showTrailingDivider?: boolean;
+  /** Under a folder header, which names the project: one line, indented past its icon. */
+  readonly inFolder?: boolean;
   readonly selected?: boolean;
   readonly fullSwipeWidth?: number;
   readonly onSelectThread: (thread: EnvironmentThreadShell) => void;
@@ -1226,11 +1237,21 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         ? `Opens the thread. Swipe left to ${primaryAction.label.toLowerCase()}.`
         : `Opens the thread. Swipe left for ${primaryAction.label.toLowerCase()} and snooze actions.`;
 
-  const titleTextInset = props.project ? projectIconSize + 8 : 0;
+  const inFolder = props.inFolder === true;
+  const leadingWidth = inFolder ? FOLDER_ICON_SIZE * fontScale : projectIconSize;
+  const titleTextInset = props.project || inFolder ? leadingWidth + 8 : 0;
+  const lastError =
+    (status === "failed" || status === "limited") && thread.runtime?.lastError
+      ? thread.runtime.lastError
+      : null;
+  // Folder rows are one line, as on web, unless an error or PR needs showing.
+  const showMetaLine = !inFolder || lastError !== null || !!pr;
   const cardContent = (
     <>
       <View className="flex-row items-start gap-2">
-        {props.project ? (
+        {inFolder ? (
+          <View style={{ width: leadingWidth }} />
+        ) : props.project ? (
           <View className="justify-center" style={{ height: titleLineHeight }}>
             <ProjectFavicon
               environmentId={thread.environmentId}
@@ -1251,7 +1272,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
               : rowAppearance.foregroundClassName,
             isRegeneratingTitle && "opacity-55",
           )}
-          numberOfLines={2}
+          numberOfLines={inFolder ? 1 : 2}
           onTextLayout={
             Platform.OS === "android"
               ? ({ nativeEvent }) => {
@@ -1356,113 +1377,115 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           />
         </View>
       ) : null}
-      <View className="mt-1 flex-row items-center gap-2" style={{ paddingLeft: titleTextInset }}>
-        {(status === "failed" || status === "limited") && thread.runtime?.lastError ? (
-          <Text
-            className={cn(
-              "flex-1 text-xs",
-              selected
-                ? selectedThreadRowColors.mutedForegroundClassName
-                : status === "limited"
-                  ? "text-warning-foreground"
-                  : "text-danger-foreground",
-            )}
-            numberOfLines={1}
-          >
-            {thread.runtime.lastError}
-          </Text>
-        ) : props.environmentLabel ? (
-          <View className="min-w-0 flex-1 flex-row items-center gap-1">
-            {props.environmentMachine ? (
-              <EnvironmentMachineSymbol
-                kind={props.environmentMachine}
-                size={machineIconSize}
-                tintColorClassName={
-                  selected
-                    ? selectedThreadRowColors.mutedIconTintClassName
-                    : rowAppearance.tertiaryIconTintClassName
-                }
-              />
-            ) : null}
+      {showMetaLine ? (
+        <View className="mt-1 flex-row items-center gap-2" style={{ paddingLeft: titleTextInset }}>
+          {lastError ? (
             <Text
               className={cn(
-                "shrink text-xs",
+                "flex-1 text-xs",
                 selected
                   ? selectedThreadRowColors.mutedForegroundClassName
-                  : rowAppearance.tertiaryForegroundClassName,
+                  : status === "limited"
+                    ? "text-warning-foreground"
+                    : "text-danger-foreground",
               )}
               numberOfLines={1}
             >
-              {props.environmentLabel}
+              {lastError}
             </Text>
-          </View>
-        ) : (
-          <View className="flex-1" />
-        )}
-        {pr ? (
-          <Pressable
-            // Padding cancelled by negative margin grows the touch target into
-            // the row padding without moving the badge.
-            className="-m-2.5 flex-row items-center gap-1 p-2.5"
-            accessibilityRole="button"
-            accessibilityLabel={prBadgeLabel ?? undefined}
-            onPress={handleOpenPullRequests}
-            // Handle long-press so opening the iOS row menu cannot also open the PR on release.
-            onLongPress={() => undefined}
-            style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
-          >
-            <SymbolView
-              name={
-                pr.kind === "stack"
-                  ? PullRequestGlyph.stack
-                  : pr.state === null
-                    ? PullRequestGlyph.pullRequest
-                    : pullRequestStatus({ state: pr.state, isDraft: pr.isDraft }).icon
-              }
-              size={12}
-              tintColorClassName={
-                pr.state === null || pr.isDraft
-                  ? rowAppearance.mutedIconTintClassName
-                  : pr.state === "open"
-                    ? "accent-adaptive-emerald-600-400"
-                    : pr.state === "closed"
-                      ? "accent-adaptive-rose-600-400"
-                      : "accent-adaptive-violet-600-400"
-              }
-            />
-            <Text
-              accessibilityLabel={pr.accessibilityLabel}
-              className={cn("text-xs", pr.textClassName)}
-              style={{ fontFamily: MONO_FONT }}
+          ) : props.environmentLabel ? (
+            <View className="min-w-0 flex-1 flex-row items-center gap-1">
+              {props.environmentMachine ? (
+                <EnvironmentMachineSymbol
+                  kind={props.environmentMachine}
+                  size={machineIconSize}
+                  tintColorClassName={
+                    selected
+                      ? selectedThreadRowColors.mutedIconTintClassName
+                      : rowAppearance.tertiaryIconTintClassName
+                  }
+                />
+              ) : null}
+              <Text
+                className={cn(
+                  "shrink text-xs",
+                  selected
+                    ? selectedThreadRowColors.mutedForegroundClassName
+                    : rowAppearance.tertiaryForegroundClassName,
+                )}
+                numberOfLines={1}
+              >
+                {props.environmentLabel}
+              </Text>
+            </View>
+          ) : (
+            <View className="flex-1" />
+          )}
+          {pr ? (
+            <Pressable
+              // Padding cancelled by negative margin grows the touch target into
+              // the row padding without moving the badge.
+              className="-m-2.5 flex-row items-center gap-1 p-2.5"
+              accessibilityRole="button"
+              accessibilityLabel={prBadgeLabel ?? undefined}
+              onPress={handleOpenPullRequests}
+              // Handle long-press so opening the iOS row menu cannot also open the PR on release.
+              onLongPress={() => undefined}
+              style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
             >
-              {pr.label}
-            </Text>
-          </Pressable>
-        ) : null}
-        {providerInstance ? (
-          <View className="flex-row items-center">
-            {providerDrivers.slice(0, -1).map(
-              (driver, index) => (
-                /* oxlint-disable react/no-array-index-key -- Provider history can repeat a driver; these decorative icons have no local state. */ <View
-                  key={`${driver}:${index}`}
-                  className="-mr-1 opacity-30"
-                >
-                  <ProviderIcon provider={driver} size={12} />
-                </View>
-              ) /* oxlint-enable react/no-array-index-key */,
-            )}
-            <ProviderInstanceIcon
-              iconUrl={providerIconUrl}
-              provider={providerInstance.driverKind}
-              size={14}
-              displayName={providerInstance.displayName}
-              accentColor={providerInstance.accentColor}
-              showBadge={providerInstance.showBadge}
-              surfaceColor={rowAppearance.providerIconSurfaceColor}
-            />
-          </View>
-        ) : null}
-      </View>
+              <SymbolView
+                name={
+                  pr.kind === "stack"
+                    ? PullRequestGlyph.stack
+                    : pr.state === null
+                      ? PullRequestGlyph.pullRequest
+                      : pullRequestStatus({ state: pr.state, isDraft: pr.isDraft }).icon
+                }
+                size={12}
+                tintColorClassName={
+                  pr.state === null || pr.isDraft
+                    ? rowAppearance.mutedIconTintClassName
+                    : pr.state === "open"
+                      ? "accent-adaptive-emerald-600-400"
+                      : pr.state === "closed"
+                        ? "accent-adaptive-rose-600-400"
+                        : "accent-adaptive-violet-600-400"
+                }
+              />
+              <Text
+                accessibilityLabel={pr.accessibilityLabel}
+                className={cn("text-xs", pr.textClassName)}
+                style={{ fontFamily: MONO_FONT }}
+              >
+                {pr.label}
+              </Text>
+            </Pressable>
+          ) : null}
+          {providerInstance ? (
+            <View className="flex-row items-center">
+              {providerDrivers.slice(0, -1).map(
+                (driver, index) => (
+                  /* oxlint-disable react/no-array-index-key -- Provider history can repeat a driver; these decorative icons have no local state. */ <View
+                    key={`${driver}:${index}`}
+                    className="-mr-1 opacity-30"
+                  >
+                    <ProviderIcon provider={driver} size={12} />
+                  </View>
+                ) /* oxlint-enable react/no-array-index-key */,
+              )}
+              <ProviderInstanceIcon
+                iconUrl={providerIconUrl}
+                provider={providerInstance.driverKind}
+                size={14}
+                displayName={providerInstance.displayName}
+                accentColor={providerInstance.accentColor}
+                showBadge={providerInstance.showBadge}
+                surfaceColor={rowAppearance.providerIconSurfaceColor}
+              />
+            </View>
+          ) : null}
+        </View>
+      ) : null}
     </>
   );
 
