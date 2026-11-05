@@ -438,6 +438,8 @@ export interface ThreadListV2ThreadListItem {
   readonly timeLabel: string;
   readonly snoozePresetMinute: string | undefined;
   readonly showTrailingDivider: boolean;
+  /** Listed under a project folder header, which already names its project. */
+  readonly inFolder: boolean;
   /** Include queued state in item equality; outbox writes do not update thread shells. */
   readonly hasQueuedMessages: boolean;
   readonly canMoveUp: boolean;
@@ -529,6 +531,7 @@ export function threadListV2ListItemsAreEqual(
         previous.timeLabel === item.timeLabel &&
         previous.snoozePresetMinute === item.snoozePresetMinute &&
         previous.showTrailingDivider === item.showTrailingDivider &&
+        previous.inFolder === item.inFolder &&
         previous.hasQueuedMessages === item.hasQueuedMessages &&
         previous.canMoveUp === item.canMoveUp &&
         previous.canMoveDown === item.canMoveDown
@@ -641,6 +644,7 @@ export function buildThreadListV2ListItems(input: {
       timeLabel: resolveThreadListV2ItemTimeLabel(item, snoozeWakeLabelText !== undefined),
       snoozePresetMinute,
       showTrailingDivider: false,
+      inFolder: false,
       hasQueuedMessages:
         queuedThreadKeys?.has(`${item.thread.environmentId}:${item.thread.id}`) === true,
       canMoveUp: move?.canMoveUp === true,
@@ -684,7 +688,11 @@ export function buildThreadListV2ListItems(input: {
       folderIndex += 1;
     }
     const threadItem = index < activeEnd ? threadItems[index] : undefined;
-    if (threadItem) result.push(threadItem);
+    if (threadItem?.type === "v2-thread" && folderIndex > 0) {
+      result.push({ ...threadItem, inFolder: true });
+    } else if (threadItem) {
+      result.push(threadItem);
+    }
   }
   if (workingShelfHeaderIndex !== null && workingCount > 0) {
     result.push({
