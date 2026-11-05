@@ -3,6 +3,7 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   AudioModule,
   RecordingPresets,
+  getRecordingPermissionsAsync,
   requestRecordingPermissionsAsync,
   type RecordingStatus,
 } from "expo-audio";
@@ -137,6 +138,9 @@ const voiceInputAtom = Atom.make((get) => {
       return live && native ? getLiveVoiceTranscriber(native) : getLocalVoiceTranscriber();
     },
     requestPermission: async () => {
+      // Android briefly opens its permission activity even when granted, which reads as backgrounding.
+      const current = await getRecordingPermissionsAsync();
+      if (current.granted) return { granted: true, canAskAgain: current.canAskAgain };
       const permission = await requestRecordingPermissionsAsync();
       return { granted: permission.granted, canAskAgain: permission.canAskAgain };
     },

@@ -185,7 +185,15 @@ internal class LiveDictation(private val source: LiveAudioSource, val wavFile: F
   fun nextPhrase(final: Boolean): IntArray? {
     val (windows, end) = synchronized(lock) { ArrayList(windowDb) to length }
     if (phraseStart >= end) return null
-    if (final) return intArrayOf(phraseStart, end).also { phraseStart = end }
+    if (final) {
+      // Silence after the last word costs decode time and can only add noise.
+      val threshold = speechThreshold(windows)
+      val lastSpeech = (windows.size - 1 downTo phraseStart / WINDOW_SAMPLES).firstOrNull { windows[it] >= threshold }
+      val start = phraseStart
+      phraseStart = end
+      if (lastSpeech == null) return null
+      return intArrayOf(start, minOf(end, (lastSpeech + 1 + 300 / 30) * WINDOW_SAMPLES))
+    }
     val firstWindow = phraseStart / WINDOW_SAMPLES
     if (windows.size <= firstWindow) return null
     val threshold = speechThreshold(windows)
