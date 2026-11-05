@@ -122,6 +122,8 @@ const SETTINGS_SEARCH_TERMS = {
     msg("queue", { $context: "settings search keyword" }),
     msg("steer", { $context: "settings search keyword" }),
     msg("while the agent is running", { $context: "settings search keyword" }),
+    "fire and forget",
+    "return to list after sending",
   ],
   SettingsArchive: [
     msg("archive", { $context: "settings search keyword" }),

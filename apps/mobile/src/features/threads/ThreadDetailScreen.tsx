@@ -2,6 +2,8 @@ import { ChildThreadApprovals } from "./ChildThreadApprovals";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import { useOpenThreadInspector } from "./thread-inspector-navigation";
 import { useSidebarWorkspaceTabs } from "../layout/workspace/useSystemWorkspaceTabBar";
+import { useWorkspaceBackNavigation } from "../layout/workspace/useAndroidWorkspaceNavigation";
+import { useFireAndForget } from "./useFireAndForget";
 import { useWorkspaceTabs } from "../layout/workspace/WorkspaceTabsContext";
 import {
   isAtomCommandInterrupted,
@@ -431,6 +433,8 @@ function ThreadDetailBody(
   const [composerOwnsKeyboard, setComposerOwnsKeyboard] = useState(false);
   if (sidebarSearchActive && composerOwnsKeyboard) setComposerOwnsKeyboard(false);
   const navigation = useNavigation();
+  const exitToThreadList = useWorkspaceBackNavigation("threads");
+  const fireAndForget = useFireAndForget();
   const openLinkedThread = useOpenLinkedThread();
   const openInspector = useOpenThreadInspector();
   const { session: voiceInputSession } = useGlobalVoiceInput();
@@ -1362,6 +1366,11 @@ function ThreadDetailBody(
       dismissingKeyboard = true;
     });
     if (messageId === null || scope.aborted) {
+      return messageId;
+    }
+    if (fireAndForget && !props.draftMode && props.connectionStateLabel === "connected") {
+      composerEditorRef.current?.blur();
+      exitToThreadList();
       return messageId;
     }
 
