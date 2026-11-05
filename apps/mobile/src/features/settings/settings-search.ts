@@ -39,6 +39,8 @@ const SETTINGS_SEARCH_TERMS = {
     "organization",
     "sidebar",
     "working section",
+    "group by project",
+    "project folders",
     "new threads",
     "last project",
   ],
