@@ -197,8 +197,8 @@ internal class LiveDictation(private val source: LiveAudioSource, val wavFile: F
         silentRun = 0
       } else {
         silentRun += 1
-        // A pause after a word ends the phrase; the cut keeps a little of the pause.
-        if (speechWindows * 30 >= 300 && silentRun * 30 >= PAUSE_MS) {
+        // Short phrases lose context and transcribe worse, so a pause only ends one past MIN_PHRASE_MS.
+        if (speechWindows * 30 >= 300 && silentRun * 30 >= PAUSE_MS && (index - firstWindow) * 30 >= MIN_PHRASE_MS) {
           val cut = (index - silentRun + 1 + 200 / 30) * WINDOW_SAMPLES
           return intArrayOf(phraseStart, cut).also { phraseStart = cut; previewedLength = 0 }
         }
@@ -263,7 +263,8 @@ internal class LiveDictation(private val source: LiveAudioSource, val wavFile: F
 
   companion object {
     const val PAUSE_MS = 450
-    const val MAX_PHRASE_MS = 12_000
+    const val MIN_PHRASE_MS = 8_000
+    const val MAX_PHRASE_MS = 20_000
     const val MIN_NEW_AUDIO_MS = 350
   }
 }
