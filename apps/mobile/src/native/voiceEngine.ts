@@ -60,7 +60,7 @@ export function selectVoiceEngine(input: {
       if (engine === "parakeet") {
         const prepared = await parakeet.prepare(options);
         return {
-          locale: prepared.locale,
+          ...prepared,
           transcribe: async (uri, transcribeOptions) => {
             const { text, clip } = await prepared.transcribeToClip(uri, transcribeOptions);
             // Runs on the saved copy, since the recording is deleted once this returns.

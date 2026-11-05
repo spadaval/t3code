@@ -119,6 +119,7 @@ import {
   ComposerDictationStartAction,
   ComposerDictationStatus,
   ComposerDictationToolbar,
+  LiveDictationTranscript,
 } from "../voice-input/ComposerDictationControl";
 import { useVoiceInputController } from "../voice-input/useVoiceInputController";
 import { resolveVoiceComposerPresentation } from "../voice-input/voiceInputPresentation";
@@ -826,6 +827,9 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
               </Text>
             </View>
           ) : null}
+          {showsCompactDictation ? (
+            <LiveDictationTranscript draft={draftMessage} transcript={voiceInput.liveTranscript} />
+          ) : null}
           <View
             onLayout={(event) => {
               compactEditor.onRowLayout(event);
@@ -856,7 +860,8 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                         ? 0
                         : INLINE_EDITOR_MIN_WIDTH,
                   },
-                  compactEditor.containerStyle,
+                  // The editor is hidden while dictating, so it must not hold its expanded height.
+                  showsCompactDictation ? { height: 44 } : compactEditor.containerStyle,
                   compactEditor.isExpanded ? { flex: 0, width: 0 } : undefined,
                 ]}
               ></Animated.View>

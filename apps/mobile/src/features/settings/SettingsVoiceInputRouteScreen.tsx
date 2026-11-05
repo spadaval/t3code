@@ -144,6 +144,27 @@ export function SettingsVoiceInputRouteScreen() {
           Parakeet understands English only. Use Wi-Fi for the download; it continues if you leave
           this screen.
         </Text>
+        {native ? (
+          <>
+            <SettingsSection title="Live dictation">
+              <SettingsSwitchRow
+                icon="text.bubble"
+                label="Show text while speaking"
+                value={
+                  !AsyncResult.isSuccess(preferencesResult) ||
+                  preferencesResult.value.liveDictationEnabled !== false
+                }
+                disabled={!preferencesReady}
+                onValueChange={(enabled) => savePreferences({ liveDictationEnabled: enabled })}
+              />
+            </SettingsSection>
+            <Text className="px-2 text-sm text-foreground-muted">
+              With Parakeet, each phrase is transcribed when you pause, so finishing is almost
+              instant. Turn this off to transcribe the whole recording once you stop, which uses
+              less battery.
+            </Text>
+          </>
+        ) : null}
         {clips && native ? (
           <>
             <SettingsSection title="Debugging">

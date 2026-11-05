@@ -15,6 +15,8 @@ function getDeviceLocale(): string {
 }
 
 export type ParakeetPrepared = PreparedVoiceTranscription & {
+  /** Set when the native module records and transcribes together, so it owns the microphone. */
+  readonly liveDictation?: true;
   /** Also returns the saved debug clip's audio path, or null when capture is off. */
   readonly transcribeToClip: (
     uri: string,
