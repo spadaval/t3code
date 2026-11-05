@@ -46,6 +46,7 @@ import { cn } from "../../lib/cn";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { copyThreadReference } from "../../lib/copyThreadReference";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
+import { useEnvironmentConnected } from "../../state/presentation";
 import { useEnvironmentScope } from "../../state/session";
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 import {
@@ -161,6 +162,16 @@ const SLIM_MENU_ACTIONS: MenuAction[] = [
 const SNOOZED_MENU_ACTIONS: MenuAction[] = [
   { id: "unsnooze", title: "Wake thread", image: "clock" },
   { id: "delete", title: "Delete", image: "trash", attributes: { destructive: true } },
+];
+
+const OFFLINE_MENU_ACTIONS: MenuAction[] = [
+  {
+    id: "offline",
+    title: "Server offline",
+    subtitle: "Thread actions return when it reconnects",
+    image: "wifi.slash",
+    attributes: { disabled: true },
+  },
 ];
 
 const LEGACY_MENU_ACTIONS: MenuAction[] = [
@@ -841,6 +852,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const handleDelete = useCallback(() => onDeleteThread(thread), [onDeleteThread, thread]);
   const handleRename = useCallback(() => onRenameThread(thread), [onRenameThread, thread]);
   const canOperateThread = useEnvironmentScope(thread.environmentId, AuthOrchestrationOperateScope);
+  const environmentConnected = useEnvironmentConnected(thread.environmentId);
   const handleRegenerateTitle = useCallback(
     () => onRegenerateThreadTitle(thread),
     [onRegenerateThreadTitle, thread],
@@ -984,7 +996,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const menuActions = useMemo<MenuAction[]>(() => {
     const nested = Platform.OS === "ios";
     const direct: MenuAction[] = [
-      ...(thread.branch
+      ...(thread.branch && environmentConnected
         ? [
             {
               id: "new-thread-on-branch",
@@ -996,6 +1008,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       { id: "copy-thread", title: "Copy thread", image: "text.bubble" },
       { id: "copy-thread-id", title: "Copy thread ID", image: "doc.on.doc" },
     ];
+    if (!environmentConnected) return [...direct, ...OFFLINE_MENU_ACTIONS];
     if (snoozedRow) {
       return layoutThreadListV2RowMenuActions({
         nested,
@@ -1056,6 +1069,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   }, [
     autoSettleMenuItems,
     canUnsettle,
+    environmentConnected,
     pinMenuItems,
     props.settlementSupported,
     reorderMenuItems,
@@ -1190,11 +1204,27 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         : null,
     [handleMenuAction, snoozePresetActions, swipeActions.secondary, thread.title],
   );
-  const swipeAccessibilityHint = !canOperateThread
-    ? "Opens the thread"
-    : secondaryAction === null
-      ? `Opens the thread. Swipe left to ${primaryAction.label.toLowerCase()}.`
-      : `Opens the thread. Swipe left for ${primaryAction.label.toLowerCase()} and snooze actions.`;
+  const offlineAction = useMemo(
+    () => ({
+      accessibilityLabel: `Thread actions unavailable for ${thread.title}: server offline`,
+      disabled: true,
+      icon: "wifi.slash" as const,
+      label: "Offline",
+      onPress: () =>
+        Dialog.alert(
+          "Server offline",
+          "Settle, snooze and other thread actions come back when this thread's server reconnects.",
+        ),
+    }),
+    [thread.title],
+  );
+  const swipeAccessibilityHint = !environmentConnected
+    ? "Opens the thread. Thread actions are unavailable while its server is offline."
+    : !canOperateThread
+      ? "Opens the thread"
+      : secondaryAction === null
+        ? `Opens the thread. Swipe left to ${primaryAction.label.toLowerCase()}.`
+        : `Opens the thread. Swipe left for ${primaryAction.label.toLowerCase()} and snooze actions.`;
 
   const titleTextInset = props.project ? projectIconSize + 8 : 0;
   const cardContent = (
@@ -1552,7 +1582,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       </RowPressable>
     );
 
-  if (!canOperateThread)
+  if (environmentConnected && !canOperateThread)
     return <View style={rowAppearance.swipeContainerStyle}>{rowContent(() => {})}</View>;
 
   return (
@@ -1572,9 +1602,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         onDelete={handleDelete}
         onSwipeableClose={props.onSwipeableClose}
         onSwipeableWillOpen={props.onSwipeableWillOpen}
-        primaryAction={primaryAction}
-        secondaryAction={secondaryAction}
-        resetKey={`${thread.environmentId}:${thread.id}:${variant}:${snoozedRow}:${thread.settledAt}:${thread.unsettledAt}:${thread.snoozedUntil}:${thread.pinnedAt}`}
+        primaryAction={environmentConnected ? primaryAction : offlineAction}
+        secondaryAction={environmentConnected ? secondaryAction : null}
+        resetKey={`${thread.environmentId}:${thread.id}:${variant}:${environmentConnected}:${snoozedRow}:${thread.settledAt}:${thread.unsettledAt}:${thread.snoozedUntil}:${thread.pinnedAt}`}
         simultaneousWith={props.simultaneousSwipeGesture}
         threadTitle={thread.title}
       >

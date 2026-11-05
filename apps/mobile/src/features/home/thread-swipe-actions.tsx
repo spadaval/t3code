@@ -63,6 +63,8 @@ interface ThreadSwipeAction {
   readonly icon: ComponentProps<typeof SymbolView>["name"];
   readonly label: string;
   readonly destructive?: boolean;
+  /** Grayed out and never fired by a full swipe; tapping it still calls onPress to explain why. */
+  readonly disabled?: boolean;
   readonly menu?: {
     readonly actions: MenuAction[];
     readonly onPressAction: NonNullable<ComponentProps<typeof Menu>["onPressAction"]>;
@@ -71,8 +73,10 @@ interface ThreadSwipeAction {
   readonly onPress: () => void;
 }
 
+type SwipeActionTone = "primary" | "secondary" | "danger" | "disabled";
+
 interface ThreadSwipeSecondaryAction extends ThreadSwipeAction {
-  readonly tone: "primary" | "secondary" | "danger";
+  readonly tone: SwipeActionTone;
 }
 
 function swipeActionsWidth(hasSecondaryAction: boolean) {
@@ -243,6 +247,7 @@ export function ThreadSwipeable(props: ThreadSwipeableProps) {
   const fullSwipeThreshold = Math.max(actionsWidth + 44, props.fullSwipeWidth * 0.58);
   const fullSwipeAction =
     props.fullSwipeAction ?? (props.secondaryAction === undefined ? "delete" : "primary");
+  const fullSwipeDisabled = fullSwipeAction === "primary" && props.primaryAction.disabled === true;
   const close = useCallback(() => swipeableRef.current?.close(), []);
   const gateEnabled = use(SwipeableScrollGateContext);
   const mountedRef = useRef(true);
@@ -394,13 +399,13 @@ export function ThreadSwipeable(props: ThreadSwipeableProps) {
     (translation: SharedValue<number>) => {
       "worklet";
       if (dismissing.value) return true;
-      if (-translation.value >= fullSwipeThreshold) {
+      if (!fullSwipeDisabled && -translation.value >= fullSwipeThreshold) {
         runOnJS(commitFullSwipe)();
         return true;
       }
       return false;
     },
-    [commitFullSwipe, dismissing, fullSwipeThreshold],
+    [commitFullSwipe, dismissing, fullSwipeDisabled, fullSwipeThreshold],
   );
   const handleFullSwipeArmedChange = useCallback(
     (armed: boolean) => {
@@ -506,7 +511,7 @@ export function ThreadSwipeable(props: ThreadSwipeableProps) {
           onSwipeableOpenStartDrag={handleWillOpen}
           onSwipeableWillOpen={handleWillOpen}
           overshootFriction={1}
-          overshootRight
+          overshootRight={!fullSwipeDisabled}
           renderRightActions={renderRightActions}
           rightThreshold={actionsWidth * 0.42}
           simultaneousWith={props.simultaneousWith}
@@ -525,7 +530,7 @@ export function ThreadSwipeable(props: ThreadSwipeableProps) {
 function SwipeActionButton(props: {
   readonly accessibilityLabel: string;
   readonly actionsWidth: number;
-  readonly tone: "primary" | "secondary" | "danger";
+  readonly tone: SwipeActionTone;
   readonly compact: boolean;
   readonly entryRange: readonly [number, number];
   readonly fullSwipeThreshold: number;
@@ -617,12 +622,13 @@ function SwipeActionButton(props: {
     <Pressable
       accessibilityLabel={props.accessibilityLabel}
       accessibilityRole="button"
+      accessibilityState={{ disabled: props.tone === "disabled" }}
       onPress={props.menu === undefined ? props.onPress : undefined}
       style={({ pressed }) => ({
         alignItems: "center",
         height: "100%",
         justifyContent: "center",
-        opacity: pressed ? 0.72 : 1,
+        opacity: (pressed ? 0.72 : 1) * (props.tone === "disabled" ? 0.6 : 1),
         width: "100%",
       })}
     >
@@ -631,7 +637,7 @@ function SwipeActionButton(props: {
           className={
             props.tone === "danger"
               ? "bg-danger"
-              : props.tone === "secondary"
+              : props.tone === "secondary" || props.tone === "disabled"
                 ? "bg-secondary"
                 : "bg-primary"
           }
@@ -666,9 +672,11 @@ function SwipeActionButton(props: {
             tintColorClassName={
               props.tone === "danger"
                 ? "accent-danger-foreground"
-                : props.tone === "secondary"
-                  ? "accent-secondary-foreground"
-                  : "accent-primary-foreground"
+                : props.tone === "disabled"
+                  ? "accent-foreground-muted"
+                  : props.tone === "secondary"
+                    ? "accent-secondary-foreground"
+                    : "accent-primary-foreground"
             }
             type="monochrome"
           />
@@ -751,7 +759,13 @@ function ThreadSwipeActions(props: {
       <SwipeActionButton
         accessibilityLabel={props.primaryAction.accessibilityLabel}
         actionsWidth={actionsWidth}
-        tone={props.primaryAction.destructive === true ? "danger" : "primary"}
+        tone={
+          props.primaryAction.disabled === true
+            ? "disabled"
+            : props.primaryAction.destructive === true
+              ? "danger"
+              : "primary"
+        }
         compact={props.compact}
         entryRange={
           secondaryAction === null
