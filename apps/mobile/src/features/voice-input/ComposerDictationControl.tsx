@@ -1,6 +1,14 @@
 import type { VoiceInputPhase, VoiceInputState } from "@t3tools/client-runtime/voice-input";
-import { memo, useState, type ReactNode } from "react";
-import { Linking, Pressable, Text as SystemText, View, type LayoutChangeEvent } from "react-native";
+import { memo, useRef, useState, type ReactNode } from "react";
+import {
+  Linking,
+  Pressable,
+  ScrollView,
+  Text as SystemText,
+  View,
+  type LayoutChangeEvent,
+  type ScrollViewInstance,
+} from "react-native";
 import Animated, {
   Easing,
   ReduceMotion,
@@ -18,6 +26,7 @@ import { SymbolView, type AppSymbolName } from "../../components/ui/AppSymbol";
 import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
 import { cn } from "../../lib/cn";
 import type { VoiceComposerPresentation } from "./voiceInputPresentation";
+import type { VoiceLiveTranscript } from "./voiceInputSession";
 import { VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 
 const DICTATION_TIMING = {
@@ -459,5 +468,39 @@ export function ComposerDictationStartAction(props: {
           : props.onStart
       }
     />
+  );
+}
+
+const LIVE_TRANSCRIPT_MAX_HEIGHT = 132;
+
+/**
+ * The draft with the dictated text after it: finished phrases in full colour, the phrase still
+ * being spoken muted. Follows the newest words.
+ */
+export function LiveDictationTranscript(props: {
+  readonly draft: string;
+  readonly transcript: VoiceLiveTranscript | null;
+}) {
+  const transcript = props.transcript;
+  const scrollRef = useRef<ScrollViewInstance>(null);
+  if (!transcript || (!transcript.committed && !transcript.pending)) return null;
+  const { committed, pending } = transcript;
+  const draft = props.draft.trimEnd();
+  return (
+    <View accessibilityLiveRegion="polite" className="px-4 pt-2">
+      <ScrollView
+        ref={scrollRef}
+        style={{ maxHeight: LIVE_TRANSCRIPT_MAX_HEIGHT }}
+        showsVerticalScrollIndicator={false}
+        onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
+      >
+        <Text className="text-base leading-6 text-foreground">
+          {draft ? `${draft} ` : ""}
+          {committed}
+          {committed && pending ? " " : ""}
+          <Text className="text-foreground-muted">{pending}</Text>
+        </Text>
+      </ScrollView>
+    </View>
   );
 }

@@ -17,6 +17,20 @@ export type VoiceClipState = {
   readonly directory: string;
 };
 
+export type LiveTranscript = {
+  /** Finished phrases; they no longer change. */
+  readonly committed: string;
+  /** The phrase still being spoken; replaced on every update. */
+  readonly pending: string;
+};
+
+export type LiveDictationStatus = {
+  readonly isRecording: boolean;
+  readonly durationMillis: number;
+  readonly metering: number;
+  readonly error: string | null;
+};
+
 type ParakeetTranscriptionModule = {
   getModelState(): VoiceModelState;
   downloadModel(): void;
@@ -30,6 +44,17 @@ type ParakeetTranscriptionModule = {
     requestedAtMs: number,
   ): Promise<{ readonly text: string; readonly clip: string | null }>;
   cancelTranscription(): void;
+  /** Resolves with the URI the take is written to once capture stops. */
+  startLiveDictation(): Promise<string>;
+  getLiveDictationStatus(): LiveDictationStatus;
+  stopLiveDictation(): Promise<void>;
+  /** Transcribes what is still open and resolves with the whole transcript. */
+  finishLiveDictation(
+    draftOwnerKey: string,
+    draftText: string,
+    requestedAtMs: number,
+  ): Promise<{ readonly text: string; readonly clip: string | null }>;
+  cancelLiveDictation(): void;
   /** Resolves true after cueing the user that the Bluetooth mic is live, false if cancelled. */
   waitForBluetoothInput(): Promise<boolean>;
   cancelBluetoothInputWait(): void;
@@ -42,6 +67,10 @@ type ParakeetTranscriptionModule = {
   addListener(
     eventName: "onModelStateChange",
     listener: (state: VoiceModelState) => void,
+  ): EventSubscription;
+  addListener(
+    eventName: "onLiveTranscript",
+    listener: (transcript: LiveTranscript) => void,
   ): EventSubscription;
 };
 

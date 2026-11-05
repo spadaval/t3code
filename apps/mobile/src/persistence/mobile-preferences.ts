@@ -116,6 +116,8 @@ export interface Preferences {
   /** Leave the thread for the list as soon as a message is sent. */
   readonly fireAndForget?: boolean;
   readonly microphones?: ReadonlyArray<MicrophoneEntry>;
+  /** Unset means on: dictation shows text while the user speaks. */
+  readonly liveDictationEnabled?: boolean;
   readonly projectGroupingEnabled?: boolean;
   readonly projectGroupingMode?: SidebarProjectGroupingMode;
   readonly toolCallVisibility?: ToolCallVisibility;
@@ -204,6 +206,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     followUpBehavior?: FollowUpBehavior;
     fireAndForget?: boolean;
     microphones?: ReadonlyArray<MicrophoneEntry>;
+    liveDictationEnabled?: boolean;
     projectGroupingEnabled?: boolean;
     projectGroupingMode?: SidebarProjectGroupingMode;
     toolCallVisibility?: ToolCallVisibility;
@@ -322,6 +325,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
         ? [{ kind: entry.kind, uid: entry.uid, name: entry.name }]
         : [];
     });
+  }
+  if (typeof parsed.liveDictationEnabled === "boolean") {
+    preferences.liveDictationEnabled = parsed.liveDictationEnabled;
   }
   if (typeof parsed.projectGroupingEnabled === "boolean") {
     preferences.projectGroupingEnabled = parsed.projectGroupingEnabled;
