@@ -62,7 +62,6 @@ export function useThreadListV2(input: {
   readonly shelfPreferencesLoaded: boolean;
   readonly workingShelfEnabled: boolean;
   readonly workingShelfExpanded: boolean;
-  /** Folders replace the Working section, as on web's boring sidebar. */
   readonly projectFolders: LayoutInput["projectFolders"];
   readonly snoozedShelfExpanded: boolean;
   readonly settledShelfExpanded: boolean;
@@ -70,7 +69,7 @@ export function useThreadListV2(input: {
 }) {
   const { threads } = input;
   const projectFolders = input.searchQuery.trim().length === 0 ? input.projectFolders : null;
-  const workingShelfEnabled = input.workingShelfEnabled && projectFolders == null;
+  const { workingShelfEnabled } = input;
   const layoutTime = useMemo(
     () => threadListV2LayoutTime({ threads, now: input.now, searchQuery: input.searchQuery }),
     [threads, input.now, input.searchQuery],

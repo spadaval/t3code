@@ -622,6 +622,7 @@ describe("buildThreadListV2Items project folders", () => {
     sent("b-new", "beta", "2026-06-01T05:00:00.000Z"),
     sent("a-new", "alpha", "2026-06-01T03:00:00.000Z", { hasPendingApprovals: true }),
     sent("pinned", "beta", "2026-06-01T09:00:00.000Z", { pinnedAt: "2026-06-01T00:00:00.000Z" }),
+    sent("g-run", "gamma", "2026-06-01T07:00:00.000Z"),
   ];
   const build = (collapsed: ReadonlyArray<string>, selectedThreadKey: string | null = null) =>
     buildThreadListV2Items({
@@ -630,27 +631,32 @@ describe("buildThreadListV2Items project folders", () => {
       searchQuery: "",
       now: NOW,
       workingShelfEnabled: true,
+      workingShelfExpanded: true,
+      isWorking: (thread) => thread.id === "g-run",
       selectedThreadKey,
       projectFolders: {
-        groups: [group("alpha"), group("beta")],
+        groups: [group("alpha"), group("beta"), group("gamma")],
         collapsedKeys: new Set(collapsed),
       },
     });
 
-  it("folders active threads by project under pinned rows, latest message first", () => {
+  it("folders idle threads by project between pinned rows and Working, latest message first", () => {
     const layout = build([]);
     expect(layout.items.map((item) => item.thread.id)).toEqual([
       "pinned",
       "b-new",
       "a-new",
       "a-old",
+      "g-run",
     ]);
-    expect(layout.workingShelfHeaderIndex).toBeNull();
     expect(
       buildThreadListV2ListItems({
         items: layout.items,
         pendingTasks: [],
         projectFolders: layout.projectFolders,
+        workingCount: layout.workingCount,
+        workingShelfExpanded: true,
+        workingShelfHeaderIndex: layout.workingShelfHeaderIndex,
       }).map((item) => (item.type === "v2-thread" ? item.item.thread.id : item.key)),
     ).toEqual([
       "pinned",
@@ -659,19 +665,26 @@ describe("buildThreadListV2Items project folders", () => {
       "v2-project-folder:group:alpha",
       "a-new",
       "a-old",
+      "v2-working-shelf",
+      "g-run",
     ]);
   });
 
   it("a closed folder hides its threads but the open one, and dots what it hides", () => {
     const closed = build(["group:alpha", "group:beta"]);
-    expect(closed.items.map((item) => item.thread.id)).toEqual(["pinned"]);
+    expect(closed.items.map((item) => item.thread.id)).toEqual(["pinned", "g-run"]);
     expect(closed.projectFolders.map((folder) => [folder.count, folder.dot])).toEqual([
       [1, null],
       [2, "attention"],
     ]);
 
     const selected = build(["group:alpha"], `${environmentId}:a-new`);
-    expect(selected.items.map((item) => item.thread.id)).toEqual(["pinned", "b-new", "a-new"]);
+    expect(selected.items.map((item) => item.thread.id)).toEqual([
+      "pinned",
+      "b-new",
+      "a-new",
+      "g-run",
+    ]);
     expect(selected.projectFolders[1]?.dot).toBeNull();
   });
 });
