@@ -96,6 +96,8 @@ import { newTaskFlowKey } from "./new-task-flow-state";
 import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSymbol";
 import { ConnectionStatusDot } from "../connection/ConnectionStatusDot";
 import { appAtomRegistry } from "../../state/atom-registry";
+import { withDictationNote } from "../voice-input/dictationNote";
+import { mobilePreferencesAtom } from "../../state/preferences";
 
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 
@@ -660,7 +662,8 @@ export function NewTaskDraftScreen(props: {
     }
     // Persist locally before clearing or leaving the draft; server setup runs on the thread.
     flow.setSubmitting(true);
-    const queued = await settlePromise(() => enqueueThreadOutboxMessage(message));
+    const text = withDictationNote(message.text, draft, appAtomRegistry.get(mobilePreferencesAtom));
+    const queued = await settlePromise(() => enqueueThreadOutboxMessage({ ...message, text }));
     flow.setSubmitting(false);
     if (AsyncResult.isFailure(queued)) {
       const error = squashAtomCommandFailure(queued);
