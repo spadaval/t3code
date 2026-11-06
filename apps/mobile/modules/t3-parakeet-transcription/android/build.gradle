@@ -13,10 +13,13 @@ android {
     versionName '0.0.0'
     consumerProguardFiles 'proguard-rules.pro'
   }
+  // LiveDictation reads SystemClock at construction; tests need no other Android behavior.
+  testOptions.unitTests.returnDefaultValues = true
 }
 
 dependencies {
   // Parakeet runs through sherpa-onnx's ONNX Runtime build. JitPack, which the
   // Expo Android template already lists, serves the same AAR as the GitHub release.
   implementation 'com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.8'
+  testImplementation 'junit:junit:4.13.2'
 }
