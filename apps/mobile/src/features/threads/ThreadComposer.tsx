@@ -49,6 +49,7 @@ import {
   countComposerDraftAttachmentsAfterSelection,
   useComposerDraft,
   useComposerDraftResetGeneration,
+  markComposerDraftDictated,
 } from "../../state/use-composer-drafts";
 import type { ComposerDocumentAttachment } from "../../lib/composerContext";
 import { useProject, useVisibleThreadShells } from "../../state/entities";
@@ -456,7 +457,10 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     readDraftMessage: () => getComposerDraftSnapshot(composerDraftKey).text,
     selection: composerMenu.selection,
     hidden: props.hidden,
-    onChangeDraftMessage: (text) => setComposerDraftText(composerDraftKey, text),
+    onChangeDraftMessage: (text) => {
+      setComposerDraftText(composerDraftKey, text);
+      markComposerDraftDictated(composerDraftKey);
+    },
     onChangeSelection: composerMenu.onSelectionChange,
   });
   const isSubmissionLocked =

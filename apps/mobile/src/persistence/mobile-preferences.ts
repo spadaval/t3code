@@ -173,6 +173,8 @@ export interface Preferences {
   readonly microphones?: ReadonlyArray<MicrophoneEntry>;
   /** Unset means on: dictation shows text while the user speaks. */
   readonly liveDictationEnabled?: boolean;
+  /** Unset means on: a dictated message ends with a note telling the agent so. */
+  readonly dictationNoteEnabled?: boolean;
   readonly projectGroupingEnabled?: boolean;
   readonly projectGroupingMode?: SidebarProjectGroupingMode;
   readonly toolCallVisibility?: ToolCallVisibility;
@@ -272,6 +274,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     fireAndForget?: boolean;
     microphones?: ReadonlyArray<MicrophoneEntry>;
     liveDictationEnabled?: boolean;
+    dictationNoteEnabled?: boolean;
     projectGroupingEnabled?: boolean;
     projectGroupingMode?: SidebarProjectGroupingMode;
     toolCallVisibility?: ToolCallVisibility;
@@ -414,6 +417,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.liveDictationEnabled === "boolean") {
     preferences.liveDictationEnabled = parsed.liveDictationEnabled;
+  }
+  if (typeof parsed.dictationNoteEnabled === "boolean") {
+    preferences.dictationNoteEnabled = parsed.dictationNoteEnabled;
   }
   if (typeof parsed.projectGroupingEnabled === "boolean") {
     preferences.projectGroupingEnabled = parsed.projectGroupingEnabled;
