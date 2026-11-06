@@ -186,13 +186,10 @@ internal class LiveDictation(private val source: LiveAudioSource, val wavFile: F
     val (windows, end) = synchronized(lock) { ArrayList(windowDb) to length }
     if (phraseStart >= end) return null
     if (final) {
-      // Silence after the last word costs decode time and can only add noise.
-      val threshold = speechThreshold(windows)
-      val lastSpeech = (windows.size - 1 downTo phraseStart / WINDOW_SAMPLES).firstOrNull { windows[it] >= threshold }
+      // Runs to the end: a soft last word ("there?") sits under the speech threshold.
       val start = phraseStart
       phraseStart = end
-      if (lastSpeech == null) return null
-      return intArrayOf(start, minOf(end, (lastSpeech + 1 + 300 / 30) * WINDOW_SAMPLES))
+      return intArrayOf(start, end)
     }
     val firstWindow = phraseStart / WINDOW_SAMPLES
     if (windows.size <= firstWindow) return null
@@ -207,7 +204,8 @@ internal class LiveDictation(private val source: LiveAudioSource, val wavFile: F
         silentRun += 1
         // Short phrases lose context and transcribe worse, so a pause only ends one past MIN_PHRASE_MS.
         if (speechWindows * 30 >= 300 && silentRun * 30 >= PAUSE_MS && (index - firstWindow) * 30 >= MIN_PHRASE_MS) {
-          val cut = (index - silentRun + 1 + 200 / 30) * WINDOW_SAMPLES
+          // Cut after the whole pause: a soft word before it reads as silence, and the model needs the gap.
+          val cut = (index + 1) * WINDOW_SAMPLES
           return intArrayOf(phraseStart, cut).also { phraseStart = cut; previewedLength = 0 }
         }
       }
