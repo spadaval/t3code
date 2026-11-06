@@ -39,6 +39,19 @@ class GoogleVoiceTranscriberTest {
       }
       assertEquals(expected, collectGoogleVoiceTranscript(responses))
     }
+    val progress = mutableListOf<Pair<String, String>>()
+    collectGoogleVoiceTranscript(
+      flow {
+        emit(SpeechRecognizerResponse.PartialTextResponse("The begin"))
+        emit(SpeechRecognizerResponse.FinalTextResponse("The beginning.", emptyList()))
+        emit(SpeechRecognizerResponse.PartialTextResponse(" The end"))
+        emit(SpeechRecognizerResponse.CompletedResponse)
+      }
+    ) { committed, pending -> progress += committed to pending }
+    assertEquals(
+      listOf("" to "The begin", "The beginning." to "", "The beginning." to "The end"),
+      progress
+    )
     val incomplete = runCatching {
       collectGoogleVoiceTranscript(
         flow {

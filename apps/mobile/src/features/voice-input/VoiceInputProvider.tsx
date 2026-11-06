@@ -14,7 +14,10 @@ import {
   preferredMicrophoneInput,
   rememberMicrophones,
 } from "../../lib/microphonePriority";
-import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
+import {
+  addLiveTranscriptListener,
+  getLocalVoiceTranscriber,
+} from "../../native/voiceTranscription";
 import { createVoiceRecorder } from "../../native/voiceRecorder";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
@@ -190,6 +193,13 @@ const voiceInputAtom = Atom.make((get) => {
   const liveSubscription = parakeetModule?.addListener("onLiveTranscript", (transcript) =>
     session.setLiveTranscript(transcript),
   );
+  const googleLiveSubscription = addLiveTranscriptListener((transcript) => {
+    // Google recognizes during recording either way; the setting only hides its words.
+    const preferences = registry.get(mobilePreferencesAtom);
+    if (AsyncResult.isSuccess(preferences) && preferences.value.liveDictationEnabled === false)
+      return;
+    session.setLiveTranscript(transcript);
+  });
   // The controller prepares the transcription before the recorder, so its kind picks the recorder.
   let recorderKind: "live" | "streaming" | "file" = "file";
   const activeRecorder = () =>
@@ -256,6 +266,7 @@ const voiceInputAtom = Atom.make((get) => {
   get.addFinalizer(() => {
     permission.dispose();
     liveSubscription?.remove();
+    googleLiveSubscription?.remove();
     session.dispose();
     streamingRecorder.release();
     fileRecorder.release();

@@ -178,7 +178,7 @@ export function SettingsVoiceInputRouteScreen() {
             <Text className="px-2 text-sm text-foreground-muted">
               With Parakeet, each phrase is transcribed when you pause, so finishing is almost
               instant. Turn this off to transcribe the whole recording once you stop, which uses
-              less battery.
+              less battery. Google always transcribes as you speak; this only hides its text.
             </Text>
           </>
         ) : null}

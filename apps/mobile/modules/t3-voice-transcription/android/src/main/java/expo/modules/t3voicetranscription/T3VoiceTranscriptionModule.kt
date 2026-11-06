@@ -20,6 +20,9 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+// Same name and shape as the Parakeet module's event, so the composer previews either engine.
+private const val LIVE_EVENT = "onLiveTranscript"
+
 class T3VoiceTranscriptionModule : Module() {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private val lock = Any()
@@ -28,6 +31,7 @@ class T3VoiceTranscriptionModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("T3VoiceTranscription")
+    Events(LIVE_EVENT)
 
     AsyncFunction("checkAvailability").Coroutine<Boolean> {
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
@@ -81,7 +85,9 @@ class T3VoiceTranscriptionModule : Module() {
           ?: error("The voice recording is no longer available.")
         val context = requireNotNull(appContext.reactContext)
         MlKitSpeechClient(context, Locale.forLanguageTag(language), mode).use {
-          recorder.transcribe(uri, it)
+          recorder.transcribe(uri, it) { committed, pending ->
+            sendEvent(LIVE_EVENT, mapOf("committed" to committed, "pending" to pending))
+          }
         }
       }
     }
