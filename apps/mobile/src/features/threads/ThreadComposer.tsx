@@ -63,6 +63,7 @@ import {
   composerContextImportsAtom,
   countComposerDraftAttachmentsAfterSelection,
   useComposerDraft,
+  markComposerDraftDictated,
 } from "../../state/use-composer-drafts";
 import { appAtomRegistry } from "../../state/atom-registry";
 import type { ComposerDocumentAttachment } from "../../lib/composerContext";
@@ -575,7 +576,10 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     readDraftMessage: () => getComposerDraftSnapshot(composerDraftKey).text,
     subscribeToDraftChanges: (onChange) => appAtomRegistry.subscribe(composerDraftsAtom, onChange),
     selection: composerMenu.selection,
-    onChangeDraftMessage: (text) => setComposerDraftText(composerDraftKey, text),
+    onChangeDraftMessage: (text) => {
+      setComposerDraftText(composerDraftKey, text);
+      markComposerDraftDictated(composerDraftKey);
+    },
     onChangeSelection: composerMenu.onSelectionChange,
   });
   const isSubmissionLocked =

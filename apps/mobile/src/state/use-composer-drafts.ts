@@ -405,6 +405,8 @@ export interface ComposerDraft {
   readonly interactionMode?: ProviderInteractionMode;
   /** `/clear` armed this draft: its next message starts a fresh provider session. */
   readonly freshContext?: boolean;
+  /** Voice input wrote some of the text, so sending tells the agent to expect sound-alike errors. */
+  readonly dictated?: boolean;
   readonly workspaceSelection?: ComposerDraftWorkspaceSelection;
   readonly project?: ComposerDraftProject;
 }
@@ -476,6 +478,7 @@ const ComposerDraftSchema = Schema.Struct({
   runtimeMode: Schema.optional(RuntimeModeSchema),
   interactionMode: Schema.optional(ProviderInteractionModeSchema),
   freshContext: Schema.optional(Schema.Boolean),
+  dictated: Schema.optional(Schema.Boolean),
   workspaceSelection: Schema.optional(ComposerDraftWorkspaceSelectionSchema),
   project: Schema.optional(ComposerDraftProjectSchema),
 });
@@ -1337,11 +1340,24 @@ export function setComposerDraftText(draftKey: string, value: string): void {
   updateComposerDrafts((current) => {
     const existing = normalizeDraft(current[draftKey]);
     const context = referencedComposerContext(value, existing.context);
-    const draft = withReferencedContextFiles(existing, value, context);
+    const { dictated, ...draft } = withReferencedContextFiles(existing, value, context);
     removed = existing.attachments.filter((attachment) => !draft.attachments.includes(attachment));
-    return withComposerDraft(current, draftKey, draft);
+    // Clearing the text clears the mark; anything left keeps it, since it may still hold dictation.
+    return withComposerDraft(
+      current,
+      draftKey,
+      dictated && value.trim().length > 0 ? { ...draft, dictated } : draft,
+    );
   });
   scheduleUnusedComposerAttachmentCleanup(removed);
+}
+
+export function markComposerDraftDictated(draftKey: string): void {
+  updateComposerDrafts((current) => {
+    const existing = current[draftKey];
+    if (!existing || existing.dictated || existing.text.trim().length === 0) return current;
+    return withComposerDraft(current, draftKey, { ...existing, dictated: true });
+  });
 }
 
 export function insertComposerDraftText(
@@ -1628,6 +1644,7 @@ export function clearComposerDraftContentState(
   const {
     importedShareIds: _importedShareIds,
     context: _context,
+    dictated: _dictated,
     modelSelection,
     workspaceSelection,
     project: _project,
@@ -1796,6 +1813,7 @@ export function sameComposerDraftState(a: ComposerDraft, b: ComposerDraft): bool
     a.runtimeMode === b.runtimeMode &&
     a.interactionMode === b.interactionMode &&
     a.freshContext === b.freshContext &&
+    a.dictated === b.dictated &&
     a.workspaceSelection === b.workspaceSelection
   );
 }

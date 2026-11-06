@@ -144,6 +144,23 @@ export function SettingsVoiceInputRouteScreen() {
           Parakeet understands English only. Use Wi-Fi for the download; it continues if you leave
           this screen.
         </Text>
+        <SettingsSection title="Dictated messages">
+          <SettingsSwitchRow
+            icon="mic"
+            label="Tell the agent a message was dictated"
+            value={
+              !AsyncResult.isSuccess(preferencesResult) ||
+              preferencesResult.value.dictationNoteEnabled !== false
+            }
+            disabled={!preferencesReady}
+            onValueChange={(enabled) => savePreferences({ dictationNoteEnabled: enabled })}
+          />
+        </SettingsSection>
+        <Text className="px-2 text-sm text-foreground-muted">
+          Dictation gets words wrong in ways typing doesn't, with words that sound right but aren't.
+          This adds a short note to the end of messages you dictated, so the agent reads them with
+          that in mind.
+        </Text>
         {native ? (
           <>
             <SettingsSection title="Live dictation">

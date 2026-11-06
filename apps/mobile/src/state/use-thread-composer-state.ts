@@ -83,6 +83,7 @@ import {
   updateComposerDraftSettings,
   useComposerDraft,
   useComposerDraftSettings,
+  markComposerDraftDictated,
 } from "./use-composer-drafts";
 import { isClearComposerCommand, parseSideChatCommand } from "@t3tools/shared/composerTrigger";
 import {
@@ -95,6 +96,7 @@ import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime
 import { prepareTurnAttachments } from "../lib/attachmentUpload";
 import { DEFAULT_FOLLOW_UP_BEHAVIOR } from "../lib/followUpBehavior";
 import { mobilePreferencesAtom } from "./preferences";
+import { withDictationNote } from "../features/voice-input/dictationNote";
 import { environmentThreadDetails } from "./threads";
 import {
   endQueuedRunEdit,
@@ -761,7 +763,7 @@ export function useThreadComposerState(input: {
       threadId: selectedThreadShell.id,
       messageId,
       commandId: CommandId.make(metadata.commandId),
-      text,
+      text: withDictationNote(text, draft, appAtomRegistry.get(mobilePreferencesAtom)),
       attachments,
       context: draft.context,
       modelSelection,
@@ -790,6 +792,7 @@ export function useThreadComposerState(input: {
           attachments: [],
         });
         appendComposerDraftAttachments(threadKey, attachments, { allowOverflow: true });
+        if (draft.dictated) markComposerDraftDictated(threadKey);
         if (freshContext) setFreshSessionPending(threadKey, true);
         setThreadComposerError(
           threadKey,

@@ -205,6 +205,7 @@ import {
   restoreComposerDraftSnapshotState,
   restoreCloudComposerDrafts,
   retargetNewTaskDraft,
+  markComposerDraftDictated,
   setComposerDraftText,
   insertComposerDraftContext,
   insertComposerDraftText,
@@ -497,6 +498,32 @@ describe("mobile composer drafts", () => {
     expect(getComposerDraftSnapshot(key)).toEqual(before);
     h.setStatus("live");
     expect(appAtomRegistry.get(composerDraftsAtom)[key]).toBeUndefined();
+  });
+
+  it("marks a draft dictated until its text is cleared or sent, and persists the mark", () => {
+    const key = "dictated-thread";
+    markComposerDraftDictated(key);
+    expect(getComposerDraftSnapshot(key).dictated).toBeUndefined();
+
+    setComposerDraftText(key, "Fix the hunters");
+    markComposerDraftDictated(key);
+    setComposerDraftText(key, "Fix the launchers, then");
+    expect(getComposerDraftSnapshot(key).dictated).toBe(true);
+    expect(
+      decodePersistedComposerState({
+        schemaVersion: 1,
+        drafts: { [key]: getComposerDraftSnapshot(key) },
+      }).drafts[key]?.dictated,
+    ).toBe(true);
+
+    setComposerDraftText(key, "  ");
+    expect(getComposerDraftSnapshot(key).dictated).toBeUndefined();
+
+    setComposerDraftText(key, "Fix the hunters");
+    markComposerDraftDictated(key);
+    clearComposerDraftContent(key);
+    setComposerDraftText(key, "Typed by hand");
+    expect(getComposerDraftSnapshot(key).dictated).toBeUndefined();
   });
 
   it("releases an inactive thread pick only after its queued model becomes durable", () => {
