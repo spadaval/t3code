@@ -161,3 +161,9 @@ async function transcribeVoiceRecording(
     throw wrapError("transcription-failed", m(msg("Voice transcription failed.")), error);
   }
 }
+
+export function addLiveTranscriptListener(
+  _listener: (transcript: { readonly committed: string; readonly pending: string }) => void,
+): { remove(): void } | null {
+  return null;
+}
