@@ -1,6 +1,7 @@
 package expo.modules.t3voicetranscription
 
 import android.content.Context
+import android.util.Log
 import com.google.mlkit.genai.common.DownloadStatus
 import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.common.GenAiException
@@ -124,7 +125,11 @@ internal interface GoogleSpeechClient : Closeable {
   suspend fun download()
 }
 
-internal class MlKitSpeechClient(context: Context, locale: Locale, mode: Int) : GoogleSpeechClient {
+internal class MlKitSpeechClient(
+  context: Context,
+  private val locale: Locale,
+  private val mode: Int
+) : GoogleSpeechClient {
   private val context = context.applicationContext
   private val recognizer = SpeechRecognition.getClient(
     speechRecognizerOptions {
@@ -133,7 +138,13 @@ internal class MlKitSpeechClient(context: Context, locale: Locale, mode: Int) : 
     }
   )
 
-  override suspend fun checkStatus() = recognizer.checkStatus()
+  // The availability probe swallows failures, so this log is the only record of why Google is off.
+  override suspend fun checkStatus() = try {
+    recognizer.checkStatus().also { Log.i(TAG, "mode $mode ${locale.toLanguageTag()}: status $it") }
+  } catch (error: GenAiException) {
+    Log.w(TAG, "mode $mode ${locale.toLanguageTag()}: error ${error.errorCode}", error)
+    throw error
+  }
 
   override suspend fun download() {
     val result = recognizer.download().first {
@@ -171,3 +182,5 @@ internal class MlKitSpeechClient(context: Context, locale: Locale, mode: Int) : 
 
   override fun close() = recognizer.close()
 }
+
+private const val TAG = "T3VoiceTranscription"
