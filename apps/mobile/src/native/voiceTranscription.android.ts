@@ -1,4 +1,4 @@
-import { requireOptionalNativeModule } from "expo";
+import { requireOptionalNativeModule, type EventSubscription } from "expo";
 import type { RecorderState, RecordingStatus } from "expo-audio";
 import { Platform } from "react-native";
 import type { NativeVoiceRecorder } from "../features/voice-input/lazyVoiceRecorder";
@@ -9,6 +9,8 @@ import {
   type VoiceTranscriber,
 } from "@t3tools/client-runtime/voice-input";
 
+type LiveVoiceTranscript = { readonly committed: string; readonly pending: string };
+
 type PreparedGoogleTranscription = { readonly locale: string; readonly mode: number };
 
 type GoogleTranscriptionModule = {
@@ -18,6 +20,10 @@ type GoogleTranscriptionModule = {
   cancel(id: number): Promise<void>;
   readonly LiveVoiceRecorder?: new () => NativeVoiceRecorder<RecordingStatus, RecorderState>;
   startLive?(id: number, uri: string, locale: string, mode: number): Promise<string>;
+  addListener(
+    eventName: "onLiveTranscript",
+    listener: (transcript: LiveVoiceTranscript) => void,
+  ): EventSubscription;
 };
 
 const native = requireOptionalNativeModule<GoogleTranscriptionModule>("T3VoiceTranscription");
@@ -37,6 +43,11 @@ const nativeErrorMessages: Readonly<Record<string, string>> = {
 };
 
 let nextOperationId = 0;
+
+/** Google's words so far while it transcribes during recording. */
+export function addLiveTranscriptListener(listener: (transcript: LiveVoiceTranscript) => void) {
+  return native?.addListener("onLiveTranscript", listener) ?? null;
+}
 
 export function createLiveVoiceRecorder() {
   return Number(Platform.Version) >= 31 && native?.LiveVoiceRecorder
