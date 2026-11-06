@@ -9,6 +9,7 @@ import { LogBox } from "react-native";
 import { featureFlags } from "react-native-screens";
 
 import App from "./src/App";
+import { installAndroidExitGuard } from "./src/lib/exitGuard";
 
 // Enables iOS FormSheet sizing for nested native stacks in non-fitToContents sheets.
 featureFlags.experiment.synchronousScreenUpdatesEnabled = true;
@@ -17,4 +18,6 @@ if (process.env.EXPO_PUBLIC_SHOWCASE === "1") {
   LogBox.ignoreAllLogs();
 }
 
+// Before the app mounts, so every screen's Back listener runs ahead of it.
+installAndroidExitGuard();
 registerRootComponent(App);
