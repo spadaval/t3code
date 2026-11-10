@@ -1318,7 +1318,16 @@ function ThreadDetailBody(
     if (messageId === null || scope.aborted) {
       return messageId;
     }
-    if (fireAndForget && !props.draftMode && props.connectionStateLabel === "connected") {
+    // Back-and-forth chat stays put; only a thread's opening message sends you off. The feed
+    // may be a paged window, so a started turn also marks the thread as underway.
+    if (
+      fireAndForget() &&
+      !hasUserMessage &&
+      props.selectedThread.latestRun === null &&
+      props.selectedThreadQueueCount === 0 &&
+      !props.draftMode &&
+      props.connectionStateLabel === "connected"
+    ) {
       composerEditorRef.current?.blur();
       exitToThreadList();
       return messageId;

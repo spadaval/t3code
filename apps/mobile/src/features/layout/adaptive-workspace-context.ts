@@ -29,6 +29,8 @@ export interface AdaptiveWorkspaceActions {
   /** Shows the sidebar, setting aside the keyboard or an inspector that took its room. */
   readonly revealPrimarySidebar: () => void;
   readonly setPrimarySidebarVisible: (visible: boolean) => void;
+  /** Reads whether the sidebar shows now, without re-rendering on pane toggles. */
+  readonly isPrimarySidebarVisible: () => boolean;
   /** Opens a workspace tab with its list and, with columns, the page it last showed. */
   readonly openWorkspaceTab: (
     tab: WorkspaceTab | "settings",
@@ -84,6 +86,7 @@ export const AdaptiveWorkspaceContext = createContext<AdaptiveWorkspaceLayoutVal
   togglePrimarySidebar: () => undefined,
   revealPrimarySidebar: () => undefined,
   setPrimarySidebarVisible: () => undefined,
+  isPrimarySidebarVisible: () => false,
   openWorkspaceTab: () => undefined,
   setAuxiliaryPaneWidth: () => undefined,
   nativeInspectorWidth: 0,

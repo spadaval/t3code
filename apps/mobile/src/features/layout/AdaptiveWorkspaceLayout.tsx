@@ -211,6 +211,7 @@ function useStableActions(actions: Required<AdaptiveWorkspaceActions>): Adaptive
     togglePrimarySidebar: () => latest.current.togglePrimarySidebar(),
     revealPrimarySidebar: () => latest.current.revealPrimarySidebar(),
     setPrimarySidebarVisible: (visible) => latest.current.setPrimarySidebarVisible(visible),
+    isPrimarySidebarVisible: () => latest.current.isPrimarySidebarVisible(),
     openWorkspaceTab: (tab, options) => latest.current.openWorkspaceTab(tab, options),
     setAuxiliaryPaneWidth: (width) => latest.current.setAuxiliaryPaneWidth(width),
     setNativeInspectorWidth: (width) => latest.current.setNativeInspectorWidth(width),
@@ -918,6 +919,7 @@ function AdaptiveWorkspaceLayoutContent(
     togglePrimarySidebar,
     revealPrimarySidebar,
     setPrimarySidebarVisible,
+    isPrimarySidebarVisible: () => panes.primarySidebarVisible,
     openWorkspaceTab,
     setAuxiliaryPaneWidth: setFileInspectorPreferredWidth,
     setNativeInspectorWidth: (width: number) =>

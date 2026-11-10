@@ -674,7 +674,7 @@ export function NewTaskDraftScreen(props: {
       return null;
     }
     promptInputRef.current?.blur();
-    const leaveForList = fireAndForget && environmentConnected;
+    const leaveForList = fireAndForget() && environmentConnected;
     if (!leaveForList) {
       navigation.dispatch(
         CommonActions.setParams(

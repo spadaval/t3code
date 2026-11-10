@@ -69,7 +69,7 @@ export function SettingsFollowUpRouteScreen() {
         <SettingsSwitchRow
           icon="paperplane"
           label="Fire and forget"
-          subtitle="Once a message sends, go back to the thread list. The agent keeps working without you."
+          subtitle="After a thread's first message sends, go back to the thread list. Off while the sidebar shows the list."
           disabled={!preferencesReady}
           value={fireAndForget}
           onValueChange={(value) => savePreferences({ fireAndForget: value })}
