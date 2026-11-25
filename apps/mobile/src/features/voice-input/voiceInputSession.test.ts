@@ -400,7 +400,7 @@ describe("global voice input", () => {
     session.setLiveTranscript(heard);
     expect(session.getSnapshot().liveTranscript).toBeNull();
 
-    await session.start(createTarget("first", () => "", vi.fn(), { start: 0, end: 0 }));
+    await session.start(createVoiceInputTarget("first", () => "", vi.fn(), { start: 0, end: 0 }));
     session.setLiveTranscript(heard);
     expect(session.getSnapshot().liveTranscript).toEqual(heard);
 

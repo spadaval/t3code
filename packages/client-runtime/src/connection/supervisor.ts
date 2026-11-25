@@ -1152,9 +1152,27 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
         const previousScope = leaseScope;
         lease = event.upgrade.lease;
         leaseScope = event.upgrade.scope;
-        recordHandoff(lease.session, previous.session);
+        const upgradedRouteId = connectionRouteId(lease.prepared.target);
+        const latestRoutes = yield* currentRoutes;
+        const nextRefused = yield* Ref.updateAndGet(refusedRoutes, (known) =>
+          mergeRefusedRoutes(
+            known,
+            lease.refusedRouteIds,
+            (id) =>
+              id !== upgradedRouteId &&
+              latestRoutes.some((route) => connectionRouteId(route.target) === id),
+          ),
+        );
+        recordHandoff(lease.session, previous.session, lease.prepared);
         yield* SubscriptionRef.set(prepared, Option.some(lease.prepared));
         yield* SubscriptionRef.set(session, Option.some(lease.session));
+        yield* SubscriptionRef.updateSome(state, (current) =>
+          current.phase === "connected" &&
+          current.generation === lease.generation &&
+          current.refusedRouteIds !== nextRefused
+            ? Option.some({ ...current, refusedRouteIds: nextRefused })
+            : Option.none(),
+        );
         yield* Ref.set(upgradeInFlight, false);
         yield* Effect.sleep(HANDOFF_DRAIN).pipe(
           Effect.andThen(Scope.close(previousScope, Exit.void)),

@@ -12,6 +12,10 @@ vi.mock("expo-file-system", () => ({
     delete() {}
   },
 }));
+vi.mock("expo-haptics", () => ({
+  ImpactFeedbackStyle: { Medium: "medium" },
+  impactAsync: async () => {},
+}));
 vi.mock("expo-keep-awake", () => ({
   activateKeepAwakeAsync: async () => {},
   deactivateKeepAwake: async () => {},
@@ -23,8 +27,12 @@ vi.mock("expo-audio", () => ({
   setAudioModeAsync: vi.fn(async () => {}),
   setIsAudioActiveAsync: async () => {},
 }));
+vi.mock("../../native/parakeetModel", () => ({ parakeetModule: null }));
 vi.mock("../../native/voiceRecorder", () => ({ createVoiceRecorder: vi.fn() }));
-vi.mock("../../native/voiceTranscription", () => ({ getLocalVoiceTranscriber: async () => null }));
+vi.mock("../../native/voiceTranscription", () => ({
+  getLocalVoiceTranscriber: async () => null,
+  addLiveTranscriptListener: () => ({ remove() {} }),
+}));
 vi.mock("../../state/preferences", async () => {
   const { AsyncResult, Atom } = await import("effect/reactivity");
   return { mobilePreferencesAtom: Atom.make(AsyncResult.initial()) };
@@ -38,7 +46,7 @@ import { setAudioModeAsync } from "expo-audio";
 import type { MicrophoneEntry } from "../../lib/microphonePriority";
 import { createVoiceRecorder } from "../../native/voiceRecorder";
 import { mobilePreferencesAtom } from "../../state/preferences";
-import { localVoiceTranscriberAtom, voiceInputAtom } from "./VoiceInputProvider";
+import { googleVoiceTranscriberAtom, voiceInputAtom } from "./VoiceInputProvider";
 import { createVoiceInputTarget } from "./voiceInputSession";
 
 it("uses the loaded microphone order when recording starts before preferences hydrate", async () => {
@@ -69,8 +77,12 @@ it("uses the loaded microphone order when recording starts before preferences hy
     setInput,
     release() {},
   });
-  registry.set(localVoiceTranscriberAtom, {
-    prepare: async () => ({ locale: "en-US", transcribe: async () => "" }),
+  registry.set(googleVoiceTranscriberAtom, {
+    prepare: async () => ({
+      locale: "en-US",
+      start: async () => null,
+      transcribe: async () => "",
+    }),
   });
   const { session } = registry.get(voiceInputAtom);
   const subscribe = registry.subscribe.bind(registry);

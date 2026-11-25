@@ -433,7 +433,7 @@ function ThreadDetailBody(
   const [composerOwnsKeyboard, setComposerOwnsKeyboard] = useState(false);
   if (sidebarSearchActive && composerOwnsKeyboard) setComposerOwnsKeyboard(false);
   const navigation = useNavigation();
-  const exitToThreadList = useWorkspaceBackNavigation("threads");
+  const exitToThreadList = useWorkspaceBackNavigation();
   const fireAndForget = useFireAndForget();
   const openLinkedThread = useOpenLinkedThread();
   const openInspector = useOpenThreadInspector();

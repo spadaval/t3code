@@ -31,7 +31,7 @@ import * as EnvironmentRegistry from "../connection/registry.ts";
 import { connectionProjectionPhase, type PreparedConnection } from "../connection/model.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as ConnectionWakeups from "../connection/wakeups.ts";
-import { continuesSession } from "../connection/handoff.ts";
+import { continuesSession, isHandoffPrepared } from "../connection/handoff.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import * as Persistence from "../platform/persistence.ts";
 import { runCachePersistence } from "./cachePersistence.ts";
@@ -590,11 +590,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         }
         // A route upgrade updates prepared while a session is already live; leave the active
         // subscription intact so makeSubscribeInput recognizes the handoff and resumes over WS.
-        if (
-          !claim &&
-          prepared !== null &&
-          Option.isSome(yield* SubscriptionRef.get(supervisor.session))
-        ) {
+        if (!claim && prepared !== null && isHandoffPrepared(prepared)) {
           return [current, current] as const;
         }
         if (current !== null) yield* Fiber.interrupt(current.fiber);

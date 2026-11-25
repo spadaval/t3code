@@ -2494,15 +2494,15 @@ describe("EnvironmentSupervisor routes", () => {
 
       yield* Ref.set(lanRefuses, false);
       yield* harness.wake("network-changed");
+      yield* awaitPrepared(
+        supervisor.prepared,
+        (prepared) => connectionRouteId(prepared.target) === LAN_TARGET.connectionId,
+      );
       const overLan = yield* awaitState(
         supervisor.state,
-        (value) => value.phase === "connected" && value.generation > connected.generation,
+        (value) => value.phase === "connected" && value.refusedRouteIds.length === 0,
       );
-      expect(
-        connectionRouteId(
-          Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).target,
-        ),
-      ).toBe(LAN_TARGET.connectionId);
+      expect(overLan.generation).toBe(connected.generation);
       expect(overLan.refusedRouteIds).toEqual([]);
     }),
   );
@@ -2564,15 +2564,12 @@ describe("EnvironmentSupervisor routes", () => {
 
       yield* Ref.set(lanReachable, true);
       yield* harness.wake("network-changed");
-      const overLan = yield* awaitState(
-        supervisor.state,
-        (state) => state.phase === "connected" && state.generation === 2,
+      yield* awaitPrepared(
+        supervisor.prepared,
+        (prepared) => connectionRouteId(prepared.target) === LAN_TARGET.connectionId,
       );
-      expect(
-        connectionRouteId(
-          Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).target,
-        ),
-      ).toBe(LAN_TARGET.connectionId);
+      const overLan = yield* SubscriptionRef.get(supervisor.state);
+      expect(overLan.generation).toBe(1);
       expect(overLan.refusedRouteIds).toEqual([loopbackTarget.connectionId]);
     }),
   );

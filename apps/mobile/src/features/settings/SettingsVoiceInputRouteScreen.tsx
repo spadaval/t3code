@@ -1,4 +1,5 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react";
+/* oxlint-disable t3code/no-untranslated-copy -- Fork-only English settings screen. */
+import { useAtomValue } from "@effect/atom-react";
 import { useFocusEffect } from "@react-navigation/native";
 import { AsyncResult } from "effect/reactivity";
 import { useCallback, useState } from "react";
@@ -11,7 +12,8 @@ import { ListChoiceRow as SettingsChoiceRow } from "../../components/ui/ListChoi
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { parakeetModule, useVoiceModelState } from "../../native/parakeetModel";
 import { DEFAULT_VOICE_ENGINE, type VoiceEngine } from "../../native/voiceEngine";
-import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
+import { mobilePreferencesAtom, saveMobilePreferences } from "../../state/preferences";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { googleVoiceTranscriberAtom } from "../voice-input/VoiceInputProvider";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
@@ -27,7 +29,7 @@ export function SettingsVoiceInputRouteScreen() {
   const model = useVoiceModelState();
   const native = parakeetModule;
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
-  const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const savePreferences = useAtomCommand(saveMobilePreferences);
   const preferencesReady = AsyncResult.isSuccess(preferencesResult) && !preferencesResult.waiting;
   const engine = AsyncResult.isSuccess(preferencesResult)
     ? (preferencesResult.value.voiceEngine ?? DEFAULT_VOICE_ENGINE)
