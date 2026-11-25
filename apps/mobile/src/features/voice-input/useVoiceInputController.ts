@@ -67,7 +67,6 @@ export function useVoiceInputController(input: {
   return {
     isAvailable: global.isAvailable && (!global.isBusy || global.ownerKey === input.ownerKey),
     state,
-    liveTranscript: global.ownerKey === input.ownerKey ? global.liveTranscript : null,
     audioLevels: global.audioLevels,
     elapsedSeconds: global.elapsedSeconds,
     isBusy,

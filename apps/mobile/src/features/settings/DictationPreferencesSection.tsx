@@ -7,7 +7,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 
-export function DictationPreferencesSection(props: { readonly showLiveText: boolean }) {
+export function DictationPreferencesSection() {
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
   const savePreferences = useAtomCommand(saveMobilePreferences);
   const ready = AsyncResult.isSuccess(preferencesResult) && !preferencesResult.waiting;
@@ -22,15 +22,6 @@ export function DictationPreferencesSection(props: { readonly showLiveText: bool
         value={preferences?.dictationNoteEnabled !== false}
         onValueChange={(enabled) => void savePreferences({ dictationNoteEnabled: enabled })}
       />
-      {props.showLiveText ? (
-        <SettingsSwitchRow
-          icon="text.bubble"
-          label="Show text while speaking"
-          disabled={!ready}
-          value={preferences?.liveDictationEnabled !== false}
-          onValueChange={(enabled) => void savePreferences({ liveDictationEnabled: enabled })}
-        />
-      ) : null}
     </SettingsSection>
   );
 }

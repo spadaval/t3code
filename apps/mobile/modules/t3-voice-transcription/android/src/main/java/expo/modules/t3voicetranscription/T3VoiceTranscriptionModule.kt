@@ -20,8 +20,6 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private const val LIVE_EVENT = "onLiveTranscript"
-
 class T3VoiceTranscriptionModule : Module() {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private val lock = Any()
@@ -31,7 +29,6 @@ class T3VoiceTranscriptionModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("T3VoiceTranscription")
-    Events(LIVE_EVENT)
 
     defineDecodeRecording()
 
@@ -93,9 +90,7 @@ class T3VoiceTranscriptionModule : Module() {
           ?: error("The voice recording is no longer available.")
         val context = requireNotNull(appContext.reactContext)
         MlKitSpeechClient(context, Locale.forLanguageTag(language), mode).use {
-          recorder.transcribe(uri, it) { committed, pending ->
-            sendEvent(LIVE_EVENT, mapOf("committed" to committed, "pending" to pending))
-          }
+          recorder.transcribe(uri, it)
         }
       }
     }

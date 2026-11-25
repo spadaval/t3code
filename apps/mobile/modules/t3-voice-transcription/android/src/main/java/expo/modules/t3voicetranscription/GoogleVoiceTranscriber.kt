@@ -100,8 +100,7 @@ private fun isModelUnavailable(error: GenAiException): Boolean = when (error.err
 }
 
 internal suspend fun collectGoogleVoiceTranscript(
-  responses: Flow<SpeechRecognizerResponse>,
-  onProgress: (committed: String, pending: String) -> Unit = { _, _ -> }
+  responses: Flow<SpeechRecognizerResponse>
 ): String {
   val text = StringBuilder()
   var partial = ""
@@ -112,12 +111,8 @@ internal suspend fun collectGoogleVoiceTranscript(
       is SpeechRecognizerResponse.FinalTextResponse -> {
         text.append(response.text)
         partial = ""
-        onProgress(text.toString().trim(), "")
       }
-      is SpeechRecognizerResponse.PartialTextResponse -> {
-        partial = response.text
-        onProgress(text.toString().trim(), partial.trim())
-      }
+      is SpeechRecognizerResponse.PartialTextResponse -> partial = response.text
       is SpeechRecognizerResponse.ErrorResponse -> throw response.e
       is SpeechRecognizerResponse.CompletedResponse -> completed = true
       else -> Unit
@@ -167,16 +162,11 @@ internal class MlKitSpeechClient(context: Context, locale: Locale, mode: Int) : 
     }
   }
 
-  suspend fun transcribeLive(
-    capture: LivePcmCapture,
-    pipe: PcmPipe,
-    onProgress: (committed: String, pending: String) -> Unit
-  ): String = pipe.use {
+  suspend fun transcribeLive(capture: LivePcmCapture, pipe: PcmPipe): String = pipe.use {
     val request = speechRecognizerRequest { audioSource = pipe.source }
     try {
       collectGoogleVoiceTranscript(
-        livePcmResponses(capture, pipe) { recognizer.startRecognition(request) },
-        onProgress
+        livePcmResponses(capture, pipe) { recognizer.startRecognition(request) }
       )
     } finally {
       withContext(NonCancellable) { runCatching { recognizer.stopRecognition() } }

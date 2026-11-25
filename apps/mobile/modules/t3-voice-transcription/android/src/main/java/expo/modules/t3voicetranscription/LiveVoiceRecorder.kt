@@ -182,14 +182,10 @@ internal class LiveVoiceRecorder(
     inputSelection?.cancel()
   }
 
-  suspend fun transcribe(
-    uri: String,
-    client: MlKitSpeechClient,
-    onProgress: (committed: String, pending: String) -> Unit
-  ): String {
+  suspend fun transcribe(uri: String, client: MlKitSpeechClient): String {
     check(this.uri == uri && !inferenceStarted) { "The voice recording is no longer available." }
     inferenceStarted = true
-    return client.transcribeLive(requireNotNull(capture), requireNotNull(pipe), onProgress)
+    return client.transcribeLive(requireNotNull(capture), requireNotNull(pipe))
   }
 
   override fun sharedObjectDidRelease() {

@@ -16,10 +16,7 @@ import {
   preferredMicrophoneInput,
   rememberMicrophones,
 } from "../../lib/microphonePriority";
-import {
-  addLiveTranscriptListener,
-  getLocalVoiceTranscriber,
-} from "../../native/voiceTranscription";
+import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
 import { bluetoothRouteWait, createVoiceRecorder } from "../../native/voiceRecorder";
 import { mobilePreferencesAtom, saveMobilePreferences } from "../../state/preferences";
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
@@ -140,13 +137,6 @@ export const voiceInputAtom = Atom.make((get) => {
       return preferredMicrophoneInput(inputs, order);
     },
   });
-  const liveSubscription = addLiveTranscriptListener((transcript) => {
-    // Google recognizes during recording either way; the setting only hides its words.
-    const preferences = registry.get(mobilePreferencesAtom);
-    if (AsyncResult.isSuccess(preferences) && preferences.value.liveDictationEnabled === false)
-      return;
-    session.setLiveTranscript(transcript);
-  });
   const session: VoiceInputSession = new VoiceInputSession({
     recorder,
     getTranscriber: () => {
@@ -197,7 +187,6 @@ export const voiceInputAtom = Atom.make((get) => {
   get.subscribe(voiceRouteAtom, () => session.controller.cancel());
   get.addFinalizer(() => {
     permission.dispose();
-    liveSubscription?.remove();
     session.dispose();
     recorder.release();
   });

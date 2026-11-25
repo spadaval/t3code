@@ -1,4 +1,4 @@
-import { requireOptionalNativeModule, type EventSubscription } from "expo";
+import { requireOptionalNativeModule } from "expo";
 import type { RecorderState, RecordingStatus } from "expo-audio";
 import { msg } from "gt-react-native";
 import { Platform } from "react-native";
@@ -11,8 +11,6 @@ import {
   type VoiceTranscriber,
 } from "@t3tools/client-runtime/voice-input";
 
-type LiveVoiceTranscript = { readonly committed: string; readonly pending: string };
-
 type PreparedGoogleTranscription = { readonly locale: string; readonly mode: number };
 
 type GoogleTranscriptionModule = {
@@ -24,10 +22,6 @@ type GoogleTranscriptionModule = {
   startLive?(id: number, uri: string, locale: string, mode: number): Promise<string>;
   waitForBluetoothInput(): Promise<boolean>;
   cancelBluetoothInputWait(): void;
-  addListener(
-    eventName: "onLiveTranscript",
-    listener: (transcript: LiveVoiceTranscript) => void,
-  ): EventSubscription;
 };
 
 const native = requireOptionalNativeModule<GoogleTranscriptionModule>("T3VoiceTranscription");
@@ -52,11 +46,6 @@ const nativeErrorMessages: Readonly<Record<string, string>> = {
 };
 
 let nextOperationId = 0;
-
-/** Google's words so far while it transcribes during recording. */
-export function addLiveTranscriptListener(listener: (transcript: LiveVoiceTranscript) => void) {
-  return native?.addListener("onLiveTranscript", listener) ?? null;
-}
 
 /**
  * Settles once the Bluetooth call link carries audio, after a short beep through it.
