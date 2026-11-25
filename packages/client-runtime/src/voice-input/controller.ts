@@ -606,7 +606,7 @@ export class VoiceInputController {
           (await runTranscriptionOperation(() =>
             transcription.streaming
               ? transcription.streaming.finish({ signal })
-              : transcription.transcribe(recordingUri!, { signal, draft: capturedDraft }),
+              : transcription.transcribe(recordingUri!, { signal }),
           ));
       } catch (error) {
         if (this.isCurrent(operationToken)) {

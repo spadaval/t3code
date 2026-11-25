@@ -20,7 +20,6 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// Same name and shape as the Parakeet module's event, so the composer previews either engine.
 private const val LIVE_EVENT = "onLiveTranscript"
 
 class T3VoiceTranscriptionModule : Module() {
@@ -28,12 +27,19 @@ class T3VoiceTranscriptionModule : Module() {
   private val lock = Any()
   private var operation: Pair<Int, Job>? = null
   private val recorders = ConcurrentHashMap<String, LiveVoiceRecorder>()
+  private val bluetoothWait by lazy { BluetoothInputWait(requireNotNull(appContext.reactContext)) }
 
   override fun definition() = ModuleDefinition {
     Name("T3VoiceTranscription")
     Events(LIVE_EVENT)
 
     defineDecodeRecording()
+
+    AsyncFunction("waitForBluetoothInput") { promise: Promise ->
+      bluetoothWait.start { ready -> promise.resolve(ready) }
+    }
+
+    Function("cancelBluetoothInputWait") { bluetoothWait.cancel() }
 
     AsyncFunction("checkAvailability").Coroutine<Boolean> {
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {

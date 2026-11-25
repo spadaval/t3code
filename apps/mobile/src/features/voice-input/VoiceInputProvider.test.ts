@@ -27,8 +27,10 @@ vi.mock("expo-audio", () => ({
   setAudioModeAsync: vi.fn(async () => {}),
   setIsAudioActiveAsync: async () => {},
 }));
-vi.mock("../../native/parakeetModel", () => ({ parakeetModule: null }));
-vi.mock("../../native/voiceRecorder", () => ({ createVoiceRecorder: vi.fn() }));
+vi.mock("../../native/voiceRecorder", () => ({
+  createVoiceRecorder: vi.fn(),
+  bluetoothRouteWait: null,
+}));
 vi.mock("../../native/voiceTranscription", () => ({
   getLocalVoiceTranscriber: async () => null,
   addLiveTranscriptListener: () => ({ remove() {} }),
@@ -46,7 +48,7 @@ import { setAudioModeAsync } from "expo-audio";
 import type { MicrophoneEntry } from "../../lib/microphonePriority";
 import { createVoiceRecorder } from "../../native/voiceRecorder";
 import { mobilePreferencesAtom } from "../../state/preferences";
-import { googleVoiceTranscriberAtom, voiceInputAtom } from "./VoiceInputProvider";
+import { localVoiceTranscriberAtom, voiceInputAtom } from "./VoiceInputProvider";
 import { createVoiceInputTarget } from "./voiceInputSession";
 
 it("uses the loaded microphone order when recording starts before preferences hydrate", async () => {
@@ -77,12 +79,8 @@ it("uses the loaded microphone order when recording starts before preferences hy
     setInput,
     release() {},
   });
-  registry.set(googleVoiceTranscriberAtom, {
-    prepare: async () => ({
-      locale: "en-US",
-      start: async () => null,
-      transcribe: async () => "",
-    }),
+  registry.set(localVoiceTranscriberAtom, {
+    prepare: async () => ({ locale: "en-US", transcribe: async () => "" }),
   });
   const { session } = registry.get(voiceInputAtom);
   const subscribe = registry.subscribe.bind(registry);

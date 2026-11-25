@@ -22,6 +22,8 @@ type GoogleTranscriptionModule = {
   cancel(id: number): Promise<void>;
   readonly LiveVoiceRecorder?: new () => NativeVoiceRecorder<RecordingStatus, RecorderState>;
   startLive?(id: number, uri: string, locale: string, mode: number): Promise<string>;
+  waitForBluetoothInput(): Promise<boolean>;
+  cancelBluetoothInputWait(): void;
   addListener(
     eventName: "onLiveTranscript",
     listener: (transcript: LiveVoiceTranscript) => void,
@@ -56,6 +58,18 @@ export function addLiveTranscriptListener(listener: (transcript: LiveVoiceTransc
   return native?.addListener("onLiveTranscript", listener) ?? null;
 }
 
+/**
+ * Settles once the Bluetooth call link carries audio, after a short beep through it.
+ * Resolves true when the beep played, false when cancelled or unavailable.
+ */
+export async function waitForBluetoothInput(): Promise<boolean> {
+  return (await native?.waitForBluetoothInput()) ?? false;
+}
+
+export function cancelBluetoothInputWait() {
+  native?.cancelBluetoothInputWait();
+}
+
 export function createLiveVoiceRecorder() {
   return Number(Platform.Version) >= 31 && native?.LiveVoiceRecorder
     ? new native.LiveVoiceRecorder()
@@ -81,8 +95,6 @@ export async function getLocalVoiceTranscriber(): Promise<VoiceTranscriber | nul
                 ),
             }
           : {}),
-        // Fork: lets engine comparisons record basic vs advanced mode.
-        mode: prepared.mode,
         transcribe: (uri, { signal }) =>
           runOperation(module, signal, "transcription-failed", (id) =>
             module.transcribe(id, uri, prepared.locale, prepared.mode),

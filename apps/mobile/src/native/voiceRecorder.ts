@@ -5,3 +5,8 @@ export function createVoiceRecorder(
 ) {
   return new AudioModule.AudioRecorder(options);
 }
+
+export const bluetoothRouteWait: {
+  readonly wait: () => Promise<boolean>;
+  readonly cancel: () => void;
+} | null = null;

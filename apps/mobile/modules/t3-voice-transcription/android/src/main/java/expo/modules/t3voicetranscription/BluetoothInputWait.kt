@@ -1,4 +1,4 @@
-package expo.modules.t3parakeettranscription
+package expo.modules.t3voicetranscription
 
 import android.content.Context
 import android.media.AudioDeviceInfo

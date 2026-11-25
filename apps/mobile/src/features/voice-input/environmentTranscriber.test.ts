@@ -18,10 +18,7 @@ it("never uploads a recording whose grant changed while the phone decoded it", a
   });
   const options = { signal: new AbortController().signal };
   const recording = await transcriber.prepare(options);
-  const transcription = recording.transcribe("file:///draft.m4a", {
-    ...options,
-    draft: { ownerKey: "thread", text: "" },
-  });
+  const transcription = recording.transcribe("file:///draft.m4a", options);
   await decoding.promise;
   grant++;
   decoded.resolve(new Uint8Array([0, 128, 0, 64]));
@@ -49,12 +46,7 @@ it("uploads normalized mono samples only after the recording is finished", async
   await starting;
   expect(recording.locale).toBe("en");
   expect(upload).not.toHaveBeenCalled();
-  await expect(
-    recording.transcribe("file:///draft.m4a", {
-      ...options,
-      draft: { ownerKey: "thread", text: "" },
-    }),
-  ).resolves.toBe("hello");
+  await expect(recording.transcribe("file:///draft.m4a", options)).resolves.toBe("hello");
 });
 
 it("trims at most one second of recorder padding and rejects longer recordings", async () => {
@@ -79,18 +71,10 @@ it("trims at most one second of recorder padding and rejects longer recordings",
     decode: async () => bytes,
     upload,
   }).prepare(options);
-  await expect(
-    recording.transcribe("file:///padded.m4a", {
-      ...options,
-      draft: { ownerKey: "thread", text: "" },
-    }),
-  ).resolves.toBe("hello");
+  await expect(recording.transcribe("file:///padded.m4a", options)).resolves.toBe("hello");
   bytes = padded;
-  await expect(
-    recording.transcribe("file:///too-long.m4a", {
-      ...options,
-      draft: { ownerKey: "thread", text: "" },
-    }),
-  ).rejects.toThrow("This recording couldn’t be read. Try recording again.");
+  await expect(recording.transcribe("file:///too-long.m4a", options)).rejects.toThrow(
+    "This recording couldn’t be read. Try recording again.",
+  );
   expect(upload).toHaveBeenCalledOnce();
 });

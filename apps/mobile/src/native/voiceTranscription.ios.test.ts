@@ -40,10 +40,7 @@ async function transcribeOnce(signal = new AbortController().signal) {
   return transcriber
     .prepare({ signal })
     .then(async (prepared) => {
-      const text = await prepared.transcribe("file:///voice.m4a", {
-        signal,
-        draft: { ownerKey: "thread", text: "" },
-      });
+      const text = await prepared.transcribe("file:///voice.m4a", { signal });
       return { text, locale: prepared.locale };
     })
     .catch((error: unknown) => error);
@@ -233,7 +230,7 @@ describe("getLocalVoiceTranscriber", () => {
     const options = { signal: controller.signal };
     const prepared = await (await getLocalVoiceTranscriber())!.prepare(options);
     const result = prepared
-      .transcribe("file:///voice.m4a", { ...options, draft: { ownerKey: "thread", text: "" } })
+      .transcribe("file:///voice.m4a", options)
       .catch((error: unknown) => error);
 
     await entered.promise;

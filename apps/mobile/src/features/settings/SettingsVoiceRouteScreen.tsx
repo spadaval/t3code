@@ -41,6 +41,7 @@ import { ListActionRow as SettingsActionRow } from "../../components/ui/ListActi
 import { SettingsDragHandle } from "./components/SettingsDragHandle";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
+import { DictationPreferencesSection } from "./DictationPreferencesSection";
 import {
   deviceMicrophoneOrder,
   localVoiceTranscriberAtom,
@@ -406,6 +407,7 @@ export function SettingsVoiceRouteScreen() {
                 "Voice input uses the first connected microphone in this list. A wired or Bluetooth microphone is added by name the first time you dictate with it connected; until then it falls under Other. Swipe left on a named microphone to forget it.",
               )}
         </Text>
+        <DictationPreferencesSection showLiveText={Platform.OS === "android" && !grant} />
       </ScrollView>
     </SettingsScreen>
   );
