@@ -330,6 +330,18 @@ export class VoiceInputController {
     return this.state;
   }
 
+  /** The draft `transcript` would make if it were the final one, by the rule the commit uses. */
+  previewTranscriptCommit(transcript: string) {
+    if (!this.capturedDraft || !this.transcription) return null;
+    const result = resolveTranscriptCommit(
+      this.capturedDraft,
+      this.dependencies.readDraft(),
+      transcript,
+      this.transcription.locale,
+    );
+    return result.kind === "commit" ? result : null;
+  }
+
   async start(): Promise<void> {
     if (this.state.phase !== "idle" && this.state.phase !== "error") return;
     const initiatingDraft = this.dependencies.readDraft();

@@ -479,18 +479,15 @@ export function ComposerDictationStartAction(props: {
 const LIVE_TRANSCRIPT_MAX_HEIGHT = 132;
 
 /**
- * The draft with the dictated text after it: finished phrases in full colour, the phrase still
- * being spoken muted. Follows the newest words.
+ * The draft as dictation will leave it: finished phrases in full colour, the phrase still being
+ * spoken muted. Kept scrolled to the end.
  */
 export function LiveDictationTranscript(props: {
-  readonly draft: string;
   readonly transcript: VoiceLiveTranscript | null;
 }) {
   const transcript = props.transcript;
   const scrollRef = useRef<ScrollViewInstance>(null);
-  if (!transcript || (!transcript.committed && !transcript.tentative)) return null;
-  const { committed, tentative } = transcript;
-  const draft = props.draft.trimEnd();
+  if (!transcript) return null;
   return (
     <View accessibilityLiveRegion="polite" className="px-4 pt-2">
       <ScrollView
@@ -500,10 +497,9 @@ export function LiveDictationTranscript(props: {
         onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
       >
         <Text className="text-base leading-6 text-foreground">
-          {draft ? `${draft} ` : ""}
-          {committed}
-          {committed && tentative ? " " : ""}
-          <Text className="text-foreground-muted">{tentative}</Text>
+          {transcript.before}
+          <Text className="text-foreground-muted">{transcript.tentative}</Text>
+          {transcript.after}
         </Text>
       </ScrollView>
     </View>

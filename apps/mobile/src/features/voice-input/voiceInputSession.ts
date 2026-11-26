@@ -23,11 +23,16 @@ export type VoiceInputTarget = {
   readonly commitDraft: VoiceInputControllerDependencies["commitDraft"];
 };
 
-export type VoiceLiveTranscript = SpeechStreamText;
+/** The draft as it would read with the text heard so far; `tentative` is still being spoken. */
+export type VoiceLiveTranscript = {
+  readonly before: string;
+  readonly tentative: string;
+  readonly after: string;
+};
 
 export type VoiceInputSnapshot = {
   readonly state: VoiceInputState;
-  /** Text heard so far while streaming to the environment; null when it transcribes at the end. */
+  /** The draft with the text heard so far while streaming; null when it transcribes at the end. */
   readonly liveTranscript: VoiceLiveTranscript | null;
   readonly ownerKey: string | null;
   readonly label: string | null;
@@ -128,9 +133,24 @@ export class VoiceInputSession {
     this.publish({ ...this.snapshot, focusedOwners });
   }
 
-  setLiveTranscript(liveTranscript: VoiceLiveTranscript): void {
+  setLiveTranscript(heard: SpeechStreamText): void {
     const phase = this.snapshot.state.phase;
     if (phase !== "recording" && phase !== "transcribing") return;
+    const committed = heard.committed.trim();
+    const tentative = heard.tentative.trim();
+    const spoken = committed && tentative ? `${committed} ${tentative}` : committed || tentative;
+    const draft = spoken ? this.controller.previewTranscriptCommit(spoken) : null;
+    let liveTranscript: VoiceLiveTranscript | null = null;
+    if (draft) {
+      // The commit leaves the cursor after the transcript and any space it added after it.
+      const spokenEnd =
+        draft.text.lastIndexOf(spoken, draft.selection.end - spoken.length) + spoken.length;
+      liveTranscript = {
+        before: draft.text.slice(0, spokenEnd - tentative.length),
+        tentative,
+        after: draft.text.slice(spokenEnd),
+      };
+    }
     this.publish({ ...this.snapshot, liveTranscript });
   }
 

@@ -402,17 +402,47 @@ describe("global voice input", () => {
 
     await session.start(createVoiceInputTarget("first", () => "", vi.fn(), { start: 0, end: 0 }));
     session.setLiveTranscript(heard);
-    expect(session.getSnapshot().liveTranscript).toEqual(heard);
+    const shown = { before: "Hello there. ", tentative: "how are", after: "" };
+    expect(session.getSnapshot().liveTranscript).toEqual(shown);
 
     const stopping = session.controller.stop();
     // The last phrase is still decoding; the text heard so far stays on screen.
     expect(session.getSnapshot().state.phase).toBe("transcribing");
-    expect(session.getSnapshot().liveTranscript).toEqual(heard);
+    expect(session.getSnapshot().liveTranscript).toEqual(shown);
 
     transcript.resolve("Hello there. How are you?");
     await stopping;
     expect(session.getSnapshot().state.phase).toBe("idle");
     expect(session.getSnapshot().liveTranscript).toBeNull();
+  });
+
+  it("previews dictation where the transcript will commit, replacing the selection", async () => {
+    const { session, prepare } = createSession();
+    const transcript = Promise.withResolvers<string>();
+    prepare.mockResolvedValueOnce({ locale: "en-US", transcribe: () => transcript.promise });
+    const commitDraft = vi.fn();
+    const draft = "fix the red button";
+    await session.start(
+      createVoiceInputTarget("first", () => draft, commitDraft, { start: 8, end: 11 }),
+    );
+
+    session.setLiveTranscript({ committed: "", tentative: "blue" });
+    expect(session.getSnapshot().liveTranscript).toEqual({
+      before: "fix the ",
+      tentative: "blue",
+      after: " button",
+    });
+    session.setLiveTranscript({ committed: "blue", tentative: "" });
+    expect(session.getSnapshot().liveTranscript).toEqual({
+      before: "fix the blue",
+      tentative: "",
+      after: " button",
+    });
+
+    const stopping = session.controller.stop();
+    transcript.resolve("blue");
+    await stopping;
+    expect(commitDraft).toHaveBeenCalledWith("fix the blue button", { start: 12, end: 12 });
   });
 
   it("publishes which owners are focused", () => {

@@ -832,7 +832,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
             </View>
           ) : null}
           {showsCompactDictation ? (
-            <LiveDictationTranscript draft={draftMessage} transcript={voiceInput.liveTranscript} />
+            <LiveDictationTranscript transcript={voiceInput.liveTranscript} />
           ) : null}
           <View
             onLayout={(event) => {
