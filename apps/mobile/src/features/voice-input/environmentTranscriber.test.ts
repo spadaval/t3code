@@ -81,7 +81,11 @@ it("trims at most one second of recorder padding and rejects longer recordings",
 });
 
 function streamingHarness(
-  options: { streaming?: boolean; openFails?: boolean; busy?: () => Promise<boolean> } = {},
+  options: {
+    streaming?: boolean;
+    openFails?: boolean;
+    busy?: (signal?: AbortSignal) => Promise<boolean>;
+  } = {},
 ) {
   const dictation = createLiveDictation();
   const ready = Promise.withResolvers<{ locale: string; streaming: boolean }>();
@@ -231,6 +235,32 @@ it("uploads the fallback only once the environment has released the closed strea
     await vi.runAllTimersAsync();
     await expect(finishing).resolves.toBe("uploaded");
     expect(harness.busy).toHaveBeenCalledTimes(3);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("uploads the fallback when a status check stalls past the release deadline", async () => {
+  vi.useFakeTimers();
+  try {
+    const harness = streamingHarness({
+      busy: (signal?: AbortSignal) =>
+        new Promise<boolean>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+    });
+    const options = { signal: new AbortController().signal };
+    const recording = await harness.transcriber.prepare(options);
+    harness.dictation.start();
+    harness.settle();
+    await recording.start?.("file:///live.pcm", options);
+    const finishing = recording.streaming!.finish(options);
+    harness.dictation.end();
+    harness.final.reject(new Error("The voice connection closed. Please record again."));
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(finishing).resolves.toBe("uploaded");
+    expect(harness.busy).toHaveBeenCalledOnce();
+    expect(harness.upload.mock.calls[0]![1]).toBe(options.signal);
   } finally {
     vi.useRealTimers();
   }

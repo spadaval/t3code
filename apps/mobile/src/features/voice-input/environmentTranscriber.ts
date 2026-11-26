@@ -73,29 +73,29 @@ export function createEnvironmentTranscriber(input: {
     return text;
   }
   async function awaitStreamRelease(signal: AbortSignal) {
-    const deadline = Date.now() + STREAM_RELEASE_WAIT_MS;
-    while (Date.now() < deadline) {
-      let busy: boolean;
-      try {
-        busy = await input.stream!.busy(signal);
-      } catch {
-        // The upload reports whatever is wrong with the environment.
-        busy = false;
+    // The deadline bounds each status request too, so a stalled response can't hold the upload.
+    const deadline = new AbortController();
+    const timer = setTimeout(() => deadline.abort(), STREAM_RELEASE_WAIT_MS);
+    const cancel = () => deadline.abort();
+    signal.addEventListener("abort", cancel, { once: true });
+    const bounded = deadline.signal;
+    try {
+      while (!bounded.aborted) {
+        let busy: boolean;
+        try {
+          busy = await input.stream!.busy(bounded);
+        } catch {
+          // The upload reports whatever is wrong with the environment.
+          busy = false;
+        }
+        check(signal);
+        if (!busy) return;
+        await pause(STREAM_RELEASE_POLL_MS, bounded);
+        check(signal);
       }
-      check(signal);
-      if (!busy) return;
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, STREAM_RELEASE_POLL_MS);
-        signal.addEventListener(
-          "abort",
-          () => {
-            clearTimeout(timer);
-            resolve();
-          },
-          { once: true },
-        );
-      });
-      check(signal);
+    } finally {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", cancel);
     }
   }
   return {
@@ -202,4 +202,16 @@ export function createEnvironmentTranscriber(input: {
       };
     },
   };
+}
+
+function pause(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
 }
