@@ -94,11 +94,13 @@ internal class LivePcmCapture(
     val sender = launch {
       var deadline = 0L
       for (chunk in chunks) {
-        deadline = maxOf(
-          deadline + (chunk.size * 1000L + 31999) / 32000,
-          started.elapsedNow().inWholeMilliseconds
-        )
-        delay((deadline - started.elapsedNow().inWholeMilliseconds).coerceAtLeast(0))
+        if (output.paced) {
+          deadline = maxOf(
+            deadline + (chunk.size * 1000L + 31999) / 32000,
+            started.elapsedNow().inWholeMilliseconds
+          )
+          delay((deadline - started.elapsedNow().inWholeMilliseconds).coerceAtLeast(0))
+        }
         output.write(chunk, chunk.size)
         deadline = started.elapsedNow().inWholeMilliseconds
         sent += chunk.size

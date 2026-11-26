@@ -117,22 +117,31 @@ class T3VoiceTranscriptionModule : Module() {
     AsyncFunction("decodeRecording").Coroutine { uri: String ->
       val context = requireNotNull(appContext.reactContext)
       withContext(Dispatchers.IO) {
-        require(android.net.Uri.parse(uri).scheme == "file") { "Expected a local recording." }
-        withRecordedPcm(context, uri) { pcm ->
+        val parsed = android.net.Uri.parse(uri)
+        require(parsed.scheme == "file") { "Expected a local recording." }
+        val read = { pcm: java.io.File ->
           requireCompleteAudio(pcm.length() <= 16000L * 2 * 301) {
             "Recording exceeds five minutes."
           }
           pcm.readBytes()
         }
+        // The live recorder already wrote 16 kHz mono PCM.
+        val raw = java.io.File(requireNotNull(parsed.path))
+        if (raw.extension == "pcm") read(raw) else withRecordedPcm(context, uri) { read(it) }
       }
     }
   }
 
   private fun ModuleDefinitionBuilder.defineLiveRecorder() {
     Class(LiveVoiceRecorder::class) {
-      Constructor {
+      Constructor { streamsPcm: Boolean? ->
         check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-        LiveVoiceRecorder(requireNotNull(appContext.reactContext), appContext, scope) {
+        LiveVoiceRecorder(
+          requireNotNull(appContext.reactContext),
+          appContext,
+          scope,
+          streamsPcm == true
+        ) {
           recorders.remove(it)
         }.also { recorders[it.id] = it }
       }

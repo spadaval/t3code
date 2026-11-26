@@ -14,6 +14,8 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal interface PcmOutput : AutoCloseable {
+  /** On-device STREAMING recognition needs real-time delivery; other readers take audio as captured. */
+  val paced: Boolean get() = true
   suspend fun write(buffer: ByteArray, count: Int)
   fun finish()
   fun verifyConsumed()

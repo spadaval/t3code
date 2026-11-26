@@ -25,6 +25,8 @@ internal class LiveVoiceRecorder(
   private val context: Context,
   appContext: AppContext,
   private val scope: CoroutineScope,
+  /** Emits captured PCM to JavaScript instead of feeding on-device recognition. */
+  private val streamsPcm: Boolean = false,
   private val onRelease: (String) -> Unit
 ) : SharedObject(appContext) {
   val id = UUID.randomUUID().toString()
@@ -32,6 +34,7 @@ internal class LiveVoiceRecorder(
   private val route = RecordingInputRoute(manager)
   private var audio: AudioRecord? = null
   private var pipe: PcmPipe? = null
+  private var output: PcmOutput? = null
   private var capture: LivePcmCapture? = null
   private var inputSelection: Job? = null
   private var inputCanceled = false
@@ -42,7 +45,7 @@ internal class LiveVoiceRecorder(
   fun prepare() {
     check(capture?.isRecording != true) { "Another voice recording is active." }
     capture?.abort()
-    pipe?.close()
+    output?.close()
     inputCanceled = false
     inferenceStarted = false
     val capacity = maxOf(
@@ -64,7 +67,8 @@ internal class LiveVoiceRecorder(
       .build()
     try {
       check(recorder.state == AudioRecord.STATE_INITIALIZED) { "The microphone could not prepare." }
-      val output = PcmPipe.open()
+      val pcmPipe = if (streamsPcm) null else PcmPipe.open()
+      val output = pcmPipe ?: JsPcmOutput({ emit("pcm", it) }, { emit("pcmEnd") })
       try {
         val file = File.createTempFile("dictation-live-", ".pcm", context.cacheDir)
         capture = LivePcmCapture(
@@ -97,7 +101,8 @@ internal class LiveVoiceRecorder(
           output
         )
         audio = recorder
-        pipe = output
+        pipe = pcmPipe
+        this.output = output
       } catch (error: Throwable) {
         output.close()
         throw error
@@ -126,7 +131,7 @@ internal class LiveVoiceRecorder(
 
   suspend fun stop() {
     val recording = capture
-    val output = pipe
+    val output = this.output
     try {
       val selection = synchronized(this) { inputSelection }
       selection?.cancel()
@@ -192,7 +197,7 @@ internal class LiveVoiceRecorder(
     super.sharedObjectDidRelease()
     cancelInputSelection()
     capture?.abort()
-    pipe?.close()
+    output?.close()
     onRelease(id)
   }
 }
