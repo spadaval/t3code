@@ -145,6 +145,7 @@ export const voiceInputAtom = Atom.make((get) => {
   });
   const stopLiveText = liveDictation.onText((text) => session.setLiveTranscript(text));
   const session: VoiceInputSession = new VoiceInputSession({
+    retryFailedRecording: true,
     recorder,
     getTranscriber: () => {
       const route = registry.get(voiceRouteAtom);

@@ -14,6 +14,10 @@ const pcmBytesPerSecond = 16_000 * 2;
 const maxPcmBytes = pcmBytesPerSecond * VOICE_RECORDING_LIMIT_SECONDS;
 // The recorder ends its PCM right after it stops; never let a lost end event hold the transcript.
 const PCM_END_WAIT_MS = 2_000;
+// The environment resets a closed stream's model before it frees its one speech slot, which can
+// take seconds; an upload sent sooner is refused as busy.
+const STREAM_RELEASE_WAIT_MS = 10_000;
+const STREAM_RELEASE_POLL_MS = 250;
 
 /** What `openSpeechStream` returns. */
 export type SpeechStream = {
@@ -34,6 +38,8 @@ export function createEnvironmentTranscriber(input: {
   readonly stream?: {
     readonly openTap: () => LivePcmTap;
     readonly open: (signal: AbortSignal, onError: () => void) => Promise<SpeechStream>;
+    /** Whether the environment is still running a speech operation, such as a closing stream. */
+    readonly busy: (signal: AbortSignal) => Promise<boolean>;
   };
 }): VoiceTranscriber {
   function check(signal: AbortSignal) {
@@ -66,6 +72,32 @@ export function createEnvironmentTranscriber(input: {
     check(signal);
     return text;
   }
+  async function awaitStreamRelease(signal: AbortSignal) {
+    const deadline = Date.now() + STREAM_RELEASE_WAIT_MS;
+    while (Date.now() < deadline) {
+      let busy: boolean;
+      try {
+        busy = await input.stream!.busy(signal);
+      } catch {
+        // The upload reports whatever is wrong with the environment.
+        busy = false;
+      }
+      check(signal);
+      if (!busy) return;
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, STREAM_RELEASE_POLL_MS);
+        signal.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(timer);
+            resolve();
+          },
+          { once: true },
+        );
+      });
+      check(signal);
+    }
+  }
   return {
     async prepare({ signal }) {
       check(signal);
@@ -73,6 +105,7 @@ export function createEnvironmentTranscriber(input: {
       let locale = "auto";
       let recordingUri: string | null = null;
       let stream: SpeechStream | null = null;
+      let streamOpened = false;
       let streamFailed = false;
       let uploading = false;
       const onStreamError = () => {
@@ -95,6 +128,7 @@ export function createEnvironmentTranscriber(input: {
           tap.drop();
           return;
         }
+        streamOpened = true;
         if (uploading || streamFailed || !tap.attach(opened.feed)) {
           opened.cancel();
           return;
@@ -102,6 +136,10 @@ export function createEnvironmentTranscriber(input: {
         stream = opened;
       });
       void ready.catch(() => {});
+      const upload = async (uri: string, signal: AbortSignal) => {
+        if (streamOpened) await awaitStreamRelease(signal);
+        return uploadRecording(uri, signal);
+      };
       const streaming: VoiceStreamingSession = {
         async finish({ signal }) {
           const current = stream!;
@@ -119,9 +157,11 @@ export function createEnvironmentTranscriber(input: {
             check(signal);
             return text;
           } catch (error) {
+            // The stream is spent; a retry of this recording uploads it.
+            streamFailed = true;
             check(signal);
             if (!recordingUri) throw error;
-            return uploadRecording(recordingUri, signal);
+            return upload(recordingUri, signal);
           }
         },
       };
@@ -130,7 +170,7 @@ export function createEnvironmentTranscriber(input: {
           return locale;
         },
         get streaming() {
-          // A stream that dropped mid-recording falls back to uploading the recording.
+          // A stream that dropped or failed falls back to uploading the recording.
           return stream && !streamFailed ? streaming : undefined;
         },
         async start(uri, { signal }) {
@@ -145,7 +185,7 @@ export function createEnvironmentTranscriber(input: {
           stream?.cancel();
           tap?.drop();
           check(signal);
-          return uploadRecording(uri, signal);
+          return upload(uri, signal);
         },
       };
     },

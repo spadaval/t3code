@@ -80,7 +80,9 @@ it("trims at most one second of recorder padding and rejects longer recordings",
   expect(upload).toHaveBeenCalledOnce();
 });
 
-function streamingHarness(options: { streaming?: boolean; openFails?: boolean } = {}) {
+function streamingHarness(
+  options: { streaming?: boolean; openFails?: boolean; busy?: () => Promise<boolean> } = {},
+) {
   const dictation = createLiveDictation();
   const ready = Promise.withResolvers<{ locale: string; streaming: boolean }>();
   const final = Promise.withResolvers<string>();
@@ -96,14 +98,15 @@ function streamingHarness(options: { streaming?: boolean; openFails?: boolean } 
     failStream = onError;
     return stream;
   });
-  const upload = vi.fn(async () => "uploaded");
+  const upload = vi.fn(async (_pcm: Uint8Array, _signal: AbortSignal) => "uploaded");
   const decode = vi.fn(async () => new Uint8Array([0, 64]));
+  const busy = vi.fn(options.busy ?? (async () => false));
   const transcriber = createEnvironmentTranscriber({
     canSend: () => true,
     prepare: () => ready.promise,
     decode,
     upload,
-    stream: { openTap: dictation.open, open },
+    stream: { openTap: dictation.open, open, busy },
   });
   const settle = () => ready.resolve({ locale: "en", streaming: options.streaming ?? true });
   return {
@@ -116,6 +119,7 @@ function streamingHarness(options: { streaming?: boolean; openFails?: boolean } 
     open,
     upload,
     decode,
+    busy,
     failStream: () => failStream(),
   };
 }
@@ -205,4 +209,46 @@ it("never opens a stream once a quick stop chose the upload", async () => {
   harness.settle();
   await expect(transcription).resolves.toBe("uploaded");
   expect(harness.open).not.toHaveBeenCalled();
+});
+
+it("uploads the fallback only once the environment has released the closed stream", async () => {
+  vi.useFakeTimers();
+  try {
+    const states = [true, true, false];
+    const harness = streamingHarness({ busy: async () => states.shift() ?? false });
+    harness.upload.mockImplementation(async () => {
+      expect(states).toEqual([]);
+      return "uploaded";
+    });
+    const options = { signal: new AbortController().signal };
+    const recording = await harness.transcriber.prepare(options);
+    harness.dictation.start();
+    harness.settle();
+    await recording.start?.("file:///live.pcm", options);
+    const finishing = recording.streaming!.finish(options);
+    harness.dictation.end();
+    harness.final.reject(new Error("The voice connection closed. Please record again."));
+    await vi.runAllTimersAsync();
+    await expect(finishing).resolves.toBe("uploaded");
+    expect(harness.busy).toHaveBeenCalledTimes(3);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("a failed fallback leaves the recording to a retry that uploads it again", async () => {
+  const harness = streamingHarness();
+  harness.upload.mockRejectedValueOnce(new Error("speech_busy"));
+  const options = { signal: new AbortController().signal };
+  const recording = await harness.transcriber.prepare(options);
+  harness.dictation.start();
+  harness.settle();
+  await recording.start?.("file:///live.pcm", options);
+  const finishing = recording.streaming!.finish(options);
+  harness.dictation.end();
+  harness.final.reject(new Error("The voice connection closed. Please record again."));
+  await expect(finishing).rejects.toThrow("speech_busy");
+  expect(recording.streaming).toBeUndefined();
+  await expect(recording.transcribe("file:///live.pcm", options)).resolves.toBe("uploaded");
+  expect(harness.stream.finish).toHaveBeenCalledOnce();
 });

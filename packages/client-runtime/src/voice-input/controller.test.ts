@@ -112,6 +112,28 @@ describe("environment voice input", () => {
     expect(harness.deleted).toEqual(["file:///voice.m4a"]);
   });
 
+  it("retries failed audio when a transcriber that starts at record time leaves it to the upload", async () => {
+    const transcribe = vi
+      .fn<PreparedVoiceTranscription["transcribe"]>()
+      .mockRejectedValueOnce(new Error("speech busy"))
+      .mockResolvedValueOnce("recovered text");
+    const harness = createHarness({
+      retryFailedRecording: true,
+      getTranscriber: () => ({
+        prepare: async () => ({ ...preparedTranscription(transcribe), start: async () => null }),
+      }),
+    });
+    await harness.controller.start();
+    await harness.controller.stop();
+    expect(harness.controller.currentState.phase).toBe("error");
+    expect(harness.deleted).toEqual([]);
+
+    await harness.controller.start();
+    expect(harness.recorder.record).toHaveBeenCalledOnce();
+    expect(harness.commits[0]?.text).toContain("recovered text");
+    expect(harness.deleted).toEqual(["file:///voice.m4a"]);
+  });
+
   it("deletes retained failed audio when the user cancels instead of retrying", async () => {
     const harness = createHarness({
       retryFailedRecording: true,

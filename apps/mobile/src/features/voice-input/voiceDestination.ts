@@ -228,6 +228,10 @@ function environmentTranscriber(
             onText: liveDictation.publishText,
             onError,
           }),
+        busy: async (signal: AbortSignal) => {
+          const status = await runSpeech(getEnvironmentSpeechStatus(prepared), signal, canSend);
+          return status.supported && status.state === "transcribing";
+        },
       },
     }),
   });

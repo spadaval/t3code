@@ -598,9 +598,12 @@ export class VoiceInputController {
       const signal = this.transcriptionAbortController.signal;
       const capturedDraft = this.capturedDraft;
       let transcript: string;
+      // Only a failure transcribing the finished recording can be retried from the file.
+      let transcribingRecording = false;
       try {
         const live = this.liveTranscription ? await this.liveTranscription : null;
         if (live && "error" in live) throw live.error;
+        transcribingRecording = live?.text == null;
         transcript =
           live?.text ??
           (await runTranscriptionOperation(() =>
@@ -613,7 +616,7 @@ export class VoiceInputController {
           if (
             this.dependencies.retryFailedRecording &&
             errorCode(error) !== "preparation-failed" &&
-            !this.liveTranscription &&
+            transcribingRecording &&
             !transcription.streaming &&
             recordingUri
           ) {
