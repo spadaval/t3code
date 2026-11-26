@@ -7,7 +7,8 @@ import {
 } from "@t3tools/client-runtime/voice-input";
 
 type Subscription = { remove(): void };
-type RecordingDestination = "local" | "environment";
+/** "stream" records PCM that streams to the environment while the user speaks. */
+type RecordingDestination = "local" | "environment" | "stream";
 
 export interface VoiceRecordingInput {
   readonly uid: string;

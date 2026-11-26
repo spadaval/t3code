@@ -1,4 +1,4 @@
-import { requireOptionalNativeModule } from "expo";
+import { requireOptionalNativeModule, type EventSubscription } from "expo";
 import type { RecorderState, RecordingStatus } from "expo-audio";
 import { msg } from "gt-react-native";
 import { Platform } from "react-native";
@@ -11,6 +11,11 @@ import {
   type VoiceTranscriber,
 } from "@t3tools/client-runtime/voice-input";
 
+type NativeLiveVoiceRecorder = NativeVoiceRecorder<RecordingStatus, RecorderState> & {
+  addListener(eventName: "pcm", listener: (pcm: Uint8Array) => void): EventSubscription;
+  addListener(eventName: "pcmEnd", listener: () => void): EventSubscription;
+};
+
 type PreparedGoogleTranscription = { readonly locale: string; readonly mode: number };
 
 type GoogleTranscriptionModule = {
@@ -18,7 +23,7 @@ type GoogleTranscriptionModule = {
   prepare(id: number): Promise<PreparedGoogleTranscription>;
   transcribe(id: number, uri: string, locale: string, mode: number): Promise<string>;
   cancel(id: number): Promise<void>;
-  readonly LiveVoiceRecorder?: new () => NativeVoiceRecorder<RecordingStatus, RecorderState>;
+  readonly LiveVoiceRecorder?: new (streamsPcm?: boolean) => NativeLiveVoiceRecorder;
   startLive?(id: number, uri: string, locale: string, mode: number): Promise<string>;
   waitForBluetoothInput(): Promise<boolean>;
   cancelBluetoothInputWait(): void;
@@ -59,9 +64,14 @@ export function cancelBluetoothInputWait() {
   native?.cancelBluetoothInputWait();
 }
 
-export function createLiveVoiceRecorder() {
-  return Number(Platform.Version) >= 31 && native?.LiveVoiceRecorder
-    ? new native.LiveVoiceRecorder()
+export function canCaptureLivePcm() {
+  return Number(Platform.Version) >= 31 && !!native?.LiveVoiceRecorder;
+}
+
+/** With `streamsPcm`, the recorder emits its PCM to JavaScript instead of on-device recognition. */
+export function createLiveVoiceRecorder(streamsPcm = false) {
+  return canCaptureLivePcm() && native?.LiveVoiceRecorder
+    ? new native.LiveVoiceRecorder(streamsPcm)
     : null;
 }
 

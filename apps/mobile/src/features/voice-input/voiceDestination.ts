@@ -16,6 +16,8 @@ import {
   requireCloudSpeechKey,
   transcribeCloudPcm,
   getEnvironmentSpeechStatus,
+  getEnvironmentSpeechStreamUrl,
+  openSpeechStream,
   transcribeEnvironmentPcm,
   VoiceTranscriptionError,
 } from "@t3tools/client-runtime/voice-input";
@@ -33,7 +35,9 @@ import { environmentPresentations } from "../../state/presentation";
 import { environmentSession, sessionHasScope } from "../../state/session";
 import { connectionAtomRuntime } from "../../connection/runtime";
 import { uuidv4 } from "../../lib/uuid";
+import { canStreamDictationPcm } from "../../native/pcmVoiceRecorder";
 import { createEnvironmentTranscriber } from "./environmentTranscriber";
+import { liveDictation } from "./liveDictation";
 import { readVoiceGrant, writeVoiceGrant, type VoiceGrant } from "./voiceGrantStorage";
 
 const storedGrant = Atom.make(Effect.promise(readVoiceGrant)).pipe(Atom.keepAlive);
@@ -138,6 +142,9 @@ export function runSpeech<A, E>(
     { signal },
   );
 }
+/** Whether recording for this destination captures PCM for a live stream. */
+const streamsPcm = (cloud: CloudDestination | undefined) => canStreamDictationPcm() && !cloud;
+
 function environmentTranscriber(
   prepared: PreparedConnection,
   canSend: () => boolean,
@@ -150,7 +157,7 @@ function environmentTranscriber(
     prepare: async (signal) => {
       if (provider) {
         await runSpeech(requireCloudSpeechKey(prepared, provider), signal, canSend);
-        return "auto";
+        return { locale: "auto", streaming: false };
       }
       const status = await runSpeech(getEnvironmentSpeechStatus(prepared), signal, canSend);
       if (!status.supported)
@@ -164,15 +171,19 @@ function environmentTranscriber(
             ),
           ),
         });
-      return status.languages
-        ? effectiveSpeechLanguage(
-            {
-              languages: status.languages,
-              supportsLanguageDetection: status.supportsLanguageDetection ?? false,
-            },
-            "auto",
-          )
-        : "auto";
+      return {
+        locale: status.languages
+          ? effectiveSpeechLanguage(
+              {
+                languages: status.languages,
+                supportsLanguageDetection: status.supportsLanguageDetection ?? false,
+              },
+              "auto",
+            )
+          : "auto",
+        // Web's rule with its "Streaming transcription" setting at the default, on.
+        streaming: status.supportsStreaming || status.supportsBufferedStreaming === true,
+      };
     },
     decode: (uri) => {
       if (!native?.decodeRecording)
@@ -204,6 +215,21 @@ function environmentTranscriber(
           canSend,
         )
       ).text,
+    // Cloud stays a buffered upload, as on web.
+    ...(streamsPcm(cloud) && {
+      stream: {
+        openTap: liveDictation.open,
+        open: async (signal: AbortSignal, onError: () => void) =>
+          openSpeechStream({
+            url: await runSpeech(getEnvironmentSpeechStreamUrl(prepared), signal, canSend),
+            options: DEFAULT_SPEECH_TRANSCRIPTION_OPTIONS,
+            signal,
+            canSend,
+            onText: liveDictation.publishText,
+            onError,
+          }),
+      },
+    }),
   });
 }
 
@@ -256,6 +282,7 @@ export const voiceRouteAtom = Atom.make((get) => {
   const connection = get(connectionAtom);
   const registry = get.registry;
   return {
+    streamsPcm: streamsPcm(cloud),
     transcriber:
       connection &&
       environmentTranscriber(

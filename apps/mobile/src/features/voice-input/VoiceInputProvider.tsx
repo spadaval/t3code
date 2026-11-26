@@ -17,6 +17,7 @@ import {
   rememberMicrophones,
 } from "../../lib/microphonePriority";
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
+import { createPcmVoiceRecorder } from "../../native/pcmVoiceRecorder";
 import { bluetoothRouteWait, createVoiceRecorder } from "../../native/voiceRecorder";
 import { mobilePreferencesAtom, saveMobilePreferences } from "../../state/preferences";
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
@@ -28,6 +29,7 @@ import { createLazyVoiceRecorder } from "./lazyVoiceRecorder";
 import { VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 import { VoiceInputSession } from "./voiceInputSession";
 import { createVoiceRecordingPermission } from "./voiceRecordingPermission";
+import { liveDictation } from "./liveDictation";
 import { voiceRouteAtom } from "./voiceDestination";
 import { makePermissionStatusAtom } from "../../lib/permissionStatusAtom";
 import {
@@ -102,11 +104,15 @@ export const voiceInputAtom = Atom.make((get) => {
     void session.controller.appMovedToBackground();
   });
   const recorder = createLazyVoiceRecorder({
-    getDestination: () => (registry.get(voiceRouteAtom) === null ? "local" : "environment"),
+    getDestination: () => {
+      const route = registry.get(voiceRouteAtom);
+      return route === null ? "local" : route.streamsPcm ? "stream" : "environment";
+    },
     create: (destination) =>
       destination === "local"
         ? createVoiceRecorder(VOICE_RECORDING_OPTIONS)
-        : new AudioModule.AudioRecorder(VOICE_RECORDING_OPTIONS),
+        : ((destination === "stream" ? createPcmVoiceRecorder(liveDictation) : null) ??
+          new AudioModule.AudioRecorder(VOICE_RECORDING_OPTIONS)),
     onStatus: (status: RecordingStatus) => {
       session.controller.handleRecorderStatus({
         isFinished: status.isFinished,
@@ -137,6 +143,7 @@ export const voiceInputAtom = Atom.make((get) => {
       return preferredMicrophoneInput(inputs, order);
     },
   });
+  const stopLiveText = liveDictation.onText((text) => session.setLiveTranscript(text));
   const session: VoiceInputSession = new VoiceInputSession({
     recorder,
     getTranscriber: () => {
@@ -187,6 +194,7 @@ export const voiceInputAtom = Atom.make((get) => {
   get.subscribe(voiceRouteAtom, () => session.controller.cancel());
   get.addFinalizer(() => {
     permission.dispose();
+    stopLiveText();
     session.dispose();
     recorder.release();
   });
