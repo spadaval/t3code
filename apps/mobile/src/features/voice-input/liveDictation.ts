@@ -1,7 +1,10 @@
+import { VOICE_RECORDING_LIMIT_SECONDS } from "@t3tools/client-runtime/voice-input";
 import type { SpeechStreamText } from "@t3tools/contracts";
 
 /** A minute of audio waiting for the stream to open; past that, the recording is uploaded after stop. */
 const MAX_BUFFERED_SAMPLES = 16_000 * 60;
+/** The recorder drains its queue past the limit; the environment refuses a stream longer than it. */
+const MAX_RECORDING_SAMPLES = 16_000 * VOICE_RECORDING_LIMIT_SECONDS;
 
 export type LivePcmTap = {
   /** Sends the audio captured so far, then every new chunk, to `feed`; false once dropped. */
@@ -22,6 +25,7 @@ export function createLiveDictation() {
   let feed: ((pcm: Float32Array) => void) | null = null;
   let dropped = false;
   let recording = false;
+  let captured = 0;
   let end = Promise.withResolvers<void>();
   const textListeners = new Set<(text: SpeechStreamText) => void>();
   const drop = () => {
@@ -56,15 +60,19 @@ export function createLiveDictation() {
     /** Called when the recorder starts capturing. */
     start() {
       recording = true;
+      captured = 0;
       end = Promise.withResolvers<void>();
     },
     /** 16-bit little-endian mono PCM at 16 kHz, as the recorder captured it. */
     push(bytes: Uint8Array) {
       if (!recording || dropped) return;
+      const length = Math.min(bytes.byteLength >> 1, MAX_RECORDING_SAMPLES - captured);
+      if (length <= 0) return;
+      captured += length;
       const samples =
         bytes.byteOffset % 2 === 0
-          ? new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength >> 1)
-          : new Int16Array(Uint8Array.from(bytes).buffer, 0, bytes.byteLength >> 1);
+          ? new Int16Array(bytes.buffer, bytes.byteOffset, length)
+          : new Int16Array(Uint8Array.from(bytes).buffer, 0, length);
       const pcm = new Float32Array(samples.length);
       for (let i = 0; i < samples.length; i++) pcm[i] = samples[i]! / 32768;
       if (feed) {
