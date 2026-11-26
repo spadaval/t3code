@@ -252,3 +252,23 @@ it("a failed fallback leaves the recording to a retry that uploads it again", as
   await expect(recording.transcribe("file:///live.pcm", options)).resolves.toBe("uploaded");
   expect(harness.stream.finish).toHaveBeenCalledOnce();
 });
+
+it("uploads the recording instead of finishing a stream whose audio never ended", async () => {
+  vi.useFakeTimers();
+  try {
+    const harness = streamingHarness();
+    const options = { signal: new AbortController().signal };
+    const recording = await harness.transcriber.prepare(options);
+    harness.dictation.start();
+    harness.settle();
+    await recording.start?.("file:///live.pcm", options);
+    const finishing = recording.streaming!.finish(options);
+    await vi.runAllTimersAsync();
+    await expect(finishing).resolves.toBe("uploaded");
+    expect(harness.stream.finish).not.toHaveBeenCalled();
+    expect(harness.stream.cancel).toHaveBeenCalled();
+    expect(harness.decode).toHaveBeenCalledWith("file:///live.pcm");
+  } finally {
+    vi.useRealTimers();
+  }
+});

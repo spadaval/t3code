@@ -12,7 +12,7 @@ import type { LivePcmTap } from "./liveDictation";
 
 const pcmBytesPerSecond = 16_000 * 2;
 const maxPcmBytes = pcmBytesPerSecond * VOICE_RECORDING_LIMIT_SECONDS;
-// The recorder ends its PCM right after it stops; never let a lost end event hold the transcript.
+// The recorder ends its PCM right after it stops; a lost end event sends the recording file instead.
 const PCM_END_WAIT_MS = 2_000;
 // The environment resets a closed stream's model before it frees its one speech slot, which can
 // take seconds; an upload sent sooner is refused as busy.
@@ -144,14 +144,26 @@ export function createEnvironmentTranscriber(input: {
         async finish({ signal }) {
           const current = stream!;
           let timer: ReturnType<typeof setTimeout> | undefined;
-          await Promise.race([
-            tap!.ended(),
-            new Promise<void>((resolve) => {
-              timer = setTimeout(resolve, PCM_END_WAIT_MS);
+          const ended = await Promise.race([
+            tap!.ended().then(() => true),
+            new Promise<false>((resolve) => {
+              timer = setTimeout(() => resolve(false), PCM_END_WAIT_MS);
             }),
           ]);
           clearTimeout(timer);
           check(signal);
+          if (!ended) {
+            // The stream may be missing the last words; the recording file has them all.
+            streamFailed = true;
+            current.cancel();
+            tap!.drop();
+            if (!recordingUri)
+              throw new VoiceTranscriptionError({
+                code: "transcription-failed",
+                message: m(msg("This recording couldn’t be read. Try recording again.")),
+              });
+            return upload(recordingUri, signal);
+          }
           try {
             const text = await current.finish();
             check(signal);
